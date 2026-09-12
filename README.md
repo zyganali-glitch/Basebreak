@@ -128,10 +128,10 @@ These are planned provenance labels, not PASS/FAIL verdicts. Basebreak will neve
 
 ## Current Implementation Status
 
-> **STATUS: PRE-IMPLEMENTATION GOVERNANCE (Phase P-00)**
+> **STATUS: LIVE PLATFORM DISCOVERY (Phase P-01)**
 
 ### Currently Implemented (Bootstrap Baseline):
-- **Governance Spine:** Agent constitution, operator guidance laws, and zero-cost policy (`AGENTS.md`, `GEMINI.md`, `docs/`).
+- **Governance Spine (P-00):** Agent constitution, operator guidance laws, zero-cost policy, and verified competition contract (`AGENTS.md`, `GEMINI.md`, `docs/`, independently verified at SHA `08ebfc94a75954d79ee2613f935584de2a9d5900`).
 - **Repository & Tooling Skeleton:** Python packaging metadata (`pyproject.toml`) and directory layout.
 - **Python Package Bootstrap:** Minimal package (`src/basebreak/`) and distribution metadata tests (`tests/test_bootstrap.py`).
 - **Local Validation Gates:** Deterministic local commands (Ruff format, Ruff lint, mypy strict, pytest).
@@ -155,8 +155,8 @@ These are planned provenance labels, not PASS/FAIL verdicts. Basebreak will neve
 
 | Component | Status | Target Phase |
 |---|:---:|---|
-| Repository Governance & Contracts | **ACTIVE** | P-00 |
-| Live Platform Discovery | PLANNED | P-01 |
+| Repository Governance & Contracts | **DONE** | P-00 |
+| Live Platform Discovery | **ACTIVE** | P-01 |
 | Provider-Neutral Domain Contracts | PLANNED | P-02 |
 | Deterministic Evidence Store | PLANNED | P-03 |
 | Nebius / Nemotron Adapters | PLANNED | P-05 |

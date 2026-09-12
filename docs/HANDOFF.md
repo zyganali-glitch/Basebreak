@@ -19,15 +19,16 @@ Judge claim:
 - P-00.02 (Verify competition eligibility, track fit, deadlines, submission requirements, and judging contract against current official sources) is independently VERIFIED / PASS at SHA `d917c5616e67089323f19bf86eb812af4d5c9683`.
 - P-00.03 (Freeze donor research pins and license/preflight status without importing implementation) is independently VERIFIED / PASS at SHA `352d04eb22d7db87faca932ead938d4f4a213268`.
 - P-00.04 (Establish repository structure, Python/runtime tooling baseline, formatting/lint/type/test commands) is independently VERIFIED / PASS at SHA `5c4f07bd541db759dfe6b1b5bf7c2fb3e6a06499`.
-- P-00.05 (Run first documentation consolidation and focused P-Ω bootstrap audit) is EXECUTOR_COMPLETED (candidate commit awaiting independent QA).
+- P-00.05 (Run first documentation consolidation and focused P-Ω bootstrap audit) is independently VERIFIED / PASS at SHA `08ebfc94a75954d79ee2613f935584de2a9d5900` (P-00 phase closure awarded PASS).
+- P-01.01 (Discover current Nebius account/runtime/API/model reality from official docs and live account) is EXECUTOR_COMPLETED (discovery artifact and documentation committed; awaiting independent QA).
 
 ## Active exact task
-`P-00.05 — Run first documentation consolidation and focused P-Ω bootstrap audit` (in progress / executor completed / awaiting independent QA)
+`P-01.01 — Discover current Nebius account/runtime/API/model reality from official docs and live account` (in progress / executor completed / awaiting independent QA)
 
 ## Last independently VERIFIED baseline SHA
-`5c4f07bd541db759dfe6b1b5bf7c2fb3e6a06499` (P-00.04 verification commit).
-P-00.05 candidate is submitted for independent QA.
-P-01.01 remains PENDING / UNSTARTED.
+`08ebfc94a75954d79ee2613f935584de2a9d5900` (P-00.05 and P-00 Phase Closure independent QA PASS).
+P-01.01 candidate is submitted for independent QA.
+P-01.02 remains PENDING / UNSTARTED.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (no credit cards, PAYG, paid tiers, or auto-upgrades);
@@ -44,7 +45,7 @@ P-01.01 remains PENDING / UNSTARTED.
 - no unmetered public live endpoints that drain promotional credits.
 
 ## Immediate next step
-Await independent QA verification for P-00.05.
-After independent QA awards PASS, next exact task is:
-`P-01.01 — Discover current Nebius account/runtime/API/model reality from official docs and live account`
-Do NOT advance to P-01 before independent QA PASS.
+Await independent QA verification for P-01.01.
+After independent QA awards PASS and billing/zero-cost prerequisites are satisfied, next exact task is:
+`P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt`
+Do NOT advance to P-01.02 before independent QA PASS.

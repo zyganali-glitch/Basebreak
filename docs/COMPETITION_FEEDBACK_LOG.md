@@ -53,3 +53,35 @@ This log may also be used as source material for the "Most Valuable Feedback" pr
 - **Severity/Value:** LOW
 - **Provenance:** DOCUMENTATION_REVIEW
 - **Status:** WORKAROUND_APPLIED
+
+### F-002 — Mandatory bank card onboarding requirement conflicts with zero-cost promotional participation
+
+- **Date/Time:** 2026-09-12 14:00 UTC
+- **Provider/Tool:** Nebius Token Factory
+- **Feature/API:** Billing & Onboarding / Mandatory Bank Card Requirement
+- **Task/Run Context:** P-01.01 (Discover current Nebius account/runtime/API/model reality from official docs and live account)
+- **What Worked Well:** Comprehensive official documentation of billing mechanics, credit card auto-debit triggers, and promo code top-up procedure at `https://docs.tokenfactory.nebius.com/other-capabilities/billing-new.md`.
+- **Friction/Bug/Limitation:** Official documentation states: "When you sign up for Nebius Token Factory, you are prompted to create a billing account during onboarding. Billing setup is mandatory—you cannot complete onboarding without it. Setting up a billing account requires a bank card... Your card is automatically charged in either of the following cases: At the start of the month, if your balance is negative; When the configured billing threshold is reached." This creates direct friction and credit-card liability risk for hackathon participants wishing to build exclusively using the promotional credits ($25 Token Factory + $25 Tavily) granted under the Builder Program.
+- **Deterministic Evidence:** Official documentation at `https://docs.tokenfactory.nebius.com/other-capabilities/billing-new.md` retrieved on 2026-09-12 explicitly mandates a bank card during onboarding and automated debit when the balance becomes negative.
+- **Developer Impact:** Prevents zero-cost-only developers and hackathon participants from onboarding safely unless an explicit card-free onboarding path exists for promo code holders or a guaranteed hard spending limit ($0.00 personal spend) can be configured.
+- **Workaround:** Classified Zero-Cost Gate as OPERATOR_DECISION_REQUIRED; provided operator with strict screen-by-screen guidance in Turkish to inspect whether card entry is bypassable with a promo code and never enter card details without hard spending caps.
+- **Concrete Product Suggestion:** Provide a "Hackathon / Builder Program Student Onboarding" mode that activates accounts using promo codes without requiring a bank card, or provide a user-toggleable hard spending cap ($0.00 post-promotional limit) that prevents automatic payment method charges.
+- **Severity/Value:** HIGH
+- **Provenance:** DOCUMENTATION_REVIEW
+- **Status:** UNRESOLVED
+
+### F-003 — Flagship NVIDIA model reported in error status in public API model catalog
+
+- **Date/Time:** 2026-09-12 14:15 UTC
+- **Provider/Tool:** Nebius Token Factory / NVIDIA Nemotron
+- **Feature/API:** Public Model Catalog / `https://tokenfactory.nebius.com/api/public/models_info`
+- **Task/Run Context:** P-01.01 (Discover current Nebius account/runtime/API/model reality from official docs and live account)
+- **What Worked Well:** Token Factory provides outstanding machine-readable endpoints (`/model-catalog.md` and `/api/public/models_info`) exposing exact model IDs, parameters, quantization, context windows, and token pricing without requiring authentication.
+- **Friction/Bug/Limitation:** The flagship 550B hybrid MoE NVIDIA model `nvidia/Nemotron-3-Ultra-550b-a55b` is reported in `status: "error"` in the public API catalog metadata, rendering it currently unavailable for safe development/inference.
+- **Deterministic Evidence:** JSON field `"status":"error"` for `"name":"Nemotron-3-Ultra-550b-a55b"` returned by live HTTP GET to `https://tokenfactory.nebius.com/api/public/models_info` on 2026-09-12. In contrast, `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`, `nvidia/nemotron-3-super-120b-a12b`, and `nvidia/Nemotron-3_5-Lightning` are reported with `status: "active"`.
+- **Developer Impact:** Basebreak cannot route inference to `nvidia/Nemotron-3-Ultra-550b-a55b`. Candidate selection must focus on active models: `nvidia/Nemotron-3_5-Lightning`, `nvidia/nemotron-3-super-120b-a12b`, or `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`.
+- **Workaround:** Documented exact status in discovery artifact and flagged `nvidia/Nemotron-3-Ultra-550b-a55b` as degraded/error.
+- **Concrete Product Suggestion:** Display status badges on the web catalog UI indicating whether a model is temporarily degraded or undergoing maintenance, and provide estimated restoration timelines in the API status response.
+- **Severity/Value:** MEDIUM
+- **Provenance:** LIVE_OBSERVATION
+- **Status:** WORKAROUND_APPLIED

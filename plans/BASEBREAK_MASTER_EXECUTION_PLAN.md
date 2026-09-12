@@ -90,12 +90,12 @@ Acceptance:
 - focused bootstrap tests pass.
 
 ### P-00.05 — Run first documentation consolidation and focused P-Ω bootstrap audit
-Status: IN_PROGRESS
+Status: DONE
 Acceptance:
 - plan/HANDOFF/README critical truth aligned;
 - no secrets/local paths except explicitly documented operator path where required;
 - no future-phase implementation.
-Phase exit: trusted empty-product baseline exists.
+Phase exit: trusted empty-product baseline exists (awarded PASS by independent QA at SHA 08ebfc94a75954d79ee2613f935584de2a9d5900).
 
 ---
 
@@ -103,6 +103,7 @@ Phase exit: trusted empty-product baseline exists.
 Goal: prove real Nebius/NVIDIA capabilities before broad implementation.
 
 ### P-01.01 — Discover current Nebius account/runtime/API/model reality from official docs and live account
+Status: IN_PROGRESS (executor completed; awaiting independent QA)
 Acceptance:
 - current endpoints/SDK/auth/model IDs discovered, not guessed;
 - eligible NVIDIA open-source model identified;
