@@ -37,7 +37,7 @@ Authoritative source at submission time remains the official Devpost rules.
 ## 5. Submission Artifacts
 
 - **Working Project Application:** Built with NVIDIA open-source models (e.g. Nemotron) hosted on Nebius Token Factory or Nebius AI Cloud.
-- **Working Demo URL:** Public URL pointing to a working demo, hosted web application, or test build.
+- **Working Demo URL:** URL to a working demo, hosted application, or test build.
 - **Video Demonstration:** Public YouTube URL, strictly **< 3 minutes** (< 3:00) in length, demonstrating the functioning software with English audio or clear English captions.
 - **Public Code Repository:** Publicly accessible URL on GitHub, GitLab, or Bitbucket with an open-source license file (Apache-2.0, MIT, MPL 2.0) clearly visible at the top/root of the repository. (Basebreak uses root Apache-2.0 `LICENSE`).
 - **README Guidance:** Comprehensive README providing installation, configuration, and execution instructions, highlighting the role of Nemotron models and Token Factory.
@@ -103,8 +103,8 @@ Stage One is a Pass/Fail viability screen. Submissions passing Stage One are eva
 - **Reasoning & Resolution Strategy:**
   1. *Timing Delta:* If Builder Program promotional credits are issued in mid-September 2026, a 90-day expiration window terminates in mid-December (~December 14, 2026), creating potential exposure on the final day of the judging period (December 15, 2026 12:00 pm PT).
   2. *Testing Rule vs Inspection:* While Devpost rules state judges may evaluate based solely on the video and text description, the project must remain accessible free of charge throughout the judging window.
-  3. *Read-Only Inspection Architecture:* Basebreak's planned architecture allows signed-out, read-only inspection of completed verification runs (witness code, execution traces, diffs, cryptographic hashes, and verification receipts) to be served on standard free tiers (e.g. GitHub Pages or Vercel Free) with zero live model inference calls, ensuring continuous judge access at zero cost. However, Basebreak does NOT claim that read-only inspection alone satisfies every possible judge expectation of an interactive working test build under the Official Rules.
-  4. *Live Run Path & Risk Accounting:* For interactive live re-runs by judges, operator onboarding in P-01 will determine whether Token Factory accounts support non-billable hard stops. If live promotional credits expire or exhaust before December 15, and live accounts cannot support zero-cost interactive testing without personal spend, this remains an operational risk/blocker for P-01 to resolve rather than an artificial claim of full resolution. Under Zero-Cost Law, paid fallback is strictly blocked.
+  3. *Read-Only Inspection Architecture:* Basebreak plans a zero-cost read-only evidence inspection path where feasible. Completed verification runs (witness code, execution traces, diffs, cryptographic hashes, and verification receipts) can be inspected with zero live model inference calls. Read-only inspection of verified evidence is a planned cost-control and judge-comprehension mitigation; it is not currently treated as proven satisfaction of the Official Rules' working-Project access/testing requirement.
+  4. *Live Run Path & Risk Accounting:* For interactive live re-runs by judges, operator onboarding in P-01 will determine whether Token Factory accounts support non-billable hard stops. If live promotional credits expire or exhaust before December 15, and live accounts cannot support zero-cost interactive testing without personal spend, this remains an operational risk/blocker for P-01 to resolve rather than an artificial claim of full resolution. A guaranteed zero-personal-spend working-project path through December 15 remains unproven until later platform/account/deployment verification establishes it. Under Zero-Cost Law, paid fallback is strictly blocked.
 
 ## 11. Basebreak Compliance Posture
 

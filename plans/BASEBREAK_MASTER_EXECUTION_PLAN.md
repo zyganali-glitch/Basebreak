@@ -64,7 +64,7 @@ Acceptance:
 - pushed remote SHA.
 
 ### P-00.02 — Verify competition eligibility, track fit, deadlines, submission requirements, and judging contract against current official sources
-Status: DONE
+Status: IN_PROGRESS
 Acceptance:
 - official source URLs/date snapshot;
 - Coding & Agentic Engineering fit explicitly justified;
