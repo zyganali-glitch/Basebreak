@@ -20,17 +20,18 @@ Authoritative source at submission time remains the official Devpost rules.
 
 ## 3. Eligibility Verification
 
-- **Eligible Entrants:** Individuals who have reached the legal age of majority in their jurisdiction of residence, teams of up to five (5) eligible individuals, and corporate/business entities.
-- **Excluded Jurisdictions:** Brazil, Quebec, Russia, Crimea, Cuba, Iran, North Korea, Syria, and any other territory subject to comprehensive OFAC trade sanctions.
-- **Operator Eligibility:** Türkiye is **fully eligible** (not listed in excluded countries/territories).
-- **Conflict of Interest / Novelty:** Projects that received prior financial support or preferential assistance from Sponsor/Administrator before the contest are disqualified. Basebreak was newly created independently during the Submission Period (created 2026-09-12) with zero prior funding or sponsor influence.
+- **Eligible Entrants:** Individuals who have reached the legal age of majority in their jurisdiction of residence, Teams of Eligible Individuals, and corporate/business entities (the Official Rules do not specify a five-person team maximum).
+- **Excluded Jurisdictions:** Brazil, Quebec, Russia, Crimea, Cuba, Iran, North Korea, and any other territory subject to comprehensive OFAC trade sanctions.
+- **Operator Geographic Eligibility:** Türkiye is not among the jurisdictions expressly listed as excluded in the current Official Rules. Individual eligibility remains subject to age-of-majority, applicable local/U.S. law, conflict-of-interest, Promotion Entity/Judge affiliation, and the other eligibility conditions in the Official Rules.
+- **Conflict of Interest / Prior Financial Support:** The Official Rules provide that a Project must not have been developed or derived from a project developed with prohibited financial or preferential support from Sponsor or Administrator (including prior commercial grants, incubators, or direct custom assistance). No prohibited Sponsor/Administrator support is evidenced in the canonical repository; entrant compliance with this rule remains an entrant representation to be rechecked before submission. Note that the Official Rules explicitly invite entrants to apply for the Nebius Builder Program for hackathon tooling/credits; Basebreak maintains the exact official-rule distinction without asserting an unverified legal conclusion regarding promotional credits, and flags any ambiguity for pre-submit revalidation.
 
 ## 4. Track Fit & Runtime Definition
 
 - **Track:** Coding and Agentic Engineering Track.
 - **Official Track Definition:** "Build coding agents and developer tools: agents that write, run, and test code in Token Factory Sandboxes."
 - **Official Runtime Definition:** To qualify as "running on Nebius Token Factory or Nebius AI Cloud", a project must make a runtime call to the Token Factory inference API, OR be deployed/run using Nebius AI Cloud compute (Serverless Jobs, Serverless Endpoints, DevPods).
-- **Token Factory Inference Fit:** A runtime call to Token Factory inference alone satisfies the runtime requirement. Token Factory Sandboxes provide the isolated execution environments for Basebreak's multi-world execution (Base, Candidate, Counterfactual).
+- **Token Factory Inference Fit:** A runtime call to Token Factory inference alone satisfies the runtime requirement.
+- **Token Factory Sandboxes Planning Stance:** Basebreak intends to use Token Factory Sandboxes for Base/Candidate/Counterfactual execution; P-01 must verify the actual isolation, lifecycle, filesystem, execution, and other required runtime properties before this architecture is considered proven.
 - **Stage One Viability:** Stage One is a Pass/Fail screen designed to filter out superficial rebrands, empty wrappers, and non-functioning projects. Basebreak's core causal verification engine represents a genuine, substantive technical implementation aligned directly with the track's mandate.
 
 ## 5. Submission Artifacts
@@ -41,7 +42,7 @@ Authoritative source at submission time remains the official Devpost rules.
 - **Public Code Repository:** Publicly accessible URL on GitHub, GitLab, or Bitbucket with an open-source license file (Apache-2.0, MIT, MPL 2.0) clearly visible at the top/root of the repository. (Basebreak uses root Apache-2.0 `LICENSE`).
 - **README Guidance:** Comprehensive README providing installation, configuration, and execution instructions, highlighting the role of Nemotron models and Token Factory.
 - **Mandatory Platform Feedback:** Mandatory submission field providing detailed feedback on Nebius Token Factory, Nebius AI Cloud, and NVIDIA tools used.
-- **Submission Timing Window:** Project must be newly developed during the official Submission Period (Aug 26 – Oct 30, 2026). Basebreak Git history deterministically establishes inception on September 12, 2026.
+- **Project Inception & Update Rule:** Under current Official Rules, submissions may be either newly created during the Submission Period OR pre-existing projects that are significantly updated after the Submission Period begins (August 26, 2026 9:00 am PT). Basebreak is newly created: canonical Git history deterministically establishes that its repository inception and initial commit occurred on September 12, 2026, well within the Submission Period.
 
 ## 6. Judging Criteria (Stage Two — Equal 25% Weight) & Basebreak Mapping
 
@@ -49,16 +50,16 @@ Stage One is a Pass/Fail viability screen. Submissions passing Stage One are eva
 
 1. **Technological Implementation (25%):**
    - *Official Criteria:* How well is the project built, and how effectively does it use Nebius Token Factory or AI Cloud and NVIDIA Nemotron?
-   - *Basebreak Mapping:* Deep API-native integration of NVIDIA Nemotron via Nebius Token Factory; Token Factory Sandboxes for isolated, multi-world execution; deterministic execution receipts, cryptographic hash chaining, and counterfactual run validation.
+   - *Basebreak Mapping [TARGET ARCHITECTURE / PLANNED]:* Planned API-native integration of NVIDIA Nemotron via Nebius Token Factory; intended use of Token Factory Sandboxes for isolated multi-world execution (Base, Candidate, Counterfactual), subject to P-01 live validation; planned deterministic execution receipts, cryptographic hash chaining, and counterfactual run validation.
 2. **Design (25%):**
    - *Official Criteria:* Does the project deliver a complete, coherent product experience, not just a technical proof of concept?
-   - *Basebreak Mapping:* Coherent, end-to-end causal verification runtime; intuitive 3-way visual/audit state transitions (`BASE=FAIL`, `CANDIDATE=PASS`, `COUNTERFACTUAL=FAIL`); rich inspection receipts; zero-friction signed-out judge exploration.
+   - *Basebreak Mapping [TARGET ARCHITECTURE / PLANNED]:* Planned end-to-end causal verification runtime; target 3-way visual/audit state transitions (`BASE=FAIL`, `CANDIDATE=PASS`, `COUNTERFACTUAL=FAIL`); intended inspection receipts; planned signed-out judge exploration mode to minimize evaluation friction.
 3. **Potential Impact (25%):**
    - *Official Criteria:* Does the project make a credible, specific case for solving a real problem for a real audience, and does the solution actually address it?
-   - *Basebreak Mapping:* Eliminates the silent hallucination, pre-existing passing tests, and test-weakening risks in AI coding agents (Copilot, Cursor, Codex, custom agents) by mathematically and experimentally proving that the patch — and only the patch — caused the behavior delta.
+   - *Basebreak Mapping [TARGET ARCHITECTURE / PLANNED]:* Aims to address silent hallucination, pre-existing passing tests, and test-weakening risks in AI coding agents (Copilot, Cursor, Codex, custom agents) by demonstrating that the exact candidate produced the required observed transition under an independently executed witness; where a valid counterfactual is available, removing the tested patch delta removes that observed transition.
 4. **Quality of the Idea (25%):**
    - *Official Criteria:* Is this a creative, non-obvious use of Nebius Token Factory or AI Cloud and NVIDIA Nemotron, and does the team show genuine understanding of the problem space?
-   - *Basebreak Mapping:* Unorthodox scientific thesis (`If the patch matters, the base must break`); transforms AI coding from unverified generation into empirical causal science under independent witnesses.
+   - *Basebreak Mapping [TARGET ARCHITECTURE / PLANNED]:* Unorthodox causal thesis (`If the patch matters, the base must break`); reframes AI code evaluation from ungrounded confidence in model prose into empirical causal verification under an independently executed witness.
 - **Official Tie-Breaking Order:** In the event of a tie, winners are determined based on the highest score in Technological Implementation, followed by Design, then Potential Impact, then Quality of the Idea. If still tied, the Judges' collective vote decides.
 
 ## 7. Judging Period & Testing Access Rules
@@ -74,11 +75,10 @@ Stage One is a Pass/Fail viability screen. Submissions passing Stage One are eva
 - **Strategic Prizes:**
   - **Grand Prize / Overall Awards:** 1st Place ($20,000), 2nd Place ($10,000), 3rd Place ($6,000).
   - **Coding and Agentic Engineering Track Winner:** 1 NVIDIA Jetson Orin Nano.
-  - **Best Use of Tavily Bonus Award:** $3,000 (Requires a functional, runtime call to the Tavily API as part of the demonstrated solution).
-  - **Most Valuable Feedback Awards:** $100 cash + NVIDIA swag bag (up to 10 winners).
+  - **Bonus Awards Group:** Best Use of Tavily ($3,000), City Winner Awards, and Most Valuable Feedback ($100 cash + NVIDIA swag bag, up to 10 winners) are categorized under Bonus Awards in the Official Rules.
 - **Multiple Prize / Stacking Rule (Official Rules §8):**
-  - "Each Project is eligible for one (1) Overall Award OR one (1) Track Award AND one (1) Bonus Award."
-  - *Stacking Conclusion:* Basebreak is eligible to win either an Overall Award ($20k/$10k/$6k) OR the Coding Track Award (Jetson Orin Nano), AND simultaneously win the Best Use of Tavily Bonus Award ($3,000). Feedback awards are also independently eligible.
+  - "Each Project is eligible for one (1) Overall Award OR one (1) Track Award and one (1) Bonus Award."
+  - **Conservative Basebreak Interpretation:** A Project may receive one Overall Award OR one Track Award, plus at most one Bonus Award. Basebreak therefore must not assume that Best Use of Tavily and Most Valuable Feedback can both be awarded to the same Project. If official clarification later confirms separate eligibility for feedback awards, current official reality may supersede this.
 
 ## 9. Verified Zero-Cost Platform Terms
 
@@ -103,8 +103,8 @@ Stage One is a Pass/Fail viability screen. Submissions passing Stage One are eva
 - **Reasoning & Resolution Strategy:**
   1. *Timing Delta:* If Builder Program promotional credits are issued in mid-September 2026, a 90-day expiration window terminates in mid-December (~December 14, 2026), creating potential exposure on the final day of the judging period (December 15, 2026 12:00 pm PT).
   2. *Testing Rule vs Inspection:* While Devpost rules state judges may evaluate based solely on the video and text description, the project must remain accessible free of charge throughout the judging window.
-  3. *Deterministic Inspection Architecture:* Basebreak's core verification assets (witness code, execution traces, diffs, cryptographic hashes, and verification receipts) are deterministic artifacts. The Basebreak web UI / inspector can serve signed-out, read-only verified runs hosted on standard free tiers (e.g. GitHub Pages or Vercel Free) with zero live model inference calls, ensuring 100% judge inspection availability indefinitely at zero cost.
-  4. *Live Run Path:* For interactive live runs by judges, operator onboarding in P-01 will determine whether Token Factory accounts support non-billable hard stops. If live credits expire or exhaust, the live execution UI will cleanly display that promotional live credits are exhausted while providing immediate, full-fidelity access to verified recorded runs. Under Zero-Cost Law, paid fallback is strictly blocked.
+  3. *Read-Only Inspection Architecture:* Basebreak's planned architecture allows signed-out, read-only inspection of completed verification runs (witness code, execution traces, diffs, cryptographic hashes, and verification receipts) to be served on standard free tiers (e.g. GitHub Pages or Vercel Free) with zero live model inference calls, ensuring continuous judge access at zero cost. However, Basebreak does NOT claim that read-only inspection alone satisfies every possible judge expectation of an interactive working test build under the Official Rules.
+  4. *Live Run Path & Risk Accounting:* For interactive live re-runs by judges, operator onboarding in P-01 will determine whether Token Factory accounts support non-billable hard stops. If live promotional credits expire or exhaust before December 15, and live accounts cannot support zero-cost interactive testing without personal spend, this remains an operational risk/blocker for P-01 to resolve rather than an artificial claim of full resolution. Under Zero-Cost Law, paid fallback is strictly blocked.
 
 ## 11. Basebreak Compliance Posture
 

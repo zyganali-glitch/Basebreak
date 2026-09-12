@@ -16,14 +16,14 @@ Judge claim:
 ## Current state
 - P-00.01 (Bootstrap canonical repository governance spine and competition contract) is independently VERIFIED / PASS at SHA `d29a46f68f576dad0b140ec6be6973bb084bdfeb`.
 - P-00.01A (Integrate pre-implementation competition strategy and operator constraints) is independently VERIFIED / PASS at SHA `0d92adc3681edddb0dbaf0ccc176c1276a417fb3`.
-- P-00.02 (Verify competition eligibility, track fit, deadlines, submission requirements, and judging contract against current official sources) executor work completed; awaiting independent QA verification.
+- P-00.02 (Verify competition eligibility, track fit, deadlines, submission requirements, and judging contract against current official sources) is in active repair / awaiting independent QA verification.
 
 ## Active exact task
-`P-00.03 — Freeze donor research pins and license/preflight status without importing implementation`
+`P-00.02 — Verify competition eligibility, track fit, deadlines, submission requirements, and judging contract against current official sources` (repair candidate / awaiting independent QA)
 
 ## Last independently VERIFIED baseline SHA
 `0d92adc3681edddb0dbaf0ccc176c1276a417fb3` (P-00.01A closure commit).
-Note: P-00.02 completion commit is pushed to remote but awaits independent QA verification.
+Note: P-00.02 repair candidate commit is pushed to remote but awaits independent QA verification.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (no credit cards, PAYG, paid tiers, or auto-upgrades);
@@ -40,5 +40,5 @@ Note: P-00.02 completion commit is pushed to remote but awaits independent QA ve
 - no unmetered public live endpoints that drain promotional credits.
 
 ## Immediate next step
-Independent QA verifies P-00.02 against current official sources and acceptance criteria.
+Independent QA verifies P-00.02 repair candidate against current official sources and acceptance criteria.
 Only after independent QA awards PASS may P-00.03 execution begin.
