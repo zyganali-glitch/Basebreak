@@ -45,7 +45,7 @@ P-01.02 remains PENDING / UNSTARTED.
 - no unmetered public live endpoints that drain promotional credits.
 
 ## Immediate next step
-Await independent QA verification for P-01.01.
-After independent QA awards PASS and billing/zero-cost prerequisites are satisfied, next exact task is:
-`P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt`
-Do NOT advance to P-01.02 before independent QA PASS.
+1. Await independent QA verification for P-01.01 at current commit.
+2. Await Nebius Builder Program approval email containing the promotional credit codes ($25 Token Factory + $25 Tavily, 2 business days SLA).
+3. Upon receiving the promo code email: redeem promo code in Token Factory console, generate `NEBIUS_API_KEY`, and proceed to `P-01.02`.
+Do NOT advance to P-01.02 before independent QA PASS and promotional credit code arrival. Zero personal spend is strictly preserved.
