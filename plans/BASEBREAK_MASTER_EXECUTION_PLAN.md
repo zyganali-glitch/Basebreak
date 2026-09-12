@@ -64,7 +64,7 @@ Acceptance:
 - pushed remote SHA.
 
 ### P-00.02 — Verify competition eligibility, track fit, deadlines, submission requirements, and judging contract against current official sources
-Status: IN_PROGRESS
+Status: DONE
 Acceptance:
 - official source URLs/date snapshot;
 - Coding & Agentic Engineering fit explicitly justified;
@@ -73,7 +73,7 @@ Acceptance:
 - no unverified platform/model claim.
 
 ### P-00.03 — Freeze donor research pins and license/preflight status without importing implementation
-Status: PENDING
+Status: DONE
 Acceptance:
 - every candidate donor immutable SHA or explicit NOT_PINNED;
 - license read at pin;

@@ -77,21 +77,27 @@ Candidate lessons:
 - execution/evidence mode honesty
 - idempotency/recovery
 - donor governance
-Default: CONCEPT_ONLY; selected generic infrastructure only after dedicated preflight.
-Do not import ShadowLab/Approval Compression/Capability Passport terminology.
+Root license: `VERIFIED_PROPRIETARY_OR_ALL_RIGHTS_RESERVED` (All Rights Reserved; copyright Mehmet Aydogan).
+Default: `CONCEPT_ONLY`.
+Crucial boundary: ownership by the same operator does NOT automatically turn it into competition-safe copied implementation. Under competition open-source rules and its All Rights Reserved root license, ZERO code copying is permitted. All Basebreak causal logic must be concept-only and clean-room reimplemented.
+Do not import ShadowLab/Approval Compression/Capability Passport/Change Passport terminology.
 
 ### GitLab UAOS / Qwen UAOS
-Potential lessons:
-- repository-native workflow and cross-session memory
-Status: DO_NOT_REUSE until dedicated audit pins immutable SHAs/licenses and identifies an actual Basebreak need.
+Audited at P-00.03:
+- `gitlab.com/zyganali/universal-agent-os-qwen` (SHA `a43b3411856f41a4be9424d11c01a5e637cdc410`, MIT License, `VERIFIED_PERMISSIVE`)
+- `gitlab.com/zyganali/universal-agent-os-gitlab-edition` (SHA `3c4a412b6040d8a8154c15325943c409be9105f2`, MIT License, `VERIFIED_PERMISSIVE`)
+Potential lessons: model adapter patterns and repository-native workflow automation.
+Status: `NO_CURRENT_REUSE_NEED`. Kept as verified research pins; no code imported.
 
-## Known GitHub donor pins at bootstrap
-These are research pins, not approvals to copy:
-- Universal-Agent-OS: 6b83b06212101c238ec28076a2ba7ae819f483f2
-- universal-agent-os-uipath: dc2267939c2aef0aba2737da65f53352c5cf8fb2
-- codex-control-tower: 65ee1b72faf9a7202d9166eed43fb671804815a8
-- zerokit-ai-control-plane: d663db8c706cb914e1af5caf651df08edb5c50c0
-- ContextSeal: b8d87ad05e323b7366c8e0817839e01034c4438d
-- ChangeMesh: 7b349f0e005ccb416034df318baae67f43a1099d
+## Verified donor research pins (P-00.03)
+These are immutable research pins for architectural study only, NOT approvals to copy code:
+- Universal-Agent-OS: `6b83b06212101c238ec28076a2ba7ae819f483f2` (MIT — `VERIFIED_PERMISSIVE`)
+- universal-agent-os-uipath: `dc2267939c2aef0aba2737da65f53352c5cf8fb2` (MIT — `VERIFIED_PERMISSIVE`)
+- codex-control-tower: `65ee1b72faf9a7202d9166eed43fb671804815a8` (MIT — `VERIFIED_PERMISSIVE`)
+- zerokit-ai-control-plane: `d663db8c706cb914e1af5caf651df08edb5c50c0` (MIT — `VERIFIED_PERMISSIVE`)
+- ContextSeal: `b8d87ad05e323b7366c8e0817839e01034c4438d` (Apache-2.0 — `VERIFIED_PERMISSIVE`)
+- ChangeMesh: `7b349f0e005ccb416034df318baae67f43a1099d` (All Rights Reserved — `VERIFIED_PROPRIETARY_OR_ALL_RIGHTS_RESERVED`)
+- universal-agent-os-qwen: `a43b3411856f41a4be9424d11c01a5e637cdc410` (MIT — `VERIFIED_PERMISSIVE`)
+- universal-agent-os-gitlab-edition: `3c4a412b6040d8a8154c15325943c409be9105f2` (MIT — `VERIFIED_PERMISSIVE`)
 
-Every actual reuse must re-check the donor license at the pinned SHA.
+Every actual future reuse candidate must re-check the donor license at the pinned SHA and undergo a dedicated preflight task.
