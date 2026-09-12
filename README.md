@@ -2,9 +2,9 @@
 
 > **If the patch matters, the base must break.**
 
-Basebreak is a causal verification runtime for AI-written software changes.
+Basebreak is a planned causal verification runtime for AI-written software changes.
 
-Instead of accepting "tests are green" as proof, Basebreak independently challenges the candidate patch in clean execution environments and asks whether the requested behavior fails on the trusted base and succeeds on the candidate.
+Instead of accepting "tests are green" as proof, Basebreak is designed to independently challenge the candidate patch in clean execution environments and ask whether the requested behavior fails on the trusted base and succeeds on the candidate.
 
 ---
 
@@ -130,7 +130,28 @@ These are planned provenance labels, not PASS/FAIL verdicts. Basebreak will neve
 
 > **STATUS: PRE-IMPLEMENTATION GOVERNANCE (Phase P-00)**
 
-All runtime capabilities described above are **PLANNED** and are not yet implemented.
+### Currently Implemented (Bootstrap Baseline):
+- **Governance Spine:** Agent constitution, operator guidance laws, and zero-cost policy (`AGENTS.md`, `GEMINI.md`, `docs/`).
+- **Repository & Tooling Skeleton:** Python packaging metadata (`pyproject.toml`) and directory layout.
+- **Python Package Bootstrap:** Minimal package (`src/basebreak/`) and distribution metadata tests (`tests/test_bootstrap.py`).
+- **Local Validation Gates:** Deterministic local commands (Ruff format, Ruff lint, mypy strict, pytest).
+- **Continuous Integration:** Automated validation on pull request and push to main (`.github/workflows/ci.yml`).
+
+### Planned / Not Yet Implemented (Runtime & Product Layers):
+- **Contract Compiler (P-06):** Task ingestion and requirement-contract normalization.
+- **Builder Runtime (P-07):** Nemotron coding loop in Token Factory Sandboxes.
+- **Verifier Isolation (P-08):** Independent, sealed verification context.
+- **Independent Witness Generation (P-09):** Behavioral witness generation from contract and trusted base.
+- **Causal Two-World Engine (P-10):** BASE (FAIL) vs CANDIDATE (PASS) differential execution.
+- **Counterfactual Third Run (P-11):** Candidate delta subtraction and causal necessity verification.
+- **Evidence Runtime & Store (P-03):** Content-addressed artifact hashing and receipt emission.
+- **Nebius & Nemotron Adapters (P-05):** Live model and sandbox API clients.
+- **Token Factory Sandbox Execution:** Isolated environment creation, materialization, and teardown (P-01, P-05).
+- **Runtime Secret Redaction:** Dynamic prompt and execution log redaction (P-04).
+- **Runtime Sandbox Security & Resource Enforcement:** Timeout and resource exhaustion guards (P-04).
+- **Tavily Runtime Grounding:** Current fact verification for CVEs and migrations (P-16).
+- **Judge & Operator UI:** Visual inspection and receipt review interface (P-22).
+- **Live Deployment:** Public read-only evidence inspection and demo hosting (P-27).
 
 | Component | Status | Target Phase |
 |---|:---:|---|
@@ -142,6 +163,7 @@ All runtime capabilities described above are **PLANNED** and are not yet impleme
 | Builder Runtime v1 | PLANNED | P-07 |
 | Verifier Isolation & Witness Gen | PLANNED | P-08, P-09 |
 | Causal Two-World Engine | PLANNED | P-10 |
+| Counterfactual Third Run | PLANNED | P-11 |
 | Minimal Judge UI & Killer Demo | PLANNED | P-22, P-23 |
 | Live Deployment & Devpost Submit | PLANNED | P-27, P-32 |
 
@@ -190,9 +212,9 @@ All four gates must pass cleanly. All runtime capabilities (causal engine, Build
 
 ## Security & Zero-Cost Boundary
 
-- **Zero Personal Spend:** Basebreak development and judge access operate entirely within genuine free tiers and sponsor promotional credits. No credit cards, auto-billing, or paid upgrades.
-- **Untrusted Code Policy:** Target repositories are treated as untrusted code executed only inside isolated sandboxes with strict resource and timeout limits.
-- **Secret Redaction:** No API keys, credentials, or private identifiers are stored in repository history, prompts, evidence, or public assets.
+- **Zero Personal Spend (Frozen Policy Requirement):** Zero Personal Spend is a frozen Basebreak requirement. Development and judge-access architecture must use verified free tiers/promotional credits or fail closed; a guaranteed zero-cost working-project path through the full judging period is not yet proven and remains subject to later live platform/account/deployment verification. No credit cards, pay-as-you-go enablement, paid tiers, or auto-upgrades.
+- **Untrusted Code Policy (Planned Design & Policy):** Target repositories are treated as untrusted code intended to execute only inside isolated sandboxes with strict runtime resource and timeout enforcement once the runtime sandbox execution layer is implemented.
+- **Secret Redaction (Current Policy & Planned Runtime Guard):** No API keys, credentials, or private identifiers are stored in repository history, static documentation, or public assets. Runtime secret redaction in prompts and execution evidence logs will be enforced once provider runtime adapters are implemented.
 
 ---
 

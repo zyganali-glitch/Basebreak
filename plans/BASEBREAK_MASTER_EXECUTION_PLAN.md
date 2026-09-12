@@ -23,7 +23,7 @@ Exact micro-task titles are immutable once committed. If architecture reality ch
 Priority guidance for the Nebius x NVIDIA Global AI Hackathon. This is NOT scope deletion; all phases remain planned.
 
 1. **Platform reality:** P-00 (governance) → P-01 (live platform discovery and feasibility gate).
-2. **Causal vertical spine:** provider-neutral domain contracts (P-02 minimal) → real Nebius/Nemotron adapters (P-05) → Builder runtime (P-07) → Verifier isolation (P-08) → independent Witness generation (P-09) → P-10 causal two-world engine (first two-world causal transition) → P-11 Counterfactual Third Run (competition-defining causal proof path producing the canonical high-value demo: BASE = FAIL, CANDIDATE = PASS, COUNTERFACTUAL = FAIL; P-11 is competition-core and not optional/stretch/depth-only).
+2. **Causal vertical spine:** P-02 Provider-Neutral Domain Contracts → P-03 Evidence Store & Deterministic Fact Authority → P-04 Security & Untrusted-Code Policy Foundation → P-05 Nebius/Nemotron Adapter Layer → P-06 Contract Compiler → P-07 Builder Runtime → P-08 Verifier Isolation → P-09 Witness Generation → P-10 Causal Two-World Engine → P-11 Counterfactual Third Run (competition-defining causal proof path producing the canonical high-value demo: BASE = FAIL, CANDIDATE = PASS, COUNTERFACTUAL = FAIL; P-11 is competition-core and not optional/stretch/depth-only). (Prerequisite rationale: P-07 depends on P-04 protected/action/security policy; P-09 depends on P-06 frozen acceptance contract; P-10 depends on P-03 evidence/hash binding).
 3. **Judge proof:** first receipt/CLI proof (P-18/P-19 minimal) → judge-visible causal story (P-22/P-23 killer demo).
 4. **Deployment/reproducibility/submission:** P-27 (live deployment) → P-29 (competition evidence) → P-30 (demo video) → P-32 (submission freeze).
 5. **Depth features:** P-12 Minimal Causal Slice and subsequent depth features (P-13 semantics expansion, P-14 sealed repair, P-15 risk-adaptive budget, P-16 Tavily grounding, P-17 coverage, P-20 GitHub integration, P-24 adversarial, P-25 reliability, P-26 performance) remain planned and continue after the first coherent vertical slice.
@@ -81,7 +81,7 @@ Acceptance:
 - zero donor code copied.
 
 ### P-00.04 — Establish repository structure, Python/runtime tooling baseline, formatting/lint/type/test commands
-Status: IN_PROGRESS
+Status: DONE
 Acceptance:
 - minimal skeleton only;
 - deterministic root commands;
@@ -90,7 +90,7 @@ Acceptance:
 - focused bootstrap tests pass.
 
 ### P-00.05 — Run first documentation consolidation and focused P-Ω bootstrap audit
-Status: PENDING
+Status: IN_PROGRESS
 Acceptance:
 - plan/HANDOFF/README critical truth aligned;
 - no secrets/local paths except explicitly documented operator path where required;
@@ -121,7 +121,12 @@ Acceptance:
 - execute harmless command;
 - collect deterministic exit/output;
 - teardown observed;
-- exact API/SDK constraints recorded.
+- exact API/SDK constraints recorded;
+- explicitly test and discover whether the current platform supports: checkpoint, snapshot, clone/fork, branch, rollback/reset, or equivalent clean-world/reproduction primitive;
+- for every investigated capability record one of: `SUPPORTED`, `UNSUPPORTED`, `NOT_FOUND`;
+- bind every capability finding to current official documentation and/or current `LIVE_NEBIUS` execution evidence;
+- do NOT canonicalize any external-AI claim (such as "Git-like branching", checkpoint semantics, instant rollback, concurrency limits, or retention durations) until P-01 proves them;
+- architecture adapts to proven platform reality.
 
 ### P-01.04 — Prove live repository materialization inside supported sandbox
 Acceptance:
@@ -149,7 +154,10 @@ Acceptance:
 - written after P-01 proves actual platform capabilities;
 - defines what a judge will eventually see: task → Builder → independent witness → BASE result → CANDIDATE result → counterfactual where required → provenance → receipt;
 - does not implement future UI;
-- does not contain unverified platform claims.
+- does not contain unverified platform claims;
+- research-only shortlist 2–3 candidate real open-source bug/fix pairs for eventual P-23.08 replay (ResetVault remains the PRIMARY deterministic killer demo; P-23.08 is supplementary historical replay);
+- for each candidate, record: repository, immutable buggy/base SHA, immutable fixed SHA, root license, concise behavioral defect, likely independent witness, dependency/runtime footprint, sandbox/platform feasibility, reasons suitable/unsuitable;
+- at P-01.07: strictly NO donor/source importing, NO replay implementation, and NO claiming upstream patch was produced by Basebreak (early de-risking only).
 Phase exit: real model + real sandbox + two-clean-environment spine proven.
 
 ---
@@ -213,6 +221,10 @@ Goal: convert natural-language task into reviewable verification contract.
 ### P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions
 ### P-06.05 — Add human-editable contract review surface/CLI
 ### P-06.06 — Freeze contract digest before Builder execution
+Acceptance:
+- contract digest computed deterministically from normalized acceptance requirements;
+- frozen contract digest cannot be modified by Builder or Verifier;
+- establishes root link of evidence chain: `requirement → frozen contract digest → witness digest → BASE/CANDIDATE/COUNTERFACTUAL execution evidence`.
 Phase exit: Builder cannot silently rewrite the task it will later “prove”.
 
 ---
@@ -240,11 +252,17 @@ Phase exit: verifier independence is mechanically stronger than “another promp
 
 # P-09 — Witness Generation
 ### P-09.01 — Implement Nemotron witness-plan generation from frozen contract + trusted source
+Acceptance:
+- witness plan must carry and reference the exact frozen contract digest;
+- deterministic binding between contract identity and planned witness.
 ### P-09.02 — Validate witness plans against scope/security/runtime policy
 ### P-09.03 — Generate executable independent behavioral witnesses for BUG_FIX
 ### P-09.04 — Add witness determinism/timeout/result normalization
 ### P-09.05 — Detect vacuous witnesses and invalid preconditions
 ### P-09.06 — Preserve witness digest before candidate execution
+Acceptance:
+- compute and preserve immutable witness digest bound to the frozen contract digest;
+- witness identity/digest is mechanically locked before candidate execution.
 Phase exit: at least one independent witness can exist without Builder knowledge.
 
 ---
@@ -253,6 +271,9 @@ Phase exit: at least one independent witness can exist without Builder knowledge
 ### P-10.01 — Execute identical witness on trusted base
 ### P-10.02 — Execute identical witness on exact candidate
 ### P-10.03 — Bind both executions to source/sandbox/witness hashes
+Acceptance:
+- BASE and CANDIDATE execution evidence records must explicitly carry and bind to the exact frozen contract digest and witness digest;
+- no reliance on loose prose matching; execution evidence is mechanically and cryptographically bound to contract and witness identities.
 ### P-10.04 — Reconcile BUG_FIX FAIL→PASS deterministically
 ### P-10.05 — Handle PASS→PASS, FAIL→FAIL, ERROR/TIMEOUT as non-verified states
 ### P-10.06 — Produce first local causal receipt
@@ -264,7 +285,9 @@ Acceptance:
 - complete path from task → Builder → independent witness → BASE execution → CANDIDATE execution → causal receipt;
 - does not bypass P-08/P-09 independence requirements;
 - proof summary is machine-readable and human-inspectable;
-- provenance clearly distinguishes FIXTURE/LOCAL_EXECUTION/LIVE_NEBIUS/RECORDED_LIVE.
+- provenance clearly distinguishes FIXTURE/LOCAL_EXECUTION/LIVE_NEBIUS/RECORDED_LIVE;
+- validates complete mechanical digest chain: `requirement → frozen contract digest → witness digest → BASE/CANDIDATE execution evidence`;
+- exposes a bounded MINIMAL DEVELOPER INVOCATION / INTEGRATION HARNESS capable of executing that coherent slice (may be temporary/internal; must NOT prematurely freeze `basebreak verify` or another public stable CLI contract; stable public CLI remains frozen at P-19 after P-18 receipt contracts stabilize).
 Phase exit: Basebreak can prove a real base/candidate behavioral transition.
 
 ---
@@ -274,7 +297,11 @@ Phase exit: Basebreak can prove a real base/candidate behavioral transition.
 ### P-11.02 — Select bounded relevant patch region without model authority over verdict
 ### P-11.03 — Materialize counterfactual candidate in fresh sandbox
 ### P-11.04 — Execute same witness against counterfactual
+Acceptance:
+- counterfactual execution evidence must retain the identical frozen contract digest and witness digest as the BASE and CANDIDATE runs.
 ### P-11.05 — Reconcile FAIL→PASS→FAIL causal triplet
+Acceptance:
+- causal triplet receipt validates unbroken identity: `requirement → frozen contract digest → witness digest → BASE/CANDIDATE/COUNTERFACTUAL execution evidence`.
 ### P-11.06 — Detect invalid counterfactual construction and return INCONCLUSIVE, never false PASS
 Phase exit: critical demonstrations can show causal necessity under the witness.
 
@@ -500,8 +527,16 @@ Phase exit: claims are reproducible and provenance-clean.
 ---
 
 # P-30 — Demo Video & Submission Narrative
+Policy:
+- P-29 competition evidence must still produce fresh, exact-state `LIVE_NEBIUS` evidence where required;
+- P-30 video/demo capture may reuse an immutable real run from P-23/P-29 when: (1) source/release SHA is bound, (2) exact run/evidence identifier is retained, (3) original live provenance is preserved, (4) presentation/replay is clearly labelled `RECORDED_LIVE`, and (5) the replay is NEVER represented as a current live invocation;
+- goal: reduce token/sandbox spend, reduce nondeterministic video-recording failure, avoid duplicate credit-consuming live executions, while strictly preserving evidence honesty;
+- does not weaken P-29 fresh live evidence requirements.
 ### P-30.01 — Freeze <3 minute storyboard around causal surprise
 ### P-30.02 — Capture real live sequence: green baseline → base witness fail → candidate pass → counterfactual fail
+Acceptance:
+- capture real sequence demonstrating causal triplet;
+- permitted to capture either fresh live execution or reuse an immutable `RECORDED_LIVE` run from P-23/P-29 strictly adhering to the RECORDED_LIVE video reuse policy.
 ### P-30.03 — Record concise English audio and captions
 ### P-30.04 — Verify no unsupported claim or secret in video
 ### P-30.05 — Draft Devpost story mapped to four judging criteria
@@ -533,6 +568,11 @@ Acceptance:
 ### P-32.04 — Verify public YouTube playback <3 minutes and English accessibility
 ### P-32.05 — Verify Nebius/NVIDIA usage claims and Tavily bonus eligibility if used
 ### P-32.06 — Complete submission before internal buffer deadline
+Acceptance:
+- internal operational target is frozen at `October 27, 2026 20:00 Europe/Istanbul` (approximately 72 hours before official deadline of October 30, 2026 10:00 AM PDT / 17:00 UTC);
+- explicitly classified as an INTERNAL SAFETY BUFFER to absorb potential submission hiccups, platform outages, or final packaging checks;
+- the official competition deadline remains October 30, 2026 10:00 AM PDT;
+- this internal buffer does NOT delete planned phases and does NOT authorize premature scope cutting.
 ### P-32.07 — Perform post-submit signed-out verification without mutating frozen release
 Phase exit: submitted, publicly testable, evidence-consistent entry.
 
