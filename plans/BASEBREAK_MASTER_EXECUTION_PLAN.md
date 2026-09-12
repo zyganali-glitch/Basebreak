@@ -45,7 +45,7 @@ Acceptance:
 - pushed remote SHA independently verifiable.
 
 ### P-00.01A — Integrate pre-implementation competition strategy and operator constraints
-Status: IN_PROGRESS
+Status: DONE
 Deliver: competition strategy docs, operator requirements, zero-cost/guidance laws, competition feedback log, README expansion, HANDOFF/AGENTS/GEMINI governance updates.
 Acceptance:
 - zero-cost law in Plan and AGENTS.md;
@@ -64,7 +64,7 @@ Acceptance:
 - pushed remote SHA.
 
 ### P-00.02 — Verify competition eligibility, track fit, deadlines, submission requirements, and judging contract against current official sources
-Status: PENDING
+Status: DONE
 Acceptance:
 - official source URLs/date snapshot;
 - Coding & Agentic Engineering fit explicitly justified;

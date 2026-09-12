@@ -38,4 +38,18 @@ This log may also be used as source material for the "Most Valuable Feedback" pr
 
 ## Entries
 
-_No entries yet. First feedback will be recorded during P-01 platform discovery._
+### F-001 — Nebius Builder Program landing URL 404 / broken redirect
+
+- **Date/Time:** 2026-09-12 11:45 UTC
+- **Provider/Tool:** Nebius Token Factory
+- **Feature/API:** Builder Program application page / URL navigation
+- **Task/Run Context:** P-00.02 (Verify competition eligibility and terms against official sources)
+- **What Worked Well:** Once located, the developer portal page (`https://dev.nebius.com/builders`) provided explicit, unambiguous promotional credit figures ($25 Token Factory + $25 Tavily) and clear 90-day expiry terms.
+- **Friction/Bug/Limitation:** The primary URL cited in external hackathon collateral and promotional material (`https://nebius.com/builder-program`) returned HTTP 404 (Not Found) rather than redirecting smoothly to the active developer portal application page.
+- **Deterministic Evidence:** HTTP GET `https://nebius.com/builder-program` returned status 404 Not Found during research fetch on 2026-09-12; active application page was located at `https://dev.nebius.com/builders`.
+- **Developer Impact:** Increases friction and creates confusion for new hackathon entrants attempting to verify promotional credit terms or apply for the Builder Program.
+- **Workaround:** Located and documented the active URL `https://dev.nebius.com/builders` in project competition governance.
+- **Concrete Product Suggestion:** Set up an HTTP 301 permanent redirect from `nebius.com/builder-program` to `dev.nebius.com/builders`.
+- **Severity/Value:** LOW
+- **Provenance:** DOCUMENTATION_REVIEW
+- **Status:** WORKAROUND_APPLIED

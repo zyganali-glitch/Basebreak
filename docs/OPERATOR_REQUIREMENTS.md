@@ -86,3 +86,24 @@ Clearly distinguish:
 - `BLOCKED` — cannot proceed without external resolution.
 
 Never silently substitute agent action for required human decision.
+
+## 7. OPERATOR ACTION INVENTORY (P-00.02 Anticipated Actions)
+
+Anticipated manual and automated actions for later phases (P-01 and onwards), classified under the four-state taxonomy:
+
+| Action | Classification | Planned Phase | Notes & Safety Safeguards |
+|---|---|---|---|
+| Verify Devpost hackathon registration | `OPERATOR_MUST_DO` | P-01 | Operator registers via web UI on Devpost. Agent cannot register external accounts. |
+| Nebius Builder Program application | `OPERATOR_MUST_DO` | P-01 | Web form application (`dev.nebius.com/builders`). Operator must ensure NO payment card is required or entered. |
+| Nebius Token Factory API key generation | `OPERATOR_MUST_DO` | P-01 | Generated in Nebius web console. Operator stores in local `.env` or secure environment, never pasting into chat. |
+| Tavily free tier account registration | `OPERATOR_MUST_DO` | P-01 | Free Researcher plan (1,000 requests/mo). No credit card required. Operator registers and generates API key. |
+| Local environment configuration (.env setup) | `OPERATOR_APPROVAL_REQUIRED` | P-01 | Agent prepares template `.env.example`; operator populates `.env` with actual keys. Agent never reads/logs secrets. |
+| Billing & spending cap inspection | `OPERATOR_MUST_DO` | P-01 | Verify account billing state; ensure PAYG is not enabled and spending is hard-capped at zero personal spend. |
+| Token Factory endpoint discovery & probe | `AGENT_CAN_DO` | P-01 | Agent executes minimal live non-billable / low-token probe once API key is configured. |
+| Test suite execution (local/sandbox) | `AGENT_CAN_DO` | P-02+ | Agent runs deterministic verification tests within budget constraints. |
+| Video recording & demo capture | `OPERATOR_APPROVAL_REQUIRED` | P-30 / P-31 | Agent prepares demo script and deterministic scenario; operator records/approves final video demo. |
+| YouTube video upload (public/unlisted) | `OPERATOR_MUST_DO` | P-31 | Operator uploads strictly < 3:00 video to YouTube and provides public URL. |
+| Devpost submission creation & text entry | `OPERATOR_APPROVAL_REQUIRED` | P-32 | Agent prepares submission text and checklist; operator reviews and pastes/submits on Devpost. |
+| External billing activation / paid tier fallback | `BLOCKED` | ALL PHASES | Strictly forbidden under Zero-Cost Law. If free credits exhaust without zero-cost recourse, work halts as BLOCKED. |
+
+*Note: NONE of these actions are performed during P-00.02. This inventory maps future operational boundaries.*
