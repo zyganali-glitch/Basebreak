@@ -14,6 +14,19 @@ Exact micro-task titles are immutable once committed. If architecture reality ch
 8. Competition-defining donor logic prefers concept-only/clean-room.
 9. Every irreversible external action requires explicit authority.
 10. Critical truth updates immediately; harmless documentation parity batches.
+11. ZERO-COST LAW: Basebreak hackathon development and judge path must not require the user to spend personal money. Allowed: genuine free tiers, hackathon/sponsor promotional credits, free open-source/local tools, services that stop when the free quota is exhausted. Forbidden without explicit user approval: paid subscriptions, pay-as-you-go enablement, automatic paid fallback, credit-card charges, deposits/pre-authorizations, paid certification, auto-upgrade after trial, any irreversible billing action. If a required external service asks for payment/card/deposit and there is no verified zero-cost path: STOP, classify as BLOCKED or OPERATOR_DECISION_REQUIRED, explain alternatives, never silently proceed. Promotional credits are a budget, not permission to spend beyond them.
+12. OPERATOR GUIDANCE LAW: The operator is non-expert and must receive screen-by-screen guidance for every required external account/service setup. For every operator action the coding agent must provide in Turkish: current official URL, page/menu name, exact button/link to click, exact field names, what to enter/select, what NOT to select, whether any card/payment risk exists, where to obtain an API key/token, how to store it safely without pasting it into chat or committing it, how to verify that the step succeeded, what to do if the current UI differs from documented UI. Never tell the operator merely "create an API key" or "configure Nebius". Never ask the operator to paste a secret into the conversation.
+13. DOCUMENTATION SYNC MATRIX: Master Plan updates exact task status when task state changes. HANDOFF updates active exact task, blocker and independently verified baseline truth. README updates only when public-facing capability/status/setup/architecture/competition truth materially changes, or at a Documentation Consolidation Gate. Architecture/Security/Evidence docs update only when their actual boundary/contract changes. Donor manifest updates only when donor research/reuse truth changes. Competition Feedback Log appends when real Nebius/NVIDIA/Tavily friction, strength, bug, limitation, or useful product feedback is actually observed. Harmless duplicated wording/count/navigation drift may be batched. Wrong SHA, false capability, false live claim, wrong evidence provenance, security/licensing/eligibility error must be fixed immediately. Every micro-task does NOT require mechanical rewriting of every documentation file.
+
+## Competition Critical Path
+
+Priority guidance for the Nebius x NVIDIA Global AI Hackathon. This is NOT scope deletion; all phases remain planned.
+
+1. **Platform reality:** P-00 (governance) → P-01 (live platform discovery and feasibility gate).
+2. **Causal vertical spine:** provider-neutral domain contracts (P-02 minimal) → real Nebius/Nemotron adapters (P-05) → Builder runtime (P-07) → Verifier isolation (P-08) → independent Witness generation (P-09) → P-10 causal two-world engine.
+3. **Judge proof:** first receipt/CLI proof (P-18/P-19 minimal) → judge-visible causal story (P-22/P-23 killer demo).
+4. **Deployment/reproducibility/submission:** P-27 (live deployment) → P-29 (competition evidence) → P-30 (demo video) → P-32 (submission freeze).
+5. **Depth features** (P-11 counterfactual, P-12 causal slice, P-13 semantics expansion, P-14 sealed repair, P-15 risk-adaptive budget, P-16 Tavily grounding, P-17 coverage, P-20 GitHub integration, P-24 adversarial, P-25 reliability, P-26 performance) remain planned and continue after the first coherent vertical slice.
 
 ---
 
@@ -30,6 +43,25 @@ Acceptance:
 - no application/runtime code;
 - HANDOFF points to P-00.02;
 - pushed remote SHA independently verifiable.
+
+### P-00.01A — Integrate pre-implementation competition strategy and operator constraints
+Status: DONE
+Deliver: competition strategy docs, operator requirements, zero-cost/guidance laws, competition feedback log, README expansion, HANDOFF/AGENTS/GEMINI governance updates.
+Acceptance:
+- zero-cost law in Plan and AGENTS.md;
+- operator guidance law in Plan and AGENTS.md;
+- documentation sync matrix in Plan and AGENTS.md;
+- `docs/OPERATOR_REQUIREMENTS.md` created;
+- `docs/COMPETITION_FEEDBACK_LOG.md` created;
+- `docs/COMPETITION_STRATEGY.md` created;
+- `docs/COMPETITION_CONTRACT.md` updated with current verified sources;
+- README expanded with honest planned/unimplemented labels;
+- HANDOFF updated with independently verified SHA;
+- competition critical path section added;
+- no runtime/application code;
+- P-00.02 remains PENDING;
+- no existing task title renamed;
+- pushed remote SHA.
 
 ### P-00.02 — Verify competition eligibility, track fit, deadlines, submission requirements, and judging contract against current official sources
 Status: PENDING
@@ -109,6 +141,14 @@ Acceptance:
 - GO/BLOCKED decision;
 - actual platform constraints drive architecture;
 - mocked substitutes cannot produce GO.
+
+### P-01.07 — Freeze judge-visible causal vertical-slice contract from proven platform reality
+Status: PENDING
+Acceptance:
+- written after P-01 proves actual platform capabilities;
+- defines what a judge will eventually see: task → Builder → independent witness → BASE result → CANDIDATE result → counterfactual where required → provenance → receipt;
+- does not implement future UI;
+- does not contain unverified platform claims.
 Phase exit: real model + real sandbox + two-clean-environment spine proven.
 
 ---
@@ -215,6 +255,15 @@ Phase exit: at least one independent witness can exist without Builder knowledge
 ### P-10.04 — Reconcile BUG_FIX FAIL→PASS deterministically
 ### P-10.05 — Handle PASS→PASS, FAIL→FAIL, ERROR/TIMEOUT as non-verified states
 ### P-10.06 — Produce first local causal receipt
+
+### P-10.07 — Execute first end-to-end causal vertical slice and produce a judge-readable proof summary
+Status: PENDING
+Acceptance:
+- integration checkpoint, not final UI;
+- complete path from task → Builder → independent witness → BASE execution → CANDIDATE execution → causal receipt;
+- does not bypass P-08/P-09 independence requirements;
+- proof summary is machine-readable and human-inspectable;
+- provenance clearly distinguishes FIXTURE/LOCAL_EXECUTION/LIVE_NEBIUS/RECORDED_LIVE.
 Phase exit: Basebreak can prove a real base/candidate behavioral transition.
 
 ---
@@ -273,6 +322,14 @@ Phase exit: strong verification is economically usable.
 ---
 
 # P-16 — External Grounding & Tavily
+Policy:
+- Tavily activates only when correctness materially depends on current external facts;
+- preferred competition scenario: current CVE/security advisory or API/library migration facts;
+- source provenance must bind to the contract/evidence;
+- Tavily never overrides deterministic execution facts;
+- runtime use must remain inside verified free/promotional credits;
+- no paid Tavily upgrade;
+- if bonus participation remains justified, use a real runtime Tavily call rather than bolted-on decoration.
 ### P-16.01 — Define when external current facts are materially required
 ### P-16.02 — Implement Tavily adapter with source provenance and strict minimization
 ### P-16.03 — Bind release-note/CVE/API facts into Grounded Contract evidence
@@ -333,6 +390,9 @@ Phase exit: UI can consume deterministic runtime state.
 ---
 
 # P-22 — Judge & Operator UI
+Acceptance:
+- eventual UI exposes sanitized deterministic reality: base/candidate/counterfactual hashes, evidence provenance, current vs recorded-live status, model/runtime identity where safe, execution timestamps/latency where available, bounded/sanitized sandbox/run identity where safe, NOT_RUN/blocked states;
+- does not expose secrets or sensitive provider identifiers.
 ### P-22.01 — Design single-screen causal story before implementation
 ### P-22.02 — Implement task/contract and live execution timeline
 ### P-22.03 — Implement BASE/CANDIDATE/COUNTERFACTUAL comparison
@@ -351,6 +411,15 @@ Phase exit: complete coherent product experience, not technical-only proof.
 ### P-23.05 — Run live base/candidate causal verification in fresh sandboxes
 ### P-23.06 — Run live counterfactual third execution
 ### P-23.07 — Produce real LIVE_NEBIUS receipt and UI playback
+### P-23.08 — Reproduce one immutable real-world open-source bug-fix replay with upstream SHA and license provenance
+Acceptance:
+- does NOT replace the deterministic ResetVault killer demo;
+- choose a genuinely public open-source repository/fix later;
+- pin buggy base SHA and fixed SHA;
+- record upstream license and provenance;
+- independently reproduce a relevant failing witness on the buggy revision and passing witness on the fixed revision;
+- do not claim the upstream fix was produced by Basebreak;
+- use it to demonstrate that Basebreak can verify a non-staged real-world historical change.
 Phase exit: competition killer demo is real, deterministic and repeatable.
 
 ---
@@ -391,6 +460,12 @@ Phase exit: technical implementation is efficient, not merely elaborate.
 ---
 
 # P-27 — Live Deployment
+Policy:
+- judge access must remain free of charge;
+- add abuse/rate/cost controls;
+- never expose an unauthenticated endpoint capable of silently draining all free Token Factory/Tavily credits;
+- any public live-run capability must be hard-budgeted/rate-limited or otherwise bounded;
+- read-only inspection of verified evidence must remain available even if live-call budget is exhausted, with provenance clearly shown.
 ### P-27.01 — Select eligible Nebius hosting path from current platform reality
 ### P-27.02 — Containerize/package app with reproducible build
 ### P-27.03 — Deploy public judge endpoint/test build
@@ -446,6 +521,11 @@ Phase exit: immutable competition candidate exists.
 ---
 
 # P-32 — Devpost Submission Freeze
+Acceptance:
+- required Nebius/NVIDIA feedback field must be verified;
+- feedback must come from the factual feedback ledger (`docs/COMPETITION_FEEDBACK_LOG.md`), not invented at submission time;
+- public judge/test path remains free of charge through the required judging period;
+- zero paid dependency is disclosed honestly if relevant.
 ### P-32.01 — Revalidate official competition rules at submission time
 ### P-32.02 — Verify public repo, visible open-source license and README setup
 ### P-32.03 — Verify working demo/test URL signed-out

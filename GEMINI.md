@@ -16,6 +16,9 @@ Important:
 - do not silently use mocks for required live Nebius work;
 - never weaken tests to make them pass;
 - distinguish FIXTURE / LOCAL_EXECUTION / LIVE_NEBIUS / RECORDED_LIVE;
+- read `docs/OPERATOR_REQUIREMENTS.md` for any task involving external accounts, APIs, credentials, billing/free credits, or manual operator steps;
+- provide beginner-grade, screen-by-screen Turkish guidance whenever operator action is needed (exact URLs, menus, buttons, fields, what NOT to click, no card/billing risks, secret safety);
+- never ask the operator to paste secrets into chat;
 - commit, push, then re-check final remote SHA;
 - report NOT_RUN honestly.
 
