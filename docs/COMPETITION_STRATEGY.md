@@ -52,9 +52,9 @@ Failure/contradiction is as visually valuable as PASS.
 
 **Audience:** Teams and organizations using AI coding agents (Copilot, Cursor, Codex, custom agents) who need confidence that a patch caused the requested behavior.
 
-**Problem:** Current AI coding tools say "tests pass" but cannot prove that the patch — and only the patch — caused the required change. Tests might have been green before the patch. Tests might have been weakened.
+**Problem:** Current AI coding tools say "tests pass" but cannot prove that the exact candidate produced the required observed transition under an independent witness, and that the tested counterfactual removes that transition. Tests might have been green before the patch. Tests might have been weakened.
 
-**Basebreak's answer:** Causal verification under an independently executed witness, not confidence from model prose.
+**Basebreak's answer:** Causal verification under an independently executed witness, not confidence from model prose. Basebreak proves causality under its witness suite, not global program correctness.
 
 ## Tavily Strategy
 

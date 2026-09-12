@@ -104,6 +104,7 @@ Strictly forbidden without explicit operator approval:
 - any irreversible billing action.
 If an external service demands payment/card/deposit and no verified zero-cost path exists: STOP, classify as BLOCKED or OPERATOR_DECISION_REQUIRED, explain alternatives, never silently proceed.
 Promotional credits are a finite budget, not permission to spend beyond them.
+Never assume promotional services automatically hard-stop upon quota exhaustion. If a service technically supports pay-as-you-go continuation, verify that billing/PAYG is disabled or hard-capped before execution, or classify as BLOCKED / OPERATOR_DECISION_REQUIRED.
 Prohibition against unmetered public endpoints: Never expose an unauthenticated public live endpoint capable of silently draining free Token Factory or Tavily credits. Any public live-run capability must be hard-budgeted or rate-limited; read-only inspection of verified evidence must remain accessible even when live budget is exhausted.
 
 ## 13. Operator Guidance Rule

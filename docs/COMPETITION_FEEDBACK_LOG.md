@@ -5,12 +5,16 @@ This log may also be used as source material for the "Most Valuable Feedback" pr
 
 ## Rules
 
-- Record only genuinely observed experiences.
+- Record only genuinely observed experiences of the operator or Basebreak runtime.
 - Never invent or fabricate feedback.
 - Never store credentials, secrets, or private identifiers.
 - Distinguish platform issue from operator error and Basebreak bug when known.
 - Append only; do not delete or rewrite past entries.
 - Each entry must have deterministic evidence or a clear reference.
+- Allowed provenance is strictly limited to:
+  - `LIVE_OBSERVATION` — hands-on runtime, API, SDK, or sandbox execution by Basebreak/operator.
+  - `DOCUMENTATION_REVIEW` — when Basebreak/operator actually reviewed official documentation and the feedback concerns that direct experience.
+- Third-party or community reports are strictly excluded from this competition feedback ledger; external feedback must never be synthesized as the operator's own experience.
 
 ## Entry Template
 
@@ -28,7 +32,7 @@ This log may also be used as source material for the "Most Valuable Feedback" pr
 - **Workaround:** [if any was found]
 - **Concrete Product Suggestion:** [actionable improvement suggestion for the provider]
 - **Severity/Value:** LOW | MEDIUM | HIGH | CRITICAL
-- **Provenance:** LIVE_OBSERVATION | DOCUMENTATION_REVIEW | COMMUNITY_REPORT
+- **Provenance:** LIVE_OBSERVATION | DOCUMENTATION_REVIEW
 - **Status:** RESOLVED | UNRESOLVED | WORKAROUND_APPLIED
 ```
 

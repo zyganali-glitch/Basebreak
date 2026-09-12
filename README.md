@@ -87,15 +87,15 @@ Without this transition, there is no evidence of causal necessity.
 |---|---|:---:|---|
 | **BASE** | Trusted base commit | **FAIL ❌** | The bug actually exists in the baseline |
 | **CANDIDATE** | Base + AI patch | **PASS ✅** | The patch satisfies the behavioral requirement |
-| **COUNTERFACTUAL** | Candidate minus relevant patch | **FAIL ❌** | The patch was causally necessary for the fix |
+| **COUNTERFACTUAL** | Candidate minus relevant patch | **FAIL ❌** | The tested patch delta was necessary for this observed transition under the specified witness and constructed counterfactual |
 
-If BASE passes, the witness is vacuous. If CANDIDATE fails, the patch is incomplete. If COUNTERFACTUAL passes, the patch was superfluous.
+If BASE passes, the witness is vacuous. If CANDIDATE fails, the patch does not satisfy the witness. If COUNTERFACTUAL passes, the subtracted patch delta was not necessary for the observed passing transition under this witness.
 
 ---
 
 ## Why Builder and Verifier Are Separated
 
-Basebreak enforces strict separation between:
+Basebreak is designed to enforce strict separation between:
 - **The Builder:** The AI agent that plans, edits code, and runs development tests in a sandbox.
 - **The Verifier:** An independent context that generates sealed behavioral witnesses from the accepted contract and trusted base, without Builder visibility.
 
@@ -116,13 +116,13 @@ Expected core runtime stack (subject to live discovery in P-01):
 
 ## Evidence Honesty & Provenance
 
-Basebreak labels all evidence deterministically by provenance:
+Basebreak is designed to label all evidence deterministically by provenance (PLANNED capability):
 - `FIXTURE` — static test fixtures used for internal unit validation.
 - `LOCAL_EXECUTION` — commands executed in the local operator environment.
 - `LIVE_NEBIUS` — commands and inference executed live against Nebius / NVIDIA infrastructure.
 - `RECORDED_LIVE` — verifiable replays of previously captured live runs.
 
-These are provenance labels, not PASS/FAIL verdicts. Basebreak never substitutes mocks for required live evidence.
+These are planned provenance labels, not PASS/FAIL verdicts. Basebreak will never substitute mocks for required live evidence.
 
 ---
 

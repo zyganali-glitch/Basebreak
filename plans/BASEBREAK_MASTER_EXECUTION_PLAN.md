@@ -23,10 +23,10 @@ Exact micro-task titles are immutable once committed. If architecture reality ch
 Priority guidance for the Nebius x NVIDIA Global AI Hackathon. This is NOT scope deletion; all phases remain planned.
 
 1. **Platform reality:** P-00 (governance) → P-01 (live platform discovery and feasibility gate).
-2. **Causal vertical spine:** provider-neutral domain contracts (P-02 minimal) → real Nebius/Nemotron adapters (P-05) → Builder runtime (P-07) → Verifier isolation (P-08) → independent Witness generation (P-09) → P-10 causal two-world engine.
+2. **Causal vertical spine:** provider-neutral domain contracts (P-02 minimal) → real Nebius/Nemotron adapters (P-05) → Builder runtime (P-07) → Verifier isolation (P-08) → independent Witness generation (P-09) → P-10 causal two-world engine (first two-world causal transition) → P-11 Counterfactual Third Run (competition-defining causal proof path producing the canonical high-value demo: BASE = FAIL, CANDIDATE = PASS, COUNTERFACTUAL = FAIL; P-11 is competition-core and not optional/stretch/depth-only).
 3. **Judge proof:** first receipt/CLI proof (P-18/P-19 minimal) → judge-visible causal story (P-22/P-23 killer demo).
 4. **Deployment/reproducibility/submission:** P-27 (live deployment) → P-29 (competition evidence) → P-30 (demo video) → P-32 (submission freeze).
-5. **Depth features** (P-11 counterfactual, P-12 causal slice, P-13 semantics expansion, P-14 sealed repair, P-15 risk-adaptive budget, P-16 Tavily grounding, P-17 coverage, P-20 GitHub integration, P-24 adversarial, P-25 reliability, P-26 performance) remain planned and continue after the first coherent vertical slice.
+5. **Depth features:** P-12 Minimal Causal Slice and subsequent depth features (P-13 semantics expansion, P-14 sealed repair, P-15 risk-adaptive budget, P-16 Tavily grounding, P-17 coverage, P-20 GitHub integration, P-24 adversarial, P-25 reliability, P-26 performance) remain planned and continue after the first coherent vertical slice.
 
 ---
 
@@ -45,7 +45,7 @@ Acceptance:
 - pushed remote SHA independently verifiable.
 
 ### P-00.01A — Integrate pre-implementation competition strategy and operator constraints
-Status: DONE
+Status: IN_PROGRESS
 Deliver: competition strategy docs, operator requirements, zero-cost/guidance laws, competition feedback log, README expansion, HANDOFF/AGENTS/GEMINI governance updates.
 Acceptance:
 - zero-cost law in Plan and AGENTS.md;
@@ -69,6 +69,7 @@ Acceptance:
 - official source URLs/date snapshot;
 - Coding & Agentic Engineering fit explicitly justified;
 - public repo/license/demo/<3m/runtime requirements captured;
+- resolve zero-cost judging-period coverage, including promotional-credit issuance/expiry and post-quota billing behavior from current official terms/runtime;
 - no unverified platform/model claim.
 
 ### P-00.03 — Freeze donor research pins and license/preflight status without importing implementation

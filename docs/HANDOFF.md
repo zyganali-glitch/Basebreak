@@ -15,17 +15,19 @@ Judge claim:
 
 ## Current state
 - P-00.01 (Bootstrap canonical repository governance spine and competition contract) is independently VERIFIED / PASS at SHA `d29a46f68f576dad0b140ec6be6973bb084bdfeb`.
-- P-00.01A (Integrate pre-implementation competition strategy and operator constraints) executed by Antigravity executor; awaiting independent QA verification.
+- P-00.01A (Integrate pre-implementation competition strategy and operator constraints) is in active repair / awaiting independent QA verification.
+- P-00.02 remains PENDING / UNSTARTED.
 
 ## Active exact task
-`P-00.02 — Verify competition eligibility, track fit, deadlines, submission requirements, and judging contract against current official sources`
+`P-00.01A — Integrate pre-implementation competition strategy and operator constraints` (repair / awaiting independent QA)
 
 ## Last independently VERIFIED baseline SHA
 `d29a46f68f576dad0b140ec6be6973bb084bdfeb` (P-00.01 closure commit).
-Note: P-00.01A amendment commit is pushed but awaits independent QA verification.
+Note: P-00.01A repair commit is pushed to remote but awaits independent QA verification.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (no credit cards, PAYG, paid tiers, or auto-upgrades);
+- post-quota billing safety: verify PAYG disabled/capped before using services that support paid continuation;
 - beginner-grade Turkish guidance for all operator setup actions;
 - live-first;
 - no mock-to-live substitution;
@@ -38,5 +40,5 @@ Note: P-00.01A amendment commit is pushed but awaits independent QA verification
 - no unmetered public live endpoints that drain promotional credits.
 
 ## Immediate next step
-Independent QA inspects the P-00.01A governance refinement commit on `origin/main`.
-If PASS, proceed to execution of P-00.02.
+Independent QA inspects the P-00.01A repair commit on `origin/main`.
+Only after independent QA awards PASS may P-00.02 be started.

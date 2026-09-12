@@ -28,6 +28,15 @@ Forbidden without explicit operator approval:
 If a UI requests payment, STOP and guide the operator safely.
 Never silently proceed past a payment/card request.
 
+### Post-Quota Continuation & Billing Safety Rule
+Official Builder Program terms note customers may continue on pay-as-you-go after promotional credits are consumed. Therefore Basebreak must never assume every promotional service automatically hard-stops.
+Before using any service that technically supports paid continuation after free/promotional quota:
+- verify whether billing/PAYG is disabled or impossible for the operator account;
+- verify whether a hard spending cap or equivalent no-charge control exists;
+- if charges cannot be deterministically prevented, classify the path `BLOCKED` or `OPERATOR_DECISION_REQUIRED`;
+- never add a payment method merely to continue development;
+- do not claim that Token Factory currently will or will not auto-charge this specific account until live account/billing state is inspected.
+
 ## 3. BEGINNER-GRADE GUIDANCE
 
 The operator is non-expert. For every required external account/service setup, the coding agent must provide in Turkish:
