@@ -73,7 +73,7 @@ Acceptance:
 - no unverified platform/model claim.
 
 ### P-00.03 — Freeze donor research pins and license/preflight status without importing implementation
-Status: DONE
+Status: IN_PROGRESS
 Acceptance:
 - every candidate donor immutable SHA or explicit NOT_PINNED;
 - license read at pin;

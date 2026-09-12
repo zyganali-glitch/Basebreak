@@ -82,14 +82,13 @@ Default: `CONCEPT_ONLY`.
 Crucial boundary: ownership by the same operator does NOT automatically turn it into competition-safe copied implementation. Under competition open-source rules and its All Rights Reserved root license, ZERO code copying is permitted. All Basebreak causal logic must be concept-only and clean-room reimplemented.
 Do not import ShadowLab/Approval Compression/Capability Passport/Change Passport terminology.
 
-### GitLab UAOS / Qwen UAOS
-Audited at P-00.03:
-- `gitlab.com/zyganali/universal-agent-os-qwen` (SHA `a43b3411856f41a4be9424d11c01a5e637cdc410`, MIT License, `VERIFIED_PERMISSIVE`)
-- `gitlab.com/zyganali/universal-agent-os-gitlab-edition` (SHA `3c4a412b6040d8a8154c15325943c409be9105f2`, MIT License, `VERIFIED_PERMISSIVE`)
-Potential lessons: model adapter patterns and repository-native workflow automation.
-Status: `NO_CURRENT_REUSE_NEED`. Kept as verified research pins; no code imported.
+### GitLab UAOS / Qwen UAOS (Executor-reported — independent QA unverified)
+Independent QA could not reproduce GitLab access/pin/license verification in the current QA environment. Because neither donor is required for Basebreak's architecture, this is preserved as non-blocking research debt:
+- `gitlab.com/zyganali/universal-agent-os-qwen` (Executor-reported SHA `a43b3411856f41a4be9424d11c01a5e637cdc410`, executor-reported MIT License, `UNVERIFIED_BY_INDEPENDENT_QA`)
+- `gitlab.com/zyganali/universal-agent-os-gitlab-edition` (Executor-reported SHA `3c4a412b6040d8a8154c15325943c409be9105f2`, executor-reported MIT License, `UNVERIFIED_BY_INDEPENDENT_QA`)
+Status: `NO_CURRENT_REUSE_NEED`. Kept as non-blocking research debt; no code imported.
 
-## Verified donor research pins (P-00.03)
+## Independently verified GitHub research pins (P-00.03)
 These are immutable research pins for architectural study only, NOT approvals to copy code:
 - Universal-Agent-OS: `6b83b06212101c238ec28076a2ba7ae819f483f2` (MIT — `VERIFIED_PERMISSIVE`)
 - universal-agent-os-uipath: `dc2267939c2aef0aba2737da65f53352c5cf8fb2` (MIT — `VERIFIED_PERMISSIVE`)
@@ -97,7 +96,10 @@ These are immutable research pins for architectural study only, NOT approvals to
 - zerokit-ai-control-plane: `d663db8c706cb914e1af5caf651df08edb5c50c0` (MIT — `VERIFIED_PERMISSIVE`)
 - ContextSeal: `b8d87ad05e323b7366c8e0817839e01034c4438d` (Apache-2.0 — `VERIFIED_PERMISSIVE`)
 - ChangeMesh: `7b349f0e005ccb416034df318baae67f43a1099d` (All Rights Reserved — `VERIFIED_PROPRIETARY_OR_ALL_RIGHTS_RESERVED`)
-- universal-agent-os-qwen: `a43b3411856f41a4be9424d11c01a5e637cdc410` (MIT — `VERIFIED_PERMISSIVE`)
-- universal-agent-os-gitlab-edition: `3c4a412b6040d8a8154c15325943c409be9105f2` (MIT — `VERIFIED_PERMISSIVE`)
+
+## Executor-reported GitLab research pins — independent QA unverified (P-00.03)
+These research entries are executor-reported only; independent QA could not reproduce access in the current QA environment. They remain non-blocking research debt with no current reuse need:
+- universal-agent-os-qwen: `a43b3411856f41a4be9424d11c01a5e637cdc410` (Executor-reported MIT; `UNVERIFIED_BY_INDEPENDENT_QA`)
+- universal-agent-os-gitlab-edition: `3c4a412b6040d8a8154c15325943c409be9105f2` (Executor-reported MIT; `UNVERIFIED_BY_INDEPENDENT_QA`)
 
 Every actual future reuse candidate must re-check the donor license at the pinned SHA and undergo a dedicated preflight task.
