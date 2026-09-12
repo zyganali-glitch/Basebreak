@@ -147,6 +147,47 @@ All runtime capabilities described above are **PLANNED** and are not yet impleme
 
 ---
 
+## Development & Tooling Baseline
+
+Basebreak uses a minimal Python packaging and validation baseline (Python `>=3.11`).
+
+### Clean-Checkout Setup
+
+Create and activate a virtual environment, then install the package in editable mode with development dependencies:
+
+```bash
+python -m venv .venv
+# On Windows:
+.venv\Scripts\activate
+# On Linux/macOS:
+source .venv/bin/activate
+
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
+
+### Canonical Root Validation Commands
+
+Run these deterministic gates from the repository root:
+
+```bash
+# 1. Format check
+python -m ruff format --check .
+
+# 2. Lint check
+python -m ruff check .
+
+# 3. Type check
+python -m mypy src tests
+
+# 4. Unit tests
+python -m pytest
+```
+
+All four gates must pass cleanly. All runtime capabilities (causal engine, Builder, Verifier, Nebius adapters, sandboxes) remain planned and unimplemented at this phase.
+
+---
+
 ## Security & Zero-Cost Boundary
 
 - **Zero Personal Spend:** Basebreak development and judge access operate entirely within genuine free tiers and sponsor promotional credits. No credit cards, auto-billing, or paid upgrades.

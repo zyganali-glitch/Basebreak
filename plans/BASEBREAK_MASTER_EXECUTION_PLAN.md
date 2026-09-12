@@ -73,7 +73,7 @@ Acceptance:
 - no unverified platform/model claim.
 
 ### P-00.03 — Freeze donor research pins and license/preflight status without importing implementation
-Status: IN_PROGRESS
+Status: DONE
 Acceptance:
 - every candidate donor immutable SHA or explicit NOT_PINNED;
 - license read at pin;
@@ -81,7 +81,7 @@ Acceptance:
 - zero donor code copied.
 
 ### P-00.04 — Establish repository structure, Python/runtime tooling baseline, formatting/lint/type/test commands
-Status: PENDING
+Status: IN_PROGRESS
 Acceptance:
 - minimal skeleton only;
 - deterministic root commands;
