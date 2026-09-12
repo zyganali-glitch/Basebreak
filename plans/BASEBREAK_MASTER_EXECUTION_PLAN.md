@@ -1,0 +1,462 @@
+# BASEBREAK MASTER EXECUTION PLAN
+
+Status vocabulary: `PENDING`, `IN_PROGRESS`, `DONE`, `BLOCKED`.
+Exact micro-task titles are immutable once committed. If architecture reality changes, add an ADR and amend acceptance criteria without silently renaming historical tasks.
+
+## Global acceptance laws
+1. Remote `main` is canonical.
+2. No task closes from an agent report alone.
+3. Live-required work needs current `LIVE_NEBIUS` evidence.
+4. Builder-authored tests do not automatically satisfy independent verification.
+5. Candidate verification binds to exact hashes.
+6. No silent mock fallback.
+7. Deterministic failure cannot be overridden by model prose.
+8. Competition-defining donor logic prefers concept-only/clean-room.
+9. Every irreversible external action requires explicit authority.
+10. Critical truth updates immediately; harmless documentation parity batches.
+
+---
+
+# P-00 — Repository, Competition Contract & Governance Bootstrap
+Goal: create the trustworthy empty-repo baseline before implementation.
+
+### P-00.01 — Bootstrap canonical repository governance spine and competition contract
+Status: DONE
+Deliver: root governance/docs/plan/license/readme from starter pack.
+Acceptance:
+- canonical repo public on `main`;
+- Apache-2.0 visible;
+- exact product thesis and current competition contract committed;
+- no application/runtime code;
+- HANDOFF points to P-00.02;
+- pushed remote SHA independently verifiable.
+
+### P-00.02 — Verify competition eligibility, track fit, deadlines, submission requirements, and judging contract against current official sources
+Status: PENDING
+Acceptance:
+- official source URLs/date snapshot;
+- Coding & Agentic Engineering fit explicitly justified;
+- public repo/license/demo/<3m/runtime requirements captured;
+- no unverified platform/model claim.
+
+### P-00.03 — Freeze donor research pins and license/preflight status without importing implementation
+Status: PENDING
+Acceptance:
+- every candidate donor immutable SHA or explicit NOT_PINNED;
+- license read at pin;
+- reuse target/class recorded;
+- zero donor code copied.
+
+### P-00.04 — Establish repository structure, Python/runtime tooling baseline, formatting/lint/type/test commands
+Status: PENDING
+Acceptance:
+- minimal skeleton only;
+- deterministic root commands;
+- CI-compatible;
+- no Nebius fake adapter;
+- focused bootstrap tests pass.
+
+### P-00.05 — Run first documentation consolidation and focused P-Ω bootstrap audit
+Status: PENDING
+Acceptance:
+- plan/HANDOFF/README critical truth aligned;
+- no secrets/local paths except explicitly documented operator path where required;
+- no future-phase implementation.
+Phase exit: trusted empty-product baseline exists.
+
+---
+
+# P-01 — Live Platform Discovery & Feasibility Gate
+Goal: prove real Nebius/NVIDIA capabilities before broad implementation.
+
+### P-01.01 — Discover current Nebius account/runtime/API/model reality from official docs and live account
+Acceptance:
+- current endpoints/SDK/auth/model IDs discovered, not guessed;
+- eligible NVIDIA open-source model identified;
+- capabilities/limits recorded with LIVE_NEBIUS or official-doc provenance.
+
+### P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt
+Acceptance:
+- real request/response;
+- model/runtime identity recorded;
+- no secret leakage;
+- no mock fallback.
+
+### P-01.03 — Discover and execute minimal Token Factory Sandbox workflow
+Acceptance:
+- create supported sandbox;
+- execute harmless command;
+- collect deterministic exit/output;
+- teardown observed;
+- exact API/SDK constraints recorded.
+
+### P-01.04 — Prove live repository materialization inside supported sandbox
+Acceptance:
+- synthetic/public test repo materialized;
+- base SHA resolved inside sandbox;
+- command/test run executed;
+- filesystem/network assumptions recorded.
+
+### P-01.05 — Prove two independent clean sandbox executions from the same trusted source
+Acceptance:
+- unique sandbox identities;
+- no workspace sharing;
+- reproducible source hash;
+- independent outputs captured.
+
+### P-01.06 — Phase feasibility decision and architecture freeze v0
+Acceptance:
+- GO/BLOCKED decision;
+- actual platform constraints drive architecture;
+- mocked substitutes cannot produce GO.
+Phase exit: real model + real sandbox + two-clean-environment spine proven.
+
+---
+
+# P-02 — Provider-Neutral Domain Contracts
+Goal: encode truth before orchestration.
+
+### P-02.01 — Define repository/source identity and immutable revision contracts
+### P-02.02 — Define engineering task and acceptance-requirement contracts
+### P-02.03 — Define change-semantics enum and per-class verification requirements
+### P-02.04 — Define execution command/result/sandbox identity contracts
+### P-02.05 — Define witness, candidate, counterfactual and causal-binding contracts
+### P-02.06 — Define evidence provenance and preliminary verdict contracts
+### P-02.07 — Add schema validation, serialization, compatibility and provider-purity tests
+Phase exit:
+- domain imports no Nebius/NVIDIA/UI SDKs;
+- exact hash/state semantics deterministic;
+- no orchestration yet.
+
+---
+
+# P-03 — Evidence Store & Deterministic Fact Authority
+### P-03.01 — Implement content-addressed artifact hashing and canonical serialization
+### P-03.02 — Implement run/evidence append model with immutable identifiers
+### P-03.03 — Implement bounded sanitized stdout/stderr capture with digests
+### P-03.04 — Implement evidence provenance validation and forbidden state transitions
+### P-03.05 — Implement deterministic verdict-input snapshot binding
+### P-03.06 — Add tamper/mismatch/replay tests
+Phase exit: evidence facts cannot be silently rebound to another candidate/run.
+
+---
+
+# P-04 — Security & Untrusted-Code Policy Foundation
+### P-04.01 — Formalize target-repository threat model
+### P-04.02 — Implement secret redaction and forbidden persistence rules
+### P-04.03 — Define sandbox resource/network/process policy from proven platform capability
+### P-04.04 — Implement protected-surface manifest and diff checks
+### P-04.05 — Implement execution timeout/cancellation/resource-failure normalization
+### P-04.06 — Add malicious-fixture tests for exfiltration attempts, fork bombs, verifier discovery, and protected-surface mutation
+Phase exit: safe bounded execution contracts exist before autonomous building.
+
+---
+
+# P-05 — Nebius/Nemotron Adapter Layer
+### P-05.01 — Implement bounded model client using discovered model identifiers/config
+### P-05.02 — Implement sandbox create/exec/inspect/teardown adapter
+### P-05.03 — Implement repository materialization and source-hash verification adapter
+### P-05.04 — Implement model/sandbox telemetry normalization with secret-safe logs
+### P-05.05 — Implement retry/idempotency policy without duplicating external actions
+### P-05.06 — Execute live adapter integration suite
+Phase exit: provider adapter is real, fail-closed, and replaceable from domain core.
+
+---
+
+# P-06 — Contract Compiler
+Goal: convert natural-language task into reviewable verification contract.
+
+### P-06.01 — Define task ingestion and deterministic normalization
+### P-06.02 — Use Nemotron to propose atomic acceptance requirements with citations to task text
+### P-06.03 — Classify change semantics and uncertainty
+### P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions
+### P-06.05 — Add human-editable contract review surface/CLI
+### P-06.06 — Freeze contract digest before Builder execution
+Phase exit: Builder cannot silently rewrite the task it will later “prove”.
+
+---
+
+# P-07 — Builder Runtime v1
+### P-07.01 — Define Builder context allowlist and model input minimization
+### P-07.02 — Implement Nemotron Builder plan/code loop in real sandbox
+### P-07.03 — Implement bounded file editing and command execution
+### P-07.04 — Capture candidate diff/tree hash and Builder-authored tests
+### P-07.05 — Enforce protected surfaces and forbidden action policy
+### P-07.06 — Reproduce candidate from trusted base + captured patch in a fresh sandbox
+Phase exit: a real AI-written candidate can be produced and independently reproduced.
+
+---
+
+# P-08 — Verifier Isolation & Sealed Challenge Boundary
+### P-08.01 — Define minimum trusted inputs visible to Verifier
+### P-08.02 — Create separate verifier sandbox/context with no Builder workspace inheritance
+### P-08.03 — Implement sealed witness storage/integrity contract
+### P-08.04 — Prevent Builder access to hidden witness implementation/artifacts
+### P-08.05 — Add adversarial isolation tests
+Phase exit: verifier independence is mechanically stronger than “another prompt”.
+
+---
+
+# P-09 — Witness Generation
+### P-09.01 — Implement Nemotron witness-plan generation from frozen contract + trusted source
+### P-09.02 — Validate witness plans against scope/security/runtime policy
+### P-09.03 — Generate executable independent behavioral witnesses for BUG_FIX
+### P-09.04 — Add witness determinism/timeout/result normalization
+### P-09.05 — Detect vacuous witnesses and invalid preconditions
+### P-09.06 — Preserve witness digest before candidate execution
+Phase exit: at least one independent witness can exist without Builder knowledge.
+
+---
+
+# P-10 — Causal Two-World Engine
+### P-10.01 — Execute identical witness on trusted base
+### P-10.02 — Execute identical witness on exact candidate
+### P-10.03 — Bind both executions to source/sandbox/witness hashes
+### P-10.04 — Reconcile BUG_FIX FAIL→PASS deterministically
+### P-10.05 — Handle PASS→PASS, FAIL→FAIL, ERROR/TIMEOUT as non-verified states
+### P-10.06 — Produce first local causal receipt
+Phase exit: Basebreak can prove a real base/candidate behavioral transition.
+
+---
+
+# P-11 — Counterfactual Third Run
+### P-11.01 — Define safe candidate-delta subtraction strategies
+### P-11.02 — Select bounded relevant patch region without model authority over verdict
+### P-11.03 — Materialize counterfactual candidate in fresh sandbox
+### P-11.04 — Execute same witness against counterfactual
+### P-11.05 — Reconcile FAIL→PASS→FAIL causal triplet
+### P-11.06 — Detect invalid counterfactual construction and return INCONCLUSIVE, never false PASS
+Phase exit: critical demonstrations can show causal necessity under the witness.
+
+---
+
+# P-12 — Minimal Causal Slice
+### P-12.01 — Define causal-slice scope and non-formal-proof disclaimer
+### P-12.02 — Implement bounded hunk/subset minimization algorithm
+### P-12.03 — Cache/reuse safe deterministic executions to control cost
+### P-12.04 — Bind requirement → witness → minimal necessary candidate slice
+### P-12.05 — Test interacting hunks, non-monotonic behavior, and ambiguous slices
+Phase exit: Basebreak can explain which tested change subset is necessary under a witness.
+
+---
+
+# P-13 — Change-Semantics Expansion
+### P-13.01 — FEATURE ABSENT→PRESENT verifier
+### P-13.02 — SECURITY_FIX EXPLOITABLE→BLOCKED verifier
+### P-13.03 — REFACTOR behavioral-equivalence verifier
+### P-13.04 — PERFORMANCE parity + benchmark-delta verifier
+### P-13.05 — DEP/API contract migration + regression verifier
+### P-13.06 — Cross-class classification error tests
+Phase exit: product is not a one-demo bug-fix trick.
+
+---
+
+# P-14 — Sealed Repair Loop
+### P-14.01 — Define bounded failure-feedback schema
+### P-14.02 — Return minimized counterexample without hidden witness disclosure
+### P-14.03 — Re-enter Builder in fresh/controlled repair context
+### P-14.04 — Create repaired candidate with new exact hash
+### P-14.05 — Require fresh verifier reproduction for repaired candidate
+### P-14.06 — Cap repair rounds/cost and return honest non-success
+Phase exit: agent improves from evidence without memorizing the hidden exam.
+
+---
+
+# P-15 — Risk-Adaptive Verification Budget
+### P-15.01 — Define deterministic risk features and policy levels
+### P-15.02 — Map low/medium/high risk to verification depth
+### P-15.03 — Add cost/token/sandbox budget accounting
+### P-15.04 — Add policy for when counterrun/slicing is mandatory
+### P-15.05 — Add fail-closed behavior when required budget cannot execute
+Phase exit: strong verification is economically usable.
+
+---
+
+# P-16 — External Grounding & Tavily
+### P-16.01 — Define when external current facts are materially required
+### P-16.02 — Implement Tavily adapter with source provenance and strict minimization
+### P-16.03 — Bind release-note/CVE/API facts into Grounded Contract evidence
+### P-16.04 — Prevent web evidence from overriding deterministic execution
+### P-16.05 — Execute real runtime Tavily path if bonus remains strategically justified
+Phase exit: current-fact tasks are grounded without bolted-on bonus theater.
+
+---
+
+# P-17 — Causal Coverage & Multi-Requirement Reconciliation
+### P-17.01 — Define eligibility denominator for behavioral requirements
+### P-17.02 — Aggregate per-requirement causal states
+### P-17.03 — Compute deterministic Causal Coverage
+### P-17.04 — Handle mixed semantic classes and NOT_RUN requirements
+### P-17.05 — Prevent model confidence from entering coverage math
+Phase exit: project-level verification is honest and understandable.
+
+---
+
+# P-18 — Verification Receipt
+### P-18.01 — Define public receipt schema
+### P-18.02 — Bind base/candidate/counterfactual hashes, witnesses and outcomes
+### P-18.03 — Include provenance, runtime identities, timing/cost and NOT_RUN
+### P-18.04 — Add integrity digest/signature strategy appropriate to hackathon scope
+### P-18.05 — Render human-readable receipt without losing machine truth
+Phase exit: judges/developers can inspect one proof object.
+
+---
+
+# P-19 — CLI & Developer Workflow
+### P-19.01 — Implement `basebreak verify` happy path
+### P-19.02 — Implement run/status/evidence/receipt commands
+### P-19.03 — Add config schema and safe defaults
+### P-19.04 — Add clear blocked/inconclusive/contradicted UX
+### P-19.05 — Validate clean-checkout install/run instructions
+Phase exit: coherent developer tool exists before dashboard polish.
+
+---
+
+# P-20 — GitHub Integration
+### P-20.01 — Implement read-only repository/task ingestion path
+### P-20.02 — Resolve exact remote/base SHA and protect against moving refs
+### P-20.03 — Generate review artifact/comment text without external mutation
+### P-20.04 — Add bounded optional draft-PR/comment integration only if competition value justifies it
+### P-20.05 — Require human authority for irreversible GitHub action
+Phase exit: real-world repo workflow without autonomous merge theater.
+
+---
+
+# P-21 — API / Orchestrator Surface
+### P-21.01 — Define run API contracts from domain types
+### P-21.02 — Implement create/status/evidence/receipt endpoints
+### P-21.03 — Implement event stream for live build/verify states
+### P-21.04 — Enforce authorization and secret-safe serialization
+### P-21.05 — Add idempotency/recovery for run creation
+Phase exit: UI can consume deterministic runtime state.
+
+---
+
+# P-22 — Judge & Operator UI
+### P-22.01 — Design single-screen causal story before implementation
+### P-22.02 — Implement task/contract and live execution timeline
+### P-22.03 — Implement BASE/CANDIDATE/COUNTERFACTUAL comparison
+### P-22.04 — Implement requirement→witness→causal-slice map
+### P-22.05 — Implement receipt/provenance/NOT_RUN inspection
+### P-22.06 — Add responsive judge mode with no fake animations/data
+Phase exit: complete coherent product experience, not technical-only proof.
+
+---
+
+# P-23 — Killer Demo Fixture & Live Scenario
+### P-23.01 — Build minimal ResetVault-style synthetic repo with genuinely green baseline suite and real hidden bug
+### P-23.02 — Freeze task: make reset tokens single-use without breaking first valid reset
+### P-23.03 — Validate existing tests remain green while independent witness fails on base
+### P-23.04 — Run real Nemotron Builder in Nebius sandbox
+### P-23.05 — Run live base/candidate causal verification in fresh sandboxes
+### P-23.06 — Run live counterfactual third execution
+### P-23.07 — Produce real LIVE_NEBIUS receipt and UI playback
+Phase exit: competition killer demo is real, deterministic and repeatable.
+
+---
+
+# P-24 — Adversarial Verification Campaign
+### P-24.01 — Builder weakens/deletes tests attack
+### P-24.02 — Builder modifies acceptance contract attack
+### P-24.03 — Builder attempts verifier/hidden-witness discovery
+### P-24.04 — Prompt injection from target repo
+### P-24.05 — Evidence tampering/hash rebinding
+### P-24.06 — Moving branch/ref race
+### P-24.07 — Sandbox timeout/resource exhaustion/network misuse
+### P-24.08 — False-positive/vacuous witness campaign
+Phase exit: product survives relevant agent/repo adversarial behavior.
+
+---
+
+# P-25 — Reliability, Recovery & Idempotency
+### P-25.01 — Persist recoverable run state without trusting mutable workspace
+### P-25.02 — Implement crash/retry semantics for model calls
+### P-25.03 — Implement sandbox-loss recovery
+### P-25.04 — Implement duplicate-run/idempotency protection
+### P-25.05 — Implement evidence write deduplication and replay safety
+### P-25.06 — Fresh-process recovery E2E
+Phase exit: demo/runtime does not depend on one lucky uninterrupted session.
+
+---
+
+# P-26 — Performance, Cost & Model Routing
+### P-26.01 — Establish latency/token/sandbox-cost measurement
+### P-26.02 — Compare eligible Nemotron models for Builder workload
+### P-26.03 — Compare eligible model strategy for Verifier/witness workload
+### P-26.04 — Add routing only when quality/cost evidence supports it
+### P-26.05 — Benchmark causal verification overhead
+### P-26.06 — Publish honest performance/cost limits
+Phase exit: technical implementation is efficient, not merely elaborate.
+
+---
+
+# P-27 — Live Deployment
+### P-27.01 — Select eligible Nebius hosting path from current platform reality
+### P-27.02 — Containerize/package app with reproducible build
+### P-27.03 — Deploy public judge endpoint/test build
+### P-27.04 — Verify health/version/source SHA parity
+### P-27.05 — Verify signed-out/free judge access
+### P-27.06 — Prove deployed app triggers real required Nebius/NVIDIA runtime
+Phase exit: working public product exists.
+
+---
+
+# P-28 — Product Design & Judge Comprehension
+### P-28.01 — Conduct 30-second comprehension audit
+### P-28.02 — Simplify terminology around one memorable claim
+### P-28.03 — Surface causal transition before architecture detail
+### P-28.04 — Make failure/contradiction visually as valuable as PASS
+### P-28.05 — Accessibility/responsive/browser QA
+### P-28.06 — Documentation consolidation
+Phase exit: judges can understand value without reading architecture docs.
+
+---
+
+# P-29 — Competition Evidence & Reproducibility
+### P-29.01 — Create clean-checkout install test
+### P-29.02 — Run full test/security/type/lint gates
+### P-29.03 — Run fresh live Nebius end-to-end evidence capture
+### P-29.04 — Bind deployed source SHA and runtime evidence
+### P-29.05 — Final donor/license/provenance audit
+### P-29.06 — Final secret/privacy/public-artifact scan
+Phase exit: claims are reproducible and provenance-clean.
+
+---
+
+# P-30 — Demo Video & Submission Narrative
+### P-30.01 — Freeze <3 minute storyboard around causal surprise
+### P-30.02 — Capture real live sequence: green baseline → base witness fail → candidate pass → counterfactual fail
+### P-30.03 — Record concise English audio and captions
+### P-30.04 — Verify no unsupported claim or secret in video
+### P-30.05 — Draft Devpost story mapped to four judging criteria
+### P-30.06 — Prepare screenshots/architecture only from verified product truth
+Phase exit: submission communicates the product as strongly as it is built.
+
+---
+
+# P-31 — Release Candidate & Whole-Repo P-Ω
+### P-31.01 — Freeze RC source and dependency lock
+### P-31.02 — Run clean-checkout reproduction from RC
+### P-31.03 — Run whole-repository P-Ω integrity audit
+### P-31.04 — Repair blockers without weakening evidence/tests
+### P-31.05 — Re-run affected/full/live gates after repair
+### P-31.06 — Create immutable release tag
+Phase exit: immutable competition candidate exists.
+
+---
+
+# P-32 — Devpost Submission Freeze
+### P-32.01 — Revalidate official competition rules at submission time
+### P-32.02 — Verify public repo, visible open-source license and README setup
+### P-32.03 — Verify working demo/test URL signed-out
+### P-32.04 — Verify public YouTube playback <3 minutes and English accessibility
+### P-32.05 — Verify Nebius/NVIDIA usage claims and Tavily bonus eligibility if used
+### P-32.06 — Complete submission before internal buffer deadline
+### P-32.07 — Perform post-submit signed-out verification without mutating frozen release
+Phase exit: submitted, publicly testable, evidence-consistent entry.
+
+---
+
+# P-Ω — Continuous Integrity
+P-Ω runs focused throughout and broad at defined boundaries.
+It never substitutes for task-specific evidence and never proves itself.
