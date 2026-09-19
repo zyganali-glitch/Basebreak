@@ -46,6 +46,7 @@ P-01.02 remains PENDING / UNSTARTED.
 
 ## Immediate next step
 1. Await independent QA verification for P-01.01 at current commit.
-2. Await Nebius Builder Program approval email containing the promotional credit codes ($25 Token Factory + $25 Tavily, 2 business days SLA).
-3. Upon receiving the promo code email: redeem promo code in Token Factory console, generate `NEBIUS_API_KEY`, and proceed to `P-01.02`.
-Do NOT advance to P-01.02 before independent QA PASS and promotional credit code arrival. Zero personal spend is strictly preserved.
+2. Tavily account onboarding completed under Free/Researcher path (1,000 monthly + 3,125 promo credits, usage-based payment visibly disabled, zero payment cards, 0 API calls executed; integration deferred to P-16).
+3. Await separate email from Nebius containing the $25 Token Factory promotional credit code.
+4. Upon receiving the Token Factory promo code email: redeem promo code in Token Factory console, generate `NEBIUS_API_KEY`, and proceed to `P-01.02`.
+Do NOT advance to P-01.02 before independent QA PASS and Token Factory promotional credit code arrival. Zero personal spend is strictly preserved.

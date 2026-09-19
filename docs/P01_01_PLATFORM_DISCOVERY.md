@@ -146,24 +146,26 @@ The hackathon requires building with NVIDIA open-source models served on Nebius 
 | Dimension | Discovery Status | Evidence Provenance | Notes |
 |---|:---:|:---:|---|
 | Devpost Hackathon Registration | `CONFIRMED` | `LIVE_ACCOUNT` | Registered on Devpost (`zyganali@gmail.com`) on 2026-09-12 |
-| Builder Program Application | `SUBMITTED` | `LIVE_ACCOUNT` | Submitted on `dev.nebius.com/builders#form`; under review (2 business days SLA) |
-| Promotional Credits Issued | `PENDING_APPROVAL` | `LIVE_ACCOUNT` | Awaiting email with \$25 Token Factory + \$25 Tavily promo codes |
-| Promotional Credits Remaining | `PENDING` | `LIVE_ACCOUNT` | To be verified upon promo code redemption |
-| Credit Expiry Date | `PENDING` | `OFFICIAL_DOC` | Standard: 90 days from issuance date |
-| Payment Method Attached | `NONE` | `LIVE_ACCOUNT` | Onboarding card entry aborted to protect Zero-Cost Law |
-| Bank Card Present | `NO` | `LIVE_ACCOUNT` | Verified: zero cards entered, zero personal risk |
-| PAYG State | `NOT_ACTIVATED` | `LIVE_ACCOUNT` | Account remains free/promotional-only |
+| Builder Program Application | `ACCEPTED` | `LIVE_ACCOUNT` | Welcome email received on 2026-09-19; separate $25 Token Factory promo code email en route |
+| Token Factory Promo Code | `PENDING_EMAIL` | `LIVE_ACCOUNT` | Awaiting separate email from Nebius with $25 Token Factory promo code |
+| Tavily Account Onboarding | `COMPLETED` | `LIVE_ACCOUNT` | Onboarded via Free/Researcher path; no bank card required; usage-based payment visibly disabled |
+| Tavily Account Credits | `CONFIRMED` | `LIVE_ACCOUNT` | 1,000 monthly plan credits + 3,125 promotional credits visible in dashboard |
+| Tavily API Key | `GENERATED_SAFELY` | `LIVE_ACCOUNT` | Key exists in dashboard; not copied to chat/repo; 0 calls executed; integration deferred to P-16 |
+| Payment Method Attached | `NONE` | `LIVE_ACCOUNT` | Onboarding card entry aborted on Nebius; zero cards entered on Tavily; Zero-Cost Law strictly intact |
+| Bank Card Present | `NO` | `LIVE_ACCOUNT` | Verified: zero cards entered across all services, zero personal risk |
+| PAYG State | `NOT_ACTIVATED` | `LIVE_ACCOUNT` | Token Factory card setup bypassed; Tavily usage-based billing visibly disabled |
 | Hard Spending Cap ($0.00 personal spend) | `ENFORCED_BY_POLICY` | `LOCAL_EXECUTION` | Card entry blocked; no personal charge possible |
-| Local `NEBIUS_API_KEY` present | `NO` | `LOCAL_EXECUTION` | Awaiting account activation / key generation after credit approval |
+| Local `NEBIUS_API_KEY` present | `NO` | `LOCAL_EXECUTION` | Awaiting Token Factory promo code email & key generation |
 
 ### Deterministic Zero-Cost Gate Decision:
-**Verdict: `SAFE_AWAITING_PROMOTIONAL_CREDIT_APPROVAL`**
+**Verdict: `SAFE_AWAITING_TOKEN_FACTORY_PROMO_CODE`**
 - **Reasoning:** 
-  1. The operator has successfully submitted the Builder Program application and completed Devpost hackathon registration without entering any bank or credit card details.
-  2. Nebius officially notified the operator that the Builder Program application is under review with a 2-business-day response SLA.
-  3. Under Zero-Cost Law, the operator is completely protected from unwanted personal bank card debits.
-  4. Task P-01.01 discovery is 100% complete and verified with live account evidence.
-  5. Task P-01.02 (first live inference call) remains strictly blocked until the Builder Program approval email arrives with the promotional credit codes.
+  1. The operator was officially accepted into the Nebius AI Builder Program on 2026-09-19 (welcome email received).
+  2. Nebius confirmed: *"Your $25 Nebius Token Factory credit is already coming your way in a separate email!"*.
+  3. Tavily account onboarding was completed via the Free/Researcher path with zero card entry. Current dashboard displays 1,000 monthly plan credits plus 3,125 promotional credits, and usage-based payment is visibly disabled. Zero Tavily API calls were executed; integration remains deferred to P-16.
+  4. Under Zero-Cost Law, the operator is completely protected from personal bank card debits across all platforms.
+  5. Task P-01.01 discovery is 100% complete and verified with live account evidence.
+  6. Task P-01.02 (first live inference call) remains strictly blocked until the separate Token Factory promo code email arrives and is redeemed.
 
 ---
 
@@ -205,6 +207,7 @@ The hackathon requires building with NVIDIA open-source models served on Nebius 
 | Bank card accounts are automatically debited when balance is negative | `OFFICIAL_DOC` | `https://docs.tokenfactory.nebius.com/other-capabilities/billing-new.md` | 2026-09-12 | VERIFIED |
 | Builder Program promotional credits expire 90 days from issuance | `OFFICIAL_DOC` | `https://nebius.com/builders-terms-and-conditions` | 2026-09-12 | VERIFIED |
 | Local environment currently contains no `NEBIUS_API_KEY` | `LOCAL_EXECUTION` | Windows PowerShell process/user/machine env query | 2026-09-12 | VERIFIED |
+| Tavily account onboarded via Free/Researcher path without payment card; 1,000 monthly + 3,125 promotional credits active; usage-based payment disabled | `LIVE_ACCOUNT` | Tavily Web Dashboard | 2026-09-19 | VERIFIED |
 
 ---
 
@@ -267,7 +270,7 @@ In strict compliance with the Basebreak constitution and P-01.01 task contract:
 - `P-01.02 inference`: **NOT_RUN** (Zero inference calls, token generation, or chat completion requests executed).
 - `Sandbox creation / execution`: **NOT_RUN** (No sandbox container spun up; no command executed).
 - `Repository materialization in sandbox`: **NOT_RUN**.
-- `Tavily API`: **NOT_RUN**.
+- `Tavily API execution`: **NOT_RUN** (Account safely onboarded and verified with 1,000 monthly + 3,125 promotional credits, usage-based billing disabled, zero cards; API key generated but NOT called and NOT committed; runtime integration deferred to P-16 — External Grounding & Tavily).
 - `Future-phase runtime implementation`: **NOT_RUN** (Zero adapter or causal engine code implemented).
 - `Donor implementation code`: **0 bytes reused** (Clean-room documentation only).
 

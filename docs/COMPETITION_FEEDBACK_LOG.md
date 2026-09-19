@@ -85,3 +85,20 @@ This log may also be used as source material for the "Most Valuable Feedback" pr
 - **Severity/Value:** MEDIUM
 - **Provenance:** LIVE_OBSERVATION
 - **Status:** WORKAROUND_APPLIED
+
+### F-004 — Tavily Free/Researcher onboarding provides card-free zero-cost access with promotional credits
+
+- **Date/Time:** 2026-09-19 05:25 UTC
+- **Provider/Tool:** Tavily
+- **Feature/API:** Onboarding / Free Researcher Tier / Promotional Credit Allocation
+- **Task/Run Context:** P-01.01 (Discover current Nebius account/runtime/API/model reality from official docs and live account — partner credit onboarding)
+- **What Worked Well:** Tavily enabled seamless onboarding through the Free/Researcher path without requiring a bank or credit card. The user dashboard immediately allocated 1,000 monthly plan credits and 3,125 additional promotional credits. Usage-based payment was visibly disabled by default, providing complete peace of mind against surprise billing and perfectly honoring the Zero-Cost Law.
+- **Friction/Bug/Limitation:** None observed during account setup and credit activation.
+- **Deterministic Evidence:** Operator live dashboard on 2026-09-19 shows 1,000 monthly credits, 3,125 promotional credits, usage-based payment visibly disabled, and zero payment cards configured.
+- **Developer Impact:** Ensures Basebreak can safely plan and test P-16 external grounding integration without financial liability, personal card entry, or risk of unexpected pay-as-you-go debit.
+- **Workaround:** N/A (Standard card-free onboarding path operated as expected).
+- **Concrete Product Suggestion:** Continue offering this card-free developer/researcher onboarding model; it serves as a best practice for hackathon partner tool integrations.
+- **Severity/Value:** LOW
+- **Provenance:** LIVE_OBSERVATION
+- **Status:** RESOLVED
+
