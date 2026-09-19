@@ -67,7 +67,7 @@
 > [!IMPORTANT]
 > **Model Availability Scope Boundary:**
 > - **PUBLIC PLATFORM CATALOG AVAILABILITY:** The models below are globally listed and verified active (or error) in Nebius Token Factory's public machine-readable catalog (`/api/public/models_info`).
-> - **ACCOUNT-ACCESSIBLE MODEL AVAILABILITY:** `NOT VERIFIED` for this specific account because Token Factory account activation is blocked before authenticated access by the mandatory payment card requirement.
+> - **ACCOUNT-ACCESSIBLE MODEL AVAILABILITY:** `ACCOUNT_AUTHENTICATED_INFERENCE_ACCESS = NOT_VERIFIED` because the Builder Program promotional credit has not yet been redeemed, billing currently displays Suspended, and no authenticated Token Factory inference call has been executed.
 > - In accordance with P-01.01 boundary rules, Builder and Verifier model routing is NOT frozen here (deferred to P-05 / P-07).
 
 Discovered directly from official live machine-readable endpoint `https://tokenfactory.nebius.com/api/public/models_info` and Markdown catalog `https://tokenfactory.nebius.com/model-catalog.md`:

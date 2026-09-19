@@ -12,7 +12,7 @@ This log may also be used as source material for the "Most Valuable Feedback" pr
 - Append only; do not delete or rewrite past entries.
 - Each entry must have deterministic evidence or a clear reference.
 - Allowed provenance is strictly limited to:
-  - `LIVE_OBSERVATION` — hands-on runtime, API, SDK, or sandbox execution by Basebreak/operator.
+  - `LIVE_OBSERVATION` — hands-on runtime, API, SDK, sandbox execution, or direct operator-observed platform, account, and first-party support interactions.
   - `DOCUMENTATION_REVIEW` — when Basebreak/operator actually reviewed official documentation and the feedback concerns that direct experience.
 - Third-party or community reports are strictly excluded from this competition feedback ledger; external feedback must never be synthesized as the operator's own experience.
 
@@ -112,9 +112,9 @@ This log may also be used as source material for the "Most Valuable Feedback" pr
 - **What Worked Well:** First-party support was responsive and offered to inspect internal promo credit status if account/tenant identifiers were provided.
 - **Friction/Bug/Limitation:** Nebius Support directly confirmed to the operator: *"Token Factory onboarding requires billing details and a payment card before promotional credits can be redeemed. Promotional credits can be applied after billing setup, but Token Factory cannot currently be activated only with the Builder Program credit and without a payment method."* This confirms that documentation friction observed in F-002 is active platform reality: cardless activation using only Builder Program promotional credits is not currently supported, and promotional codes cannot be redeemed prior to adding a payment card.
 - **Deterministic Evidence:** Direct first-party support communication on 2026-09-19 stating: *"Token Factory onboarding requires billing details and a payment card before promotional credits can be redeemed. Promotional credits can be applied after billing setup, but Token Factory cannot currently be activated only with the Builder Program credit and without a payment method."*
-- **Developer Impact:** Completely blocks zero-personal-spend hackathon development under Basebreak's operator policy (Zero-Cost Law). Participants cannot utilize granted promotional credits without attaching a payment card subject to automated debit upon negative balance.
+- **Developer Impact:** Initially blocked Token Factory usage under the original no-card Zero-Cost policy; the operator subsequently approved a bounded card-attachment exception, while personal paid usage remains forbidden. Participants cannot utilize granted promotional credits without attaching a payment card subject to automated debit upon negative balance.
 - **Workaround:** Operator approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` to attach a payment card solely for Builder Program promotional credit activation with target personal spend = $0.00 and an operator-enforced $5.00 safety reserve floor (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`). Payment card attached; billing currently displays `Suspended`; awaiting separate promo-code email.
 - **Concrete Product Suggestion:** Allow Builder Program / hackathon promo-credit accounts to activate without a payment card, or provide a guaranteed user-configurable $0 post-promotional hard spending cap that prevents automated card charges.
 - **Severity/Value:** CRITICAL
-- **Provenance:** LIVE_ACCOUNT / FIRST_PARTY_SUPPORT
+- **Provenance:** LIVE_OBSERVATION
 - **Status:** WORKAROUND_APPLIED

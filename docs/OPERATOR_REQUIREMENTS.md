@@ -103,16 +103,16 @@ Anticipated manual and automated actions for later phases (P-01 and onwards), cl
 | Action | Classification | Planned Phase | Notes & Safety Safeguards |
 |---|---|---|---|
 | Verify Devpost hackathon registration | `OPERATOR_MUST_DO` | P-01 | Operator registers via web UI on Devpost. Agent cannot register external accounts. |
-| Nebius Builder Program application | `OPERATOR_MUST_DO` | P-01 | Web form application (`dev.nebius.com/builders`). Operator must ensure NO payment card is required or entered. |
+| Nebius Builder Program application | `OPERATOR_MUST_DO` | P-01 | Web form application (`dev.nebius.com/builders`) was free; Token Factory onboarding subsequently required a payment card; operator explicitly approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION`; card is now attached; personal paid usage remains strictly forbidden. |
 | Nebius Token Factory API key generation | `OPERATOR_MUST_DO` | P-01 | Generated in Nebius web console. Operator stores in local `.env` or secure environment, never pasting into chat. |
 | Tavily free tier account registration | `OPERATOR_MUST_DO` | P-01 | Free Researcher plan (1,000 API credits/month). No credit card required. Operator registers and generates API key. |
 | Local environment configuration (.env setup) | `OPERATOR_APPROVAL_REQUIRED` | P-01 | Agent prepares template `.env.example`; operator populates `.env` with actual keys. Agent never reads/logs secrets. |
-| Billing & spending cap inspection | `OPERATOR_MUST_DO` | P-01 | Verify account billing state; ensure PAYG is not enabled and spending is hard-capped at zero personal spend. |
+| Billing & spending cap inspection | `OPERATOR_MUST_DO` | P-01 | Verify account billing state; support confirmed no $0 platform hard cap exists and auto-charging cannot be disabled on an active card-backed account. Enforce operational controls: verify promo balance before/after every cost-consuming `LIVE_NEBIUS` batch; enforce `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` as operator policy (never described as a platform hard cap); if balance cannot be verified: `BLOCKED`; if promo balance `<= $5.00`: `BLOCKED_BUDGET_FLOOR`. |
 | Token Factory endpoint discovery & probe | `AGENT_CAN_DO` | P-01 | Agent executes minimal live non-billable / low-token probe once API key is configured. |
 | Test suite execution (local/sandbox) | `AGENT_CAN_DO` | P-02+ | Agent runs deterministic verification tests within budget constraints. |
 | Video recording & demo capture | `OPERATOR_APPROVAL_REQUIRED` | P-30 / P-31 | Agent prepares demo script and deterministic scenario; operator records/approves final video demo. |
 | YouTube video upload (publicly visible on YouTube) | `OPERATOR_MUST_DO` | P-31 | Operator uploads strictly < 3:00 video to YouTube (made publicly visible on YouTube) and provides URL. |
 | Devpost submission creation & text entry | `OPERATOR_APPROVAL_REQUIRED` | P-32 | Agent prepares submission text and checklist; operator reviews and pastes/submits on Devpost. |
-| External billing activation / paid tier fallback | `BLOCKED` | ALL PHASES | Strictly forbidden under Zero-Cost Law. If free credits exhaust without zero-cost recourse, work halts as BLOCKED. |
+| External billing activation / paid tier fallback | `BLOCKED` | ALL PHASES | Strictly forbidden under Zero-Cost Law. Card attachment solely for Builder Program promotional credit activation is authorized under `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION`, but personal paid usage, manual top-ups, and paid fallback after promo exhaustion remain strictly forbidden. If promotional credits exhaust without zero-cost recourse, work halts as `BLOCKED`. |
 
 *Note: NONE of these actions are performed during P-00.02. This inventory maps future operational boundaries.*
