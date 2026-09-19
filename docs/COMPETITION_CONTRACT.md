@@ -87,7 +87,7 @@ Stage One is a Pass/Fail viability screen. Submissions passing Stage One are eva
 - **Promotional Credits:** USD $25 Token Factory credits + USD $25 Tavily credits upon successful verification.
 - **Validity:** Credits expire **90 days from issuance**.
 - **Post-Quota / Post-Expiry Billing Caution:** Official terms state customers may continue on pay-as-you-go after promotional credits are consumed.
-- **Zero-Cost Safeguard:** Basebreak's Zero-Cost Law strictly forbids pay-as-you-go enablement or personal card charges. Account setup in P-01 must verify that PAYG is disabled or hard-capped at $0.00 personal spend.
+- **Zero-Cost Safeguard:** Basebreak's Zero-Cost Law strictly forbids personal spending or unmetered paid continuation. Under the operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION`, a payment card was attached solely to activate Builder Program promotional credits, while target personal spend remains strictly $0.00, post-promotional paid usage is strictly forbidden, and an operator policy safety reserve floor (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`) is enforced.
 
 ### Tavily Free Path
 - **Plan:** Researcher / Free plan ($0/month).

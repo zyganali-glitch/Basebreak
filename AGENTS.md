@@ -107,6 +107,14 @@ Promotional credits are a finite budget, not permission to spend beyond them.
 Never assume promotional services automatically hard-stop upon quota exhaustion. If a service technically supports pay-as-you-go continuation, verify that billing/PAYG is disabled or hard-capped before execution, or classify as BLOCKED / OPERATOR_DECISION_REQUIRED.
 Prohibition against unmetered public endpoints: Never expose an unauthenticated public live endpoint capable of silently draining free Token Factory or Tavily credits. Any public live-run capability must be hard-budgeted or rate-limited; read-only inspection of verified evidence must remain accessible even when live budget is exhausted.
 
+### Token Factory Bounded Billing Exception (Operator Approved)
+Under `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION`, attaching a payment card is permitted solely because Token Factory mandates a payment method to activate and redeem Builder Program promotional credits.
+- Target personal spend remains strictly `$0.00`.
+- Forbidden: personal paid usage, manual top-ups with personal money, paid subscriptions, reserved/dedicated capacity, committed volume, unrelated paid Nebius services, and paid fallback after promo exhaustion.
+- Operational safety margin: `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` (operator policy floor; once promotional balance is <= $5.00, all Token Factory inference and sandbox execution must immediately halt; the $5 reserve must never be deliberately consumed).
+- Mandatory balance checks: operator must inspect Token Factory balance before and after any cost-consuming LIVE_NEBIUS batch. If balance cannot be verified, status is BLOCKED; if balance <= $5.00, status is BLOCKED_BUDGET_FLOOR.
+- Post-competition cleanup: after development/judging obligations no longer require Token Factory, the payment card must be removed or billing suspended, outstanding balance verified at $0.00, and completion recorded.
+
 ## 13. Operator Guidance Rule
 The operator is non-expert and must receive screen-by-screen guidance in Turkish for every required external account/service setup:
 - current official URL;

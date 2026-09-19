@@ -34,8 +34,17 @@ Before using any service that technically supports paid continuation after free/
 - verify whether billing/PAYG is disabled or impossible for the operator account;
 - verify whether a hard spending cap or equivalent no-charge control exists;
 - if charges cannot be deterministically prevented, classify the path `BLOCKED` or `OPERATOR_DECISION_REQUIRED`;
-- never add a payment method merely to continue development;
-- do not claim that Token Factory currently will or will not auto-charge this specific account until live account/billing state is inspected.
+- never add a payment method merely to continue development.
+
+### Token Factory Bounded Billing Exception (Operator Approved)
+The operator has explicitly approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION`:
+- Attaching a payment card is permitted solely because Token Factory requires it to activate and redeem Builder Program promotional credits.
+- Target personal spend remains strictly **$0.00**.
+- Forbidden actions: personal paid usage, manual top-ups with personal money, paid subscriptions, reserved/dedicated capacity, committed volume, unrelated paid Nebius services, and paid fallback after promo exhaustion.
+- **Manual Safety Reserve (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`):** Because Nebius provides no platform-enforced hard stop upon promo exhaustion, Basebreak enforces an operator policy floor: once remaining promotional balance is `<= $5.00`, all Token Factory inference and sandbox execution must immediately STOP. The final $5.00 reserve must never be deliberately consumed.
+- **Mandatory Balance Checks:** The operator must inspect current Token Factory promotional balance before AND after every cost-consuming `LIVE_NEBIUS` batch. The coding agent must provide beginner-grade Turkish screen-by-screen guidance. If balance cannot be verified: `BLOCKED`. If balance `<= $5.00`: `BLOCKED_BUDGET_FLOOR`.
+- **Post-Competition Cleanup:** After development and judging obligations conclude and Token Factory is no longer required, the operator must inspect outstanding balance, verify no charges, and remove the payment card or suspend/terminate Token Factory billing access.
+
 
 ## 3. BEGINNER-GRADE GUIDANCE
 

@@ -3,8 +3,8 @@
 - **Execution Date/Time:** 2026-09-12 14:30 UTC
 - **Starting Canonical SHA:** `08ebfc94a75954d79ee2613f935584de2a9d5900`
 - **Active Micro-Task:** `P-01.01 — Discover current Nebius account/runtime/API/model reality from official docs and live account`
-- **Execution Status:** IN_PROGRESS (Repair candidate committed; awaiting independent QA)
-- **Zero-Cost Gate Verdict:** `BLOCKED_ZERO_COST / OPERATOR_DECISION_REQUIRED` (Nebius Support confirmed payment card is mandatory before promotional credit redemption; cardless activation not supported; Zero-Cost Law forbids payment card entry without operator decision)
+- **Execution Status:** EXECUTOR_COMPLETED (Candidate documentation committed; awaiting independent QA)
+- **Zero-Cost Gate Verdict:** `OPERATOR_EXCEPTION_APPROVED / PENDING_PROMO_REDEMPTION` (Operator approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION`; card attached; billing currently Suspended; $25 promo email pending; P-01.02 blocked until promo redemption)
 
 ---
 
@@ -141,11 +141,23 @@ The hackathon requires building with NVIDIA open-source models served on Nebius 
 
 ## 6. Billing, PAYG & Zero-Cost Hard-Stop Investigation
 
-### Official Documentation Truth (`billing-new.md` & Builder Terms):
+### Official Documentation & First-Party Support Truth:
 1. **Mandatory Billing Setup:** Official onboarding documentation (`https://docs.tokenfactory.nebius.com/other-capabilities/billing-new.md`) states: *"When you sign up for Nebius Token Factory, you are prompted to create a billing account during onboarding. Billing setup is mandatory—you cannot complete onboarding without it. Setting up a billing account requires a bank card."*
 2. **Automatic Debit Mechanism:** *"When using a bank card, Nebius Token Factory debits your balance in real time. Your card is automatically charged in either of the following cases: At the start of the month, if your balance is negative; When the configured billing threshold is reached. The charge amount is calculated to bring your balance back to zero."*
 3. **Builder Terms & PAYG Continuation:** Section C.3 of `https://nebius.com/builders-terms-and-conditions` states: *"Upon expiration or full consumption of promotional credits, Customer may continue using the Services on a pay-as-you-go basis in accordance with the Service Rates published at https://nebius.com/prices..."*
 4. **Auto-Pause vs Hard Stop:** Section H.4 states: *"Nebius reserves the right to auto-pause or suspend Customer's account if monthly resource consumption exceeds the credit allocation by more than 30%."* This is an anti-abuse reserve right, NOT a user-guaranteed hard spending stop.
+5. **First-Party Nebius Support Findings (2026-09-19):**
+   - Nebius Support confirmed: Token Factory onboarding requires billing details and a payment card before promotional credits can be redeemed.
+   - Token Factory cannot currently be activated using only Builder Program promotional credit without a payment method.
+   - There is NO guaranteed automatic stop when promotional credit is exhausted.
+   - A hard spending limit of $0 after promo exhaustion is NOT currently available.
+   - Automatic card charging cannot currently be disabled for an active card-backed Token Factory account.
+   - If the payment card is removed, the Token Factory account is suspended; access does not continue using only remaining promo balance.
+   - If usage continues after promotional credit exhaustion, the attached card may be charged.
+   - Builder Program Token Factory credit is delivered through a promo-code/top-up flow.
+   - The separate promo-code email must be redeemed via Token Factory billing approximately through `Top up → With promo code`.
+   - The operator has NOT yet received this separate promo-code email.
+   - Nebius Support advised waiting for the separate promo-code email. (The operator is also contacting Devpost/hackathon organizers for assistance).
 
 ### Account State Matrix:
 
@@ -154,27 +166,32 @@ The hackathon requires building with NVIDIA open-source models served on Nebius 
 | Devpost Hackathon Registration | `CONFIRMED` | `LIVE_ACCOUNT` | Registered on Devpost (`zyganali@gmail.com`) on 2026-09-12 |
 | Builder Program membership | `ACCEPTED` | `LIVE_ACCOUNT` | Welcome email received on 2026-09-19 |
 | Token Factory promotional entitlement | `CONFIRMED_BY_PROGRAM` | `LIVE_ACCOUNT` | Confirmed by Builder Program welcome email ($25 Token Factory credit) |
-| Promo delivery/status | `UNRESOLVED / SUPPORT_CAN_CHECK` | `LIVE_ACCOUNT / FIRST_PARTY_SUPPORT` | Promo code email not yet delivered; Nebius Support offered to check via internal account IDs |
-| Promo redemption | `BLOCKED_BY_MANDATORY_BILLING_SETUP` | `LIVE_ACCOUNT / FIRST_PARTY_SUPPORT` | Nebius Support confirmed: billing setup and payment card are mandatory before promotional credits can be redeemed |
-| Token Factory activation | `BLOCKED_BY_ZERO_COST_LAW` | `LOCAL_EXECUTION` | Cannot be activated only with Builder Program credit without payment card; card entry forbidden by Zero-Cost Law |
-| Payment method | `NONE` | `LIVE_ACCOUNT` | Zero payment cards entered; onboarding stopped at card prompt |
-| PAYG State | `NOT_ENTERED / NOT_ACTIVATED` | `LIVE_ACCOUNT` | Billing onboarding deliberately stopped before card entry; PAYG never activated |
-| Platform hard spending cap | `NOT_VERIFIED / NO GUARANTEED $0 PLATFORM HARD STOP ESTABLISHED` | `OFFICIAL_DOC` / `LIVE_ACCOUNT / FIRST_PARTY_SUPPORT` | Official docs state negative balance triggers auto-debit; no user-configurable $0 hard stop exists |
-| Operator policy | `NO_CARD / ZERO_PERSONAL_SPEND` | `LOCAL_EXECUTION` | Basebreak Zero-Cost Law strictly forbids adding payment card or enabling PAYG without explicit operator decision |
-| Local `NEBIUS_API_KEY` present | `NO` | `LOCAL_EXECUTION` | Key generation blocked by unactivated account |
+| Promo delivery/status | `PENDING_EMAIL` | `LIVE_ACCOUNT / FIRST_PARTY_SUPPORT` | Separate promo code email en route; not yet delivered; Nebius Support advised waiting |
+| Promo redemption flow | `CONFIRMED_BY_SUPPORT` | `LIVE_ACCOUNT / FIRST_PARTY_SUPPORT` | Redeemed via `Top up → With promo code` in Token Factory billing |
+| Payment card attached | `ATTACHED_BOUNDED` | `LIVE_ACCOUNT` | Card attached under operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` |
+| Token Factory console access | `ACCESSIBLE` | `LIVE_ACCOUNT` | Web console accessible; Sandboxes navigation is visible |
+| Token Factory billing status | `SUSPENDED` | `LIVE_ACCOUNT` | Current dashboard billing status displays `Suspended` |
+| Trial credit | `$1.00 / 29 days` | `LIVE_ACCOUNT` | Visible in dashboard; MUST NOT be consumed as substitute for Builder Program promo |
+| Account balance | `$0.00` | `LIVE_ACCOUNT` | Current balance displays $0.00; no personal funds loaded |
+| Transaction history | `EMPTY` | `LIVE_ACCOUNT` | Zero transactions recorded |
+| Builder Program $25 credit visible | `NO` | `LIVE_ACCOUNT` | Not yet redeemed / awaiting separate promo email |
+| Target personal spend | `$0.00` | `LOCAL_EXECUTION` | Preserved under Zero-Cost Law |
+| Operational safety reserve | `$5.00 FLOOR` | `LOCAL_EXECUTION` | `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` enforced by operator policy (not platform cap) |
+| Platform hard spending cap | `NONE` | `LIVE_ACCOUNT / FIRST_PARTY_SUPPORT` | Support confirmed no $0 post-promo hard stop exists; auto-charging cannot be disabled |
+| Mandatory balance checks | `REQUIRED` | `LOCAL_EXECUTION` | Pre/post balance inspection required for all future cost-consuming LIVE_NEBIUS batches |
 | Tavily Account Onboarding | `COMPLETED` | `LIVE_ACCOUNT` | Onboarded via Free/Researcher path; no bank card required; usage-based payment visibly disabled |
 | Tavily Account Credits | `CONFIRMED` | `LIVE_ACCOUNT` | 1,000 monthly plan credits + 3,125 promotional credits visible in dashboard |
 | Tavily API Key | `GENERATED_SAFELY` | `LIVE_ACCOUNT` | Key exists in dashboard; not copied to chat/repo; 0 calls executed; integration deferred to P-16 |
+| Local `NEBIUS_API_KEY` | `NOT_USED` | `LOCAL_EXECUTION` | 0 inference/sandbox calls executed |
 
 ### Deterministic Zero-Cost Gate Decision:
-**Verdict: `BLOCKED_ZERO_COST / OPERATOR_DECISION_REQUIRED`**
+**Verdict: `OPERATOR_EXCEPTION_APPROVED / PENDING_PROMO_REDEMPTION`**
 - **Reasoning:** 
-  1. **First-Party Support Finding:** On 2026-09-19, Nebius Support directly confirmed to the operator:
-     > *"Token Factory onboarding requires billing details and a payment card before promotional credits can be redeemed. Promotional credits can be applied after billing setup, but Token Factory cannot currently be activated only with the Builder Program credit and without a payment method."*
-  2. **Cardless Activation Unavailable:** Token Factory cannot currently be activated using only Builder Program promotional credits without attaching a payment method. Promo-code arrival alone is NOT sufficient to unblock activation.
-  3. **Zero-Cost Law Violation Risk:** Under Basebreak ZERO-COST LAW, entering a bank or credit card that is subject to automated pay-as-you-go debit upon negative balance is strictly forbidden without explicit operator approval.
-  4. **Platform Spending Cap Reality:** The platform does NOT provide a verified, guaranteed $0 hard spending cap to prevent post-promotional charges. (Operator policy of refusing to enter a card must not be confused with a platform-enforced hard spending cap).
-  5. **Task P-01.02 Status:** Task P-01.02 (first live inference call) remains strictly `PENDING / UNSTARTED` and CANNOT execute under current Zero-Cost Law unless a verified cardless activation path is provided or the operator explicitly changes the payment-card policy after informed review of billing risk.
+  1. **Operator-Approved Bounded Billing Exception:** The operator explicitly approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION`. Attaching a payment card was permitted solely because Token Factory requires it to activate and redeem Builder Program promotional credits.
+  2. **Personal Spend Invariant:** Target personal spend remains strictly **$0.00**. No manual top-up with personal money, paid subscriptions, reserved capacity, or paid fallback after promo exhaustion is authorized.
+  3. **Manual Safety Reserve (`$5.00` Floor):** Because Nebius provides no platform-enforced hard stop upon promo exhaustion, Basebreak enforces an operator policy floor (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`). Once promotional balance is `<= $5.00`, all Token Factory workloads must halt immediately.
+  4. **Promo Activation Gate:** The current `$1.00` trial credit MUST NOT be intentionally consumed. P-01.02 remains strictly `PENDING / EXTERNAL_PREREQUISITE_WAIT` until the separate Builder Program promo code email arrives, is redeemed, and the promotional balance is visibly verified in the billing UI to be `> $5.00`.
+
 
 
 ---
@@ -218,30 +235,49 @@ The hackathon requires building with NVIDIA open-source models served on Nebius 
 | Builder Program promotional credits expire 90 days from issuance | `OFFICIAL_DOC` | `https://nebius.com/builders-terms-and-conditions` | 2026-09-12 | VERIFIED |
 | Local environment currently contains no `NEBIUS_API_KEY` | `LOCAL_EXECUTION` | Windows PowerShell process/user/machine env query | 2026-09-12 | VERIFIED |
 | Tavily account onboarded via Free/Researcher path without payment card; 1,000 monthly + 3,125 promotional credits active; usage-based payment disabled | `LIVE_ACCOUNT` | Tavily Web Dashboard | 2026-09-19 | VERIFIED |
-| Nebius Support confirms Token Factory requires payment card before promo credit redemption; cardless activation not supported | `LIVE_ACCOUNT / FIRST_PARTY_SUPPORT` | Direct first-party Nebius Support communication | 2026-09-19 | VERIFIED (BLOCKER) |
-| Token Factory account-level model access | `LIVE_ACCOUNT` | Token Factory web console | 2026-09-19 | NOT VERIFIED (Account unactivated) |
+| Payment card attached under operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` | `LIVE_ACCOUNT` | Token Factory billing web console | 2026-09-19 | VERIFIED (BOUNDED_EXCEPTION) |
+| Token Factory billing status currently Suspended; trial credit $1.00 / 29 days; account balance $0.00 | `LIVE_ACCOUNT` | Token Factory billing web console | 2026-09-19 | VERIFIED |
+| Nebius Support confirms Token Factory requires payment card before promo credit redemption; cardless activation not supported | `LIVE_ACCOUNT / FIRST_PARTY_SUPPORT` | Direct first-party Nebius Support communication | 2026-09-19 | VERIFIED (BLOCKER_RESOLVED_BY_EXCEPTION) |
+| Nebius Support confirms promo delivered separately and redeemed via Top up → With promo code | `LIVE_ACCOUNT / FIRST_PARTY_SUPPORT` | Direct first-party Nebius Support communication | 2026-09-19 | VERIFIED |
+| Nebius Support confirms no $0 platform hard stop and automatic card charging cannot be disabled | `LIVE_ACCOUNT / FIRST_PARTY_SUPPORT` | Direct first-party Nebius Support communication | 2026-09-19 | VERIFIED |
+| Operational safety reserve floor ($5.00) enforced by operator policy (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`) | `LOCAL_EXECUTION` | Basebreak governance / operator policy | 2026-09-19 | VERIFIED |
+| Token Factory account-level authenticated inference access | `LIVE_ACCOUNT` | Token Factory web console | 2026-09-19 | NOT VERIFIED (Awaiting promo redemption) |
 
 ---
 
 ## 9. Operator Guidance (Screen-by-Screen in Turkish)
 
-### STOP KURALI (Sıfır Maliyet Güvenlik Sınırı)
+### Bounded Billing İstisnası ve Güvenlik Sınırları
 
-> [!CAUTION]
-> **TOKEN FACTORY ONBOARDING DURDURULDU — KART BİLGİSİ GİRMEYİN:**
-> Nebius Destek Ekibi (First-Party Support) 2026-09-19 tarihinde operatöre resmi olarak şu teyidi vermiştir:
-> *"Token Factory onboarding requires billing details and a payment card before promotional credits can be redeemed. Promotional credits can be applied after billing setup, but Token Factory cannot currently be activated only with the Builder Program credit and without a payment method."*
+> [!IMPORTANT]
+> **TOKEN FACTORY KARTLI KURULUM TAMAMLANDI — PROMOSYON KODU BEKLENİYOR:**
+> Operatörün açık onayıyla (`TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION`), yalnızca Nebius Builder Programı promosyon kredisini ($25) aktive edebilmek amacıyla fatura kurulumu tamamlanmış ve ödeme kartı tanımlanmıştır.
 >
-> **Mevcut Basebreak SIFIR-MALİYET KANUNU (ZERO-COST LAW) gereğince:**
-> - Token Factory paneline kesinlikle kredi kartı veya banka kartı **EKLENMEYECEKTİR**.
-> - Token Factory onboarding akışı zorunlu kart adımında **DURDURULMUŞTUR**.
-> - Promosyon kodu gelse dahi kart girmeden kullanılamayacağı birinci elden doğrulanmıştır; bu nedenle promosyon e-postasının gelmesi tek başına Token Factory'yi aktif etmeye yetmez.
-> - Operatör tarafından ileride bilinçli bir faturalandırma riski değerlendirmesiyle açık bir politika değişikliği (`OPERATOR_DECISION_REQUIRED`) yapılmadığı sürece bu aşamada hiçbir kart girilmeyecek, faturalandırma adımı tamamlanmayacak, `NEBIUS_API_KEY` oluşturulmayacak/depolanmayacak ve çıkarım (inference) yapılmayacaktır.
+> **Güncel Durum ve Güvenlik Kuralları:**
+> 1. **Mevcut Panel Durumu:** Fatura durumu `Suspended` olarak görünmektedir. Ekranda `$1.00 / 29 days` deneme kredisi ve `$0.00` bakiye mevcuttur.
+> 2. **Deneme Kredisi Yasağı:** `$1.00` deneme kredisi KESİNLİKLE kullanılmayacaktır. Builder Programı promosyonunun yerini tutmaz.
+> 3. **Hedef Kişisel Harcama:** Kesinlikle **$0.00**'dır. Kişisel parayla bakiye yükleme, ücretli abonelik veya promo bitimi sonrası karttan çekim yasaktır.
+> 4. **$5.00 Güvenlik Rezervi:** Promosyon kredisi yüklendiğinde, kalan bakiye `<= $5.00` olduğu anda tüm Token Factory işlemleri derhal DURDURULACAKTIR (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`). Bu son $5 rezerv kasten tüketilmeyecektir.
+> 5. **Zorunlu Bakiye Kontrolleri:** Gelecekteki her maliyetli `LIVE_NEBIUS` işlem grubundan **ÖNCE** ve **SONRA** bakiye ekrandan kontrol edilecektir.
 
 ### Operatörün Güncel Eylem Rehberi:
-1. **Token Factory Paneli:** Zorunlu kart ekranında durun. Kart bilgisi girmeyin.
-2. **Hesap Tanımlayıcılarının Gizliliği:** Destek ekibinin promosyon durumunu incelemek için talep ettiği hesap numaralarını (Organization ID / aitenant ID, User ID / tenantuseraccount ID) **kesinlikle kamuya açık git reposuna veya belgelere işlemeyin**, sohbette güvenle tutun.
-3. **Tavily Durumu:** Tavily hesabı Free/Researcher yolu ile kart gerektirmeden güvenle tamamlanmıştır (1.000 aylık + 3.125 promosyon kredisi, kullanım bazlı faturalandırma kapalı). Bu hesap güvenlidir; ancak P-16 aşamasına kadar API çağrısı yapılmayacaktır.
+
+#### Adım 1: Ayrı Promosyon Kodu E-postasını Bekleyin
+- Nebius Destek Ekibi, $25'lık Token Factory promosyon kodunun ayrı bir e-posta ile gönderileceğini ve beklenmesi gerektiğini teyit etmiştir.
+- Bu e-posta gelene kadar Token Factory üzerinde hiçbir API çağrısı veya test çalıştırılmayacaktır.
+
+#### Adım 2: Promosyon Kodu Geldiğinde Yükleme Adımı
+1. `https://tokenfactory.nebius.com/` adresine giriş yapın.
+2. Sağ üstten bakiye alanına veya sol menüden **Billing** sekmesine tıklayın.
+3. **Top up** (Bakiye Yükle) butonuna tıklayın.
+4. Menüden **"With promo code"** (Promosyon kodu ile) seçeneğini seçin.
+5. Gelen e-postadaki promosyon kodunu yapıştırıp onaylayın.
+6. Bakiyenin en az `$25.00` olduğunu teyit edin.
+7. **DİKKAT:** Kredi kartınızdan çekim yapacak herhangi bir miktar onaylamayın!
+
+#### Adım 3: Tavily ve Gizlilik Durumu
+- Tavily hesabı Free/Researcher yolu ile kart gerektirmeden güvenle açılmıştır (1.000 aylık + 3.125 promosyon kredisi). P-16'ya kadar çağrı yapılmayacaktır.
+- Destek ekibiyle iletişimde kullanılan hesap numaralarını (Organization ID, User ID vb.) veya kart numaralarını **kesinlikle kamuya açık belgelere veya depoya yazmayın**.
 
 ---
 
@@ -259,10 +295,14 @@ In strict compliance with the Basebreak constitution and P-01.01 task contract:
 
 ## 11. P-01.02 Safety Gate
 
-P-01.02 (first live inference call) remains `PENDING / UNSTARTED` and CANNOT execute under current Zero-Cost Law unless one of the following becomes true:
+P-01.02 (first live inference call) remains `PENDING / EXTERNAL_PREREQUISITE_WAIT` and CANNOT execute until all of the following conditions are met:
 
-A. Nebius provides a verified cardless Token Factory activation path; OR
-B. The operator explicitly changes the payment-card policy after informed review of billing risk (`OPERATOR_DECISION_REQUIRED`).
+1. **Promo Code Email Arrival:** The separate Builder Program promo-code email arrives from Nebius.
+2. **Supported Redemption:** The operator redeems the promo code in Token Factory billing (`Top up → With promo code`).
+3. **Billing UI Verification:** Token Factory billing UI visibly displays the promotional credit, and exact balance and expiry date are recorded as `LIVE_ACCOUNT` evidence.
+4. **Safety Reserve Check:** Remaining promotional balance is confirmed to be `> $5.00` (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`).
+5. **Trial Credit Prohibition:** The current `$1.00` trial credit is NOT intentionally consumed as a substitute for Builder Program credit.
+6. **Billing Operational:** Billing status is operational enough to make the bounded call.
+7. **Independent QA Authorization:** Independent QA reviews and awards PASS to P-01.01.
 
-Promo-code arrival alone is NOT sufficient.
-No inference, API-key creation, or sandbox use is authorized now.
+No inference, API-key execution, or sandbox creation is authorized prior to these conditions.
