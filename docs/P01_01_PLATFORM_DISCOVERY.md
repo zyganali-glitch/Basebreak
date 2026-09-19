@@ -3,8 +3,8 @@
 - **Execution Date/Time:** 2026-09-12 14:30 UTC
 - **Starting Canonical SHA:** `08ebfc94a75954d79ee2613f935584de2a9d5900`
 - **Active Micro-Task:** `P-01.01 — Discover current Nebius account/runtime/API/model reality from official docs and live account`
-- **Execution Status:** EXECUTOR_COMPLETED (Candidate documentation committed; awaiting independent QA)
-- **Zero-Cost Gate Verdict:** `OPERATOR_DECISION_REQUIRED` (Mandatory bank card onboarding policy documented; live account billing verification required before inference)
+- **Execution Status:** IN_PROGRESS (Repair candidate committed; awaiting independent QA)
+- **Zero-Cost Gate Verdict:** `BLOCKED_ZERO_COST / OPERATOR_DECISION_REQUIRED` (Nebius Support confirmed payment card is mandatory before promotional credit redemption; cardless activation not supported; Zero-Cost Law forbids payment card entry without operator decision)
 
 ---
 
@@ -63,6 +63,12 @@
 ---
 
 ## 4. Live Model-Catalog Findings (Sanitized & Exhaustive)
+
+> [!IMPORTANT]
+> **Model Availability Scope Boundary:**
+> - **PUBLIC PLATFORM CATALOG AVAILABILITY:** The models below are globally listed and verified active (or error) in Nebius Token Factory's public machine-readable catalog (`/api/public/models_info`).
+> - **ACCOUNT-ACCESSIBLE MODEL AVAILABILITY:** `NOT VERIFIED` for this specific account because Token Factory account activation is blocked before authenticated access by the mandatory payment card requirement.
+> - In accordance with P-01.01 boundary rules, Builder and Verifier model routing is NOT frozen here (deferred to P-05 / P-07).
 
 Discovered directly from official live machine-readable endpoint `https://tokenfactory.nebius.com/api/public/models_info` and Markdown catalog `https://tokenfactory.nebius.com/model-catalog.md`:
 
@@ -146,26 +152,30 @@ The hackathon requires building with NVIDIA open-source models served on Nebius 
 | Dimension | Discovery Status | Evidence Provenance | Notes |
 |---|:---:|:---:|---|
 | Devpost Hackathon Registration | `CONFIRMED` | `LIVE_ACCOUNT` | Registered on Devpost (`zyganali@gmail.com`) on 2026-09-12 |
-| Builder Program Application | `ACCEPTED` | `LIVE_ACCOUNT` | Welcome email received on 2026-09-19; separate $25 Token Factory promo code email en route |
-| Token Factory Promo Code | `PENDING_EMAIL` | `LIVE_ACCOUNT` | Awaiting separate email from Nebius with $25 Token Factory promo code |
+| Builder Program membership | `ACCEPTED` | `LIVE_ACCOUNT` | Welcome email received on 2026-09-19 |
+| Token Factory promotional entitlement | `CONFIRMED_BY_PROGRAM` | `LIVE_ACCOUNT` | Confirmed by Builder Program welcome email ($25 Token Factory credit) |
+| Promo delivery/status | `UNRESOLVED / SUPPORT_CAN_CHECK` | `LIVE_ACCOUNT / FIRST_PARTY_SUPPORT` | Promo code email not yet delivered; Nebius Support offered to check via internal account IDs |
+| Promo redemption | `BLOCKED_BY_MANDATORY_BILLING_SETUP` | `LIVE_ACCOUNT / FIRST_PARTY_SUPPORT` | Nebius Support confirmed: billing setup and payment card are mandatory before promotional credits can be redeemed |
+| Token Factory activation | `BLOCKED_BY_ZERO_COST_LAW` | `LOCAL_EXECUTION` | Cannot be activated only with Builder Program credit without payment card; card entry forbidden by Zero-Cost Law |
+| Payment method | `NONE` | `LIVE_ACCOUNT` | Zero payment cards entered; onboarding stopped at card prompt |
+| PAYG State | `NOT_ENTERED / NOT_ACTIVATED` | `LIVE_ACCOUNT` | Billing onboarding deliberately stopped before card entry; PAYG never activated |
+| Platform hard spending cap | `NOT_VERIFIED / NO GUARANTEED $0 PLATFORM HARD STOP ESTABLISHED` | `OFFICIAL_DOC` / `LIVE_ACCOUNT / FIRST_PARTY_SUPPORT` | Official docs state negative balance triggers auto-debit; no user-configurable $0 hard stop exists |
+| Operator policy | `NO_CARD / ZERO_PERSONAL_SPEND` | `LOCAL_EXECUTION` | Basebreak Zero-Cost Law strictly forbids adding payment card or enabling PAYG without explicit operator decision |
+| Local `NEBIUS_API_KEY` present | `NO` | `LOCAL_EXECUTION` | Key generation blocked by unactivated account |
 | Tavily Account Onboarding | `COMPLETED` | `LIVE_ACCOUNT` | Onboarded via Free/Researcher path; no bank card required; usage-based payment visibly disabled |
 | Tavily Account Credits | `CONFIRMED` | `LIVE_ACCOUNT` | 1,000 monthly plan credits + 3,125 promotional credits visible in dashboard |
 | Tavily API Key | `GENERATED_SAFELY` | `LIVE_ACCOUNT` | Key exists in dashboard; not copied to chat/repo; 0 calls executed; integration deferred to P-16 |
-| Payment Method Attached | `NONE` | `LIVE_ACCOUNT` | Onboarding card entry aborted on Nebius; zero cards entered on Tavily; Zero-Cost Law strictly intact |
-| Bank Card Present | `NO` | `LIVE_ACCOUNT` | Verified: zero cards entered across all services, zero personal risk |
-| PAYG State | `NOT_ACTIVATED` | `LIVE_ACCOUNT` | Token Factory card setup bypassed; Tavily usage-based billing visibly disabled |
-| Hard Spending Cap ($0.00 personal spend) | `ENFORCED_BY_POLICY` | `LOCAL_EXECUTION` | Card entry blocked; no personal charge possible |
-| Local `NEBIUS_API_KEY` present | `NO` | `LOCAL_EXECUTION` | Awaiting Token Factory promo code email & key generation |
 
 ### Deterministic Zero-Cost Gate Decision:
-**Verdict: `SAFE_AWAITING_TOKEN_FACTORY_PROMO_CODE`**
+**Verdict: `BLOCKED_ZERO_COST / OPERATOR_DECISION_REQUIRED`**
 - **Reasoning:** 
-  1. The operator was officially accepted into the Nebius AI Builder Program on 2026-09-19 (welcome email received).
-  2. Nebius confirmed: *"Your $25 Nebius Token Factory credit is already coming your way in a separate email!"*.
-  3. Tavily account onboarding was completed via the Free/Researcher path with zero card entry. Current dashboard displays 1,000 monthly plan credits plus 3,125 promotional credits, and usage-based payment is visibly disabled. Zero Tavily API calls were executed; integration remains deferred to P-16.
-  4. Under Zero-Cost Law, the operator is completely protected from personal bank card debits across all platforms.
-  5. Task P-01.01 discovery is 100% complete and verified with live account evidence.
-  6. Task P-01.02 (first live inference call) remains strictly blocked until the separate Token Factory promo code email arrives and is redeemed.
+  1. **First-Party Support Finding:** On 2026-09-19, Nebius Support directly confirmed to the operator:
+     > *"Token Factory onboarding requires billing details and a payment card before promotional credits can be redeemed. Promotional credits can be applied after billing setup, but Token Factory cannot currently be activated only with the Builder Program credit and without a payment method."*
+  2. **Cardless Activation Unavailable:** Token Factory cannot currently be activated using only Builder Program promotional credits without attaching a payment method. Promo-code arrival alone is NOT sufficient to unblock activation.
+  3. **Zero-Cost Law Violation Risk:** Under Basebreak ZERO-COST LAW, entering a bank or credit card that is subject to automated pay-as-you-go debit upon negative balance is strictly forbidden without explicit operator approval.
+  4. **Platform Spending Cap Reality:** The platform does NOT provide a verified, guaranteed $0 hard spending cap to prevent post-promotional charges. (Operator policy of refusing to enter a card must not be confused with a platform-enforced hard spending cap).
+  5. **Task P-01.02 Status:** Task P-01.02 (first live inference call) remains strictly `PENDING / UNSTARTED` and CANNOT execute under current Zero-Cost Law unless a verified cardless activation path is provided or the operator explicitly changes the payment-card policy after informed review of billing risk.
+
 
 ---
 
@@ -208,59 +218,30 @@ The hackathon requires building with NVIDIA open-source models served on Nebius 
 | Builder Program promotional credits expire 90 days from issuance | `OFFICIAL_DOC` | `https://nebius.com/builders-terms-and-conditions` | 2026-09-12 | VERIFIED |
 | Local environment currently contains no `NEBIUS_API_KEY` | `LOCAL_EXECUTION` | Windows PowerShell process/user/machine env query | 2026-09-12 | VERIFIED |
 | Tavily account onboarded via Free/Researcher path without payment card; 1,000 monthly + 3,125 promotional credits active; usage-based payment disabled | `LIVE_ACCOUNT` | Tavily Web Dashboard | 2026-09-19 | VERIFIED |
+| Nebius Support confirms Token Factory requires payment card before promo credit redemption; cardless activation not supported | `LIVE_ACCOUNT / FIRST_PARTY_SUPPORT` | Direct first-party Nebius Support communication | 2026-09-19 | VERIFIED (BLOCKER) |
+| Token Factory account-level model access | `LIVE_ACCOUNT` | Token Factory web console | 2026-09-19 | NOT VERIFIED (Account unactivated) |
 
 ---
 
 ## 9. Operator Guidance (Screen-by-Screen in Turkish)
 
-Non-expert operatör için canlı hesap incelemesi, bakiye doğrulama, API anahtarı alma ve sıfır-maliyet güvenliği adımları:
+### STOP KURALI (Sıfır Maliyet Güvenlik Sınırı)
 
-### Adım 1: Token Factory Web Konsoluna Giriş Yapın
-1. Web tarayıcınızda şu resmi adresi açın: **`https://tokenfactory.nebius.com/`**
-2. Sayfanın sağ üst köşesinde yer alan **"Log in"** (Giriş Yap) butonuna tıklayın.
-3. Açılan kimlik doğrulama penceresinde daha önce kayıt olduğunuz **Google** veya **GitHub** hesabınızı seçin.
-4. **DİKKAT (Ne Seçilmemeli?):** Eğer ekranda sizden yeni bir kredi kartı bilgisi girmeniz istenirse (**"Add payment method"** veya **"Billing setup"**), **KART BİLGİSİ GİRMEYİN**. Önce promosyon kodu ile devam edip edemeyeceğinizi kontrol edin.
+> [!CAUTION]
+> **TOKEN FACTORY ONBOARDING DURDURULDU — KART BİLGİSİ GİRMEYİN:**
+> Nebius Destek Ekibi (First-Party Support) 2026-09-19 tarihinde operatöre resmi olarak şu teyidi vermiştir:
+> *"Token Factory onboarding requires billing details and a payment card before promotional credits can be redeemed. Promotional credits can be applied after billing setup, but Token Factory cannot currently be activated only with the Builder Program credit and without a payment method."*
+>
+> **Mevcut Basebreak SIFIR-MALİYET KANUNU (ZERO-COST LAW) gereğince:**
+> - Token Factory paneline kesinlikle kredi kartı veya banka kartı **EKLENMEYECEKTİR**.
+> - Token Factory onboarding akışı zorunlu kart adımında **DURDURULMUŞTUR**.
+> - Promosyon kodu gelse dahi kart girmeden kullanılamayacağı birinci elden doğrulanmıştır; bu nedenle promosyon e-postasının gelmesi tek başına Token Factory'yi aktif etmeye yetmez.
+> - Operatör tarafından ileride bilinçli bir faturalandırma riski değerlendirmesiyle açık bir politika değişikliği (`OPERATOR_DECISION_REQUIRED`) yapılmadığı sürece bu aşamada hiçbir kart girilmeyecek, faturalandırma adımı tamamlanmayacak, `NEBIUS_API_KEY` oluşturulmayacak/depolanmayacak ve çıkarım (inference) yapılmayacaktır.
 
-### Adım 2: Bakiye ve Kredi Durumunu Kontrol Edin
-1. Giriş yaptıktan sonra sayfanın sağ üst tarafında veya profil menünüzün yanında bakiye alanını (örn. `$25.00` veya `$1.00`) bulun.
-2. Bakiyenizin üzerine tıklayın veya sol menüden **"Billing"** (Faturalandırma) sayfasına gidin.
-3. Aşağıdaki değerleri gözlemleyin:
-   - Kalan bakiye miktarı (Current balance).
-   - Promosyon kodu uygulanmış mı (Transactions / İşlemler sekmesinde `$25 Promo Code` görünüyor mu)?
-   - Son kullanma tarihi (Expiry date) belirtilmiş mi?
-4. **DİKKAT:** Sol menüden **Organisation → Billing details** sekmesine tıklayarak kayıtlı bir kredi kartı olup olmadığını kontrol edin. Eğer kart ekli ise ve bakiye eksiye düşerse karttan otomatik çekim yapılacağı resmi dokümanda yazmaktadır. Bu nedenle bakiye sıfırlanmadan önce harcama durdurulmalıdır.
-
-### Adım 3: Sandboxes (Kum Havuzları) Sekmesini Kontrol Edin
-1. Web konsolunun sol ana menüsünü inceleyin.
-2. Menüde **"Sandboxes"** (veya **"Instances / Contree"**) başlıklı bir menü seçeneği görünüp görünmediğine bakın.
-3. Eğer menü görünüyorsa, üzerine tıklayın ve erişiminizin açık olup olmadığını (erişim onaylandı mı, beklemede mi?) kontrol edin.
-4. **KESİNLİKLE YAPMAYIN:** Asla yeni bir sandbox başlatmayın, "Create Sandbox" butonuna basmayın, hiçbir komut çalıştırmayın. P-01.01 aşamasında yalnızca menünün görünürlüğü tespit edilmektedir.
-
-### Adım 4: Güvenli Şekilde API Anahtarı Oluşturma
-1. Doğrudan şu URL'yi açın: **`https://tokenfactory.nebius.com/project/api-keys`** (veya sol menüden **API keys** sekmesine tıklayın).
-2. **"Create API key"** butonuna tıklayın.
-3. Açılan kutuda anahtar ismi olarak **`basebreak-dev`** yazın.
-4. **"Create"** butonuna tıklayın.
-5. Ekranda size uzun bir anahtar metni gösterilecektir.
-6. **HAYATİ GÜVENLİK KURALI:**
-   - Bu anahtarı **ASLA sohbet ekranına yapıştırmayın**.
-   - Asla git reposu içerisindeki bir dosyaya yazıp commit etmeyin.
-   - Ekran görüntüsü alıp sohbete atmayın.
-
-### Adım 5: API Anahtarını Yerel Ortam Değişkeni Olarak Tanımlama
-Windows terminalinizde (PowerShell) şu komutu çalıştırarak anahtarı yalnızca kendi oturumunuz için tanımlayın:
-```powershell
-[System.Environment]::SetEnvironmentVariable('NEBIUS_API_KEY', 'BURAYA_KOPYALADIGINIZ_ANAHTARI_YAPISTIRIN', 'User')
-```
-*(Bu işlem anahtarı Windows kullanıcı profilinize güvenle kaydeder; sohbete veya git geçmişine sızmasını engeller).*
-
-### Adım 6: Doğrulama ve Raporlama
-Anahtarı tanımladıktan sonra sohbete sadece şu bilgileri metin olarak iletin (anahtarı veya kart numarasını yazmadan):
-- Hesaba giriş yapıldı mı: Evet / Hayır
-- Görünen bakiye: (Örn: $25.00)
-- Kredi kartı ekli mi: Evet / Hayır
-- Sandboxes menüsü görünüyor mu: Evet / Hayır
-- API anahtarı User ortam değişkenine kaydedildi mi: Evet
+### Operatörün Güncel Eylem Rehberi:
+1. **Token Factory Paneli:** Zorunlu kart ekranında durun. Kart bilgisi girmeyin.
+2. **Hesap Tanımlayıcılarının Gizliliği:** Destek ekibinin promosyon durumunu incelemek için talep ettiği hesap numaralarını (Organization ID / aitenant ID, User ID / tenantuseraccount ID) **kesinlikle kamuya açık git reposuna veya belgelere işlemeyin**, sohbette güvenle tutun.
+3. **Tavily Durumu:** Tavily hesabı Free/Researcher yolu ile kart gerektirmeden güvenle tamamlanmıştır (1.000 aylık + 3.125 promosyon kredisi, kullanım bazlı faturalandırma kapalı). Bu hesap güvenlidir; ancak P-16 aşamasına kadar API çağrısı yapılmayacaktır.
 
 ---
 
@@ -278,8 +259,10 @@ In strict compliance with the Basebreak constitution and P-01.01 task contract:
 
 ## 11. P-01.02 Safety Gate
 
-Before P-01.02 (minimal inference call) may be scheduled or executed:
-1. Independent QA must review and award PASS to P-01.01 at the pushed canonical remote commit.
-2. Operator must confirm live account billing state according to the guidance above.
-3. Operator must confirm `NEBIUS_API_KEY` is present in local user environment without personal bank card risk.
-4. Model candidate for P-01.02 inference probe must be selected from the confirmed active models (`nvidia/Nemotron-3_5-Lightning` or `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`).
+P-01.02 (first live inference call) remains `PENDING / UNSTARTED` and CANNOT execute under current Zero-Cost Law unless one of the following becomes true:
+
+A. Nebius provides a verified cardless Token Factory activation path; OR
+B. The operator explicitly changes the payment-card policy after informed review of billing risk (`OPERATOR_DECISION_REQUIRED`).
+
+Promo-code arrival alone is NOT sufficient.
+No inference, API-key creation, or sandbox use is authorized now.

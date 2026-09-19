@@ -69,6 +69,7 @@ This log may also be used as source material for the "Most Valuable Feedback" pr
 - **Severity/Value:** HIGH
 - **Provenance:** DOCUMENTATION_REVIEW
 - **Status:** UNRESOLVED
+- **Follow-up (2026-09-19):** Confirmed by direct Nebius Support communication (see F-005). Cardless activation using only Builder Program credits is not currently supported; payment card setup is strictly mandatory before promo redemption.
 
 ### F-003 — Flagship NVIDIA model reported in error status in public API model catalog
 
@@ -102,3 +103,18 @@ This log may also be used as source material for the "Most Valuable Feedback" pr
 - **Provenance:** LIVE_OBSERVATION
 - **Status:** RESOLVED
 
+### F-005 — First-party support confirms mandatory payment card requirement before promotional credit redemption
+
+- **Date/Time:** 2026-09-19 05:40 UTC
+- **Provider/Tool:** Nebius Token Factory
+- **Feature/API:** Billing & Onboarding / Builder Program Credit Redemption
+- **Task/Run Context:** P-01.01 (Discover current Nebius account/runtime/API/model reality from official docs and live account)
+- **What Worked Well:** First-party support was responsive and offered to inspect internal promo credit status if account/tenant identifiers were provided.
+- **Friction/Bug/Limitation:** Nebius Support directly confirmed to the operator: *"Token Factory onboarding requires billing details and a payment card before promotional credits can be redeemed. Promotional credits can be applied after billing setup, but Token Factory cannot currently be activated only with the Builder Program credit and without a payment method."* This confirms that documentation friction observed in F-002 is active platform reality: cardless activation using only Builder Program promotional credits is not currently supported, and promotional codes cannot be redeemed prior to adding a payment card.
+- **Deterministic Evidence:** Direct first-party support communication on 2026-09-19 stating: *"Token Factory onboarding requires billing details and a payment card before promotional credits can be redeemed. Promotional credits can be applied after billing setup, but Token Factory cannot currently be activated only with the Builder Program credit and without a payment method."*
+- **Developer Impact:** Completely blocks zero-personal-spend hackathon development under Basebreak's operator policy (Zero-Cost Law). Participants cannot utilize granted promotional credits without attaching a payment card subject to automated debit upon negative balance.
+- **Workaround:** Classified as `BLOCKED_ZERO_COST / OPERATOR_DECISION_REQUIRED`. Token Factory onboarding was halted at the mandatory card screen; P-01.02 inference progression is blocked.
+- **Concrete Product Suggestion:** Allow Builder Program / hackathon promo-credit accounts to activate without a payment card, or provide a guaranteed user-configurable $0 post-promotional hard spending cap that prevents automated card charges.
+- **Severity/Value:** CRITICAL
+- **Provenance:** LIVE_ACCOUNT / FIRST_PARTY_SUPPORT
+- **Status:** UNRESOLVED

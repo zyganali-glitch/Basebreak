@@ -20,15 +20,15 @@ Judge claim:
 - P-00.03 (Freeze donor research pins and license/preflight status without importing implementation) is independently VERIFIED / PASS at SHA `352d04eb22d7db87faca932ead938d4f4a213268`.
 - P-00.04 (Establish repository structure, Python/runtime tooling baseline, formatting/lint/type/test commands) is independently VERIFIED / PASS at SHA `5c4f07bd541db759dfe6b1b5bf7c2fb3e6a06499`.
 - P-00.05 (Run first documentation consolidation and focused P-Ω bootstrap audit) is independently VERIFIED / PASS at SHA `08ebfc94a75954d79ee2613f935584de2a9d5900` (P-00 phase closure awarded PASS).
-- P-01.01 (Discover current Nebius account/runtime/API/model reality from official docs and live account) is EXECUTOR_COMPLETED (discovery artifact and documentation committed; awaiting independent QA).
+- P-01.01 (Discover current Nebius account/runtime/API/model reality from official docs and live account) is IN_PROGRESS (repair candidate committed; awaiting independent QA).
 
 ## Active exact task
-`P-01.01 — Discover current Nebius account/runtime/API/model reality from official docs and live account` (in progress / executor completed / awaiting independent QA)
+`P-01.01 — Discover current Nebius account/runtime/API/model reality from official docs and live account` (in progress / repair candidate awaiting independent QA)
 
 ## Last independently VERIFIED baseline SHA
 `08ebfc94a75954d79ee2613f935584de2a9d5900` (P-00.05 and P-00 Phase Closure independent QA PASS).
 P-01.01 candidate is submitted for independent QA.
-P-01.02 remains PENDING / UNSTARTED.
+P-01.02 remains PENDING / UNSTARTED and MUST NOT execute.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (no credit cards, PAYG, paid tiers, or auto-upgrades);
@@ -45,8 +45,7 @@ P-01.02 remains PENDING / UNSTARTED.
 - no unmetered public live endpoints that drain promotional credits.
 
 ## Immediate next step
-1. Await independent QA verification for P-01.01 at current commit.
-2. Tavily account onboarding completed under Free/Researcher path (1,000 monthly + 3,125 promo credits, usage-based payment visibly disabled, zero payment cards, 0 API calls executed; integration deferred to P-16).
-3. Await separate email from Nebius containing the $25 Token Factory promotional credit code.
-4. Upon receiving the Token Factory promo code email: redeem promo code in Token Factory console, generate `NEBIUS_API_KEY`, and proceed to `P-01.02`.
-Do NOT advance to P-01.02 before independent QA PASS and Token Factory promotional credit code arrival. Zero personal spend is strictly preserved.
+1. Await independent QA verification for P-01.01 repair candidate.
+2. Current external blocker: Nebius Support confirmed Token Factory requires a payment card before promotional credit redemption and has no confirmed cardless activation path. Cardless activation is not supported. Under Zero-Cost Law, adding a payment card or enabling PAYG is strictly forbidden without explicit operator approval (`BLOCKED_ZERO_COST / OPERATOR_DECISION_REQUIRED`).
+3. Tavily remains safely onboarded on Free/Researcher (1,000 monthly credits + 3,125 promotional credits, usage-based billing disabled, zero payment cards, zero API calls; runtime integration deferred to P-16).
+4. P-01.02 (first live inference call) remains strictly PENDING / UNSTARTED and MUST NOT execute until either a verified cardless activation path is provided or the operator explicitly changes the payment-card policy after informed review of billing risk.
