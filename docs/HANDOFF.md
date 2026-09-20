@@ -36,10 +36,11 @@ Judge claim:
 - P-03.04 (Implement evidence provenance validation and forbidden state transitions) is independently VERIFIED / PASS at SHA `83eb91da3caec3d52c22c06cf19fd0d5020b1057`.
 - P-03.05 (Implement deterministic verdict-input snapshot binding) is independently VERIFIED / PASS at SHA `83eb91da3caec3d52c22c06cf19fd0d5020b1057`.
 - P-03.06 (Add tamper/mismatch/replay tests) is independently VERIFIED / PASS at SHA `83eb91da3caec3d52c22c06cf19fd0d5020b1057`.
-- P-03 phase (Evidence Store & Deterministic Fact Authority) is independently CLOSED / PASS at SHA `83eb91da3caec3d52c22c06cf19fd0d5020b1057`.
+- P-03 phase (Evidence Store & Deterministic Fact Authority) is independently CLOSED / PASS at SHA `83eb91da3caec3d52c22c06cf19fd0d5020b1057` (recorded at SHA `666181053b49ebb49cb5fda64b6a5cd4dfb26c9b`).
+- P-01.01B (Extend bounded provider-neutral parallel execution to platform-independent P-04 security primitives while the live gate remains externally blocked) is IN_PROGRESS (executor-completed; awaiting independent QA).
 
 ## Last independently VERIFIED baseline SHA
-`83eb91da3caec3d52c22c06cf19fd0d5020b1057` (P-03.04–P-03.06 / P-03 phase closure independent QA PASS).
+`666181053b49ebb49cb5fda64b6a5cd4dfb26c9b` (P-03 phase closure independent QA PASS recorded at SHA `666181053b49ebb49cb5fda64b6a5cd4dfb26c9b`).
 
 ## Blocking live gate vs active executable task
 
@@ -52,18 +53,20 @@ Judge claim:
 - Phase impact: P-01 phase remains OPEN; no GO decision can be awarded without required `LIVE_NEBIUS` evidence.
 
 ### Current QA candidate
-None (P-03 phase closed).
+`P-01.01B — Extend bounded provider-neutral parallel execution to platform-independent P-04 security primitives while the live gate remains externally blocked` (executor-completed; awaiting independent QA verification).
 
 ### Active executable task
-None (there is currently NO executable implementation micro-task while P-01.02 is blocked; P-03 is closed and hard stop after P-03 is active; P-04+ remain strictly FORBIDDEN under P-01.01A).
+None (awaiting independent QA closure of P-01.01B before P-04.01 can begin. Under P-01.01B, once independently verified, sequential execution of allowlisted P-04.01 is authorized).
 
-*(Note: Exactly ONE executable micro-task is active at a time. P-01.02 remains BLOCKED. The parallel offline lane for P-02 and P-03 is complete. The offline lane does not substitute for or bypass the live gate).*
+*(Note: Exactly ONE executable micro-task is active at a time. P-01.02 remains BLOCKED. The parallel offline lane for P-02 and P-03 is complete. The narrow P-04 offline subset under P-01.01B does not substitute for or bypass the live gate).*
 
 ## Parallelization boundary & rules
-- **Allowlist:** Under P-01.01A amendment, only P-02 (`P-02.01`–`P-02.07`) and, upon independent P-02 phase closure, P-03 (`P-03.01`–`P-03.06`) are allowlisted.
-- **Provider neutrality:** P-02 and P-03 must remain strictly provider-neutral; zero Nebius/NVIDIA/Tavily SDK imports; deterministic validation only.
-- **Hard stop after P-03:** P-04+ remain strictly forbidden under this exception without a separate explicit Master Plan amendment.
-- **Promo-arrival preemption:** If the Builder Program promotional-code email arrives during P-02/P-03 execution: do not start another parallel micro-task; finish or cleanly abort the currently active atomic micro-task; return immediately to P-01.02; operator redeems promo; verify Token Factory promotional balance > $5.00; obtain independent authorization before executing inference. Do not consume the $1 trial.
+- **Allowlist:** Under P-01.01B amendment, the previous P-02 and P-03 lanes are complete and independently closed. The active allowlist permits sequential execution ONLY of platform-independent P-04 security primitives: `P-04.01` (threat model), `P-04.02` (secret redaction / persistence), and `P-04.04` (protected-surface manifest/diff).
+- **Provider neutrality:** P-04 allowlisted tasks must remain strictly provider-neutral; zero Nebius/NVIDIA/Tavily SDK imports; deterministic validation only; zero assumptions regarding sandbox filesystem, network, or process isolation capabilities.
+- **Not authorized / forbidden:** `P-04.03`, `P-04.05`, and `P-04.06` are NOT authorized under this offline lane because they depend on unverified platform/sandbox realities. `P-05+` remain strictly forbidden.
+- **Phase status:** P-04 phase MUST remain OPEN; completion of P-04.01, P-04.02, and P-04.04 cannot close P-04.
+- **Hard stop after P-04 offline subset:** If P-04.01, P-04.02, and P-04.04 all independently close while P-01.02 is still blocked, execution MUST STOP again and return for independent architecture decision. Do not start P-04.03, P-04.05, P-04.06, or P-05+.
+- **Promo-arrival preemption:** If the Builder Program promotional-code email arrives during allowlisted offline execution: do not start another parallel micro-task; finish or cleanly abort the currently active atomic micro-task; return immediately to P-01.02; operator redeems promo; verify Token Factory promotional balance > $5.00; obtain independent authorization before executing inference. Do not consume the $1 trial.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -81,9 +84,9 @@ None (there is currently NO executable implementation micro-task while P-01.02 i
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Wait for the external P-01.02 prerequisite (Builder Program promotional-code credit delivery/redemption and promotional balance verification > $5.00). Do NOT authorize P-04.
-2. Blocking live gate P-01.02 remains BLOCKED until Builder Program promotional-code email is delivered and redeemed ($1.00 trial credit MUST NOT be consumed; Token Factory balance must be verified > $5.00; operator authorization required).
-3. P-01 phase remains OPEN.
-4. P-03 phase is independently CLOSED / PASS at SHA `83eb91da3caec3d52c22c06cf19fd0d5020b1057`.
-5. P-04+ remain strictly FORBIDDEN under P-01.01A (hard stop after P-03 remains active).
-6. There is currently NO executable implementation micro-task while P-01.02 is blocked.
+1. Independent QA review and verification of P-01.01B governance amendment.
+2. Once P-01.01B is awarded PASS: execute first allowlisted task P-04.01 (Formalize target-repository threat model).
+3. Blocking live gate P-01.02 remains BLOCKED until Builder Program promotional-code email is delivered and redeemed ($1.00 trial credit MUST NOT be consumed; Token Factory balance must be verified > $5.00; operator authorization required).
+4. P-01 phase remains OPEN.
+5. P-04 phase remains OPEN.
+6. P-04.03, P-04.05, P-04.06 and P-05+ remain strictly unauthorized / forbidden under the current offline lane.

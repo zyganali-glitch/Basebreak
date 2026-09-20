@@ -17,13 +17,13 @@ Exact micro-task titles are immutable once committed. If architecture reality ch
 11. ZERO-COST LAW: Basebreak hackathon development and judge path must not require the user to spend personal money. Allowed: genuine free tiers, hackathon/sponsor promotional credits, free open-source/local tools, services that stop when the free quota is exhausted. Forbidden without explicit user approval: paid subscriptions, pay-as-you-go enablement, automatic paid fallback, credit-card charges, deposits/pre-authorizations, paid certification, auto-upgrade after trial, any irreversible billing action. Under the operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION`, a payment card was attached solely to enable Builder Program promotional credit activation, while target personal spend remains strictly $0.00, post-promotional paid usage is strictly forbidden, and an operator-enforced $5.00 safety reserve floor (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`) is maintained. If a required external service asks for payment/card/deposit and there is no verified zero-cost path: STOP, classify as BLOCKED or OPERATOR_DECISION_REQUIRED, explain alternatives, never silently proceed. Promotional credits are a budget, not permission to spend beyond them.
 12. OPERATOR GUIDANCE LAW: The operator is non-expert and must receive screen-by-screen guidance for every required external account/service setup. For every operator action the coding agent must provide in Turkish: current official URL, page/menu name, exact button/link to click, exact field names, what to enter/select, what NOT to select, whether any card/payment risk exists, where to obtain an API key/token, how to store it safely without pasting it into chat or committing it, how to verify that the step succeeded, what to do if the current UI differs from documented UI. Never tell the operator merely "create an API key" or "configure Nebius". Never ask the operator to paste a secret into the conversation.
 13. DOCUMENTATION SYNC MATRIX: Master Plan updates exact task status when task state changes. HANDOFF updates active exact task, blocker and independently verified baseline truth. README updates only when public-facing capability/status/setup/architecture/competition truth materially changes, or at a Documentation Consolidation Gate. Architecture/Security/Evidence docs update only when their actual boundary/contract changes. Donor manifest updates only when donor research/reuse truth changes. Competition Feedback Log appends when real Nebius/NVIDIA/Tavily friction, strength, bug, limitation, or useful product feedback is actually observed. Harmless duplicated wording/count/navigation drift may be batched. Wrong SHA, false capability, false live claim, wrong evidence provenance, security/licensing/eligibility error must be fixed immediately. Every micro-task does NOT require mechanical rewriting of every documentation file.
-14. BOUNDED EXTERNAL-DEPENDENCY PARALLELIZATION LAW: When an exact task is BLOCKED solely by a verified external dependency outside Basebreak's control, a later task MAY execute before that blocker clears ONLY when all of the following are true: (1) the later task is explicitly allowlisted by the Master Plan; (2) its correctness does not depend on the missing external/live fact; (3) it can be validated deterministically without pretending LOCAL_EXECUTION is LIVE_NEBIUS; (4) no platform/provider capability is guessed; (5) the blocked gate remains visibly BLOCKED; (6) the blocked phase cannot receive GO/phase closure; (7) only ONE executable micro-task is active at a time; (8) the parallel work may not silently implement any non-allowlisted future phase; (9) if later live reality contradicts a supposedly provider-neutral assumption, affected work MUST reopen rather than override runtime truth. This rule is an exception for verified external blockers, not permission for arbitrary phase skipping. Promo-arrival preemption rule: if the external prerequisite arrives while parallel work is underway, do not start another parallel micro-task; finish or cleanly abort the currently active atomic micro-task; return immediately to the blocked gate; verify prerequisites and obtain independent authorization before execution. Current parallel allowlist permits ONLY P-02 (all micro-tasks P-02.01 through P-02.07) and, upon independent P-02 phase closure, P-03 (all micro-tasks P-03.01 through P-03.06). Hard stop after P-03: P-04+ are strictly forbidden under this exception without a further explicit amendment.
+14. BOUNDED EXTERNAL-DEPENDENCY PARALLELIZATION LAW: When an exact task is BLOCKED solely by a verified external dependency outside Basebreak's control, a later task MAY execute before that blocker clears ONLY when all of the following are true: (1) the later task is explicitly allowlisted by the Master Plan; (2) its correctness does not depend on the missing external/live fact; (3) it can be validated deterministically without pretending LOCAL_EXECUTION is LIVE_NEBIUS; (4) no platform/provider capability is guessed; (5) the blocked gate remains visibly BLOCKED; (6) the blocked phase cannot receive GO/phase closure; (7) only ONE executable micro-task is active at a time; (8) the parallel work may not silently implement any non-allowlisted future phase; (9) if later live reality contradicts a supposedly provider-neutral assumption, affected work MUST reopen rather than override runtime truth. This rule is an exception for verified external blockers, not permission for arbitrary phase skipping. Promo-arrival preemption rule: if the external prerequisite arrives while parallel work is underway, do not start another parallel micro-task; finish or cleanly abort the currently active atomic micro-task; return immediately to the blocked gate; verify prerequisites and obtain independent authorization before execution. Completed parallel lanes: P-02 (P-02.01–P-02.07) and P-03 (P-03.01–P-03.06) are independently closed. Current parallel allowlist under amendment P-01.01B permits sequential execution ONLY of platform-independent P-04 security primitives: P-04.01, P-04.02, P-04.04 (only after P-01.01B QA PASS). P-04.03, P-04.05, P-04.06 are explicitly NOT authorized under this offline lane. P-05+ remain strictly forbidden. P-04 phase MUST remain OPEN; offline execution cannot close P-04. Hard stop after P-04 offline subset: if P-04.01, P-04.02, and P-04.04 close while P-01.02 remains blocked, execution MUST STOP and return for independent architecture decision.
 
 ## Competition Critical Path
 
 Priority guidance for the Nebius x NVIDIA Global AI Hackathon. This is NOT scope deletion; all phases remain planned.
 
-1. **Platform reality:** P-00 (governance) → P-01 (live platform discovery and feasibility gate). *(Note on external blocker: External-blocker parallelization permits provider-neutral P-02/P-03 engineering while P-01.02 is externally blocked; this does not satisfy or bypass the P-01 live phase exit.)*
+1. **Platform reality:** P-00 (governance) → P-01 (live platform discovery and feasibility gate). *(Note on external blocker: External-blocker parallelization permits provider-neutral P-02/P-03 and platform-independent P-04 subset engineering (P-04.01, P-04.02, P-04.04) while P-01.02 is externally blocked; this does not satisfy or bypass the P-01 live phase exit or close P-04.)*
 2. **Causal vertical spine:** P-02 Provider-Neutral Domain Contracts → P-03 Evidence Store & Deterministic Fact Authority → P-04 Security & Untrusted-Code Policy Foundation → P-05 Nebius/Nemotron Adapter Layer → P-06 Contract Compiler → P-07 Builder Runtime → P-08 Verifier Isolation → P-09 Witness Generation → P-10 Causal Two-World Engine → P-11 Counterfactual Third Run (competition-defining causal proof path producing the canonical high-value demo: BASE = FAIL, CANDIDATE = PASS, COUNTERFACTUAL = FAIL; P-11 is competition-core and not optional/stretch/depth-only). (Prerequisite rationale: P-07 depends on P-04 protected/action/security policy; P-09 depends on P-06 frozen acceptance contract; P-10 depends on P-03 evidence/hash binding).
 3. **Judge proof:** first receipt/CLI proof (P-18/P-19 minimal) → judge-visible causal story (P-22/P-23 killer demo).
 4. **Deployment/reproducibility/submission:** P-27 (live deployment) → P-29 (competition evidence) → P-30 (demo video) → P-32 (submission freeze).
@@ -120,6 +120,25 @@ Acceptance:
 - strict allowlist defined: P-02 (P-02.01–P-02.07) and P-03 (P-03.01–P-03.06);
 - explicit hard stop after P-03 (P-04+ strictly forbidden without new amendment);
 - promo-arrival preemption rule codified;
+- P-01 phase remains OPEN (no GO without LIVE_NEBIUS evidence);
+- HANDOFF clearly distinguishes blocking live gate vs executable task;
+- no product/source code modified;
+- candidate pushed and remote SHA verified.
+
+### P-01.01B — Extend bounded provider-neutral parallel execution to platform-independent P-04 security primitives while the live gate remains externally blocked
+Status: IN_PROGRESS (executor-completed; awaiting independent QA)
+Deliver: Master Plan amendment and governance rules extending bounded provider-neutral parallel execution to the platform-independent P-04 security primitives (P-04.01, P-04.02, P-04.04) while P-01.02 is externally blocked.
+Acceptance:
+- P-01.01A status preserved as DONE;
+- P-01.02 remains BLOCKED with explicit external blocker metadata;
+- Bounded External-Dependency Parallelization Law updated in AGENTS.md and Master Plan;
+- completed P-02 and P-03 status recorded as independently closed;
+- new strict allowlist defined: P-04.01, P-04.02, P-04.04 only;
+- P-04.03, P-04.05, P-04.06 explicitly NOT AUTHORIZED under current offline lane;
+- P-05+ strictly forbidden;
+- P-04 phase explicitly remains OPEN (cannot close from offline subset);
+- explicit hard stop after P-04.04 (if P-04.01, P-04.02, P-04.04 close while P-01.02 is still blocked, stop and return for independent architecture decision);
+- promo-arrival preemption rule preserved;
 - P-01 phase remains OPEN (no GO without LIVE_NEBIUS evidence);
 - HANDOFF clearly distinguishes blocking live gate vs executable task;
 - no product/source code modified;
@@ -235,20 +254,78 @@ Status: DONE (independently VERIFIED / PASS at SHA 83eb91da3caec3d52c22c06cf19fd
 Status: DONE (independently VERIFIED / PASS at SHA 83eb91da3caec3d52c22c06cf19fd0d5020b1057)
 Phase exit: evidence facts cannot be silently rebound to another candidate/run. (P-03 phase independently CLOSED / PASS at SHA 83eb91da3caec3d52c22c06cf19fd0d5020b1057)
 
-### Hard stop after P-03:
-This amendment DOES NOT authorize P-04. If P-03 closes and P-01.02 is still blocked: STOP and return for independent architecture decision. Do NOT automatically start P-04, P-05, P-06, P-07 or any later phase. Reason: P-04 includes platform-dependent sandbox/security policy, and P-05 is explicitly Nebius/Nemotron provider integration.
+### Status after P-03 closure:
+P-03 phase was independently CLOSED / PASS at SHA 83eb91da3caec3d52c22c06cf19fd0d5020b1057 (recorded in repo at SHA 666181053b49ebb49cb5fda64b6a5cd4dfb26c9b). Following the required independent architecture decision, amendment P-01.01B authorizes sequential execution ONLY of the platform-independent P-04 security primitives (P-04.01, P-04.02, P-04.04). P-04.03, P-04.05, P-04.06 and P-05+ remain strictly forbidden under the current offline lane.
 
 
 ---
 
 # P-04 — Security & Untrusted-Code Policy Foundation
+Goal: establish bounded execution and integrity contracts before autonomous building.
+*(Platform-independent subset P-04.01, P-04.02, P-04.04 allowlisted for sequential parallel execution under P-01.01B amendment only after independent P-01.01B closure while P-01.02 is externally blocked. P-04 phase MUST remain OPEN; P-04.03, P-04.05, P-04.06 are NOT authorized under this lane).*
+
+Why the allowlisted tasks are safe to execute offline:
+- P-04.01 is provider-neutral threat modeling. It models generic adversaries and trust boundaries already established by Basebreak: target repository is untrusted input; Builder cannot certify itself; verifier assets must remain independent; repository content may attempt prompt injection; repository code may attempt secret discovery/exfiltration; generated patches may mutate protected verification/governance surfaces; logs/evidence must not persist credentials; deterministic facts have authority over model prose. It MUST NOT claim provider-specific sandbox protections.
+- P-04.02 is provider-neutral secret redaction / persistence policy. It implements deterministic: secret-shaped value redaction; forbidden durable-secret persistence rules; safe evidence/log serialization boundaries; synthetic-credential tests. It MUST NOT implement provider credential delivery/injection or claim that a specific live runtime protects secrets.
+- P-04.04 is provider-neutral repository integrity policy. It implements deterministic: protected-surface manifest contracts; normalized repository path validation; diff/change detection; protected-surface mutation rejection; traversal/symlink/path-normalization adversarial tests where relevant. It MUST NOT assume any specific sandbox filesystem API.
+
+Why the remaining tasks are NOT authorized under the offline lane:
+- P-04.03 explicitly depends on proven live platform/sandbox capability that has not yet been established because P-01 live feasibility remains blocked. Do not guess network policy support, process isolation behavior, sandbox privilege model, resource ceilings, filesystem guarantees, checkpoint/snapshot/fork/reset behavior, teardown semantics, runtime limits, concurrency, or provider error semantics.
+- P-04.05 and P-04.06: Keep timeout/resource/fork-bomb behavior from encoding unverified platform semantics before live sandbox discovery.
+
 ### P-04.01 — Formalize target-repository threat model
+Status: PENDING
+Acceptance:
+- formal threat model document in docs/;
+- generic adversaries and trust boundaries defined;
+- treats target repository as untrusted code;
+- Builder self-certification prohibited;
+- verifier asset independence specified;
+- prompt injection, credential exfiltration, and protected-surface mutation threats analyzed;
+- no provider-specific sandbox capability assumed;
+- deterministic facts recognized as authoritative over model prose.
+
 ### P-04.02 — Implement secret redaction and forbidden persistence rules
+Status: PENDING
+Acceptance:
+- deterministic secret-shaped value redaction engine;
+- forbidden durable-secret persistence rules for evidence store and logs;
+- safe log and serialization boundaries;
+- synthetic-credential unit and property tests;
+- no provider credential injection implemented;
+- no claim that any live runtime guarantees secret protection.
+
 ### P-04.03 — Define sandbox resource/network/process policy from proven platform capability
+Status: PENDING (NOT AUTHORIZED UNDER CURRENT OFFLINE LANE; blocked on P-01 live platform discovery)
+Acceptance:
+- requires proven live platform capabilities from P-01;
+- defines resource ceilings, network policy, and process limits from verified facts.
+
 ### P-04.04 — Implement protected-surface manifest and diff checks
+Status: PENDING
+Acceptance:
+- protected-surface manifest contract;
+- normalized repository path validation;
+- diff and change-detection logic rejecting mutations to protected verification/governance paths;
+- path-traversal, symlink, and case-normalization boundary tests;
+- no assumptions about specific sandbox filesystem APIs.
+
 ### P-04.05 — Implement execution timeout/cancellation/resource-failure normalization
+Status: PENDING (NOT AUTHORIZED UNDER CURRENT OFFLINE LANE; blocked on P-01 live platform discovery)
+Acceptance:
+- requires proven platform timeout/cancellation semantics.
+
 ### P-04.06 — Add malicious-fixture tests for exfiltration attempts, fork bombs, verifier discovery, and protected-surface mutation
+Status: PENDING (NOT AUTHORIZED UNDER CURRENT OFFLINE LANE; blocked on P-01 live platform discovery)
+Acceptance:
+- malicious-fixture test suite exercising boundary enforcement without unverified sandbox assumptions.
+
 Phase exit: safe bounded execution contracts exist before autonomous building.
+(P-04 phase MUST remain OPEN. Completing P-04.01, P-04.02, and P-04.04 cannot close P-04. Phase exit remains unavailable until remaining exact tasks are legitimately completed).
+
+### Hard stop after P-04 offline subset:
+If P-04.01, P-04.02 and P-04.04 all independently close while P-01.02 is still blocked:
+STOP again. Do NOT automatically start P-04.03, P-04.05, P-04.06, P-05+, P-06+, or any other future phase. Return for another independent architecture decision.
 
 ---
 

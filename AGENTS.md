@@ -188,8 +188,23 @@ If the Builder Program promo-code email arrives while allowlisted parallel work 
 Do not consume the $1 trial. No automatic paid fallback.
 
 ### Current Parallel Allowlist & Hard Stop
-For the active P-01.02 external blocker, allow ONLY:
-- P-02 (Provider-Neutral Domain Contracts, P-02.01 through P-02.07);
-- P-03 (Evidence Store & Deterministic Fact Authority, P-03.01 through P-03.06, only after independent P-02 phase closure).
+The previous parallel lane for P-02 (P-02.01 through P-02.07) and P-03 (P-03.01 through P-03.06) is COMPLETED and independently CLOSED.
 
-Hard stop after P-03: This amendment DOES NOT authorize P-04 or any subsequent phase. If P-03 closes while P-01.02 remains blocked, execution MUST STOP and return for independent architecture decision.
+Under amendment P-01.01B, for the ongoing active P-01.02 external blocker, allow sequential execution ONLY of the platform-independent security primitives from P-04:
+- P-04.01 — Formalize target-repository threat model
+- P-04.02 — Implement secret redaction and forbidden persistence rules
+- P-04.04 — Implement protected-surface manifest and diff checks
+
+These tasks may execute sequentially only after P-01.01B receives independent QA PASS. Exactly ONE executable micro-task may be active at any time. P-04.04 may execute after independently verified P-04.02 even though P-04.03 remains unexecuted, because its correctness does not depend on unverified platform/sandbox facts.
+
+NOT AUTHORIZED under current offline lane:
+- P-04.03 — Define sandbox resource/network/process policy from proven platform capability (depends on live platform/sandbox capability; cannot guess network policy, process isolation, sandbox privilege model, resource ceilings, filesystem guarantees, checkpoint/snapshot/fork/reset semantics, teardown, runtime limits, concurrency, or provider error semantics).
+- P-04.05 — Implement execution timeout/cancellation/resource-failure normalization (keep timeout/resource behavior from encoding unverified platform semantics before live sandbox discovery).
+- P-04.06 — Add malicious-fixture tests for exfiltration attempts, fork bombs, verifier discovery, and protected-surface mutation (keep fork-bomb/resource behavior from encoding unverified platform semantics before live sandbox discovery).
+- P-05+ remain strictly FORBIDDEN.
+
+P-04 phase status:
+P-04 phase MUST remain OPEN. Completing P-04.01, P-04.02, and P-04.04 cannot close P-04. Phase exit remains unavailable until the remaining exact tasks are legitimately completed.
+
+Hard stop after P-04 offline subset:
+If P-04.01, P-04.02, and P-04.04 all independently close while P-01.02 is still blocked: execution MUST STOP again. Do NOT automatically start P-04.03, P-04.05, P-04.06, P-05+, P-06+, or any other future phase. Return for another independent architecture decision.
