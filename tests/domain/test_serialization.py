@@ -332,3 +332,111 @@ class TestSchemaCompatibilityAndValidation:
     def test_rejects_non_bytes_input(self) -> None:
         with pytest.raises(TypeError, match="data must be bytes or bytearray"):
             from_canonical_bytes("not bytes")  # type: ignore[arg-type]
+
+
+class TestExecutionEnvStrictDeserialization:
+    """Adversarial tests for ExecutionCommand env deserialization."""
+
+    def test_rejects_non_string_env_value(self) -> None:
+        # Non-string value in dict envelope
+        envelope = {
+            "schema_version": 1,
+            "schema_type": "ExecutionCommand",
+            "payload": {
+                "argv": ["python", "main.py"],
+                "env": [["PORT", 8080]],
+            },
+        }
+        with pytest.raises(SchemaValidationError, match="env keys and values must be strings"):
+            from_dict(envelope)
+
+        # Non-string None value in JSON
+        bad_json = (
+            '{"schema_version":1,"schema_type":"ExecutionCommand",'
+            '"payload":{"argv":["python"],"env":[["DEBUG",null]]}}'
+        )
+        with pytest.raises(SchemaValidationError, match="env keys and values must be strings"):
+            from_canonical_json(bad_json)
+
+    def test_rejects_non_string_env_key(self) -> None:
+        envelope = {
+            "schema_version": 1,
+            "schema_type": "ExecutionCommand",
+            "payload": {
+                "argv": ["python", "main.py"],
+                "env": [[123, "value"]],
+            },
+        }
+        with pytest.raises(SchemaValidationError, match="env keys and values must be strings"):
+            from_dict(envelope)
+
+        bad_json = (
+            '{"schema_version":1,"schema_type":"ExecutionCommand",'
+            '"payload":{"argv":["python"],"env":[[true,"val"]]}}'
+        )
+        with pytest.raises(SchemaValidationError, match="env keys and values must be strings"):
+            from_canonical_json(bad_json)
+
+    def test_rejects_duplicate_env_keys(self) -> None:
+        envelope = {
+            "schema_version": 1,
+            "schema_type": "ExecutionCommand",
+            "payload": {
+                "argv": ["python"],
+                "env": [["DUPLICATE", "v1"], ["DUPLICATE", "v2"]],
+            },
+        }
+        with pytest.raises(
+            SchemaValidationError, match="Duplicate environment key detected: 'DUPLICATE'"
+        ):
+            from_dict(envelope)
+
+    def test_logically_identical_env_pair_order_normalizes_identically(self) -> None:
+        envelope_a = {
+            "schema_version": 1,
+            "schema_type": "ExecutionCommand",
+            "payload": {
+                "argv": ["python"],
+                "env": [["Z_VAR", "z"], ["A_VAR", "a"]],
+            },
+        }
+        envelope_b = {
+            "schema_version": 1,
+            "schema_type": "ExecutionCommand",
+            "payload": {
+                "argv": ["python"],
+                "env": [["A_VAR", "a"], ["Z_VAR", "z"]],
+            },
+        }
+        cmd_a: ExecutionCommand = from_dict(envelope_a)
+        cmd_b: ExecutionCommand = from_dict(envelope_b)
+        assert cmd_a == cmd_b
+        assert cmd_a.env == (("A_VAR", "a"), ("Z_VAR", "z"))
+        assert to_canonical_json(cmd_a) == to_canonical_json(cmd_b)
+
+    def test_rejects_arbitrary_object_without_repr_conversion(self) -> None:
+        sentinel_obj = object()
+        envelope = {
+            "schema_version": 1,
+            "schema_type": "ExecutionCommand",
+            "payload": {
+                "argv": ["python"],
+                "env": [["OBJ_KEY", sentinel_obj]],
+            },
+        }
+        with pytest.raises(SchemaValidationError, match="env keys and values must be strings"):
+            from_dict(envelope)
+
+    def test_no_memory_address_leakage_in_reconstructed_command(self) -> None:
+        envelope = {
+            "schema_version": 1,
+            "schema_type": "ExecutionCommand",
+            "payload": {
+                "argv": ["python"],
+                "env": [["KEY", "clean_value"]],
+            },
+        }
+        cmd: ExecutionCommand = from_dict(envelope)
+        for k, v in cmd.env:
+            assert "0x" not in v
+            assert "object at" not in v

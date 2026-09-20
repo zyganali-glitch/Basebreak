@@ -294,12 +294,29 @@ def _deserialize_termination_status(payload: dict[str, Any]) -> TerminationStatu
 
 
 def _deserialize_execution_command(payload: dict[str, Any]) -> ExecutionCommand:
-    raw_env = payload.get("env", [])
-    env_pairs = tuple((str(k), str(v)) for k, v in raw_env)
+    raw_env = payload.get("env", ())
+    if not isinstance(raw_env, (list, tuple)):
+        raise TypeError(
+            f"env must be a sequence of (key, value) pairs, got {type(raw_env).__name__}"
+        )
+
+    if "argv" not in payload:
+        raise KeyError("argv")
+    raw_argv = payload["argv"]
+    if not isinstance(raw_argv, (list, tuple)):
+        raise TypeError(f"argv must be a sequence of strings, got {type(raw_argv).__name__}")
+
+    env_pairs: list[tuple[Any, Any]] = []
+    for idx, item in enumerate(raw_env):
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            raise TypeError(f"env element at index {idx} must be a (key, value) pair")
+        k, v = item
+        env_pairs.append((k, v))
+
     return ExecutionCommand(
-        argv=tuple(payload["argv"]),
+        argv=tuple(raw_argv),
         cwd=payload.get("cwd"),
-        env=env_pairs,
+        env=tuple(env_pairs),
     )
 
 

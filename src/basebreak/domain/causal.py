@@ -7,8 +7,10 @@ independent witnesses, exact candidates, and execution worlds.
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 from basebreak.domain.source import SourceIdentity
 
@@ -208,28 +210,51 @@ class CausalBinding:
 
     @property
     def binding_digest(self) -> str:
-        """Deterministic SHA-256 fingerprint of the bound immutable causal facts."""
-        hasher = hashlib.sha256()
-        hasher.update(self.requirement_id.encode("utf-8"))
-        hasher.update(b":")
-        hasher.update(self.witness.witness_id.encode("utf-8"))
-        hasher.update(b":")
-        hasher.update(self.witness.digest.encode("utf-8"))
-        hasher.update(b":")
-        hasher.update(self.base_source.locator.encode("utf-8"))
-        hasher.update(b":")
-        hasher.update(self.base_source.resolved_commit_id.encode("utf-8"))
-        hasher.update(b":")
-        hasher.update(self.candidate.candidate_id.encode("utf-8"))
-        hasher.update(b":")
-        hasher.update(self.candidate.source.locator.encode("utf-8"))
-        hasher.update(b":")
-        hasher.update(self.candidate.source.resolved_commit_id.encode("utf-8"))
-        hasher.update(b":")
-        hasher.update((self.candidate.patch_digest or "").encode("utf-8"))
-        hasher.update(b":")
-        hasher.update(self.world.value.encode("utf-8"))
-        hasher.update(b":")
-        cf_id = self.counterfactual.counterfactual_id if self.counterfactual else ""
-        hasher.update(cf_id.encode("utf-8"))
-        return hasher.hexdigest()
+        """Deterministic SHA-256 fingerprint of the bound immutable causal facts.
+
+        Unambiguously encodes all authoritative identity fields:
+        - requirement_id
+        - witness.witness_id and witness.digest
+        - base source locator, resolved commit, and subpath
+        - candidate_id, patch_digest, and source (locator, resolved commit, subpath)
+        - execution world
+        - counterfactual_id and delta_digest when applicable
+
+        Non-authoritative descriptive prose (descriptions, RequestedRef) does not
+        affect the binding digest.
+        """
+        cf_data: dict[str, str | None] | None = None
+        if self.counterfactual is not None:
+            cf_data = {
+                "counterfactual_id": self.counterfactual.counterfactual_id,
+                "delta_digest": self.counterfactual.delta_digest,
+            }
+
+        facts: dict[str, Any] = {
+            "base_source": {
+                "locator": self.base_source.locator,
+                "resolved_commit_id": self.base_source.resolved_commit_id,
+                "subpath": self.base_source.subpath,
+            },
+            "candidate": {
+                "candidate_id": self.candidate.candidate_id,
+                "patch_digest": self.candidate.patch_digest,
+                "source": {
+                    "locator": self.candidate.source.locator,
+                    "resolved_commit_id": self.candidate.source.resolved_commit_id,
+                    "subpath": self.candidate.source.subpath,
+                },
+            },
+            "counterfactual": cf_data,
+            "requirement_id": self.requirement_id,
+            "witness": {
+                "digest": self.witness.digest,
+                "witness_id": self.witness.witness_id,
+            },
+            "world": self.world.value,
+        }
+
+        canonical_bytes = json.dumps(
+            facts, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        return hashlib.sha256(canonical_bytes).hexdigest()

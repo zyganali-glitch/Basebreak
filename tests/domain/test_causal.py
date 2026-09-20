@@ -411,3 +411,207 @@ class TestCausalBinding:
         )
         assert binding_base != binding_candidate
         assert binding_base.binding_digest != binding_candidate.binding_digest
+
+    def test_base_source_subpath_changes_binding_digest(
+        self,
+        witness_identity: WitnessIdentity,
+        candidate_identity: CandidateIdentity,
+    ) -> None:
+        base_no_sub = SourceIdentity(
+            locator="https://github.com/example/repo",
+            revision=CommitRevision(_HEX_40_A),
+            subpath=None,
+        )
+        base_with_sub = SourceIdentity(
+            locator="https://github.com/example/repo",
+            revision=CommitRevision(_HEX_40_A),
+            subpath="packages/core",
+        )
+        binding_1 = CausalBinding(
+            requirement_id="req_001",
+            witness=witness_identity,
+            base_source=base_no_sub,
+            candidate=candidate_identity,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        binding_2 = CausalBinding(
+            requirement_id="req_001",
+            witness=witness_identity,
+            base_source=base_with_sub,
+            candidate=candidate_identity,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        assert binding_1.binding_digest != binding_2.binding_digest
+
+    def test_candidate_source_subpath_changes_binding_digest(
+        self,
+        witness_identity: WitnessIdentity,
+        base_source: SourceIdentity,
+    ) -> None:
+        cand_no_sub = CandidateIdentity(
+            candidate_id="cand_001",
+            source=SourceIdentity(
+                locator="https://github.com/example/repo",
+                revision=CommitRevision(_HEX_40_B),
+                subpath=None,
+            ),
+        )
+        cand_with_sub = CandidateIdentity(
+            candidate_id="cand_001",
+            source=SourceIdentity(
+                locator="https://github.com/example/repo",
+                revision=CommitRevision(_HEX_40_B),
+                subpath="src/submod",
+            ),
+        )
+        binding_1 = CausalBinding(
+            requirement_id="req_001",
+            witness=witness_identity,
+            base_source=base_source,
+            candidate=cand_no_sub,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        binding_2 = CausalBinding(
+            requirement_id="req_001",
+            witness=witness_identity,
+            base_source=base_source,
+            candidate=cand_with_sub,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        assert binding_1.binding_digest != binding_2.binding_digest
+
+    def test_counterfactual_delta_digest_changes_binding_digest(
+        self,
+        witness_identity: WitnessIdentity,
+        base_source: SourceIdentity,
+        candidate_identity: CandidateIdentity,
+    ) -> None:
+        cf_1 = CounterfactualIdentity(
+            counterfactual_id="cf_001",
+            target_candidate=candidate_identity,
+            delta_digest=_HEX_64_A,
+        )
+        cf_2 = CounterfactualIdentity(
+            counterfactual_id="cf_001",
+            target_candidate=candidate_identity,
+            delta_digest=_HEX_64_B,
+        )
+        binding_1 = CausalBinding(
+            requirement_id="req_001",
+            witness=witness_identity,
+            base_source=base_source,
+            candidate=candidate_identity,
+            world=ExecutionWorld.COUNTERFACTUAL,
+            counterfactual=cf_1,
+        )
+        binding_2 = CausalBinding(
+            requirement_id="req_001",
+            witness=witness_identity,
+            base_source=base_source,
+            candidate=candidate_identity,
+            world=ExecutionWorld.COUNTERFACTUAL,
+            counterfactual=cf_2,
+        )
+        assert binding_1.binding_digest != binding_2.binding_digest
+
+    def test_same_logical_binding_always_gives_same_digest(
+        self,
+        witness_identity: WitnessIdentity,
+        base_source: SourceIdentity,
+        candidate_identity: CandidateIdentity,
+    ) -> None:
+        b1 = CausalBinding(
+            requirement_id="req_001",
+            witness=witness_identity,
+            base_source=base_source,
+            candidate=candidate_identity,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        b2 = CausalBinding(
+            requirement_id="req_001",
+            witness=witness_identity,
+            base_source=base_source,
+            candidate=candidate_identity,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        assert b1.binding_digest == b2.binding_digest
+
+    def test_delimiter_bearing_identifiers_do_not_collide(
+        self,
+        base_source: SourceIdentity,
+        candidate_identity: CandidateIdentity,
+    ) -> None:
+        # Deliberately construct two bindings where field boundaries shift around ':'
+        # Under raw colon joining: "req:wit" + ":" + "01" == "req" + ":" + "wit:01"
+        wit_1 = WitnessIdentity(witness_id="01", digest=_HEX_64_A)
+        wit_2 = WitnessIdentity(witness_id="wit:01", digest=_HEX_64_A)
+
+        b1 = CausalBinding(
+            requirement_id="req:wit",
+            witness=wit_1,
+            base_source=base_source,
+            candidate=candidate_identity,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        b2 = CausalBinding(
+            requirement_id="req",
+            witness=wit_2,
+            base_source=base_source,
+            candidate=candidate_identity,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        assert b1.binding_digest != b2.binding_digest
+
+    def test_non_authoritative_prose_does_not_change_binding_digest(
+        self,
+        witness_identity: WitnessIdentity,
+    ) -> None:
+        base_1 = SourceIdentity(
+            locator="https://github.com/example/repo",
+            revision=CommitRevision(_HEX_40_A),
+            requested_ref=RequestedRef("main"),
+        )
+        base_2 = SourceIdentity(
+            locator="https://github.com/example/repo",
+            revision=CommitRevision(_HEX_40_A),
+            requested_ref=RequestedRef("develop"),  # Non-authoritative
+        )
+
+        cand_1 = CandidateIdentity(
+            candidate_id="cand_001",
+            source=base_1,
+            description="First description",  # Non-authoritative
+        )
+        cand_2 = CandidateIdentity(
+            candidate_id="cand_001",
+            source=base_2,
+            description="Completely different description",  # Non-authoritative
+        )
+
+        wit_1 = WitnessIdentity(
+            witness_id="wit_01",
+            digest=_HEX_64_A,
+            description="Witness description A",  # Non-authoritative
+        )
+        wit_2 = WitnessIdentity(
+            witness_id="wit_01",
+            digest=_HEX_64_A,
+            description="Witness description B",  # Non-authoritative
+        )
+
+        b1 = CausalBinding(
+            requirement_id="req_001",
+            witness=wit_1,
+            base_source=base_1,
+            candidate=cand_1,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        b2 = CausalBinding(
+            requirement_id="req_001",
+            witness=wit_2,
+            base_source=base_2,
+            candidate=cand_2,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        # Causal digest must be identical because all authoritative identity facts match!
+        assert b1.binding_digest == b2.binding_digest
