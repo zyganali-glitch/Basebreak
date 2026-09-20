@@ -6,6 +6,7 @@ from basebreak.evidence.append_model import (
     EvidenceIdentity,
     EvidenceRebindingError,
     EvidenceRecord,
+    EvidenceSequenceError,
     EvidenceStore,
     RunIdentity,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "EvidenceIdentity",
     "EvidenceRebindingError",
     "EvidenceRecord",
+    "EvidenceSequenceError",
     "EvidenceStore",
     "RunIdentity",
     "StreamType",

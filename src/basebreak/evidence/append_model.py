@@ -36,6 +36,10 @@ class EvidenceRebindingError(EvidenceError):
     """Raised when evidence is illegally rebound across runs or candidates."""
 
 
+class EvidenceSequenceError(EvidenceError):
+    """Raised when an evidence record violates per-run sequence continuity or monotonicity."""
+
+
 def _validate_clean_identifier(value: str, field_name: str) -> None:
     if not isinstance(value, str):
         raise TypeError(f"{field_name} must be a str, got {type(value).__name__}")
@@ -209,6 +213,15 @@ class EvidenceRecord:
                 f"does not match computed {computed.value}"
             )
 
+    @property
+    def effective_candidate(self) -> CandidateIdentity | None:
+        """Derive effective candidate from direct candidate or causal_binding."""
+        if self.candidate is not None:
+            return self.candidate
+        if self.causal_binding is not None:
+            return self.causal_binding.candidate
+        return None
+
 
 class EvidenceStore:
     """In-memory append-only fact history store.
@@ -217,6 +230,7 @@ class EvidenceStore:
     - append-only semantics (no in-place modification or replacement);
     - duplicate identity detection (idempotent if identical, conflict error if differing);
     - candidate and run boundary preservation (no cross-run or cross-candidate rebinding);
+    - per-run deterministic sequence continuity and monotonicity (starts at 0, no gaps/dups);
     - deterministic retrieval order.
     """
 
@@ -235,6 +249,7 @@ class EvidenceStore:
         self._candidate = candidate
         self._records: list[EvidenceRecord] = []
         self._by_id: dict[str, EvidenceRecord] = {}
+        self._run_next_sequence: dict[str, int] = {}
 
     @property
     def run_id(self) -> RunIdentity | None:
@@ -251,6 +266,7 @@ class EvidenceStore:
             TypeError: if record is not an EvidenceRecord.
             EvidenceRebindingError: if record violates store run or candidate binding.
             EvidenceConflictError: if record with same evidence_id has conflicting contents.
+            EvidenceSequenceError: if record violates per-run sequence continuity.
         """
         if not isinstance(record, EvidenceRecord):
             raise TypeError(f"record must be an EvidenceRecord, got {type(record).__name__}")
@@ -262,9 +278,15 @@ class EvidenceStore:
             )
 
         if self._candidate is not None:
-            if record.candidate is not None and record.candidate != self._candidate:
+            effective = record.effective_candidate
+            if effective is None:
                 raise EvidenceRebindingError(
-                    f"Cannot append evidence for candidate '{record.candidate.candidate_id}' "
+                    f"Cannot append un-bound candidate evidence to store bound to candidate "
+                    f"'{self._candidate.candidate_id}'"
+                )
+            if effective != self._candidate:
+                raise EvidenceRebindingError(
+                    f"Cannot append evidence for candidate '{effective.candidate_id}' "
                     f"to store bound to candidate '{self._candidate.candidate_id}'"
                 )
 
@@ -272,7 +294,7 @@ class EvidenceStore:
         if ev_id in self._by_id:
             existing = self._by_id[ev_id]
             if existing == record:
-                # Idempotent append
+                # Idempotent append: preserves sequence state without advancing
                 return
             existing_d = existing.fact_digest.value if existing.fact_digest else "none"
             new_d = record.fact_digest.value if record.fact_digest else "none"
@@ -281,6 +303,15 @@ class EvidenceStore:
                 f"Existing digest: {existing_d}, New digest: {new_d}"
             )
 
+        run_key = record.run_id.run_id
+        expected_seq = self._run_next_sequence.get(run_key, 0)
+        if record.sequence_number != expected_seq:
+            raise EvidenceSequenceError(
+                f"Invalid sequence_number {record.sequence_number} for run '{run_key}'. "
+                f"Expected sequence_number {expected_seq}."
+            )
+
+        self._run_next_sequence[run_key] = expected_seq + 1
         self._records.append(record)
         self._by_id[ev_id] = record
 
@@ -292,7 +323,8 @@ class EvidenceStore:
     def get_for_run(self, run_id: RunIdentity | str) -> tuple[EvidenceRecord, ...]:
         """Retrieve all records for a specific run in deterministic sequence order."""
         key = run_id.run_id if isinstance(run_id, RunIdentity) else run_id
-        return tuple(r for r in self._records if r.run_id.run_id == key)
+        matching = [r for r in self._records if r.run_id.run_id == key]
+        return tuple(sorted(matching, key=lambda r: r.sequence_number))
 
     def all_records(self) -> tuple[EvidenceRecord, ...]:
         """Retrieve all recorded facts in deterministic append sequence order."""

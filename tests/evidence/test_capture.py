@@ -143,3 +143,63 @@ class TestByteAndTextSemantics:
         assert d["stdout"]["retained_text"] == "out line"
         assert d["stderr"]["retained_text"] == "err line"
         assert "0x" not in d["stdout"]["full_digest"]["value"]
+
+
+class TestSanitizedCaptureNoRawSecretRetention:
+    def test_bearer_token_not_in_any_field(self) -> None:
+        token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+        raw = f"Authorization: Bearer {token}"
+        stream = capture_stream(raw, StreamType.STDOUT)
+        assert stream.is_sanitized
+        assert token.encode("utf-8") not in stream.retained_bytes
+        assert token not in stream.retained_text
+        assert token not in stream.sanitized_text
+        assert "Bearer [REDACTED]" in stream.retained_text
+        # Full digest still equals exact original bytes
+        assert stream.full_digest == compute_bytes_digest(raw.encode("utf-8"))
+        assert stream.original_byte_length == len(raw.encode("utf-8"))
+
+    def test_api_key_not_in_any_field(self) -> None:
+        key = "secret_fake_api_key_88888"
+        raw = f'config: api_key = "{key}"'
+        stream = capture_stream(raw, StreamType.STDERR)
+        assert stream.is_sanitized
+        assert key.encode("utf-8") not in stream.retained_bytes
+        assert key not in stream.retained_text
+        assert key not in stream.sanitized_text
+        assert "[REDACTED]" in stream.retained_text
+
+    def test_basic_auth_not_in_any_field(self) -> None:
+        cred = "dXNlcjpwYXNzd29yZDEyMzQ="
+        raw = f"Authorization: Basic {cred}"
+        stream = capture_stream(raw, StreamType.STDOUT)
+        assert stream.is_sanitized
+        assert cred.encode("utf-8") not in stream.retained_bytes
+        assert cred not in stream.retained_text
+        assert cred not in stream.sanitized_text
+        assert "Basic [REDACTED]" in stream.retained_text
+
+    def test_serialized_to_dict_contains_no_original_secret(self) -> None:
+        token = "sk-1234567890abcdef1234"
+        raw = f"Using API client token: {token}"
+        stream = capture_stream(raw, StreamType.STDOUT)
+        d = stream.to_dict()
+        assert token not in str(d)
+        assert token not in d["retained_text"]
+        assert token not in d["sanitized_text"]
+
+    def test_secret_spanning_truncation_boundary_cannot_leak_partial_secret(self) -> None:
+        prefix = "A" * 44 + " "
+        secret_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+        raw = f"{prefix}Bearer {secret_token}"
+        # max_bytes = 50, secret starts at index 45
+        stream = capture_stream(raw, StreamType.STDOUT, max_bytes=50)
+        assert stream.is_sanitized
+        assert stream.is_truncated
+        assert len(stream.retained_bytes) <= 50
+        assert secret_token.encode("utf-8") not in stream.retained_bytes
+        assert secret_token not in stream.retained_text
+        # Even partial characters of secret_token must not appear
+        assert secret_token[:10] not in stream.retained_text
+        assert stream.full_digest == compute_bytes_digest(raw.encode("utf-8"))
+        assert stream.original_byte_length == len(raw.encode("utf-8"))

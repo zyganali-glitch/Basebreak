@@ -6,7 +6,12 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from basebreak.domain.causal import CandidateIdentity
+from basebreak.domain.causal import (
+    CandidateIdentity,
+    CausalBinding,
+    ExecutionWorld,
+    WitnessIdentity,
+)
 from basebreak.domain.execution import ExecutionCommand, ExecutionResult, TerminationStatus
 from basebreak.domain.source import CommitRevision, SourceIdentity
 from basebreak.domain.verdict import EvidenceProvenance
@@ -15,13 +20,17 @@ from basebreak.evidence.append_model import (
     EvidenceIdentity,
     EvidenceRebindingError,
     EvidenceRecord,
+    EvidenceSequenceError,
     EvidenceStore,
     RunIdentity,
 )
 from basebreak.evidence.artifact import ArtifactDigest, DigestAlgorithm
 
 
-def _make_candidate(candidate_id: str) -> CandidateIdentity:
+def _make_candidate(
+    candidate_id: str,
+    patch_digest: str = "a" * 64,
+) -> CandidateIdentity:
     source = SourceIdentity(
         locator="https://github.com/example/repo",
         revision=CommitRevision("0123456789abcdef0123456789abcdef01234567"),
@@ -29,8 +38,18 @@ def _make_candidate(candidate_id: str) -> CandidateIdentity:
     return CandidateIdentity(
         candidate_id=candidate_id,
         source=source,
-        patch_digest="a" * 64,
+        patch_digest=patch_digest,
         description="test candidate",
+    )
+
+
+def _make_causal_binding(candidate: CandidateIdentity) -> CausalBinding:
+    return CausalBinding(
+        requirement_id="REQ-TEST-1",
+        witness=WitnessIdentity(witness_id="wit-001", digest="b" * 64, description="witness"),
+        base_source=candidate.source,
+        candidate=candidate,
+        world=ExecutionWorld.CANDIDATE,
     )
 
 
@@ -267,3 +286,290 @@ class TestEvidenceStoreAppendModel:
         )
         assert rec.provenance == EvidenceProvenance.LOCAL_EXECUTION
         assert rec.provenance.value != EvidenceProvenance.LIVE_NEBIUS.value
+
+
+class TestCandidateBoundStoreBypassPrevention:
+    def test_reject_record_with_no_candidate_and_no_causal_binding_in_candidate_bound_store(
+        self,
+    ) -> None:
+        cand_a = _make_candidate("cand-A")
+        store = EvidenceStore(run_id=RunIdentity("run-1"), candidate=cand_a)
+        rec = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-1"),
+            run_id=RunIdentity("run-1"),
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=None,
+            causal_binding=None,
+        )
+        with pytest.raises(
+            EvidenceRebindingError, match="Cannot append un-bound candidate evidence"
+        ):
+            store.append(rec)
+
+    def test_reject_record_with_causal_binding_candidate_b_in_candidate_a_store(self) -> None:
+        cand_a = _make_candidate("cand-A")
+        cand_b = _make_candidate("cand-B")
+        store = EvidenceStore(run_id=RunIdentity("run-1"), candidate=cand_a)
+        binding_b = _make_causal_binding(cand_b)
+        rec = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-1"),
+            run_id=RunIdentity("run-1"),
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=None,
+            causal_binding=binding_b,
+        )
+        with pytest.raises(
+            EvidenceRebindingError, match="Cannot append evidence for candidate 'cand-B'"
+        ):
+            store.append(rec)
+
+    def test_accept_record_with_candidate_none_and_causal_binding_candidate_a_in_candidate_a_store(
+        self,
+    ) -> None:
+        cand_a = _make_candidate("cand-A")
+        store = EvidenceStore(run_id=RunIdentity("run-1"), candidate=cand_a)
+        binding_a = _make_causal_binding(cand_a)
+        rec = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-1"),
+            run_id=RunIdentity("run-1"),
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=None,
+            causal_binding=binding_a,
+        )
+        store.append(rec)
+        assert len(store) == 1
+        assert store.get("ev-1") == rec
+
+    def test_reject_direct_candidate_b_in_candidate_a_store(self) -> None:
+        cand_a = _make_candidate("cand-A")
+        cand_b = _make_candidate("cand-B")
+        store = EvidenceStore(run_id=RunIdentity("run-1"), candidate=cand_a)
+        rec = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-1"),
+            run_id=RunIdentity("run-1"),
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand_b,
+        )
+        with pytest.raises(
+            EvidenceRebindingError, match="Cannot append evidence for candidate 'cand-B'"
+        ):
+            store.append(rec)
+
+    def test_accept_direct_candidate_a_in_candidate_a_store(self) -> None:
+        cand_a = _make_candidate("cand-A")
+        store = EvidenceStore(run_id=RunIdentity("run-1"), candidate=cand_a)
+        rec = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-1"),
+            run_id=RunIdentity("run-1"),
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand_a,
+        )
+        store.append(rec)
+        assert len(store) == 1
+        assert store.get("ev-1") == rec
+
+    def test_reject_source_revision_change_even_when_candidate_id_matches(self) -> None:
+        cand_a1 = _make_candidate("cand-A")
+        source_alt = SourceIdentity(
+            locator="https://github.com/example/repo",
+            revision=CommitRevision("ffffffffffffffffffffffffffffffffffffffff"),
+        )
+        cand_a2 = CandidateIdentity(
+            candidate_id="cand-A",
+            source=source_alt,
+            patch_digest="a" * 64,
+            description="test candidate with different revision",
+        )
+        store = EvidenceStore(run_id=RunIdentity("run-1"), candidate=cand_a1)
+        rec = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-1"),
+            run_id=RunIdentity("run-1"),
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand_a2,
+        )
+        with pytest.raises(
+            EvidenceRebindingError, match="Cannot append evidence for candidate 'cand-A'"
+        ):
+            store.append(rec)
+
+
+class TestPerRunSequenceSemantics:
+    def test_first_sequence_must_be_zero(self) -> None:
+        run = RunIdentity("run-seq-1")
+        store = EvidenceStore(run_id=run)
+        rec = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-0"),
+            run_id=run,
+            sequence_number=1,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        with pytest.raises(EvidenceSequenceError, match="Expected sequence_number 0"):
+            store.append(rec)
+
+    def test_consecutive_sequences_succeed(self) -> None:
+        run = RunIdentity("run-seq-consec")
+        store = EvidenceStore(run_id=run)
+        for i in range(3):
+            rec = EvidenceRecord(
+                evidence_id=EvidenceIdentity(f"ev-{i}"),
+                run_id=run,
+                sequence_number=i,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            )
+            store.append(rec)
+        assert len(store) == 3
+
+    def test_duplicate_sequence_number_with_different_evidence_id_fails(self) -> None:
+        run = RunIdentity("run-seq-dup")
+        store = EvidenceStore(run_id=run)
+        rec0 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-0"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        rec1_dup = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-different"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        store.append(rec0)
+        with pytest.raises(EvidenceSequenceError, match="Expected sequence_number 1"):
+            store.append(rec1_dup)
+
+    def test_gap_in_sequence_numbers_fails(self) -> None:
+        run = RunIdentity("run-seq-gap")
+        store = EvidenceStore(run_id=run)
+        rec0 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-0"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        rec2 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-2"),
+            run_id=run,
+            sequence_number=2,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        store.append(rec0)
+        with pytest.raises(EvidenceSequenceError, match="Expected sequence_number 1"):
+            store.append(rec2)
+
+    def test_regression_in_sequence_numbers_fails(self) -> None:
+        run = RunIdentity("run-seq-regress")
+        store = EvidenceStore(run_id=run)
+        rec0 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-0"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        rec1 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-1"),
+            run_id=run,
+            sequence_number=1,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        rec_regress = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-regress"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        store.append(rec0)
+        store.append(rec1)
+        with pytest.raises(EvidenceSequenceError, match="Expected sequence_number 2"):
+            store.append(rec_regress)
+
+    def test_idempotent_exact_reappend_does_not_fail_or_advance_sequence(self) -> None:
+        run = RunIdentity("run-seq-idemp")
+        store = EvidenceStore(run_id=run)
+        rec0 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-0"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        store.append(rec0)
+        store.append(rec0)
+        assert len(store) == 1
+        rec1 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-1"),
+            run_id=run,
+            sequence_number=1,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        store.append(rec1)
+        assert len(store) == 2
+
+    def test_separate_runs_each_begin_at_zero(self) -> None:
+        store = EvidenceStore()
+        run_a = RunIdentity("run-A")
+        run_b = RunIdentity("run-B")
+        rec_a0 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-a0"),
+            run_id=run_a,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        rec_b0 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-b0"),
+            run_id=run_b,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        rec_a1 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-a1"),
+            run_id=run_a,
+            sequence_number=1,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        rec_b1 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-b1"),
+            run_id=run_b,
+            sequence_number=1,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        store.append(rec_a0)
+        store.append(rec_b0)
+        store.append(rec_a1)
+        store.append(rec_b1)
+        assert len(store) == 4
+        assert len(store.get_for_run("run-A")) == 2
+        assert len(store.get_for_run("run-B")) == 2
+
+    def test_retrieval_is_exact_sequence_order(self) -> None:
+        store = EvidenceStore()
+        run = RunIdentity("run-order")
+        rec0 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-0"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        rec1 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-1"),
+            run_id=run,
+            sequence_number=1,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        rec2 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-2"),
+            run_id=run,
+            sequence_number=2,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        store.append(rec0)
+        store.append(rec1)
+        store.append(rec2)
+        recs = store.get_for_run("run-order")
+        assert [r.sequence_number for r in recs] == [0, 1, 2]
+        assert [r.evidence_id.evidence_id for r in recs] == ["ev-0", "ev-1", "ev-2"]

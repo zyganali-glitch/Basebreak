@@ -151,8 +151,13 @@ class Artifact:
     media_type: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.content, (bytes, bytearray)):
-            raise TypeError(f"content must be bytes, got {type(self.content).__name__}")
+        if not isinstance(self.content, (bytes, bytearray)) or type(self.content) not in (
+            bytes,
+            bytearray,
+        ):
+            raise TypeError(
+                f"content must be exact bytes or bytearray, got {type(self.content).__name__}"
+            )
         content_bytes = bytes(self.content)
         if type(self.content) is not bytes:
             object.__setattr__(self, "content", content_bytes)
@@ -190,8 +195,8 @@ def compute_bytes_digest(
 
     Never normalizes or alters arbitrary binary bytes.
     """
-    if not isinstance(data, (bytes, bytearray)):
-        raise TypeError(f"data must be bytes or bytearray, got {type(data).__name__}")
+    if not isinstance(data, (bytes, bytearray)) or type(data) not in (bytes, bytearray):
+        raise TypeError(f"data must be exact bytes or bytearray, got {type(data).__name__}")
     if not isinstance(algorithm, DigestAlgorithm):
         raise TypeError(f"algorithm must be a DigestAlgorithm, got {type(algorithm).__name__}")
 
@@ -238,6 +243,8 @@ def artifact_from_bytes(
     algorithm: DigestAlgorithm = DigestAlgorithm.SHA256,
 ) -> Artifact:
     """Construct a validated Artifact from raw bytes."""
+    if not isinstance(content, (bytes, bytearray)) or type(content) not in (bytes, bytearray):
+        raise TypeError(f"content must be exact bytes or bytearray, got {type(content).__name__}")
     raw_bytes = bytes(content)
     digest = compute_bytes_digest(raw_bytes, algorithm=algorithm)
     return Artifact(content=raw_bytes, digest=digest, media_type=media_type)

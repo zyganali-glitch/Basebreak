@@ -220,13 +220,26 @@ def capture_stream(
     if max_bytes <= 0:
         raise ValueError(f"max_bytes must be strictly positive, got {max_bytes}")
 
+    # Full digest and length computed from EXACT original raw bytes
     full_digest = compute_bytes_digest(raw_bytes)
     original_byte_length = len(raw_bytes)
-    is_truncated = original_byte_length > max_bytes
 
-    retained_bytes = raw_bytes[:max_bytes]
-    retained_text = retained_bytes.decode("utf-8", errors="replace")
-    sanitized_text, is_sanitized = sanitize_text(retained_text)
+    # Decode raw bytes deterministically (replace errors preserve continuity without dropping)
+    full_text = raw_bytes.decode("utf-8", errors="replace")
+
+    # Sanitize BEFORE bounding/truncation so secrets crossing the retention boundary do not leak
+    sanitized_full_text, is_sanitized = sanitize_text(full_text)
+
+    # Retained content must never contain raw secrets
+    if is_sanitized:
+        sanitized_bytes = sanitized_full_text.encode("utf-8")
+        retained_bytes = sanitized_bytes[:max_bytes]
+        retained_text = retained_bytes.decode("utf-8", errors="replace")
+        is_truncated = (original_byte_length > max_bytes) or (len(sanitized_bytes) > max_bytes)
+    else:
+        retained_bytes = raw_bytes[:max_bytes]
+        retained_text = retained_bytes.decode("utf-8", errors="replace")
+        is_truncated = original_byte_length > max_bytes
 
     return CapturedStream(
         stream_type=stream_type,
@@ -236,7 +249,7 @@ def capture_stream(
         max_bytes=max_bytes,
         retained_bytes=retained_bytes,
         retained_text=retained_text,
-        sanitized_text=sanitized_text,
+        sanitized_text=retained_text,
         is_sanitized=is_sanitized,
     )
 

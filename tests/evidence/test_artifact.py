@@ -248,3 +248,42 @@ class TestArtifactContract:
         data = json.loads(json_str)
         assert data["digest"]["value"] == d.value
         assert data["media_type"] == "text/plain"
+
+
+class TestArtifactStrictNoCoercion:
+    def test_int_rejected_without_silent_null_bytes(self) -> None:
+        with pytest.raises(TypeError, match="content must be exact bytes or bytearray"):
+            artifact_from_bytes(5)  # type: ignore[arg-type]
+
+    def test_bool_rejected(self) -> None:
+        with pytest.raises(TypeError, match="content must be exact bytes or bytearray"):
+            artifact_from_bytes(True)  # type: ignore[arg-type]
+
+    def test_str_rejected(self) -> None:
+        with pytest.raises(TypeError, match="content must be exact bytes or bytearray"):
+            artifact_from_bytes("abc")  # type: ignore[arg-type]
+
+    def test_list_of_ints_rejected(self) -> None:
+        with pytest.raises(TypeError, match="content must be exact bytes or bytearray"):
+            artifact_from_bytes([65, 66])  # type: ignore[arg-type]
+
+    def test_custom_object_implementing_bytes_is_rejected(self) -> None:
+        class CoercibleBytes:
+            def __bytes__(self) -> bytes:
+                return b"fake_bytes"
+
+        with pytest.raises(TypeError, match="content must be exact bytes or bytearray"):
+            artifact_from_bytes(CoercibleBytes())  # type: ignore[arg-type]
+
+    def test_bytearray_accepted_and_copied(self) -> None:
+        ba = bytearray(b"mutable content")
+        art = artifact_from_bytes(ba)
+        assert art.content == b"mutable content"
+        assert isinstance(art.content, bytes)
+        # Mutating original bytearray does not affect artifact
+        ba[0] = ord(b"X")
+        assert art.content == b"mutable content"
+
+    def test_compute_bytes_digest_rejects_non_bytes(self) -> None:
+        with pytest.raises(TypeError, match="data must be exact bytes or bytearray"):
+            compute_bytes_digest(10)  # type: ignore[arg-type]
