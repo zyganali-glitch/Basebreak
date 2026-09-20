@@ -31,6 +31,17 @@ from basebreak.evidence.capture import (
     capture_stream,
     sanitize_text,
 )
+from basebreak.evidence.provenance import (
+    ProvenanceLaunderingError,
+    ProvenanceTransitionError,
+    assert_provenance_not_verdict,
+    has_execution_result,
+    is_live_execution,
+    is_recorded_live,
+    is_successful_execution,
+    validate_provenance_derivation,
+    validate_provenance_transition,
+)
 
 __all__ = [
     "DEFAULT_MAX_CAPTURE_BYTES",
@@ -47,15 +58,24 @@ __all__ = [
     "EvidenceRecord",
     "EvidenceSequenceError",
     "EvidenceStore",
+    "ProvenanceLaunderingError",
+    "ProvenanceTransitionError",
     "RunIdentity",
     "StreamType",
     "artifact_from_bytes",
     "artifact_from_domain_object",
     "artifact_from_text",
+    "assert_provenance_not_verdict",
     "capture_output",
     "capture_stream",
     "compute_bytes_digest",
     "compute_domain_digest",
     "compute_text_digest",
+    "has_execution_result",
+    "is_live_execution",
+    "is_recorded_live",
+    "is_successful_execution",
     "sanitize_text",
+    "validate_provenance_derivation",
+    "validate_provenance_transition",
 ]

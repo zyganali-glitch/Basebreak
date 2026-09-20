@@ -296,6 +296,12 @@ class EvidenceStore:
             if existing == record:
                 # Idempotent append: preserves sequence state without advancing
                 return
+            if existing.provenance != record.provenance:
+                raise EvidenceConflictError(
+                    f"Duplicate evidence ID '{ev_id}' with conflicting contents: "
+                    f"conflicting provenance (existing '{existing.provenance.value}' "
+                    f"vs new '{record.provenance.value}')"
+                )
             existing_d = existing.fact_digest.value if existing.fact_digest else "none"
             new_d = record.fact_digest.value if record.fact_digest else "none"
             raise EvidenceConflictError(
