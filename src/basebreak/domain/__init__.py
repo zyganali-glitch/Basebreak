@@ -1,5 +1,12 @@
 """Domain contracts for Basebreak."""
 
+from basebreak.domain.causal import (
+    CandidateIdentity,
+    CausalBinding,
+    CounterfactualIdentity,
+    ExecutionWorld,
+    WitnessIdentity,
+)
 from basebreak.domain.execution import (
     ExecutionCommand,
     ExecutionResult,
@@ -16,15 +23,20 @@ from basebreak.domain.task import AcceptanceRequirement, EngineeringTask
 
 __all__ = [
     "AcceptanceRequirement",
+    "CandidateIdentity",
+    "CausalBinding",
     "ChangeClass",
     "ClassVerificationRequirement",
     "CommitRevision",
+    "CounterfactualIdentity",
     "EngineeringTask",
     "ExecutionCommand",
     "ExecutionResult",
+    "ExecutionWorld",
     "RequestedRef",
     "SandboxIdentity",
     "SourceIdentity",
     "TerminationStatus",
+    "WitnessIdentity",
     "get_verification_requirements",
 ]
