@@ -126,7 +126,7 @@ Acceptance:
 - candidate pushed and remote SHA verified.
 
 ### P-01.01B — Extend bounded provider-neutral parallel execution to platform-independent P-04 security primitives while the live gate remains externally blocked
-Status: IN_PROGRESS (executor-completed; awaiting independent QA)
+Status: DONE (independently VERIFIED / PASS at SHA 9ccf9e8c1ec34927142da69532814a030e0c2290)
 Deliver: Master Plan amendment and governance rules extending bounded provider-neutral parallel execution to the platform-independent P-04 security primitives (P-04.01, P-04.02, P-04.04) while P-01.02 is externally blocked.
 Acceptance:
 - P-01.01A status preserved as DONE;
@@ -274,7 +274,7 @@ Why the remaining tasks are NOT authorized under the offline lane:
 - P-04.05 and P-04.06: Keep timeout/resource/fork-bomb behavior from encoding unverified platform semantics before live sandbox discovery.
 
 ### P-04.01 — Formalize target-repository threat model
-Status: PENDING
+Status: IN_PROGRESS (executor-completed; awaiting independent QA)
 Acceptance:
 - formal threat model document in docs/;
 - generic adversaries and trust boundaries defined;
