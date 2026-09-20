@@ -6,6 +6,7 @@ deterministic execution facts, and abstract sandbox identity.
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -49,7 +50,8 @@ class ExecutionCommand:
     """Deterministic command specification without implicit shell invocation.
 
     Argv arguments are strictly preserved in order. Repository-relative working
-    directory is validated against directory traversal escapes.
+    directory is validated against directory traversal escapes. Environment
+    variables are strictly validated and normalized into canonical key-sorted tuples.
     """
 
     argv: tuple[str, ...]
@@ -79,32 +81,40 @@ class ExecutionCommand:
 
         _validate_relative_cwd(self.cwd)
 
-        # Handle env parameter
+        # Handle and canonicalize env parameter
+        pairs: list[tuple[str, str]] = []
+        seen_keys: set[str] = set()
+
         if isinstance(self.env, Mapping):
-            coerced_env = tuple((str(k), str(v)) for k, v in self.env.items())
-            object.__setattr__(self, "env", coerced_env)
-        elif isinstance(self.env, tuple):
-            for item in self.env:
-                if not isinstance(item, tuple) or len(item) != 2:
-                    raise TypeError("env elements must be (key, value) pairs")
-                if not isinstance(item[0], str) or not isinstance(item[1], str):
+            for k, v in self.env.items():
+                if not isinstance(k, str) or not isinstance(v, str):
                     raise TypeError("env keys and values must be strings")
-                if not item[0].strip():
+                if not k.strip():
                     raise ValueError("env key must not be empty")
-        elif isinstance(self.env, Sequence):
-            pairs: list[tuple[str, str]] = []
-            for item in self.env:
+                if k in seen_keys:
+                    raise ValueError(f"Duplicate environment key detected: {k!r}")
+                seen_keys.add(k)
+                pairs.append((k, v))
+        elif isinstance(self.env, Sequence) and not isinstance(self.env, (str, bytes)):
+            for idx, item in enumerate(self.env):
                 if not isinstance(item, (tuple, list)) or len(item) != 2:
-                    raise TypeError("env elements must be (key, value) pairs")
-                if not isinstance(item[0], str) or not isinstance(item[1], str):
+                    raise TypeError(f"env element at index {idx} must be a (key, value) pair")
+                k, v = item
+                if not isinstance(k, str) or not isinstance(v, str):
                     raise TypeError("env keys and values must be strings")
-                if not item[0].strip():
+                if not k.strip():
                     raise ValueError("env key must not be empty")
-                pairs.append((item[0], item[1]))
-            object.__setattr__(self, "env", tuple(pairs))
+                if k in seen_keys:
+                    raise ValueError(f"Duplicate environment key detected: {k!r}")
+                seen_keys.add(k)
+                pairs.append((k, v))
         else:
             tname = type(self.env).__name__
             raise TypeError(f"env must be a mapping or sequence of pairs, got {tname}")
+
+        # Canonicalize ordering deterministically by key
+        canonical_env = tuple(sorted(pairs, key=lambda pair: pair[0]))
+        object.__setattr__(self, "env", canonical_env)
 
     @property
     def executable(self) -> str:
@@ -137,9 +147,15 @@ class ExecutionResult:
                 raise TypeError(f"exit_code must be an integer, got {tname}")
 
         if self.duration_seconds is not None:
-            if not isinstance(self.duration_seconds, (int, float)):
+            if isinstance(self.duration_seconds, bool) or not isinstance(
+                self.duration_seconds, (int, float)
+            ):
                 tname = type(self.duration_seconds).__name__
-                raise TypeError(f"duration_seconds must be a number, got {tname}")
+                raise TypeError(f"duration_seconds must be a finite number or None, got {tname}")
+            if not math.isfinite(self.duration_seconds):
+                raise ValueError(
+                    f"duration_seconds must be a finite number, got {self.duration_seconds!r}"
+                )
             if self.duration_seconds < 0.0:
                 raise ValueError("duration_seconds must not be negative")
 

@@ -76,6 +76,61 @@ class TestExecutionCommand:
         with pytest.raises(ValueError, match="empty"):
             ExecutionCommand(argv=("pytest",), env=(("", "val"),))
 
+    def test_env_mapping_non_string_key_raises_type_error(self) -> None:
+        with pytest.raises(TypeError, match="strings"):
+            ExecutionCommand(argv=("pytest",), env={123: "val"})  # type: ignore[arg-type]
+        with pytest.raises(TypeError, match="strings"):
+            ExecutionCommand(argv=("pytest",), env={None: "val"})  # type: ignore[arg-type]
+
+    def test_env_mapping_non_string_value_raises_type_error(self) -> None:
+        with pytest.raises(TypeError, match="strings"):
+            ExecutionCommand(argv=("pytest",), env={"KEY": 123})  # type: ignore[arg-type]
+        with pytest.raises(TypeError, match="strings"):
+            ExecutionCommand(argv=("pytest",), env={"KEY": object()})  # type: ignore[arg-type]
+
+    def test_env_pairs_non_string_raises_type_error(self) -> None:
+        with pytest.raises(TypeError, match="strings"):
+            ExecutionCommand(argv=("pytest",), env=((123, "val"),))  # type: ignore[arg-type]
+        with pytest.raises(TypeError, match="strings"):
+            ExecutionCommand(argv=("pytest",), env=(("KEY", 456),))  # type: ignore[arg-type]
+        with pytest.raises(TypeError, match="pair"):
+            ExecutionCommand(argv=("pytest",), env=("NOT_A_PAIR",))  # type: ignore[arg-type]
+
+    def test_duplicate_env_keys_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Duplicate environment key"):
+            ExecutionCommand(argv=("pytest",), env=(("DUP", "1"), ("DUP", "2")))
+
+    def test_different_mapping_order_produces_identical_normalized_env(self) -> None:
+        map_a = {"ZEBRA": "last", "ALPHA": "first", "BETA": "middle"}
+        map_b = {"ALPHA": "first", "BETA": "middle", "ZEBRA": "last"}
+        map_c = {"BETA": "middle", "ZEBRA": "last", "ALPHA": "first"}
+
+        cmd_a = ExecutionCommand(argv=("pytest",), env=map_a)  # type: ignore[arg-type]
+        cmd_b = ExecutionCommand(argv=("pytest",), env=map_b)  # type: ignore[arg-type]
+        cmd_c = ExecutionCommand(argv=("pytest",), env=map_c)  # type: ignore[arg-type]
+
+        expected_env = (("ALPHA", "first"), ("BETA", "middle"), ("ZEBRA", "last"))
+        assert cmd_a.env == expected_env
+        assert cmd_b.env == expected_env
+        assert cmd_c.env == expected_env
+
+        assert cmd_a == cmd_b == cmd_c
+        assert hash(cmd_a) == hash(cmd_b) == hash(cmd_c)
+
+    def test_different_pair_order_produces_identical_normalized_env(self) -> None:
+        pairs_a = (("K2", "V2"), ("K1", "V1"), ("K3", "V3"))
+        pairs_b = (("K3", "V3"), ("K2", "V2"), ("K1", "V1"))
+
+        cmd_a = ExecutionCommand(argv=("pytest",), env=pairs_a)
+        cmd_b = ExecutionCommand(argv=("pytest",), env=pairs_b)
+
+        expected_env = (("K1", "V1"), ("K2", "V2"), ("K3", "V3"))
+        assert cmd_a.env == expected_env
+        assert cmd_b.env == expected_env
+
+        assert cmd_a == cmd_b
+        assert hash(cmd_a) == hash(cmd_b)
+
     def test_frozen_immutability(self) -> None:
         cmd = ExecutionCommand(argv=("python", "run.py"))
         with pytest.raises(FrozenInstanceError):
@@ -139,6 +194,40 @@ class TestExecutionResult:
                 exit_code=0,
                 duration_seconds=-0.1,
             )
+
+    @pytest.mark.parametrize(
+        "non_finite",
+        [
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+        ],
+    )
+    def test_non_finite_duration_rejected(self, non_finite: float) -> None:
+        with pytest.raises(ValueError, match="finite number"):
+            ExecutionResult(
+                status=TerminationStatus.COMPLETED,
+                exit_code=0,
+                duration_seconds=non_finite,
+            )
+
+    @pytest.mark.parametrize("bool_val", [True, False])
+    def test_bool_duration_rejected(self, bool_val: bool) -> None:
+        with pytest.raises(TypeError, match="finite number"):
+            ExecutionResult(
+                status=TerminationStatus.COMPLETED,
+                exit_code=0,
+                duration_seconds=bool_val,
+            )
+
+    @pytest.mark.parametrize("valid_duration", [0, 0.0, 1, 1.234, 100.5])
+    def test_finite_non_negative_duration_accepted(self, valid_duration: float) -> None:
+        res = ExecutionResult(
+            status=TerminationStatus.COMPLETED,
+            exit_code=0,
+            duration_seconds=valid_duration,
+        )
+        assert res.duration_seconds == valid_duration
 
     def test_frozen_immutability(self) -> None:
         res = ExecutionResult(status=TerminationStatus.COMPLETED, exit_code=0)
