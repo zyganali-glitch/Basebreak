@@ -20,16 +20,36 @@ Judge claim:
 - P-00.03 (Freeze donor research pins and license/preflight status without importing implementation) is independently VERIFIED / PASS at SHA `352d04eb22d7db87faca932ead938d4f4a213268`.
 - P-00.04 (Establish repository structure, Python/runtime tooling baseline, formatting/lint/type/test commands) is independently VERIFIED / PASS at SHA `5c4f07bd541db759dfe6b1b5bf7c2fb3e6a06499`.
 - P-00.05 (Run first documentation consolidation and focused P-Ω bootstrap audit) is independently VERIFIED / PASS at SHA `08ebfc94a75954d79ee2613f935584de2a9d5900` (P-00 phase closure awarded PASS).
-- P-01.01 (Discover current Nebius account/runtime/API/model reality from official docs and live account) is EXECUTOR_COMPLETED (candidate committed; awaiting independent QA).
-
-## Active exact task
-`P-01.01 — Discover current Nebius account/runtime/API/model reality from official docs and live account` (executor completed / awaiting independent QA)
+- P-01.01 (Discover current Nebius account/runtime/API/model reality from official docs and live account) is independently VERIFIED / PASS at SHA `5804702c8901105496d9a23cad799cfac6f61b32`.
+- P-01.01A (Establish bounded provider-neutral parallel execution while the live Token Factory gate is externally blocked) is IN_PROGRESS (candidate committed; awaiting independent QA).
 
 ## Last independently VERIFIED baseline SHA
-`08ebfc94a75954d79ee2613f935584de2a9d5900` (P-00.05 and P-00 Phase Closure independent QA PASS).
-P-01.01 candidate is submitted for independent QA.
-P-01.02 remains PENDING / EXTERNAL_PREREQUISITE_WAIT (Builder Program Token Factory promo-code email not yet received/redeemed).
-P-01.03 and P-02 remain UNSTARTED.
+`5804702c8901105496d9a23cad799cfac6f61b32` (P-01.01 independent QA PASS).
+
+## Blocking live gate vs active executable task
+
+### Blocking live gate
+`P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt`
+- Status: `BLOCKED`
+- External blocker: Builder Program Token Factory promotional-code email has not yet been delivered/redeemed; billing shows no $25 promotional balance. P-01.02 cannot execute until the promo is redeemed and promotional balance is verified `> TOKEN_FACTORY_PROMO_STOP_THRESHOLD`.
+- Policy floor: `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`.
+- Gate condition: The `$1.00` trial credit MUST NOT be consumed. No automatic paid fallback.
+- Phase impact: P-01 phase remains OPEN; no GO decision can be awarded without required `LIVE_NEBIUS` evidence.
+
+### Active task
+Currently active governance amendment:
+`P-01.01A — Establish bounded provider-neutral parallel execution while the live Token Factory gate is externally blocked` (candidate committed; awaiting independent QA)
+
+Active executable task AFTER independent QA PASS of this amendment:
+`P-02.01 — Define repository/source identity and immutable revision contracts`
+
+*(Note: Exactly ONE executable micro-task is active at a time. P-01.02 remains BLOCKED while P-02.01 executes. The offline lane does not substitute for or bypass the live gate).*
+
+## Parallelization boundary & rules
+- **Allowlist:** Under P-01.01A amendment, only P-02 (`P-02.01`–`P-02.07`) and, upon independent P-02 phase closure, P-03 (`P-03.01`–`P-03.06`) are allowlisted.
+- **Provider neutrality:** P-02 and P-03 must remain strictly provider-neutral; zero Nebius/NVIDIA/Tavily SDK imports; deterministic validation only.
+- **Hard stop after P-03:** P-04+ remain strictly forbidden under this exception without a separate explicit Master Plan amendment.
+- **Promo-arrival preemption:** If the Builder Program promotional-code email arrives during P-02/P-03 execution: do not start another parallel micro-task; finish or cleanly abort the currently active atomic micro-task; return immediately to P-01.02; operator redeems promo; verify Token Factory promotional balance > $5.00; obtain independent authorization before executing inference. Do not consume the $1 trial.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -43,12 +63,12 @@ P-01.03 and P-02 remain UNSTARTED.
 - competition-defining logic prefers concept-only/clean-room;
 - no irreversible merge/release/deploy autonomy;
 - exact Master Plan names are immutable once committed;
-- no unmetered public live endpoints that drain promotional credits.
+- no unmetered public live endpoints that drain promotional credits;
+- bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Await independent QA verification for P-01.01 candidate.
-2. Token Factory current state: Payment card attached under operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION`. Console accessible, Sandboxes navigation visible, billing status currently `Suspended`, `$1.00 / 29 days` trial credit visible, account balance `$0.00`.
-3. External Prerequisite Wait: Await separate email from Nebius containing the $25 Token Factory promotional credit code (Support confirmed delivery is via separate email and redeemed via `Top up → With promo code`). The current `$1.00` trial credit MUST NOT be consumed.
-4. Next exact task after independent QA PASS and promo redemption: `P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt`. (Requires promo redeemed, balance verified `> $5.00`, and billing operational).
-5. Tavily remains safely onboarded on Free/Researcher (1,000 monthly credits + 3,125 promotional credits, usage-based billing disabled, zero payment cards, zero API calls; runtime integration deferred to P-16).
-6. P-01.03 and P-02 remain UNSTARTED.
+1. Await independent QA verification for P-01.01A candidate.
+2. Blocking live gate P-01.02 remains BLOCKED until Builder Program promotional-code email is delivered and redeemed. ($1.00 trial credit MUST NOT be consumed; Token Factory balance must be verified > $5.00; operator authorization required).
+3. Next executable task upon independent QA PASS of P-01.01A: `P-02.01 — Define repository/source identity and immutable revision contracts`.
+4. Tavily remains safely onboarded on Free/Researcher (1,000 monthly credits + 3,125 promotional credits, usage-based billing disabled, zero payment cards, zero API calls; runtime integration deferred to P-16).
+5. P-01.03+ and P-04+ remain strictly unexecutable at this stage.

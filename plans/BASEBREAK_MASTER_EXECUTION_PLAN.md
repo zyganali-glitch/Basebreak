@@ -17,12 +17,13 @@ Exact micro-task titles are immutable once committed. If architecture reality ch
 11. ZERO-COST LAW: Basebreak hackathon development and judge path must not require the user to spend personal money. Allowed: genuine free tiers, hackathon/sponsor promotional credits, free open-source/local tools, services that stop when the free quota is exhausted. Forbidden without explicit user approval: paid subscriptions, pay-as-you-go enablement, automatic paid fallback, credit-card charges, deposits/pre-authorizations, paid certification, auto-upgrade after trial, any irreversible billing action. Under the operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION`, a payment card was attached solely to enable Builder Program promotional credit activation, while target personal spend remains strictly $0.00, post-promotional paid usage is strictly forbidden, and an operator-enforced $5.00 safety reserve floor (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`) is maintained. If a required external service asks for payment/card/deposit and there is no verified zero-cost path: STOP, classify as BLOCKED or OPERATOR_DECISION_REQUIRED, explain alternatives, never silently proceed. Promotional credits are a budget, not permission to spend beyond them.
 12. OPERATOR GUIDANCE LAW: The operator is non-expert and must receive screen-by-screen guidance for every required external account/service setup. For every operator action the coding agent must provide in Turkish: current official URL, page/menu name, exact button/link to click, exact field names, what to enter/select, what NOT to select, whether any card/payment risk exists, where to obtain an API key/token, how to store it safely without pasting it into chat or committing it, how to verify that the step succeeded, what to do if the current UI differs from documented UI. Never tell the operator merely "create an API key" or "configure Nebius". Never ask the operator to paste a secret into the conversation.
 13. DOCUMENTATION SYNC MATRIX: Master Plan updates exact task status when task state changes. HANDOFF updates active exact task, blocker and independently verified baseline truth. README updates only when public-facing capability/status/setup/architecture/competition truth materially changes, or at a Documentation Consolidation Gate. Architecture/Security/Evidence docs update only when their actual boundary/contract changes. Donor manifest updates only when donor research/reuse truth changes. Competition Feedback Log appends when real Nebius/NVIDIA/Tavily friction, strength, bug, limitation, or useful product feedback is actually observed. Harmless duplicated wording/count/navigation drift may be batched. Wrong SHA, false capability, false live claim, wrong evidence provenance, security/licensing/eligibility error must be fixed immediately. Every micro-task does NOT require mechanical rewriting of every documentation file.
+14. BOUNDED EXTERNAL-DEPENDENCY PARALLELIZATION LAW: When an exact task is BLOCKED solely by a verified external dependency outside Basebreak's control, a later task MAY execute before that blocker clears ONLY when all of the following are true: (1) the later task is explicitly allowlisted by the Master Plan; (2) its correctness does not depend on the missing external/live fact; (3) it can be validated deterministically without pretending LOCAL_EXECUTION is LIVE_NEBIUS; (4) no platform/provider capability is guessed; (5) the blocked gate remains visibly BLOCKED; (6) the blocked phase cannot receive GO/phase closure; (7) only ONE executable micro-task is active at a time; (8) the parallel work may not silently implement any non-allowlisted future phase; (9) if later live reality contradicts a supposedly provider-neutral assumption, affected work MUST reopen rather than override runtime truth. This rule is an exception for verified external blockers, not permission for arbitrary phase skipping. Promo-arrival preemption rule: if the external prerequisite arrives while parallel work is underway, do not start another parallel micro-task; finish or cleanly abort the currently active atomic micro-task; return immediately to the blocked gate; verify prerequisites and obtain independent authorization before execution. Current parallel allowlist permits ONLY P-02 (all micro-tasks P-02.01 through P-02.07) and, upon independent P-02 phase closure, P-03 (all micro-tasks P-03.01 through P-03.06). Hard stop after P-03: P-04+ are strictly forbidden under this exception without a further explicit amendment.
 
 ## Competition Critical Path
 
 Priority guidance for the Nebius x NVIDIA Global AI Hackathon. This is NOT scope deletion; all phases remain planned.
 
-1. **Platform reality:** P-00 (governance) → P-01 (live platform discovery and feasibility gate).
+1. **Platform reality:** P-00 (governance) → P-01 (live platform discovery and feasibility gate). *(Note on external blocker: External-blocker parallelization permits provider-neutral P-02/P-03 engineering while P-01.02 is externally blocked; this does not satisfy or bypass the P-01 live phase exit.)*
 2. **Causal vertical spine:** P-02 Provider-Neutral Domain Contracts → P-03 Evidence Store & Deterministic Fact Authority → P-04 Security & Untrusted-Code Policy Foundation → P-05 Nebius/Nemotron Adapter Layer → P-06 Contract Compiler → P-07 Builder Runtime → P-08 Verifier Isolation → P-09 Witness Generation → P-10 Causal Two-World Engine → P-11 Counterfactual Third Run (competition-defining causal proof path producing the canonical high-value demo: BASE = FAIL, CANDIDATE = PASS, COUNTERFACTUAL = FAIL; P-11 is competition-core and not optional/stretch/depth-only). (Prerequisite rationale: P-07 depends on P-04 protected/action/security policy; P-09 depends on P-06 frozen acceptance contract; P-10 depends on P-03 evidence/hash binding).
 3. **Judge proof:** first receipt/CLI proof (P-18/P-19 minimal) → judge-visible causal story (P-22/P-23 killer demo).
 4. **Deployment/reproducibility/submission:** P-27 (live deployment) → P-29 (competition evidence) → P-30 (demo video) → P-32 (submission freeze).
@@ -103,14 +104,30 @@ Phase exit: trusted empty-product baseline exists (awarded PASS by independent Q
 Goal: prove real Nebius/NVIDIA capabilities before broad implementation.
 
 ### P-01.01 — Discover current Nebius account/runtime/API/model reality from official docs and live account
-Status: IN_PROGRESS (executor completed; awaiting independent QA)
+Status: DONE (independently VERIFIED / PASS at SHA 5804702c8901105496d9a23cad799cfac6f61b32)
 Acceptance:
 - current endpoints/SDK/auth/model IDs discovered, not guessed;
 - eligible NVIDIA open-source model identified;
 - capabilities/limits recorded with LIVE_NEBIUS or official-doc provenance.
 
+### P-01.01A — Establish bounded provider-neutral parallel execution while the live Token Factory gate is externally blocked
+Status: IN_PROGRESS (candidate committed; awaiting independent QA)
+Deliver: Master Plan amendment and governance rules establishing bounded provider-neutral parallel execution (P-02/P-03) while P-01.02 is externally blocked.
+Acceptance:
+- P-01.01 marked DONE;
+- P-01.02 marked BLOCKED with explicit external blocker metadata;
+- Bounded External-Dependency Parallelization Law codified in AGENTS.md and Master Plan;
+- strict allowlist defined: P-02 (P-02.01–P-02.07) and P-03 (P-03.01–P-03.06);
+- explicit hard stop after P-03 (P-04+ strictly forbidden without new amendment);
+- promo-arrival preemption rule codified;
+- P-01 phase remains OPEN (no GO without LIVE_NEBIUS evidence);
+- HANDOFF clearly distinguishes blocking live gate vs executable task;
+- no product/source code modified;
+- candidate pushed and remote SHA verified.
+
 ### P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt
-Status: PENDING / EXTERNAL_PREREQUISITE_WAIT (Builder Program Token Factory promo-code email not yet received/redeemed)
+Status: BLOCKED
+External blocker: Builder Program Token Factory promotional-code email has not yet been delivered/redeemed; billing shows no $25 promotional balance. P-01.02 cannot execute until the promo is redeemed and promotional balance is verified > TOKEN_FACTORY_PROMO_STOP_THRESHOLD.
 Acceptance:
 - real request/response;
 - model/runtime identity recorded;
@@ -160,14 +177,21 @@ Acceptance:
 - research-only shortlist 2–3 candidate real open-source bug/fix pairs for eventual P-23.08 replay (ResetVault remains the PRIMARY deterministic killer demo; P-23.08 is supplementary historical replay);
 - for each candidate, record: repository, immutable buggy/base SHA, immutable fixed SHA, root license, concise behavioral defect, likely independent witness, dependency/runtime footprint, sandbox/platform feasibility, reasons suitable/unsuitable;
 - at P-01.07: strictly NO donor/source importing, NO replay implementation, and NO claiming upstream patch was produced by Basebreak (early de-risking only).
-Phase exit: real model + real sandbox + two-clean-environment spine proven.
+Phase exit: real model + real sandbox + two-clean-environment spine proven. (P-01 phase remains OPEN; offline parallel work in P-02/P-03 does not satisfy or bypass this live feasibility gate).
 
 ---
 
 # P-02 — Provider-Neutral Domain Contracts
 Goal: encode truth before orchestration.
+*(Allowlisted for parallel execution under P-01.01A amendment while P-01.02 is externally blocked. P-02 defines deterministic domain contracts and imports zero provider SDKs; its correctness does not depend on live platform access.)*
+
+Why P-02 is safe to parallelize:
+- P-02 must remain strictly provider-neutral.
+- It may define deterministic contracts for: repository/source identity, immutable revisions/hashes, engineering tasks, acceptance requirements, change semantics, execution command/result abstractions, abstract sandbox identity, witness identity, candidate identity, counterfactual identity, evidence provenance, preliminary verdicts.
+- It MUST NOT encode: current Nebius model IDs, Token Factory API paths, Contree-specific classes, Nebius-specific sandbox fields, current sandbox limits, checkpoint/branch assumptions, current region names as domain invariants, Tavily, or provider SDK objects.
 
 ### P-02.01 — Define repository/source identity and immutable revision contracts
+Status: PENDING (executable upon independent QA PASS of P-01.01A)
 ### P-02.02 — Define engineering task and acceptance-requirement contracts
 ### P-02.03 — Define change-semantics enum and per-class verification requirements
 ### P-02.04 — Define execution command/result/sandbox identity contracts
@@ -182,6 +206,14 @@ Phase exit:
 ---
 
 # P-03 — Evidence Store & Deterministic Fact Authority
+Goal: implement provider-neutral deterministic evidence primitives.
+*(Allowlisted for parallel execution under P-01.01A amendment only after independent P-02 phase closure while P-01.02 is externally blocked.)*
+
+Why P-03 is safe to parallelize:
+- P-03 may implement provider-neutral deterministic evidence primitives: canonical serialization, content-addressed hashes, immutable evidence/run identifiers, bounded sanitized stdout/stderr capture with digests, evidence provenance validation, forbidden state transitions, exact candidate/run snapshot binding, tamper/mismatch/replay tests.
+- It MUST NOT implement: Nebius storage, Token Factory runtime calls, sandbox APIs, model calls, cloud persistence assumptions, or provider-specific telemetry.
+- Provenance separation: FIXTURE and LOCAL_EXECUTION evidence remain explicitly distinct from LIVE_NEBIUS. P-03 green tests close only P-03 local deterministic requirements; they can NEVER satisfy P-01 live platform gates.
+
 ### P-03.01 — Implement content-addressed artifact hashing and canonical serialization
 ### P-03.02 — Implement run/evidence append model with immutable identifiers
 ### P-03.03 — Implement bounded sanitized stdout/stderr capture with digests
@@ -189,6 +221,10 @@ Phase exit:
 ### P-03.05 — Implement deterministic verdict-input snapshot binding
 ### P-03.06 — Add tamper/mismatch/replay tests
 Phase exit: evidence facts cannot be silently rebound to another candidate/run.
+
+### Hard stop after P-03:
+This amendment DOES NOT authorize P-04. If P-03 closes and P-01.02 is still blocked: STOP and return for independent architecture decision. Do NOT automatically start P-04, P-05, P-06, P-07 or any later phase. Reason: P-04 includes platform-dependent sandbox/security policy, and P-05 is explicitly Nebius/Nemotron provider integration.
+
 
 ---
 

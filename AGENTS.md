@@ -15,6 +15,7 @@ Never trust a prior agent summary over repository state.
 
 ## 2. Exact-task execution
 Work on exactly one active Master Plan micro-task unless the task itself explicitly declares a bounded batch.
+(Under Section 18 Bounded External-Dependency Parallelization Law, execution of an allowlisted later micro-task is permitted while an earlier task is externally BLOCKED, but strictly ONE executable micro-task may be active at any time).
 Do not rename, reinterpret, merge, split, or pre-implement future tasks.
 If required information is absent, report the blocker instead of inventing future architecture.
 
@@ -160,3 +161,35 @@ Use:
 - Remote push confirmation
 
 Do not self-award independent QA PASS.
+
+## 18. Bounded External-Dependency Parallelization Law
+When an exact task is BLOCKED solely by a verified external dependency outside Basebreak's control, a later task MAY execute before that blocker clears ONLY when all of the following are true:
+1. the later task is explicitly allowlisted by the Master Plan;
+2. its correctness does not depend on the missing external/live fact;
+3. it can be validated deterministically without pretending LOCAL_EXECUTION is LIVE_NEBIUS;
+4. no platform/provider capability is guessed;
+5. the blocked gate remains visibly BLOCKED;
+6. the blocked phase cannot receive GO/phase closure;
+7. only ONE executable micro-task is active at a time;
+8. the parallel work may not silently implement any non-allowlisted future phase;
+9. if later live reality contradicts a supposedly provider-neutral assumption, affected work MUST reopen rather than override runtime truth.
+
+This rule is an exception for verified external blockers, not permission for arbitrary phase skipping.
+
+### Promo-Arrival Preemption Rule
+If the Builder Program promo-code email arrives while allowlisted parallel work is underway:
+- do not start another parallel micro-task;
+- finish or cleanly abort the currently active atomic micro-task;
+- return to the blocked P-01.02 gate;
+- operator redeems promo;
+- verify Token Factory promotional balance > $5.00;
+- obtain independent authorization before executing inference.
+
+Do not consume the $1 trial. No automatic paid fallback.
+
+### Current Parallel Allowlist & Hard Stop
+For the active P-01.02 external blocker, allow ONLY:
+- P-02 (Provider-Neutral Domain Contracts, P-02.01 through P-02.07);
+- P-03 (Evidence Store & Deterministic Fact Authority, P-03.01 through P-03.06, only after independent P-02 phase closure).
+
+Hard stop after P-03: This amendment DOES NOT authorize P-04 or any subsequent phase. If P-03 closes while P-01.02 remains blocked, execution MUST STOP and return for independent architecture decision.
