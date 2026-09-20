@@ -33,13 +33,13 @@ Judge claim:
 - P-03.01 (Implement content-addressed artifact hashing and canonical serialization) is independently VERIFIED / PASS at SHA `82cf9049da0f255632d7d36d74d8a316b0e86415`.
 - P-03.02 (Implement run/evidence append model with immutable identifiers) is independently VERIFIED / PASS at SHA `82cf9049da0f255632d7d36d74d8a316b0e86415`.
 - P-03.03 (Implement bounded sanitized stdout/stderr capture with digests) is independently VERIFIED / PASS at SHA `82cf9049da0f255632d7d36d74d8a316b0e86415`.
-- P-03.04 (Implement evidence provenance validation and forbidden state transitions) is IN_PROGRESS (executor-completed; awaiting independent phase-closure QA).
-- P-03.05 (Implement deterministic verdict-input snapshot binding) is IN_PROGRESS (executor-completed; awaiting independent phase-closure QA).
-- P-03.06 (Add tamper/mismatch/replay tests) is IN_PROGRESS (executor-completed; awaiting independent phase-closure QA).
-- P-03 phase remains OPEN / awaiting independent closure.
+- P-03.04 (Implement evidence provenance validation and forbidden state transitions) is independently VERIFIED / PASS at SHA `83eb91da3caec3d52c22c06cf19fd0d5020b1057`.
+- P-03.05 (Implement deterministic verdict-input snapshot binding) is independently VERIFIED / PASS at SHA `83eb91da3caec3d52c22c06cf19fd0d5020b1057`.
+- P-03.06 (Add tamper/mismatch/replay tests) is independently VERIFIED / PASS at SHA `83eb91da3caec3d52c22c06cf19fd0d5020b1057`.
+- P-03 phase (Evidence Store & Deterministic Fact Authority) is independently CLOSED / PASS at SHA `83eb91da3caec3d52c22c06cf19fd0d5020b1057`.
 
 ## Last independently VERIFIED baseline SHA
-`82cf9049da0f255632d7d36d74d8a316b0e86415` (P-03.01–P-03.03 independent batch QA PASS).
+`83eb91da3caec3d52c22c06cf19fd0d5020b1057` (P-03.04–P-03.06 / P-03 phase closure independent QA PASS).
 
 ## Blocking live gate vs active executable task
 
@@ -52,12 +52,12 @@ Judge claim:
 - Phase impact: P-01 phase remains OPEN; no GO decision can be awarded without required `LIVE_NEBIUS` evidence.
 
 ### Current QA candidate
-P-03.04 → P-03.06 phase-closure batch (provenance validation, deterministic verdict-input snapshot binding, tamper/mismatch/replay suite).
+None (P-03 phase closed).
 
 ### Active executable task
-None (P-03.04–P-03.06 executor-completed; awaiting independent P-03 phase-closure QA).
+None (there is currently NO executable implementation micro-task while P-01.02 is blocked; P-03 is closed and hard stop after P-03 is active; P-04+ remain strictly FORBIDDEN under P-01.01A).
 
-*(Note: Exactly ONE executable micro-task is active at a time. P-01.02 remains BLOCKED while P-02 offline lane completes. The offline lane does not substitute for or bypass the live gate).*
+*(Note: Exactly ONE executable micro-task is active at a time. P-01.02 remains BLOCKED. The parallel offline lane for P-02 and P-03 is complete. The offline lane does not substitute for or bypass the live gate).*
 
 ## Parallelization boundary & rules
 - **Allowlist:** Under P-01.01A amendment, only P-02 (`P-02.01`–`P-02.07`) and, upon independent P-02 phase closure, P-03 (`P-03.01`–`P-03.06`) are allowlisted.
@@ -81,9 +81,9 @@ None (P-03.04–P-03.06 executor-completed; awaiting independent P-03 phase-clos
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Await independent P-03 phase-closure QA for candidate batch P-03.04 → P-03.06.
-2. Next action upon independent phase-closure QA: phase closure evaluation for P-03.
-3. Blocking live gate P-01.02 remains BLOCKED until Builder Program promotional-code email is delivered and redeemed. ($1.00 trial credit MUST NOT be consumed; Token Factory balance must be verified > $5.00; operator authorization required).
-4. P-01 phase remains OPEN.
-5. P-03 phase remains OPEN / awaiting independent closure.
-6. P-04+ remain strictly forbidden under current amendment (hard stop after P-03).
+1. Wait for the external P-01.02 prerequisite (Builder Program promotional-code credit delivery/redemption and promotional balance verification > $5.00). Do NOT authorize P-04.
+2. Blocking live gate P-01.02 remains BLOCKED until Builder Program promotional-code email is delivered and redeemed ($1.00 trial credit MUST NOT be consumed; Token Factory balance must be verified > $5.00; operator authorization required).
+3. P-01 phase remains OPEN.
+4. P-03 phase is independently CLOSED / PASS at SHA `83eb91da3caec3d52c22c06cf19fd0d5020b1057`.
+5. P-04+ remain strictly FORBIDDEN under P-01.01A (hard stop after P-03 remains active).
+6. There is currently NO executable implementation micro-task while P-01.02 is blocked.
