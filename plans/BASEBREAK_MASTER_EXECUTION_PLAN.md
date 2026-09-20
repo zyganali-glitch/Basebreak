@@ -228,10 +228,12 @@ Status: DONE (independently VERIFIED / PASS at SHA 82cf9049da0f255632d7d36d74d8a
 ### P-03.03 — Implement bounded sanitized stdout/stderr capture with digests
 Status: DONE (independently VERIFIED / PASS at SHA 82cf9049da0f255632d7d36d74d8a316b0e86415)
 ### P-03.04 — Implement evidence provenance validation and forbidden state transitions
-Status: IN_PROGRESS
+Status: IN_PROGRESS (executor-completed; awaiting independent phase-closure QA)
 ### P-03.05 — Implement deterministic verdict-input snapshot binding
+Status: IN_PROGRESS (executor-completed; awaiting independent phase-closure QA)
 ### P-03.06 — Add tamper/mismatch/replay tests
-Phase exit: evidence facts cannot be silently rebound to another candidate/run.
+Status: IN_PROGRESS (executor-completed; awaiting independent phase-closure QA)
+Phase exit: evidence facts cannot be silently rebound to another candidate/run. (P-03 phase OPEN / awaiting independent closure).
 
 ### Hard stop after P-03:
 This amendment DOES NOT authorize P-04. If P-03 closes and P-01.02 is still blocked: STOP and return for independent architecture decision. Do NOT automatically start P-04, P-05, P-06, P-07 or any later phase. Reason: P-04 includes platform-dependent sandbox/security policy, and P-05 is explicitly Nebius/Nemotron provider integration.
