@@ -42,6 +42,7 @@ from basebreak.evidence.provenance import (
     validate_provenance_derivation,
     validate_provenance_transition,
 )
+from basebreak.evidence.snapshot import VerdictInputSnapshot
 
 __all__ = [
     "DEFAULT_MAX_CAPTURE_BYTES",
@@ -62,6 +63,7 @@ __all__ = [
     "ProvenanceTransitionError",
     "RunIdentity",
     "StreamType",
+    "VerdictInputSnapshot",
     "artifact_from_bytes",
     "artifact_from_domain_object",
     "artifact_from_text",

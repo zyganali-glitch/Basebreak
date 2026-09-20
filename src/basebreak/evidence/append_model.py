@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from typing import Any
 
 from basebreak.domain.causal import CandidateIdentity, CausalBinding
 from basebreak.domain.execution import ExecutionCommand, ExecutionResult
@@ -221,6 +222,24 @@ class EvidenceRecord:
         if self.causal_binding is not None:
             return self.causal_binding.candidate
         return None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize evidence record facts to a dictionary."""
+        return {
+            "artifacts": [art.to_dict() for art in self.artifacts],
+            "candidate": to_dict(self.candidate) if self.candidate is not None else None,
+            "causal_binding": (
+                to_dict(self.causal_binding) if self.causal_binding is not None else None
+            ),
+            "command": to_dict(self.command) if self.command is not None else None,
+            "evidence_id": self.evidence_id.evidence_id,
+            "fact_digest": self.fact_digest.to_dict() if self.fact_digest is not None else None,
+            "provenance": self.provenance.value,
+            "recorded_at_epoch_ms": self.recorded_at_epoch_ms,
+            "result": to_dict(self.result) if self.result is not None else None,
+            "run_id": self.run_id.run_id,
+            "sequence_number": self.sequence_number,
+        }
 
 
 class EvidenceStore:
