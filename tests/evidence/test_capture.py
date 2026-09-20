@@ -9,6 +9,7 @@ import pytest
 from basebreak.evidence.artifact import compute_bytes_digest
 from basebreak.evidence.capture import (
     CapturedOutput,
+    CapturedStream,
     StreamType,
     capture_output,
     capture_stream,
@@ -203,3 +204,128 @@ class TestSanitizedCaptureNoRawSecretRetention:
         assert secret_token[:10] not in stream.retained_text
         assert stream.full_digest == compute_bytes_digest(raw.encode("utf-8"))
         assert stream.original_byte_length == len(raw.encode("utf-8"))
+
+
+class TestCapturedStreamInvariants:
+    def test_direct_construction_rejects_bearer_token(self) -> None:
+        raw_token = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+        raw_bytes = raw_token.encode("utf-8")
+        digest = compute_bytes_digest(raw_bytes)
+        with pytest.raises(ValueError, match="retained_text contains unsanitized secret material"):
+            CapturedStream(
+                stream_type=StreamType.STDOUT,
+                full_digest=digest,
+                original_byte_length=len(raw_bytes),
+                is_truncated=False,
+                max_bytes=1000,
+                retained_bytes=raw_bytes,
+                retained_text=raw_token,
+                sanitized_text=raw_token,
+                is_sanitized=False,
+            )
+
+    def test_direct_construction_rejects_api_key_secret(self) -> None:
+        raw_secret = 'api_key = "secret_fake_key_12345"'
+        raw_bytes = raw_secret.encode("utf-8")
+        digest = compute_bytes_digest(raw_bytes)
+        with pytest.raises(ValueError, match="retained_text contains unsanitized secret material"):
+            CapturedStream(
+                stream_type=StreamType.STDERR,
+                full_digest=digest,
+                original_byte_length=len(raw_bytes),
+                is_truncated=False,
+                max_bytes=1000,
+                retained_bytes=raw_bytes,
+                retained_text=raw_secret,
+                sanitized_text=raw_secret,
+                is_sanitized=False,
+            )
+
+    def test_direct_construction_rejects_retained_byte_text_mismatch(self) -> None:
+        secret_bytes = b'api_key = "secret_fake_key_12345"'
+        falsely_sanitized = 'api_key = "[REDACTED]"'
+        digest = compute_bytes_digest(secret_bytes)
+        with pytest.raises(
+            ValueError,
+            match="retained_text does not match retained_bytes decoded with utf-8",
+        ):
+            CapturedStream(
+                stream_type=StreamType.STDOUT,
+                full_digest=digest,
+                original_byte_length=len(secret_bytes),
+                is_truncated=False,
+                max_bytes=1000,
+                retained_bytes=secret_bytes,
+                retained_text=falsely_sanitized,
+                sanitized_text=falsely_sanitized,
+                is_sanitized=True,
+            )
+
+    def test_direct_construction_rejects_sanitized_text_mismatch(self) -> None:
+        clean_bytes = b"clean log output"
+        clean_text = "clean log output"
+        digest = compute_bytes_digest(clean_bytes)
+        with pytest.raises(ValueError, match="sanitized_text must equal retained_text"):
+            CapturedStream(
+                stream_type=StreamType.STDOUT,
+                full_digest=digest,
+                original_byte_length=len(clean_bytes),
+                is_truncated=False,
+                max_bytes=1000,
+                retained_bytes=clean_bytes,
+                retained_text=clean_text,
+                sanitized_text="different text",
+                is_sanitized=False,
+            )
+
+    def test_direct_construction_rejects_digest_length_contradiction(self) -> None:
+        clean_bytes = b"clean log output"
+        clean_text = "clean log output"
+        digest = compute_bytes_digest(clean_bytes)  # byte_length is 16
+        with pytest.raises(
+            ValueError,
+            match=r"full_digest\.byte_length .* does not match original_byte_length",
+        ):
+            CapturedStream(
+                stream_type=StreamType.STDOUT,
+                full_digest=digest,
+                original_byte_length=999,
+                is_truncated=False,
+                max_bytes=1000,
+                retained_bytes=clean_bytes,
+                retained_text=clean_text,
+                sanitized_text=clean_text,
+                is_sanitized=False,
+            )
+
+    def test_legitimate_capture_stream_factory_remains_valid(self) -> None:
+        stream_clean = capture_stream("clean output line", StreamType.STDOUT)
+        assert not stream_clean.is_sanitized
+        assert stream_clean.retained_text == "clean output line"
+        assert stream_clean.sanitized_text == "clean output line"
+
+        token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+        stream_secret = capture_stream(f"Bearer {token}", StreamType.STDOUT)
+        assert stream_secret.is_sanitized
+        assert "Bearer [REDACTED]" in stream_secret.retained_text
+        assert stream_secret.sanitized_text == stream_secret.retained_text
+        assert token.encode("utf-8") not in stream_secret.retained_bytes
+
+    def test_direct_construction_accepts_valid_consistent_stream(self) -> None:
+        clean_bytes = b"valid clean content"
+        clean_text = "valid clean content"
+        digest = compute_bytes_digest(clean_bytes)
+        stream = CapturedStream(
+            stream_type=StreamType.STDOUT,
+            full_digest=digest,
+            original_byte_length=len(clean_bytes),
+            is_truncated=False,
+            max_bytes=1000,
+            retained_bytes=clean_bytes,
+            retained_text=clean_text,
+            sanitized_text=clean_text,
+            is_sanitized=False,
+        )
+        assert stream.retained_text == clean_text
+        assert stream.sanitized_text == clean_text
+        assert stream.full_digest.byte_length == stream.original_byte_length

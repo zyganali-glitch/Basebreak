@@ -143,6 +143,23 @@ class CapturedStream:
             )
         if not isinstance(self.is_sanitized, bool):
             raise TypeError(f"is_sanitized must be a bool, got {type(self.is_sanitized).__name__}")
+        if self.full_digest.byte_length != self.original_byte_length:
+            raise ValueError(
+                f"full_digest.byte_length ({self.full_digest.byte_length}) "
+                f"does not match original_byte_length ({self.original_byte_length})"
+            )
+        if self.retained_text != self.retained_bytes.decode("utf-8", errors="replace"):
+            raise ValueError(
+                "retained_text does not match retained_bytes decoded with utf-8 (replace)"
+            )
+        if self.sanitized_text != self.retained_text:
+            raise ValueError(
+                f"sanitized_text must equal retained_text, got {self.sanitized_text!r} "
+                f"vs {self.retained_text!r}"
+            )
+        _, contains_secret = sanitize_text(self.retained_text)
+        if contains_secret:
+            raise ValueError("retained_text contains unsanitized secret material")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize captured stream facts to dictionary."""
