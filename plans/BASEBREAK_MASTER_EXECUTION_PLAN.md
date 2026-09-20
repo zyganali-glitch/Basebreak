@@ -111,7 +111,7 @@ Acceptance:
 - capabilities/limits recorded with LIVE_NEBIUS or official-doc provenance.
 
 ### P-01.01A — Establish bounded provider-neutral parallel execution while the live Token Factory gate is externally blocked
-Status: IN_PROGRESS (candidate committed; awaiting independent QA)
+Status: DONE (independently VERIFIED / PASS at SHA b15d4b5ac2123360cd937ee2ffc44a04854475e0)
 Deliver: Master Plan amendment and governance rules establishing bounded provider-neutral parallel execution (P-02/P-03) while P-01.02 is externally blocked.
 Acceptance:
 - P-01.01 marked DONE;
@@ -191,11 +191,15 @@ Why P-02 is safe to parallelize:
 - It MUST NOT encode: current Nebius model IDs, Token Factory API paths, Contree-specific classes, Nebius-specific sandbox fields, current sandbox limits, checkpoint/branch assumptions, current region names as domain invariants, Tavily, or provider SDK objects.
 
 ### P-02.01 — Define repository/source identity and immutable revision contracts
-Status: PENDING (executable upon independent QA PASS of P-01.01A)
+Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
 ### P-02.02 — Define engineering task and acceptance-requirement contracts
+Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
 ### P-02.03 — Define change-semantics enum and per-class verification requirements
+Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
 ### P-02.04 — Define execution command/result/sandbox identity contracts
+Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
 ### P-02.05 — Define witness, candidate, counterfactual and causal-binding contracts
+Status: PENDING
 ### P-02.06 — Define evidence provenance and preliminary verdict contracts
 ### P-02.07 — Add schema validation, serialization, compatibility and provider-purity tests
 Phase exit:

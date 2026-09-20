@@ -21,10 +21,11 @@ Judge claim:
 - P-00.04 (Establish repository structure, Python/runtime tooling baseline, formatting/lint/type/test commands) is independently VERIFIED / PASS at SHA `5c4f07bd541db759dfe6b1b5bf7c2fb3e6a06499`.
 - P-00.05 (Run first documentation consolidation and focused P-Ω bootstrap audit) is independently VERIFIED / PASS at SHA `08ebfc94a75954d79ee2613f935584de2a9d5900` (P-00 phase closure awarded PASS).
 - P-01.01 (Discover current Nebius account/runtime/API/model reality from official docs and live account) is independently VERIFIED / PASS at SHA `5804702c8901105496d9a23cad799cfac6f61b32`.
-- P-01.01A (Establish bounded provider-neutral parallel execution while the live Token Factory gate is externally blocked) is IN_PROGRESS (candidate committed; awaiting independent QA).
+- P-01.01A (Establish bounded provider-neutral parallel execution while the live Token Factory gate is externally blocked) is independently VERIFIED / PASS at SHA `b15d4b5ac2123360cd937ee2ffc44a04854475e0`.
+- Bounded P-02 batch (P-02.01, P-02.02, P-02.03, P-02.04) is IN_PROGRESS (executor-completed; awaiting independent batch QA).
 
 ## Last independently VERIFIED baseline SHA
-`5804702c8901105496d9a23cad799cfac6f61b32` (P-01.01 independent QA PASS).
+`b15d4b5ac2123360cd937ee2ffc44a04854475e0` (P-01.01A independent QA PASS).
 
 ## Blocking live gate vs active executable task
 
@@ -36,14 +37,14 @@ Judge claim:
 - Gate condition: The `$1.00` trial credit MUST NOT be consumed. No automatic paid fallback.
 - Phase impact: P-01 phase remains OPEN; no GO decision can be awarded without required `LIVE_NEBIUS` evidence.
 
-### Active task
-Currently active governance amendment:
-`P-01.01A — Establish bounded provider-neutral parallel execution while the live Token Factory gate is externally blocked` (candidate committed; awaiting independent QA)
+### Current QA candidate
+Bounded P-02.01 → P-02.04 batch (provider-neutral domain contracts: source identity, engineering tasks, change semantics, execution/sandbox).
 
-Active executable task AFTER independent QA PASS of this amendment:
-`P-02.01 — Define repository/source identity and immutable revision contracts`
+### Next task
+Next task MUST NOT be executed before independent batch QA:
+`P-02.05 — Define witness, candidate, counterfactual and causal-binding contracts`
 
-*(Note: Exactly ONE executable micro-task is active at a time. P-01.02 remains BLOCKED while P-02.01 executes. The offline lane does not substitute for or bypass the live gate).*
+*(Note: Exactly ONE executable micro-task is active at a time. P-01.02 remains BLOCKED while P-02 offline lane executes. The offline lane does not substitute for or bypass the live gate).*
 
 ## Parallelization boundary & rules
 - **Allowlist:** Under P-01.01A amendment, only P-02 (`P-02.01`–`P-02.07`) and, upon independent P-02 phase closure, P-03 (`P-03.01`–`P-03.06`) are allowlisted.
@@ -67,8 +68,8 @@ Active executable task AFTER independent QA PASS of this amendment:
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Await independent QA verification for P-01.01A candidate.
+1. Await independent QA verification for bounded P-02.01 → P-02.04 candidate batch.
 2. Blocking live gate P-01.02 remains BLOCKED until Builder Program promotional-code email is delivered and redeemed. ($1.00 trial credit MUST NOT be consumed; Token Factory balance must be verified > $5.00; operator authorization required).
-3. Next executable task upon independent QA PASS of P-01.01A: `P-02.01 — Define repository/source identity and immutable revision contracts`.
+3. Next executable task upon independent batch QA PASS: `P-02.05 — Define witness, candidate, counterfactual and causal-binding contracts`.
 4. Tavily remains safely onboarded on Free/Researcher (1,000 monthly credits + 3,125 promotional credits, usage-based billing disabled, zero payment cards, zero API calls; runtime integration deferred to P-16).
 5. P-01.03+ and P-04+ remain strictly unexecutable at this stage.
