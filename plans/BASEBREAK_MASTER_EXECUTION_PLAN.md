@@ -199,15 +199,16 @@ Status: DONE (independently VERIFIED / PASS at SHA d9b00762d7e8af61d138867825140
 ### P-02.04 — Define execution command/result/sandbox identity contracts
 Status: DONE (independently VERIFIED / PASS at SHA d9b00762d7e8af61d138867825140ba53718da4c)
 ### P-02.05 — Define witness, candidate, counterfactual and causal-binding contracts
-Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
+Status: DONE (independently VERIFIED / PASS at SHA a284f92e11f1ab2e8f8fb8a3278178aace76460c)
 ### P-02.06 — Define evidence provenance and preliminary verdict contracts
-Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
+Status: DONE (independently VERIFIED / PASS at SHA a284f92e11f1ab2e8f8fb8a3278178aace76460c)
 ### P-02.07 — Add schema validation, serialization, compatibility and provider-purity tests
-Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
+Status: DONE (independently VERIFIED / PASS at SHA a284f92e11f1ab2e8f8fb8a3278178aace76460c)
 Phase exit:
 - domain imports no Nebius/NVIDIA/UI SDKs;
 - exact hash/state semantics deterministic;
 - no orchestration yet.
+(P-02 phase independently CLOSED / PASS at SHA a284f92e11f1ab2e8f8fb8a3278178aace76460c)
 
 ---
 
@@ -221,6 +222,7 @@ Why P-03 is safe to parallelize:
 - Provenance separation: FIXTURE and LOCAL_EXECUTION evidence remain explicitly distinct from LIVE_NEBIUS. P-03 green tests close only P-03 local deterministic requirements; they can NEVER satisfy P-01 live platform gates.
 
 ### P-03.01 — Implement content-addressed artifact hashing and canonical serialization
+Status: IN_PROGRESS
 ### P-03.02 — Implement run/evidence append model with immutable identifiers
 ### P-03.03 — Implement bounded sanitized stdout/stderr capture with digests
 ### P-03.04 — Implement evidence provenance validation and forbidden state transitions
