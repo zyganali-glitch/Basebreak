@@ -191,17 +191,19 @@ Why P-02 is safe to parallelize:
 - It MUST NOT encode: current Nebius model IDs, Token Factory API paths, Contree-specific classes, Nebius-specific sandbox fields, current sandbox limits, checkpoint/branch assumptions, current region names as domain invariants, Tavily, or provider SDK objects.
 
 ### P-02.01 — Define repository/source identity and immutable revision contracts
-Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
+Status: DONE (independently VERIFIED / PASS at SHA d9b00762d7e8af61d138867825140ba53718da4c)
 ### P-02.02 — Define engineering task and acceptance-requirement contracts
-Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
+Status: DONE (independently VERIFIED / PASS at SHA d9b00762d7e8af61d138867825140ba53718da4c)
 ### P-02.03 — Define change-semantics enum and per-class verification requirements
-Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
+Status: DONE (independently VERIFIED / PASS at SHA d9b00762d7e8af61d138867825140ba53718da4c)
 ### P-02.04 — Define execution command/result/sandbox identity contracts
-Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
+Status: DONE (independently VERIFIED / PASS at SHA d9b00762d7e8af61d138867825140ba53718da4c)
 ### P-02.05 — Define witness, candidate, counterfactual and causal-binding contracts
-Status: PENDING
+Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
 ### P-02.06 — Define evidence provenance and preliminary verdict contracts
+Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
 ### P-02.07 — Add schema validation, serialization, compatibility and provider-purity tests
+Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
 Phase exit:
 - domain imports no Nebius/NVIDIA/UI SDKs;
 - exact hash/state semantics deterministic;
