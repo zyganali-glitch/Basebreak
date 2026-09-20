@@ -1,5 +1,11 @@
 """Domain contracts for Basebreak."""
 
+from basebreak.domain.execution import (
+    ExecutionCommand,
+    ExecutionResult,
+    SandboxIdentity,
+    TerminationStatus,
+)
 from basebreak.domain.semantics import (
     ChangeClass,
     ClassVerificationRequirement,
@@ -14,7 +20,11 @@ __all__ = [
     "ClassVerificationRequirement",
     "CommitRevision",
     "EngineeringTask",
+    "ExecutionCommand",
+    "ExecutionResult",
     "RequestedRef",
+    "SandboxIdentity",
     "SourceIdentity",
+    "TerminationStatus",
     "get_verification_requirements",
 ]
