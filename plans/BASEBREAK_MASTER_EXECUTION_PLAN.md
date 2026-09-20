@@ -222,9 +222,11 @@ Why P-03 is safe to parallelize:
 - Provenance separation: FIXTURE and LOCAL_EXECUTION evidence remain explicitly distinct from LIVE_NEBIUS. P-03 green tests close only P-03 local deterministic requirements; they can NEVER satisfy P-01 live platform gates.
 
 ### P-03.01 — Implement content-addressed artifact hashing and canonical serialization
-Status: IN_PROGRESS
+Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
 ### P-03.02 — Implement run/evidence append model with immutable identifiers
+Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
 ### P-03.03 — Implement bounded sanitized stdout/stderr capture with digests
+Status: IN_PROGRESS (executor-completed; awaiting independent batch QA)
 ### P-03.04 — Implement evidence provenance validation and forbidden state transitions
 ### P-03.05 — Implement deterministic verdict-input snapshot binding
 ### P-03.06 — Add tamper/mismatch/replay tests
