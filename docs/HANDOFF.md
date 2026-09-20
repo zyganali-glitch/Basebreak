@@ -30,10 +30,14 @@ Judge claim:
 - P-02.06 (Define evidence provenance and preliminary verdict contracts) is independently VERIFIED / PASS at SHA `a284f92e11f1ab2e8f8fb8a3278178aace76460c`.
 - P-02.07 (Add schema validation, serialization, compatibility and provider-purity tests) is independently VERIFIED / PASS at SHA `a284f92e11f1ab2e8f8fb8a3278178aace76460c`.
 - P-02 phase (Provider-Neutral Domain Contracts) is independently CLOSED / PASS at SHA `a284f92e11f1ab2e8f8fb8a3278178aace76460c`.
-- Bounded P-03 batch (P-03.01, P-03.02, P-03.03) is IN_PROGRESS (executor-completed; awaiting independent batch QA).
+- P-03.01 (Implement content-addressed artifact hashing and canonical serialization) is independently VERIFIED / PASS at SHA `82cf9049da0f255632d7d36d74d8a316b0e86415`.
+- P-03.02 (Implement run/evidence append model with immutable identifiers) is independently VERIFIED / PASS at SHA `82cf9049da0f255632d7d36d74d8a316b0e86415`.
+- P-03.03 (Implement bounded sanitized stdout/stderr capture with digests) is independently VERIFIED / PASS at SHA `82cf9049da0f255632d7d36d74d8a316b0e86415`.
+- P-03 phase remains OPEN.
+- P-03.04 is active.
 
 ## Last independently VERIFIED baseline SHA
-`a284f92e11f1ab2e8f8fb8a3278178aace76460c` (P-02 phase closure independent QA PASS).
+`82cf9049da0f255632d7d36d74d8a316b0e86415` (P-03.01–P-03.03 independent batch QA PASS).
 
 ## Blocking live gate vs active executable task
 
@@ -46,11 +50,10 @@ Judge claim:
 - Phase impact: P-01 phase remains OPEN; no GO decision can be awarded without required `LIVE_NEBIUS` evidence.
 
 ### Current QA candidate
-Bounded P-03.01 → P-03.03 batch (content-addressed artifact hashing and canonical serialization, run/evidence append model with immutable identifiers, bounded sanitized stdout/stderr capture with digests).
+None (P-03.01–P-03.03 verified; P-03.04 active in authorized phase-closure batch P-03.04–P-03.06).
 
-### Next task
-Next task MUST NOT be executed before independent batch QA of P-03.01–P-03.03:
-`P-03.04 — Implement evidence provenance validation and forbidden state transitions` (under P-01.01A parallelization allowlist, only upon independent batch QA PASS).
+### Active executable task
+`P-03.04 — Implement evidence provenance validation and forbidden state transitions` (under P-01.01A parallelization allowlist).
 
 *(Note: Exactly ONE executable micro-task is active at a time. P-01.02 remains BLOCKED while P-02 offline lane completes. The offline lane does not substitute for or bypass the live gate).*
 
@@ -76,8 +79,9 @@ Next task MUST NOT be executed before independent batch QA of P-03.01–P-03.03:
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Await independent QA verification for bounded P-03.01 → P-03.03 candidate batch.
-2. Next executable task upon independent batch QA PASS: `P-03.04 — Implement evidence provenance validation and forbidden state transitions`.
+1. Execute authorized P-03 phase-closure batch: P-03.04, P-03.05, P-03.06.
+2. Active task: `P-03.04 — Implement evidence provenance validation and forbidden state transitions`.
 3. Blocking live gate P-01.02 remains BLOCKED until Builder Program promotional-code email is delivered and redeemed. ($1.00 trial credit MUST NOT be consumed; Token Factory balance must be verified > $5.00; operator authorization required).
 4. P-01 phase remains OPEN.
-5. P-04+ remain strictly forbidden under current amendment.
+5. P-03 phase remains OPEN.
+6. P-04+ remain strictly forbidden under current amendment.
