@@ -14,12 +14,15 @@ from typing import Any
 from basebreak.domain.causal import CandidateIdentity, CausalBinding
 from basebreak.domain.serialization import to_dict
 from basebreak.evidence.append_model import (
+    EvidenceConflictError,
     EvidenceRebindingError,
     EvidenceRecord,
     EvidenceSequenceError,
     EvidenceStore,
     RunIdentity,
     _validate_clean_identifier,
+    authoritative_candidate_equals,
+    authoritative_candidate_payload,
 )
 from basebreak.evidence.artifact import ArtifactDigest, compute_bytes_digest
 
@@ -37,8 +40,8 @@ def _compute_snapshot_digest(
     Explicitly excludes non-authoritative prose (such as description).
     """
     authoritative_facts: dict[str, Any] = {
-        "candidate": to_dict(candidate),
-        "causal_binding": to_dict(causal_binding) if causal_binding is not None else None,
+        "candidate": authoritative_candidate_payload(candidate),
+        "causal_binding": causal_binding.binding_digest if causal_binding is not None else None,
         "records": [
             {
                 "artifacts": [art.to_dict() for art in rec.artifacts],
@@ -82,7 +85,6 @@ class VerdictInputSnapshot:
     records: tuple[EvidenceRecord, ...]
     causal_binding: CausalBinding | None = None
     description: str = ""
-    allow_empty: bool = False
     schema_version: str = "1.0"
     snapshot_digest: ArtifactDigest | None = None
 
@@ -101,7 +103,7 @@ class VerdictInputSnapshot:
                     f"causal_binding must be CausalBinding or None, "
                     f"got {type(self.causal_binding).__name__}"
                 )
-            if self.causal_binding.candidate != self.candidate:
+            if not authoritative_candidate_equals(self.causal_binding.candidate, self.candidate):
                 raise ValueError(
                     f"Causal binding candidate '{self.causal_binding.candidate.candidate_id}' "
                     f"does not match snapshot candidate '{self.candidate.candidate_id}'"
@@ -116,8 +118,6 @@ class VerdictInputSnapshot:
             raise TypeError(f"records must be a tuple, got {type(self.records).__name__}")
         if not isinstance(self.description, str):
             raise TypeError(f"description must be a str, got {type(self.description).__name__}")
-        if not isinstance(self.allow_empty, bool):
-            raise TypeError(f"allow_empty must be a bool, got {type(self.allow_empty).__name__}")
         if not isinstance(self.schema_version, str):
             raise TypeError(
                 f"schema_version must be a str, got {type(self.schema_version).__name__}"
@@ -130,30 +130,44 @@ class VerdictInputSnapshot:
                 f"got {type(self.snapshot_digest).__name__}"
             )
 
-        # Reject empty snapshot unless explicitly allowed (e.g. for NOT_RUN or BLOCKED)
-        if len(self.records) == 0 and not self.allow_empty:
+        # Reject empty snapshot unconditionally
+        if len(self.records) == 0:
             raise ValueError(
-                "VerdictInputSnapshot requires at least one evidence record unless "
-                "allow_empty is explicitly permitted for NOT_RUN/BLOCKED"
+                "VerdictInputSnapshot requires at least one evidence record; "
+                "empty records tuple rejected"
             )
 
         # Validate each record and enforce cross-run, cross-candidate, and sequence continuity
+        seen_evidence_ids: set[str] = set()
         last_seq = -1
         for idx, rec in enumerate(self.records):
             if not isinstance(rec, EvidenceRecord):
                 raise TypeError(
                     f"record at index {idx} must be an EvidenceRecord, got {type(rec).__name__}"
                 )
+            ev_id = rec.evidence_id.evidence_id
+            if ev_id in seen_evidence_ids:
+                raise EvidenceConflictError(
+                    f"Duplicate evidence identity '{ev_id}' within snapshot"
+                )
+            seen_evidence_ids.add(ev_id)
+
             if rec.run_id != self.run_id:
                 raise EvidenceRebindingError(
-                    f"Cross-run evidence rejected: record '{rec.evidence_id.evidence_id}' "
+                    f"Cross-run evidence rejected: record '{ev_id}' "
                     f"has run '{rec.run_id.run_id}', expected '{self.run_id.run_id}'"
                 )
             effective = rec.effective_candidate
-            if effective is not None and effective != self.candidate:
+            if effective is None:
+                raise EvidenceRebindingError(
+                    f"Candidate-unbound evidence rejected: record '{ev_id}' "
+                    "has neither candidate nor causal_binding candidate, but snapshot is bound to "
+                    f"candidate '{self.candidate.candidate_id}'"
+                )
+            if not authoritative_candidate_equals(effective, self.candidate):
                 expected_cid = self.candidate.candidate_id
                 raise EvidenceRebindingError(
-                    f"Cross-candidate evidence rejected: record '{rec.evidence_id.evidence_id}' "
+                    f"Cross-candidate evidence rejected: record '{ev_id}' "
                     f"has candidate '{effective.candidate_id}', expected '{expected_cid}'"
                 )
             if rec.sequence_number <= last_seq:
@@ -187,7 +201,6 @@ class VerdictInputSnapshot:
         requirement_id: str,
         causal_binding: CausalBinding | None = None,
         description: str = "",
-        allow_empty: bool = False,
     ) -> VerdictInputSnapshot:
         """Create a VerdictInputSnapshot from an EvidenceStore."""
         if store.run_id is None:
@@ -201,13 +214,11 @@ class VerdictInputSnapshot:
             records=store.all_records(),
             causal_binding=causal_binding,
             description=description,
-            allow_empty=allow_empty,
         )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize snapshot to dictionary."""
         return {
-            "allow_empty": self.allow_empty,
             "candidate": to_dict(self.candidate),
             "causal_binding": (
                 to_dict(self.causal_binding) if self.causal_binding is not None else None

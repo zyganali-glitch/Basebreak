@@ -226,6 +226,82 @@ class TestRunEvidenceRebindingAdversarial:
                 causal_binding=causal,
             )
 
+    def test_candidate_unbound_evidence_rejected_by_verdict_snapshot(self) -> None:
+        cand = _make_candidate(cid="cand-auth")
+        run = RunIdentity("run-snap-unbound")
+        rec_unbound = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-unbound"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=None,
+            causal_binding=None,
+        )
+        with pytest.raises(EvidenceRebindingError, match="Candidate-unbound evidence rejected"):
+            VerdictInputSnapshot(
+                candidate=cand,
+                run_id=run,
+                requirement_id="req-1",
+                records=(rec_unbound,),
+            )
+
+    def test_causal_binding_record_matching_candidate_accepted_by_snapshot(self) -> None:
+        cand = _make_candidate(cid="cand-auth")
+        run = RunIdentity("run-snap-causal-ok")
+        witness = WitnessIdentity("wit-1", "b" * 64)
+        binding = CausalBinding(
+            requirement_id="req-1",
+            witness=witness,
+            base_source=cand.source,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        rec = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-causal-ok"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=None,
+            causal_binding=binding,
+        )
+        snap = VerdictInputSnapshot(
+            candidate=cand,
+            run_id=run,
+            requirement_id="req-1",
+            records=(rec,),
+            causal_binding=binding,
+        )
+        assert len(snap.records) == 1
+        assert snap.snapshot_digest is not None
+
+    def test_causal_binding_record_foreign_candidate_rejected_by_snapshot(self) -> None:
+        cand_auth = _make_candidate(cid="cand-auth")
+        cand_foreign = _make_candidate(cid="cand-foreign")
+        run = RunIdentity("run-snap-causal-bad")
+        witness = WitnessIdentity("wit-1", "b" * 64)
+        foreign_binding = CausalBinding(
+            requirement_id="req-1",
+            witness=witness,
+            base_source=cand_foreign.source,
+            candidate=cand_foreign,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        rec_foreign = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-causal-bad"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=None,
+            causal_binding=foreign_binding,
+        )
+        with pytest.raises(EvidenceRebindingError, match="Cross-candidate evidence rejected"):
+            VerdictInputSnapshot(
+                candidate=cand_auth,
+                run_id=run,
+                requirement_id="req-1",
+                records=(rec_foreign,),
+            )
+
 
 # ==============================================================================
 # C. SEQUENCE / REPLAY
@@ -287,6 +363,32 @@ class TestSequenceReplayAdversarial:
             EvidenceConflictError, match="Duplicate evidence ID 'ev-0' with conflicting contents"
         ):
             store.append(rec0_tampered)
+
+    def test_idempotent_append_with_candidate_description_difference_succeeds(self) -> None:
+        cand_orig = _make_candidate("cand-idemp")
+        cand_desc = dataclasses.replace(cand_orig, description="differing description text")
+        run = RunIdentity("run-idemp-cand")
+        store = EvidenceStore(run_id=run, candidate=cand_orig)
+
+        rec0_orig = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-0"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand_orig,
+        )
+        rec0_desc = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-0"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand_desc,
+        )
+        store.append(rec0_orig)
+        # Authoritative fact digests match, so idempotent append succeeds
+        store.append(rec0_desc)
+        assert len(store) == 1
+        assert store.get("ev-0") == rec0_orig
 
 
 # ==============================================================================
@@ -525,6 +627,192 @@ class TestVerdictSnapshotTamperAdversarial:
 
         with pytest.raises(dataclasses.FrozenInstanceError):
             snap.requirement_id = "req-tampered"  # type: ignore[misc]
+
+    def test_duplicate_evidence_identity_in_snapshot_rejected(self) -> None:
+        cand = _make_candidate()
+        run = RunIdentity("run-dup-id-snap")
+        rec0 = _make_record("ev-same", run, 0, cand)
+        rec1 = _make_record("ev-same", run, 1, cand)
+        with pytest.raises(EvidenceConflictError, match="Duplicate evidence identity 'ev-same'"):
+            VerdictInputSnapshot(
+                candidate=cand,
+                run_id=run,
+                requirement_id="req-1",
+                records=(rec0, rec1),
+            )
+
+    def test_empty_snapshot_records_unconditionally_rejected(self) -> None:
+        cand = _make_candidate()
+        run = RunIdentity("run-empty-snap")
+        with pytest.raises(ValueError, match="requires at least one evidence record"):
+            VerdictInputSnapshot(
+                candidate=cand,
+                run_id=run,
+                requirement_id="req-1",
+                records=(),
+            )
+
+    def test_candidate_description_does_not_affect_fact_or_snapshot_digest(self) -> None:
+        cand_orig = _make_candidate(cid="cand-desc", rev="a" * 40)
+        cand_alt = dataclasses.replace(cand_orig, description="new candidate description")
+        run = RunIdentity("run-desc-iso")
+
+        rec_orig = _make_record("ev-0", run, 0, cand_orig)
+        rec_alt = _make_record("ev-0", run, 0, cand_alt)
+        assert rec_orig.fact_digest == rec_alt.fact_digest
+
+        snap_orig = VerdictInputSnapshot(
+            candidate=cand_orig, run_id=run, requirement_id="req-1", records=(rec_orig,)
+        )
+        snap_alt = VerdictInputSnapshot(
+            candidate=cand_alt, run_id=run, requirement_id="req-1", records=(rec_alt,)
+        )
+        assert snap_orig.snapshot_digest == snap_alt.snapshot_digest
+
+    def test_source_requested_ref_does_not_affect_fact_or_snapshot_digest(self) -> None:
+        from basebreak.domain.source import RequestedRef
+
+        src_no_ref = SourceIdentity("repo-1", CommitRevision("a" * 40))
+        src_with_ref = SourceIdentity(
+            "repo-1", CommitRevision("a" * 40), requested_ref=RequestedRef("refs/heads/feature")
+        )
+        cand_no_ref = CandidateIdentity("cand-ref", src_no_ref, "d" * 64)
+        cand_with_ref = CandidateIdentity("cand-ref", src_with_ref, "d" * 64)
+        run = RunIdentity("run-ref-iso")
+
+        rec_no_ref = _make_record("ev-0", run, 0, cand_no_ref)
+        rec_with_ref = _make_record("ev-0", run, 0, cand_with_ref)
+        assert rec_no_ref.fact_digest == rec_with_ref.fact_digest
+
+        snap_no_ref = VerdictInputSnapshot(
+            candidate=cand_no_ref, run_id=run, requirement_id="req-1", records=(rec_no_ref,)
+        )
+        snap_with_ref = VerdictInputSnapshot(
+            candidate=cand_with_ref, run_id=run, requirement_id="req-1", records=(rec_with_ref,)
+        )
+        assert snap_no_ref.snapshot_digest == snap_with_ref.snapshot_digest
+
+    def test_witness_description_does_not_affect_fact_or_snapshot_digest(self) -> None:
+        cand = _make_candidate(cid="cand-wit-iso")
+        run = RunIdentity("run-wit-iso")
+        wit_a = WitnessIdentity("wit-1", "b" * 64, "original witness description")
+        wit_b = WitnessIdentity("wit-1", "b" * 64, "altered witness description")
+        binding_a = CausalBinding(
+            requirement_id="req-wit",
+            witness=wit_a,
+            base_source=cand.source,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        binding_b = CausalBinding(
+            requirement_id="req-wit",
+            witness=wit_b,
+            base_source=cand.source,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        rec_a = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-0"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand,
+            causal_binding=binding_a,
+        )
+        rec_b = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-0"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand,
+            causal_binding=binding_b,
+        )
+        assert rec_a.fact_digest == rec_b.fact_digest
+
+        snap_a = VerdictInputSnapshot(
+            candidate=cand,
+            run_id=run,
+            requirement_id="req-wit",
+            records=(rec_a,),
+            causal_binding=binding_a,
+        )
+        snap_b = VerdictInputSnapshot(
+            candidate=cand,
+            run_id=run,
+            requirement_id="req-wit",
+            records=(rec_b,),
+            causal_binding=binding_b,
+        )
+        assert snap_a.snapshot_digest == snap_b.snapshot_digest
+
+    def test_witness_digest_change_changes_fact_and_snapshot_digest(self) -> None:
+        cand = _make_candidate(cid="cand-wit-mut")
+        run = RunIdentity("run-wit-mut")
+        wit_a = WitnessIdentity("wit-1", "1" * 64)
+        wit_b = WitnessIdentity("wit-1", "2" * 64)
+        binding_a = CausalBinding(
+            requirement_id="req-wit",
+            witness=wit_a,
+            base_source=cand.source,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        binding_b = CausalBinding(
+            requirement_id="req-wit",
+            witness=wit_b,
+            base_source=cand.source,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        rec_a = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-0"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand,
+            causal_binding=binding_a,
+        )
+        rec_b = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-0"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand,
+            causal_binding=binding_b,
+        )
+        assert rec_a.fact_digest != rec_b.fact_digest
+
+        snap_a = VerdictInputSnapshot(
+            candidate=cand,
+            run_id=run,
+            requirement_id="req-wit",
+            records=(rec_a,),
+            causal_binding=binding_a,
+        )
+        snap_b = VerdictInputSnapshot(
+            candidate=cand,
+            run_id=run,
+            requirement_id="req-wit",
+            records=(rec_b,),
+            causal_binding=binding_b,
+        )
+        assert snap_a.snapshot_digest != snap_b.snapshot_digest
+
+    def test_candidate_patch_digest_change_changes_fact_and_snapshot_digest(self) -> None:
+        cand_a = _make_candidate(cid="cand-patch", patch_bytes=b"diff A\n")
+        cand_b = _make_candidate(cid="cand-patch", patch_bytes=b"diff B\n")
+        run = RunIdentity("run-patch-mut")
+        rec_a = _make_record("ev-0", run, 0, cand_a)
+        rec_b = _make_record("ev-0", run, 0, cand_b)
+        assert rec_a.fact_digest != rec_b.fact_digest
+
+        snap_a = VerdictInputSnapshot(
+            candidate=cand_a, run_id=run, requirement_id="req-1", records=(rec_a,)
+        )
+        snap_b = VerdictInputSnapshot(
+            candidate=cand_b, run_id=run, requirement_id="req-1", records=(rec_b,)
+        )
+        assert snap_a.snapshot_digest != snap_b.snapshot_digest
 
 
 # ==============================================================================

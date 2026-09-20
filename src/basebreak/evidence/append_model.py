@@ -82,6 +82,36 @@ class EvidenceIdentity:
         _validate_clean_identifier(self.evidence_id, "evidence_id")
 
 
+def authoritative_candidate_payload(candidate: CandidateIdentity | None) -> dict[str, Any] | None:
+    """Extract authoritative identity facts of a candidate, excluding prose/RequestedRef."""
+    if candidate is None:
+        return None
+    return {
+        "candidate_id": candidate.candidate_id,
+        "patch_digest": candidate.patch_digest,
+        "source": {
+            "locator": candidate.source.locator,
+            "resolved_commit_id": candidate.source.resolved_commit_id,
+            "subpath": candidate.source.subpath,
+        },
+    }
+
+
+def authoritative_candidate_equals(
+    a: CandidateIdentity | None, b: CandidateIdentity | None
+) -> bool:
+    """Check whether two candidate identities share identical authoritative identity facts."""
+    if a is None or b is None:
+        return a is b
+    return (
+        a.candidate_id == b.candidate_id
+        and a.patch_digest == b.patch_digest
+        and a.source.locator == b.source.locator
+        and a.source.resolved_commit_id == b.source.resolved_commit_id
+        and a.source.subpath == b.source.subpath
+    )
+
+
 def _compute_record_fact_digest(
     evidence_id: EvidenceIdentity,
     run_id: RunIdentity,
@@ -97,8 +127,8 @@ def _compute_record_fact_digest(
     """Compute cryptographic digest covering all factual fields of an evidence record."""
     facts = {
         "artifacts": [art.to_dict() for art in artifacts],
-        "candidate": to_dict(candidate) if candidate is not None else None,
-        "causal_binding": to_dict(causal_binding) if causal_binding is not None else None,
+        "candidate": authoritative_candidate_payload(candidate),
+        "causal_binding": causal_binding.binding_digest if causal_binding is not None else None,
         "command": to_dict(command) if command is not None else None,
         "evidence_id": evidence_id.evidence_id,
         "provenance": provenance.value,
@@ -159,7 +189,7 @@ class EvidenceRecord:
                 f"got {type(self.causal_binding).__name__}"
             )
         if self.candidate is not None and self.causal_binding is not None:
-            if self.candidate != self.causal_binding.candidate:
+            if not authoritative_candidate_equals(self.candidate, self.causal_binding.candidate):
                 raise ValueError(
                     f"Candidate mismatch: record candidate '{self.candidate.candidate_id}' "
                     f"does not match causal_binding candidate "
@@ -303,7 +333,7 @@ class EvidenceStore:
                     f"Cannot append un-bound candidate evidence to store bound to candidate "
                     f"'{self._candidate.candidate_id}'"
                 )
-            if effective != self._candidate:
+            if not authoritative_candidate_equals(effective, self._candidate):
                 raise EvidenceRebindingError(
                     f"Cannot append evidence for candidate '{effective.candidate_id}' "
                     f"to store bound to candidate '{self._candidate.candidate_id}'"
@@ -312,7 +342,7 @@ class EvidenceStore:
         ev_id = record.evidence_id.evidence_id
         if ev_id in self._by_id:
             existing = self._by_id[ev_id]
-            if existing == record:
+            if existing.fact_digest is not None and existing.fact_digest == record.fact_digest:
                 # Idempotent append: preserves sequence state without advancing
                 return
             if existing.provenance != record.provenance:

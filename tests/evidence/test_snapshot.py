@@ -19,6 +19,7 @@ from basebreak.evidence import (
     ArtifactDigest,
     ArtifactReference,
     DigestAlgorithm,
+    EvidenceConflictError,
     EvidenceIdentity,
     EvidenceRebindingError,
     EvidenceRecord,
@@ -202,6 +203,78 @@ class TestVerdictInputSnapshotDeterministicDigest:
                 snapshot_digest=fake_digest,
             )
 
+    def test_candidate_description_does_not_change_snapshot_digest(self) -> None:
+        cand_a = _make_candidate(cid="cand-desc", rev="a" * 40)
+        cand_a_desc = dataclasses.replace(cand_a, description="modified candidate description")
+        run = RunIdentity("run-desc-snap")
+        rec_a = _make_record("ev-0", run, 0, cand_a)
+        rec_a_desc = _make_record("ev-0", run, 0, cand_a_desc)
+
+        snap_a = VerdictInputSnapshot(
+            candidate=cand_a, run_id=run, requirement_id="req-1", records=(rec_a,)
+        )
+        snap_a_desc = VerdictInputSnapshot(
+            candidate=cand_a_desc, run_id=run, requirement_id="req-1", records=(rec_a_desc,)
+        )
+        assert snap_a.snapshot_digest == snap_a_desc.snapshot_digest
+
+    def test_source_requested_ref_does_not_change_snapshot_digest(self) -> None:
+        from basebreak.domain.source import RequestedRef
+
+        src_no_ref = SourceIdentity("repo-1", CommitRevision("a" * 40))
+        src_with_ref = SourceIdentity(
+            "repo-1", CommitRevision("a" * 40), requested_ref=RequestedRef("refs/heads/feature")
+        )
+        cand_no_ref = CandidateIdentity("cand-ref", src_no_ref, "d" * 64)
+        cand_with_ref = CandidateIdentity("cand-ref", src_with_ref, "d" * 64)
+        run = RunIdentity("run-ref-snap")
+        rec_no_ref = _make_record("ev-0", run, 0, cand_no_ref)
+        rec_with_ref = _make_record("ev-0", run, 0, cand_with_ref)
+
+        snap_no_ref = VerdictInputSnapshot(
+            candidate=cand_no_ref, run_id=run, requirement_id="req-1", records=(rec_no_ref,)
+        )
+        snap_with_ref = VerdictInputSnapshot(
+            candidate=cand_with_ref, run_id=run, requirement_id="req-1", records=(rec_with_ref,)
+        )
+        assert snap_no_ref.snapshot_digest == snap_with_ref.snapshot_digest
+
+    def test_witness_description_does_not_change_snapshot_digest(self) -> None:
+        cand = _make_candidate(cid="cand-wit-desc")
+        run = RunIdentity("run-wit-desc")
+        wit_a = WitnessIdentity("wit-1", "b" * 64, "original witness description")
+        wit_b = WitnessIdentity("wit-1", "b" * 64, "altered witness description")
+        binding_a = CausalBinding(
+            requirement_id="req-wit",
+            witness=wit_a,
+            base_source=cand.source,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        binding_b = CausalBinding(
+            requirement_id="req-wit",
+            witness=wit_b,
+            base_source=cand.source,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        rec = _make_record("ev-0", run, 0, cand)
+        snap_a = VerdictInputSnapshot(
+            candidate=cand,
+            run_id=run,
+            requirement_id="req-wit",
+            records=(rec,),
+            causal_binding=binding_a,
+        )
+        snap_b = VerdictInputSnapshot(
+            candidate=cand,
+            run_id=run,
+            requirement_id="req-wit",
+            records=(rec,),
+            causal_binding=binding_b,
+        )
+        assert snap_a.snapshot_digest == snap_b.snapshot_digest
+
 
 class TestVerdictInputSnapshotRebindingRejection:
     def test_cross_run_evidence_rejected(self) -> None:
@@ -236,6 +309,95 @@ class TestVerdictInputSnapshotRebindingRejection:
                 records=(rec_a, rec_b),
             )
 
+    def test_candidate_unbound_evidence_rejected(self) -> None:
+        cand = _make_candidate(cid="cand-auth")
+        run = RunIdentity("run-unbound")
+        rec_unbound = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-unbound"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=None,
+            causal_binding=None,
+        )
+        with pytest.raises(EvidenceRebindingError, match="Candidate-unbound evidence rejected"):
+            VerdictInputSnapshot(
+                candidate=cand,
+                run_id=run,
+                requirement_id="req-1",
+                records=(rec_unbound,),
+            )
+
+    def test_causal_binding_record_accepted_when_matching_candidate(self) -> None:
+        cand = _make_candidate(cid="cand-auth")
+        run = RunIdentity("run-causal-match")
+        witness = WitnessIdentity("wit-1", "a" * 64, "test witness")
+        binding = CausalBinding(
+            requirement_id="req-causal",
+            witness=witness,
+            base_source=cand.source,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        rec_causal = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-causal"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=None,
+            causal_binding=binding,
+        )
+        snap = VerdictInputSnapshot(
+            candidate=cand,
+            run_id=run,
+            requirement_id="req-causal",
+            records=(rec_causal,),
+            causal_binding=binding,
+        )
+        assert len(snap.records) == 1
+        assert snap.snapshot_digest is not None
+
+    def test_causal_binding_record_rejected_when_mismatched_candidate(self) -> None:
+        cand_auth = _make_candidate(cid="cand-auth")
+        cand_foreign = _make_candidate(cid="cand-foreign")
+        run = RunIdentity("run-causal-mismatch")
+        witness = WitnessIdentity("wit-1", "a" * 64, "test witness")
+        foreign_binding = CausalBinding(
+            requirement_id="req-causal",
+            witness=witness,
+            base_source=cand_foreign.source,
+            candidate=cand_foreign,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        rec_foreign = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-foreign"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=None,
+            causal_binding=foreign_binding,
+        )
+        with pytest.raises(EvidenceRebindingError, match="Cross-candidate evidence rejected"):
+            VerdictInputSnapshot(
+                candidate=cand_auth,
+                run_id=run,
+                requirement_id="req-causal",
+                records=(rec_foreign,),
+            )
+
+    def test_duplicate_evidence_identity_in_snapshot_rejected(self) -> None:
+        cand = _make_candidate()
+        run = RunIdentity("run-dup-id")
+        rec0 = _make_record("ev-same", run, 0, cand)
+        rec1 = _make_record("ev-same", run, 1, cand)
+        with pytest.raises(EvidenceConflictError, match="Duplicate evidence identity 'ev-same'"):
+            VerdictInputSnapshot(
+                candidate=cand,
+                run_id=run,
+                requirement_id="req-1",
+                records=(rec0, rec1),
+            )
+
 
 class TestVerdictInputSnapshotEmptyAndStoreBinding:
     def test_empty_records_rejected_by_default(self) -> None:
@@ -249,19 +411,17 @@ class TestVerdictInputSnapshotEmptyAndStoreBinding:
                 records=(),
             )
 
-    def test_empty_records_permitted_only_when_explicitly_flagged(self) -> None:
+    def test_empty_records_unconditionally_rejected(self) -> None:
         cand = _make_candidate()
-        run = RunIdentity("run-empty-notrun")
-        snap = VerdictInputSnapshot(
-            candidate=cand,
-            run_id=run,
-            requirement_id="req-1",
-            records=(),
-            allow_empty=True,
-            description="NOT_RUN execution placeholder",
-        )
-        assert len(snap.records) == 0
-        assert snap.snapshot_digest is not None
+        run = RunIdentity("run-empty-unconditional")
+        with pytest.raises(ValueError, match="requires at least one evidence record"):
+            VerdictInputSnapshot(
+                candidate=cand,
+                run_id=run,
+                requirement_id="req-1",
+                records=(),
+                description="NOT_RUN execution placeholder",
+            )
 
     def test_from_store_constructs_valid_snapshot(self) -> None:
         cand = _make_candidate()

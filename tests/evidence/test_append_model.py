@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import FrozenInstanceError
 
 import pytest
@@ -138,6 +139,70 @@ class TestEvidenceRecordFacts:
         )
         assert rec_a.run_id == run_a
         assert rec_a.run_id != run_b
+
+    def test_candidate_description_and_requested_ref_do_not_change_fact_digest(self) -> None:
+        from basebreak.domain.source import RequestedRef
+
+        src_a = SourceIdentity("repo-1", CommitRevision("a" * 40))
+        src_b = SourceIdentity(
+            "repo-1", CommitRevision("a" * 40), requested_ref=RequestedRef("refs/heads/feature")
+        )
+        cand_a = CandidateIdentity("cand-1", src_a, "b" * 64, description="desc A")
+        cand_b = CandidateIdentity("cand-1", src_b, "b" * 64, description="desc B differing")
+
+        run = RunIdentity("run-fact-desc")
+        rec_a = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-1"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand_a,
+        )
+        rec_b = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-1"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand_b,
+        )
+        assert rec_a.fact_digest == rec_b.fact_digest
+
+    def test_causal_witness_description_does_not_change_fact_digest(self) -> None:
+        cand = _make_candidate("cand-1")
+        run = RunIdentity("run-fact-wit")
+        wit_a = WitnessIdentity("wit-1", "c" * 64, description="witness desc A")
+        wit_b = WitnessIdentity("wit-1", "c" * 64, description="witness desc B")
+        binding_a = CausalBinding(
+            requirement_id="req-1",
+            witness=wit_a,
+            base_source=cand.source,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        binding_b = CausalBinding(
+            requirement_id="req-1",
+            witness=wit_b,
+            base_source=cand.source,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        rec_a = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-1"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand,
+            causal_binding=binding_a,
+        )
+        rec_b = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-1"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand,
+            causal_binding=binding_b,
+        )
+        assert rec_a.fact_digest == rec_b.fact_digest
 
 
 class TestEvidenceStoreAppendModel:
@@ -509,6 +574,34 @@ class TestPerRunSequenceSemantics:
         )
         store.append(rec1)
         assert len(store) == 2
+
+    def test_idempotent_reappend_with_differing_candidate_description_succeeds(self) -> None:
+        cand_orig = _make_candidate("cand-1")
+        cand_desc = dataclasses.replace(cand_orig, description="new candidate description")
+        run = RunIdentity("run-idemp-desc")
+        store = EvidenceStore(run_id=run, candidate=cand_orig)
+
+        rec0_orig = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-0"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand_orig,
+        )
+        rec0_desc = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-0"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand_desc,
+        )
+        assert rec0_orig.fact_digest == rec0_desc.fact_digest
+
+        store.append(rec0_orig)
+        # Idempotent re-append with differing non-authoritative description succeeds
+        store.append(rec0_desc)
+        assert len(store) == 1
+        assert store.get("ev-0") == rec0_orig
 
     def test_separate_runs_each_begin_at_zero(self) -> None:
         store = EvidenceStore()

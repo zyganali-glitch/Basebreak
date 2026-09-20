@@ -9,6 +9,8 @@ from basebreak.evidence.append_model import (
     EvidenceSequenceError,
     EvidenceStore,
     RunIdentity,
+    authoritative_candidate_equals,
+    authoritative_candidate_payload,
 )
 from basebreak.evidence.artifact import (
     Artifact,
@@ -68,6 +70,8 @@ __all__ = [
     "artifact_from_domain_object",
     "artifact_from_text",
     "assert_provenance_not_verdict",
+    "authoritative_candidate_equals",
+    "authoritative_candidate_payload",
     "capture_output",
     "capture_stream",
     "compute_bytes_digest",
