@@ -20,6 +20,11 @@ from basebreak.domain.semantics import (
 )
 from basebreak.domain.source import CommitRevision, RequestedRef, SourceIdentity
 from basebreak.domain.task import AcceptanceRequirement, EngineeringTask
+from basebreak.domain.verdict import (
+    EvidenceProvenance,
+    PreliminaryVerdict,
+    PreliminaryVerdictRecord,
+)
 
 __all__ = [
     "AcceptanceRequirement",
@@ -30,9 +35,12 @@ __all__ = [
     "CommitRevision",
     "CounterfactualIdentity",
     "EngineeringTask",
+    "EvidenceProvenance",
     "ExecutionCommand",
     "ExecutionResult",
     "ExecutionWorld",
+    "PreliminaryVerdict",
+    "PreliminaryVerdictRecord",
     "RequestedRef",
     "SandboxIdentity",
     "SourceIdentity",
