@@ -145,8 +145,8 @@ Acceptance:
 - candidate pushed and remote SHA verified.
 
 ### P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt
-Status: BLOCKED
-External blocker: Builder Program Token Factory promotional-code email has not yet been delivered/redeemed; billing shows no $25 promotional balance. P-01.02 cannot execute until the promo is redeemed and promotional balance is verified > TOKEN_FACTORY_PROMO_STOP_THRESHOLD.
+Status: PENDING — promotional prerequisite satisfied; live inference NOT_RUN
+Prerequisite status: Builder Program Token Factory promotional code successfully redeemed. Account balance: $25.00; Trial credits: $1.00 (untouched); Billing: Active; TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00 satisfied. Live inference itself is NOT_RUN. (Promo-arrival preemption applies: P-01.02 executes immediately after independent QA PASS on P-04.02).
 Acceptance:
 - real request/response;
 - model/runtime identity recorded;
@@ -302,7 +302,7 @@ Acceptance:
 - defines resource ceilings, network policy, and process limits from verified facts.
 
 ### P-04.04 — Implement protected-surface manifest and diff checks
-Status: PENDING
+Status: PENDING / MUST NOT START before P-04.02 independent PASS
 Acceptance:
 - protected-surface manifest contract;
 - normalized repository path validation;

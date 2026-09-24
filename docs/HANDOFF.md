@@ -48,27 +48,28 @@ Judge claim:
 
 ### Blocking live gate
 `P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt`
-- Status: `BLOCKED`
-- External blocker: Builder Program Token Factory promotional-code email has not yet been delivered/redeemed; billing shows no $25 promotional balance. P-01.02 cannot execute until the promo is redeemed and promotional balance is verified `> TOKEN_FACTORY_PROMO_STOP_THRESHOLD`.
+- Status: `PENDING — promotional prerequisite satisfied; live inference NOT_RUN`
+- Prerequisite status: Operator has redeemed Builder Program promotional code. Current live Token Factory UI observation: Account balance $25.00, Trial credits $1.00 (untouched), Billing Active, `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` satisfied.
+- Execution status: Live inference itself is NOT_RUN. No model/API calls performed; $1.00 trial credit remains untouched.
 - Policy floor: `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`.
 - Gate condition: The `$1.00` trial credit MUST NOT be consumed. No automatic paid fallback.
 - Phase impact: P-01 phase remains OPEN; no GO decision can be awarded without required `LIVE_NEBIUS` evidence.
 
 ### Current QA candidate
-`P-04.02 — Implement secret redaction and forbidden persistence rules` (executor-completed; awaiting independent QA verification).
+`P-04.02 — Implement secret redaction and forbidden persistence rules` (executor-completed second surgical repair; awaiting independent QA verification).
 
 ### Active executable task
-`P-04.02 — Implement secret redaction and forbidden persistence rules`
+`P-04.02 — Implement secret redaction and forbidden persistence rules` (second surgical repair completed).
 
-*(Note: Exactly ONE executable micro-task is active at a time. P-01.02 remains BLOCKED. The parallel offline lane for P-02 and P-03 is complete. The narrow P-04 offline subset under P-01.01B does not substitute for or bypass the live gate).*
+*(Note: Exactly ONE executable micro-task is active at a time. Promo-arrival preemption applies: finish P-04.02, stop, obtain independent QA, then return to P-01.02. P-04.04 MUST NOT START before P-04.02 independent PASS).*
 
 ## Parallelization boundary & rules
 - **Allowlist:** Under P-01.01B amendment, the previous P-02 and P-03 lanes are complete and independently closed. The active allowlist permits sequential execution ONLY of platform-independent P-04 security primitives: `P-04.01` (threat model), `P-04.02` (secret redaction / persistence), and `P-04.04` (protected-surface manifest/diff).
+- **Promo-arrival preemption rule:** Operator has redeemed promotional credits ($25 balance verified). Under promo-arrival preemption: complete P-04.02 second surgical repair, stop, obtain independent QA, then immediately return to P-01.02.
+- **P-04.04 restriction:** P-04.04 is PENDING and MUST NOT START before P-04.02 independent PASS.
 - **Provider neutrality:** P-04 allowlisted tasks must remain strictly provider-neutral; zero Nebius/NVIDIA/Tavily SDK imports; deterministic validation only; zero assumptions regarding sandbox filesystem, network, or process isolation capabilities.
 - **Not authorized / forbidden:** `P-04.03`, `P-04.05`, and `P-04.06` are NOT authorized under this offline lane because they depend on unverified platform/sandbox realities. `P-05+` remain strictly forbidden.
 - **Phase status:** P-04 phase MUST remain OPEN; completion of P-04.01, P-04.02, and P-04.04 cannot close P-04.
-- **Hard stop after P-04 offline subset:** If P-04.01, P-04.02, and P-04.04 all independently close while P-01.02 is still blocked, execution MUST STOP again and return for independent architecture decision. Do not start P-04.03, P-04.05, P-04.06, or P-05+.
-- **Promo-arrival preemption:** If the Builder Program promotional-code email arrives during allowlisted offline execution: do not start another parallel micro-task; finish or cleanly abort the currently active atomic micro-task; return immediately to P-01.02; operator redeems promo; verify Token Factory promotional balance > $5.00; obtain independent authorization before executing inference. Do not consume the $1 trial.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -86,9 +87,9 @@ Judge claim:
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Execute allowlisted task P-04.02 (Implement secret redaction and forbidden persistence rules).
-2. Submit P-04.02 for independent QA review.
-3. Blocking live gate P-01.02 remains BLOCKED until Builder Program promotional-code email is delivered and redeemed ($1.00 trial credit MUST NOT be consumed; Token Factory balance must be verified > $5.00; operator authorization required).
+1. Submit P-04.02 (second surgical security repair) for independent QA review.
+2. Upon independent P-04.02 QA PASS: RETURN IMMEDIATELY TO P-01.02 (Execute first real Token Factory Nemotron inference call with sanitized minimal prompt).
+3. Do NOT start P-04.04 before P-04.02 independent PASS.
 4. P-01 phase remains OPEN.
 5. P-04 phase remains OPEN.
 6. P-04.03, P-04.05, P-04.06 and P-05+ remain strictly unauthorized / forbidden under the current offline lane.

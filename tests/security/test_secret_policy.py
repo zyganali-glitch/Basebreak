@@ -26,6 +26,7 @@ from basebreak.evidence.artifact import (
     ArtifactReference,
     DigestAlgorithm,
 )
+from basebreak.evidence.capture import StreamType, capture_stream
 from basebreak.security.secret_policy import (
     REDACTION_MARKER,
     SecretFinding,
@@ -1095,3 +1096,204 @@ class TestDirectEntityValidators:
             provenance=EvidenceProvenance.LOCAL_EXECUTION,
         )
         validate_evidence_record_for_persistence(rec)
+
+
+class TestShortCredentialHandling:
+    """Validate detection and redaction of short Bearer and Basic credentials (P-04.02 repair)."""
+
+    @pytest.mark.parametrize(
+        "raw,expected_token,expected_header",
+        [
+            ("Authorization: Bearer a", "a", "Authorization: Bearer [REDACTED]"),
+            ("Authorization: Bearer abc", "abc", "Authorization: Bearer [REDACTED]"),
+            ("authorization: bearer xyz", "xyz", "authorization: bearer [REDACTED]"),
+            ("Authorization: Basic YQ==", "YQ==", "Authorization: Basic [REDACTED]"),
+            ("Authorization: Basic YTo=", "YTo=", "Authorization: Basic [REDACTED]"),
+        ],
+    )
+    def test_short_credential_detection_and_redaction(
+        self, raw: str, expected_token: str, expected_header: str
+    ) -> None:
+        # 1. contains_secret(raw) is True
+        assert contains_secret(raw), f"contains_secret failed on {raw!r}"
+
+        # 2. redact_text(raw) contains no raw credential and is correct
+        redacted, modified = redact_text(raw)
+        assert modified
+        assert redacted == expected_header
+        assert f"Bearer {expected_token}" not in redacted
+        assert f"bearer {expected_token}" not in redacted
+        assert f"Basic {expected_token}" not in redacted
+        assert f"basic {expected_token}" not in redacted
+        if len(expected_token) > 1:
+            assert expected_token not in redacted
+        assert not redacted.endswith("=")
+        assert not redacted.endswith("==")
+
+        # 3. redact_log_text(raw) contains no raw credential
+        log_out = redact_log_text(raw)
+        assert log_out == expected_header
+        assert f"Bearer {expected_token}" not in log_out
+        assert f"bearer {expected_token}" not in log_out
+        assert f"Basic {expected_token}" not in log_out
+        assert f"basic {expected_token}" not in log_out
+        if len(expected_token) > 1:
+            assert expected_token not in log_out
+
+        # 4. redaction is idempotent
+        second_pass, second_modified = redact_text(redacted)
+        assert second_pass == redacted
+        assert not second_modified
+
+        # 5. contains_secret(redacted) is False
+        assert not contains_secret(redacted)
+
+    def test_short_credential_stream_capture(self) -> None:
+        raw = "Connecting with Authorization: Bearer abc"
+        stream = capture_stream(raw, stream_type=StreamType.STDOUT)
+        assert stream.is_sanitized
+        assert "abc" not in stream.retained_text
+        assert "Bearer [REDACTED]" in stream.retained_text
+        assert stream.sanitized_text == "Connecting with Authorization: Bearer [REDACTED]"
+
+    def test_short_basic_stream_capture_no_trailing_equals(self) -> None:
+        raw = "Header Authorization: Basic YQ=="
+        stream = capture_stream(raw, stream_type=StreamType.STDOUT)
+        assert stream.is_sanitized
+        assert "YQ==" not in stream.retained_text
+        assert not stream.retained_text.endswith("=")
+        assert "Basic [REDACTED]" in stream.retained_text
+
+    def test_short_credential_authoritative_persistence_rejection(self) -> None:
+        cmd = ExecutionCommand(argv=("curl", "-H", "Authorization: Bearer a"))
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            validate_execution_command_for_persistence(cmd)
+        exc = exc_info.value
+        assert exc.rule_id == "AUTH_BEARER"
+        assert exc.path == "command.argv[2]"
+        assert "Bearer a" not in str(exc)
+        assert "Bearer a" not in repr(exc)
+        assert "Authorization" not in str(exc)
+
+        # EvidenceRecord persistence boundary rejection
+        with pytest.raises(SecretPersistenceError):
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-short-cred"),
+                run_id=RunIdentity("run-short-cred"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                command=cmd,
+            )
+
+    def test_short_basic_authoritative_persistence_rejection(self) -> None:
+        cmd = ExecutionCommand(argv=("curl", "-H", "Authorization: Basic YTo="))
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            validate_execution_command_for_persistence(cmd)
+        exc = exc_info.value
+        assert exc.rule_id == "AUTH_BASIC"
+        assert exc.path == "command.argv[2]"
+        assert "YTo=" not in str(exc)
+        assert "YTo=" not in repr(exc)
+
+
+class TestDisplayMappingKeyRedaction:
+    """Validate deterministic sanitization and collision safety for display mapping keys."""
+
+    def test_display_key_with_token_prefix(self) -> None:
+        raw_secret = "sk-synthetic1234567890abcdef"
+        data = {raw_secret: "safe"}
+        displayed = redact_for_display(data)
+        assert raw_secret not in str(displayed)
+        assert displayed == {REDACTION_MARKER: "safe"}
+        # Original authoritative dict is not mutated
+        assert raw_secret in data
+
+    def test_display_key_with_key_value_assignment(self) -> None:
+        raw_secret = "synthetic_secret_value"
+        key = f"api_key={raw_secret}"
+        data = {key: "safe"}
+        displayed = redact_for_display(data)
+        assert raw_secret not in str(displayed)
+        assert displayed == {f"api_key={REDACTION_MARKER}": "safe"}
+        assert key in data
+
+    def test_display_key_nested_mapping(self) -> None:
+        secret1 = "sk-synthetic1234567890abcdef"
+        secret2 = "inner_secret_xyz"
+        nested = {
+            "outer": {
+                secret1: {
+                    "safe_key": "safe_val",
+                    f"api_key={secret2}": "safe_val_2",
+                }
+            }
+        }
+        displayed = redact_for_display(nested)
+        displayed_str = str(displayed)
+        assert secret1 not in displayed_str
+        assert secret2 not in displayed_str
+        assert displayed == {
+            "outer": {
+                REDACTION_MARKER: {
+                    "safe_key": "safe_val",
+                    f"api_key={REDACTION_MARKER}": "safe_val_2",
+                }
+            }
+        }
+
+    def test_display_key_collision_handling(self) -> None:
+        data = {
+            "sk-synthetic1111111111111111": "value1",
+            "sk-synthetic2222222222222222": "value2",
+            "sk-synthetic3333333333333333": "value3",
+        }
+        displayed = redact_for_display(data)
+        displayed_str = str(displayed)
+        assert "synthetic" not in displayed_str
+        assert displayed == {
+            REDACTION_MARKER: "value1",
+            f"{REDACTION_MARKER}#2": "value2",
+            f"{REDACTION_MARKER}#3": "value3",
+        }
+        # Deterministic output on repeated runs
+        displayed_again = redact_for_display(data)
+        assert displayed == displayed_again
+        # Repeated redaction remains safe and idempotent
+        assert redact_for_display(displayed) == displayed
+
+    def test_display_key_collision_handling_key_value(self) -> None:
+        data = {
+            "api_key=secret_one": "v1",
+            "api_key=secret_two": "v2",
+        }
+        displayed = redact_for_display(data)
+        assert "secret_one" not in str(displayed)
+        assert "secret_two" not in str(displayed)
+        assert displayed == {
+            f"api_key={REDACTION_MARKER}": "v1",
+            f"api_key={REDACTION_MARKER}#2": "v2",
+        }
+        assert redact_for_display(displayed) == displayed
+
+    def test_display_benign_ordinary_keys_preserved(self) -> None:
+        data = {
+            "status": "ok",
+            "run_id": "run-001",
+            "count": 42,
+            "items": ["a", "b"],
+        }
+        displayed = redact_for_display(data)
+        assert displayed == data
+
+    def test_display_sensitive_schema_keys_preserved_structurally(self) -> None:
+        data = {
+            "API_KEY": "raw_secret_value_123",
+            "token": "raw_token_value_456",
+            "normal_key": "safe_value",
+        }
+        displayed = redact_for_display(data)
+        assert "raw_secret" not in str(displayed)
+        assert "raw_token" not in str(displayed)
+        assert displayed["API_KEY"] == REDACTION_MARKER
+        assert displayed["token"] == REDACTION_MARKER
+        assert displayed["normal_key"] == "safe_value"

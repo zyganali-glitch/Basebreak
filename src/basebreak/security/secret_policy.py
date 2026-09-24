@@ -151,10 +151,10 @@ _PEM_PRIVATE_KEY_PATTERN = re.compile(
 _URL_CREDENTIALS_PATTERN = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)([^/\s@:]*:[^/\s@]+@)")
 
 # 3. Bearer authorization tokens
-_AUTH_BEARER_PATTERN = re.compile(r"(?i)\b(Bearer\s+)(?!\[REDACTED\])[A-Za-z0-9_\-\.+=/]{8,}\b")
+_AUTH_BEARER_PATTERN = re.compile(r"(?i)\b(Bearer\s+)(?!\[REDACTED\])[A-Za-z0-9_\-\.~+=/]+")
 
 # 4. Basic authorization credentials
-_AUTH_BASIC_PATTERN = re.compile(r"(?i)\b(Basic\s+)(?!\[REDACTED\])[A-Za-z0-9+/=]{8,}\b")
+_AUTH_BASIC_PATTERN = re.compile(r"(?i)\b(Basic\s+)(?!\[REDACTED\])[A-Za-z0-9+/=]+")
 
 # 5. Common token prefix forms
 _TOKEN_PREFIX_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -260,16 +260,34 @@ def redact_for_display(data: Any) -> Any:
     """Recursively redact secret-shaped values in arbitrary structures for display.
 
     Never modifies authoritative facts in-place; returns a sanitized copy.
+    Sanitizes secret-bearing mapping keys and handles collision safety deterministically.
+    Sensitive schema keys (e.g. API_KEY) remain structurally recognizable, while their
+    values are redacted.
     """
     if isinstance(data, str):
         return redact_log_text(data)
-    if isinstance(data, dict):
-        result: dict[str, Any] = {}
+    if isinstance(data, (dict, Mapping)):
+        result: dict[Any, Any] = {}
         for k, v in data.items():
-            if is_sensitive_key(str(k)):
-                result[k] = REDACTION_MARKER if v else v
+            if isinstance(k, str):
+                sanitized_k = redact_log_text(k)
             else:
-                result[k] = redact_for_display(v)
+                sanitized_k = redact_for_display(k)
+
+            final_k = sanitized_k
+            collision_idx = 1
+            while final_k in result:
+                collision_idx += 1
+                if isinstance(sanitized_k, str):
+                    final_k = f"{sanitized_k}#{collision_idx}"
+                else:
+                    final_k = (sanitized_k, collision_idx)
+
+            key_str = str(k) if isinstance(k, str) else str(sanitized_k)
+            if is_sensitive_key(key_str):
+                result[final_k] = REDACTION_MARKER if v else v
+            else:
+                result[final_k] = redact_for_display(v)
         return result
     if isinstance(data, list):
         return [redact_for_display(item) for item in data]

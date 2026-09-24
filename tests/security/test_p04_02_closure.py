@@ -371,3 +371,143 @@ class TestP0402ClosureDurableSurfaceCoverage:
         assert secret not in exc.path
         assert secret not in exc.category
         assert exc.path == "command.env[0].key"
+
+
+class TestP0402ClosureShortCredentialsAndDisplayKeys:
+    """Validate closure requirements for short Bearer/Basic credentials and display mapping keys."""
+
+    @pytest.mark.parametrize(
+        "raw,expected_token,expected_header",
+        [
+            ("Authorization: Bearer a", "a", "Authorization: Bearer [REDACTED]"),
+            ("Authorization: Bearer abc", "abc", "Authorization: Bearer [REDACTED]"),
+            ("authorization: bearer xyz", "xyz", "authorization: bearer [REDACTED]"),
+            ("Authorization: Basic YQ==", "YQ==", "Authorization: Basic [REDACTED]"),
+            ("Authorization: Basic YTo=", "YTo=", "Authorization: Basic [REDACTED]"),
+        ],
+    )
+    def test_short_credentials_canonical_policy(
+        self, raw: str, expected_token: str, expected_header: str
+    ) -> None:
+        from basebreak.security.secret_policy import contains_secret
+
+        assert contains_secret(raw)
+        redacted, modified = redact_text(raw)
+        assert modified
+        assert redacted == expected_header
+        assert f"Bearer {expected_token}" not in redacted
+        assert f"bearer {expected_token}" not in redacted
+        assert f"Basic {expected_token}" not in redacted
+        assert f"basic {expected_token}" not in redacted
+        if len(expected_token) > 1:
+            assert expected_token not in redacted
+        assert not redacted.endswith("=")
+        assert not redacted.endswith("==")
+
+        log_out = redact_log_text(raw)
+        assert log_out == expected_header
+        assert f"Bearer {expected_token}" not in log_out
+        assert f"Basic {expected_token}" not in log_out
+
+        second, second_mod = redact_text(redacted)
+        assert second == redacted
+        assert not second_mod
+        assert not contains_secret(redacted)
+
+    def test_short_credential_stream_and_authoritative_persistence(self) -> None:
+        # 1. Stream capture sanitization
+        stream = capture_stream("Connecting: Authorization: Bearer abc", StreamType.STDOUT)
+        assert stream.is_sanitized
+        assert "abc" not in stream.retained_text
+        assert "Bearer [REDACTED]" in stream.retained_text
+
+        basic_stream = capture_stream("Header: Authorization: Basic YQ==", StreamType.STDOUT)
+        assert basic_stream.is_sanitized
+        assert "YQ==" not in basic_stream.retained_text
+        assert not basic_stream.retained_text.endswith("=")
+        assert "Basic [REDACTED]" in basic_stream.retained_text
+
+        # 2. Authoritative evidence persistence fails closed
+        cmd_bearer = ExecutionCommand(argv=("curl", "-H", "Authorization: Bearer abc"))
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-short-bearer"),
+                run_id=RunIdentity("run-sb"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                command=cmd_bearer,
+            )
+        exc = exc_info.value
+        assert exc.rule_id == "AUTH_BEARER"
+        assert "abc" not in str(exc)
+        assert "abc" not in repr(exc)
+
+        cmd_basic = ExecutionCommand(argv=("curl", "-H", "Authorization: Basic YQ=="))
+        with pytest.raises(SecretPersistenceError) as exc_info_b:
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-short-basic"),
+                run_id=RunIdentity("run-sba"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                command=cmd_basic,
+            )
+        exc_b = exc_info_b.value
+        assert exc_b.rule_id == "AUTH_BASIC"
+        assert "YQ==" not in str(exc_b)
+
+    def test_display_mapping_keys_sanitization_and_collision_safety(self) -> None:
+        raw_token = "sk-synthetic1234567890abcdef"
+        raw_assigned = "synthetic_secret_value"
+
+        # 1. Token prefix key
+        d1 = {raw_token: "safe"}
+        r1 = redact_for_display(d1)
+        assert raw_token not in str(r1)
+        assert r1 == {REDACTION_MARKER: "safe"}
+        assert raw_token in d1  # unmutated
+
+        # 2. Key-value assignment in key
+        d2 = {f"api_key={raw_assigned}": "safe"}
+        r2 = redact_for_display(d2)
+        assert raw_assigned not in str(r2)
+        assert r2 == {f"api_key={REDACTION_MARKER}": "safe"}
+        assert f"api_key={raw_assigned}" in d2  # unmutated
+
+        # 3. Nested mapping
+        nested = {
+            "outer": {
+                raw_token: {
+                    f"api_key={raw_assigned}": "safe_leaf",
+                }
+            }
+        }
+        r_nested = redact_for_display(nested)
+        assert raw_token not in str(r_nested)
+        assert raw_assigned not in str(r_nested)
+        assert r_nested == {
+            "outer": {
+                REDACTION_MARKER: {
+                    f"api_key={REDACTION_MARKER}": "safe_leaf",
+                }
+            }
+        }
+
+        # 4. Multiple colliding secret keys
+        colliding = {
+            "sk-synthetic1111111111111111": "val1",
+            "sk-synthetic2222222222222222": "val2",
+        }
+        r_col = redact_for_display(colliding)
+        assert "synthetic" not in str(r_col)
+        assert r_col == {
+            REDACTION_MARKER: "val1",
+            f"{REDACTION_MARKER}#2": "val2",
+        }
+        # Idempotence on repeated redaction
+        assert redact_for_display(r_col) == r_col
+
+        # 5. Sensitive schema keys remain recognizable
+        schema_dict = {"API_KEY": "secret_data"}
+        r_schema = redact_for_display(schema_dict)
+        assert "secret_data" not in str(r_schema)
+        assert r_schema == {"API_KEY": REDACTION_MARKER}
