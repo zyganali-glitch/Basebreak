@@ -28,7 +28,11 @@ _FORBIDDEN_PATH_CHARS_PATTERN = re.compile(r"[\0\r\n\t]")
 _GIT_DIFF_HEADER = re.compile(r"^diff --git (?P<old>\S+) (?P<new>\S+)")
 _GIT_RENAME_FROM = re.compile(r"^rename from (?P<path>.+)$")
 _GIT_RENAME_TO = re.compile(r"^rename to (?P<path>.+)$")
-_GIT_MODE_120000 = re.compile(r"^(?:new file|deleted file|old mode|new mode) mode 120000")
+_GIT_NEW_FILE_MODE = re.compile(r"^new file mode (?P<mode>\d{6})")
+_GIT_DELETED_FILE_MODE = re.compile(r"^deleted file mode (?P<mode>\d{6})")
+_GIT_OLD_MODE = re.compile(r"^old mode (?P<mode>\d{6})")
+_GIT_NEW_MODE = re.compile(r"^new mode (?P<mode>\d{6})")
+_GIT_INDEX_LINE = re.compile(r"^index\s+[0-9a-fA-F]+\.\.[0-9a-fA-F]+(?:\s+(?P<mode>\d{6}))?")
 _DIFF_OLD_HEADER = re.compile(r"^--- (?P<path>\S+)")
 _DIFF_NEW_HEADER = re.compile(r"^\+\+\+ (?P<path>\S+)")
 
@@ -65,6 +69,10 @@ class PathTraversalError(PathSecurityError):
 
 class InvalidPathError(PathSecurityError):
     """Raised when an untrusted path is malformed, empty, or contains forbidden characters."""
+
+
+class DiffParseError(ProtectedSurfaceError):
+    """Raised when candidate diff formatting is malformed, unparseable, or ambiguous."""
 
 
 class ProtectedSurfaceViolation(ProtectedSurfaceError):
@@ -552,9 +560,7 @@ def _check_symlink(
                 violation_kind=vkind,
                 path=norm_path,
                 protected_pattern=path_match.protected_pattern,
-                message=(
-                    f"Symlink creation at protected surface '{path_match.protected_pattern}'"
-                ),
+                message=(f"Symlink creation at protected surface '{path_match.protected_pattern}'"),
             )
         )
 
@@ -884,7 +890,11 @@ def parse_unified_diff_changes(diff_text: str) -> list[FileChange]:
             raw_new = _strip_git_diff_prefix(m_git.group("new"))
             i += 1
 
-            is_symlink = False
+            new_file_mode: str | None = None
+            deleted_file_mode: str | None = None
+            _old_mode: str | None = None
+            new_mode: str | None = None
+            index_mode: str | None = None
             rename_from: str | None = None
             rename_to: str | None = None
             diff_old_header: str | None = None
@@ -893,8 +903,16 @@ def parse_unified_diff_changes(diff_text: str) -> list[FileChange]:
             # Scan extended git headers until next hunk or next file diff
             while i < len(lines) and not lines[i].startswith("diff --git "):
                 hdr = lines[i]
-                if _GIT_MODE_120000.match(hdr):
-                    is_symlink = True
+                if m_nfm := _GIT_NEW_FILE_MODE.match(hdr):
+                    new_file_mode = m_nfm.group("mode")
+                elif m_dfm := _GIT_DELETED_FILE_MODE.match(hdr):
+                    deleted_file_mode = m_dfm.group("mode")
+                elif m_om := _GIT_OLD_MODE.match(hdr):
+                    _old_mode = m_om.group("mode")
+                elif m_nm := _GIT_NEW_MODE.match(hdr):
+                    new_mode = m_nm.group("mode")
+                elif m_idx := _GIT_INDEX_LINE.match(hdr):
+                    index_mode = m_idx.group("mode")
                 elif m_rf := _GIT_RENAME_FROM.match(hdr):
                     rename_from = m_rf.group("path").strip('"')
                 elif m_rt := _GIT_RENAME_TO.match(hdr):
@@ -908,49 +926,88 @@ def parse_unified_diff_changes(diff_text: str) -> list[FileChange]:
                     break
                 i += 1
 
-                # If we parsed both diff headers, we can break header scan
-                if diff_old_header is not None and diff_new_header is not None:
-                    break
+            # 1. Handle deletion (deleted file mode or +++ /dev/null)
+            if deleted_file_mode is not None or diff_new_header == "/dev/null":
+                clean_old = (
+                    _strip_git_diff_prefix(diff_old_header).strip('"')
+                    if diff_old_header and diff_old_header != "/dev/null"
+                    else raw_old.strip('"')
+                )
+                changes.append(FileChange.delete(clean_old))
+                while i < len(lines) and not lines[i].startswith("diff --git "):
+                    i += 1
+                continue
 
-            # Handle symlink change
-            if is_symlink:
-                # Look for target line in hunk (+target)
-                target: str | None = None
+            # 2. Determine resulting file mode
+            resulting_mode: str | None = None
+            if new_file_mode is not None:
+                resulting_mode = new_file_mode
+            elif new_mode is not None:
+                resulting_mode = new_mode
+            elif index_mode is not None:
+                resulting_mode = index_mode
+
+            resulting_is_symlink = resulting_mode == "120000"
+
+            # 3. Handle resulting symlink (new, modified target, or converted to symlink)
+            if resulting_is_symlink:
+                target_path = (
+                    _strip_git_diff_prefix(diff_new_header).strip('"')
+                    if diff_new_header and diff_new_header != "/dev/null"
+                    else raw_new.strip('"')
+                )
+
+                added_targets: list[str] = []
                 while i < len(lines) and not lines[i].startswith("diff --git "):
                     hunk_line = lines[i]
                     if hunk_line.startswith("+") and not hunk_line.startswith("+++"):
-                        target = hunk_line[1:].strip()
-                        break
+                        added_targets.append(hunk_line[1:])
                     i += 1
-                if target is not None:
-                    target_path = raw_new if raw_new != "/dev/null" else raw_old
+
+                if len(added_targets) == 1:
+                    target = added_targets[0]
+                    if not target:
+                        raise DiffParseError(
+                            f"Empty symlink target for '{target_path}': "
+                            "resulting mode is 120000 but added target payload is empty"
+                        )
                     changes.append(FileChange.symlink(path=target_path, symlink_target=target))
                     continue
+                elif len(added_targets) > 1:
+                    raise DiffParseError(
+                        f"Malformed symlink diff for '{target_path}': "
+                        f"expected exactly 1 target line, found {len(added_targets)}"
+                    )
+                else:
+                    raise DiffParseError(
+                        f"Unparseable symlink target for '{target_path}': "
+                        "resulting state is mode 120000 but no added target line found in diff"
+                    )
 
-            # Handle rename
+            # 4. Handle rename
             if rename_from is not None and rename_to is not None:
                 changes.append(FileChange.rename(old_path=rename_from, new_path=rename_to))
+                while i < len(lines) and not lines[i].startswith("diff --git "):
+                    i += 1
                 continue
 
-            # Handle --- /dev/null +++ b/path (ADD)
+            # 5. Handle addition (--- /dev/null +++ b/path)
             if diff_old_header == "/dev/null" and diff_new_header:
                 clean_new = _strip_git_diff_prefix(diff_new_header).strip('"')
                 changes.append(FileChange.add(clean_new))
+                while i < len(lines) and not lines[i].startswith("diff --git "):
+                    i += 1
                 continue
 
-            # Handle --- a/path +++ /dev/null (DELETE)
-            if diff_new_header == "/dev/null" and diff_old_header:
-                clean_old = _strip_git_diff_prefix(diff_old_header).strip('"')
-                changes.append(FileChange.delete(clean_old))
-                continue
-
-            # Handle standard modify
+            # 6. Handle standard modify
             effective_path = (
                 _strip_git_diff_prefix(diff_new_header).strip('"')
                 if diff_new_header and diff_new_header != "/dev/null"
                 else raw_new.strip('"')
             )
             changes.append(FileChange.modify(effective_path))
+            while i < len(lines) and not lines[i].startswith("diff --git "):
+                i += 1
             continue
 
         # Non-git unified diff headers: --- a/path \n +++ b/path

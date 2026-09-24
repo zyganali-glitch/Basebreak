@@ -87,9 +87,7 @@ class TestCriterionAExactProtectedFileMutationRejection:
         assert findings[0].violation_kind == ProtectedSurfaceViolationKind.EXACT_MATCH
         assert findings[0].protected_pattern == "plans/BASEBREAK_MASTER_EXECUTION_PLAN.md"
 
-    def test_exact_path_helpers_and_diff(
-        self, test_manifest: ProtectedSurfaceManifest
-    ) -> None:
+    def test_exact_path_helpers_and_diff(self, test_manifest: ProtectedSurfaceManifest) -> None:
         assert is_path_protected("AGENTS.md", test_manifest) is True
         match = match_protected_surface("AGENTS.md", test_manifest)
         assert match is not None
@@ -432,9 +430,7 @@ class TestCriterionKSymlinkInteractionWithProtectedPaths:
     ) -> None:
         change = FileChange.symlink("AGENTS.md", "safe.txt")
         findings = check_change(change, test_manifest)
-        assert any(
-            f.violation_kind == ProtectedSurfaceViolationKind.EXACT_MATCH for f in findings
-        )
+        assert any(f.violation_kind == ProtectedSurfaceViolationKind.EXACT_MATCH for f in findings)
 
     def test_accepts_safe_symlink_targeting_unprotected_file(
         self, test_manifest: ProtectedSurfaceManifest

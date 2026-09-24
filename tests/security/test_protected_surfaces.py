@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 
 from basebreak.security.protected_surfaces import (
+    DiffParseError,
     FileChange,
     FileChangeKind,
     InvalidPathError,
@@ -388,9 +389,7 @@ class TestRenameAndSymlinkSecurity:
         assert len(findings) == 1
         assert findings[0].violation_kind == ProtectedSurfaceViolationKind.SYMLINK_TARGET_TRAVERSAL
 
-    def test_symlink_target_absolute_is_rejected(
-        self, manifest: ProtectedSurfaceManifest
-    ) -> None:
+    def test_symlink_target_absolute_is_rejected(self, manifest: ProtectedSurfaceManifest) -> None:
         change = FileChange.symlink("links/abs", "/etc/passwd")
         findings = check_change(change, manifest)
         assert len(findings) == 1
@@ -430,9 +429,7 @@ class TestRenameAndSymlinkSecurity:
         # Attacker tries to replace AGENTS.md with a symlink to safe.txt
         change = FileChange.symlink("AGENTS.md", "safe.txt")
         findings = check_change(change, manifest)
-        assert any(
-            f.violation_kind == ProtectedSurfaceViolationKind.EXACT_MATCH for f in findings
-        )
+        assert any(f.violation_kind == ProtectedSurfaceViolationKind.EXACT_MATCH for f in findings)
 
     def test_symlink_safe_relative_target_is_accepted(
         self, manifest: ProtectedSurfaceManifest
@@ -530,6 +527,196 @@ new file mode 120000
         assert changes[0].kind == FileChangeKind.SYMLINK
         assert changes[0].path == "link"
         assert changes[0].symlink_target == "../target.txt"
+
+    def test_parse_unified_diff_existing_symlink_target_mutation_detected(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """Existing symlink modification (index ... 120000) pointing to
+        protected asset is rejected.
+        """
+        diff_text = """diff --git a/subdir/link b/subdir/link
+index 1111111..2222222 120000
+--- a/subdir/link
++++ b/subdir/link
+@@ -1 +1 @@
+-safe.txt
++../AGENTS.md
+"""
+        changes = parse_unified_diff_changes(diff_text)
+        assert len(changes) == 1
+        assert changes[0].kind == FileChangeKind.SYMLINK
+        assert changes[0].path == "subdir/link"
+        assert changes[0].symlink_target == "../AGENTS.md"
+
+        with pytest.raises(ProtectedSurfaceViolation) as exc_info:
+            validate_diff(diff_text, manifest)
+        assert any(
+            v.violation_kind == ProtectedSurfaceViolationKind.SYMLINK_TARGET_PROTECTED
+            for v in exc_info.value.findings
+        )
+
+    def test_parse_unified_diff_existing_symlink_into_protected_directory(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """Existing symlink pointing into protected directory is rejected."""
+        diff_text = """diff --git a/link b/link
+index 1111111..2222222 120000
+--- a/link
++++ b/link
+@@ -1 +1 @@
+-safe.txt
++docs/SECURITY_BOUNDARY.md
+"""
+        changes = parse_unified_diff_changes(diff_text)
+        assert len(changes) == 1
+        assert changes[0].kind == FileChangeKind.SYMLINK
+        assert changes[0].path == "link"
+        assert changes[0].symlink_target == "docs/SECURITY_BOUNDARY.md"
+
+        with pytest.raises(ProtectedSurfaceViolation) as exc_info:
+            validate_diff(diff_text, manifest)
+        assert any(
+            v.violation_kind == ProtectedSurfaceViolationKind.SYMLINK_TARGET_PROTECTED
+            for v in exc_info.value.findings
+        )
+
+    def test_parse_unified_diff_existing_symlink_safe_relative_target(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """Existing symlink changed to safe relative target within repository is accepted."""
+        diff_text = """diff --git a/link b/link
+index 1111111..2222222 120000
+--- a/link
++++ b/link
+@@ -1 +1 @@
+-old_safe.txt
++new_safe.txt
+"""
+        changes = parse_unified_diff_changes(diff_text)
+        assert len(changes) == 1
+        assert changes[0].kind == FileChangeKind.SYMLINK
+        assert changes[0].path == "link"
+        assert changes[0].symlink_target == "new_safe.txt"
+
+        report = validate_diff(diff_text, manifest)
+        assert report.is_valid
+        assert len(report.violations) == 0
+
+    def test_parse_unified_diff_regular_file_converted_to_symlink(self) -> None:
+        """File converted to symlink via mode change is detected as symlink."""
+        diff_text = """diff --git a/converted b/converted
+old mode 100644
+new mode 120000
+index 1111111..2222222
+--- a/converted
++++ b/converted
+@@ -1 +1 @@
+-regular content
++target.txt
+"""
+        changes = parse_unified_diff_changes(diff_text)
+        assert len(changes) == 1
+        assert changes[0].kind == FileChangeKind.SYMLINK
+        assert changes[0].path == "converted"
+        assert changes[0].symlink_target == "target.txt"
+
+    def test_parse_unified_diff_symlink_converted_to_regular_file(self) -> None:
+        """Symlink converted to regular file via mode change is treated as regular file modify."""
+        diff_text = """diff --git a/link b/link
+old mode 120000
+new mode 100644
+index 1111111..2222222
+--- a/link
++++ b/link
+@@ -1 +1 @@
+-old_target.txt
++new regular content
+"""
+        changes = parse_unified_diff_changes(diff_text)
+        assert len(changes) == 1
+        assert changes[0].kind == FileChangeKind.MODIFY
+        assert changes[0].path == "link"
+        assert changes[0].symlink_target is None
+
+    def test_parse_unified_diff_deleted_symlink(self) -> None:
+        """Deleted symlink is correctly categorized as DELETE."""
+        diff_text = """diff --git a/link b/link
+deleted file mode 120000
+index 1111111..0000000
+--- a/link
++++ /dev/null
+@@ -1 +0,0 @@
+-old_target.txt
+"""
+        changes = parse_unified_diff_changes(diff_text)
+        assert len(changes) == 1
+        assert changes[0].kind == FileChangeKind.DELETE
+        assert changes[0].path == "link"
+
+    def test_parse_unified_diff_symlink_target_whitespace_preserved(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """Exact symlink target whitespace is preserved without stripping
+        and rejected as ambiguous.
+        """
+        diff_text = (
+            "diff --git a/link b/link\n"
+            "index 1111111..2222222 120000\n"
+            "--- a/link\n"
+            "+++ b/link\n"
+            "@@ -1 +1 @@\n"
+            "-old.txt\n"
+            "+  target.txt  \n"
+        )
+        changes = parse_unified_diff_changes(diff_text)
+        assert len(changes) == 1
+        assert changes[0].kind == FileChangeKind.SYMLINK
+        assert changes[0].symlink_target == "  target.txt  "
+
+        with pytest.raises(ProtectedSurfaceViolation) as exc_info:
+            validate_diff(diff_text, manifest)
+        assert any(
+            v.violation_kind == ProtectedSurfaceViolationKind.SYMLINK_TARGET_AMBIGUOUS
+            for v in exc_info.value.findings
+        )
+
+    def test_parse_unified_diff_malformed_symlink_raises_diff_parse_error(self) -> None:
+        """Malformed or unparseable symlink diffs fail closed with DiffParseError."""
+        # Case A: Empty target line
+        diff_empty = """diff --git a/link b/link
+index 1111111..2222222 120000
+--- a/link
++++ b/link
+@@ -1 +1 @@
+-old.txt
++
+"""
+        with pytest.raises(DiffParseError, match="Empty symlink target"):
+            parse_unified_diff_changes(diff_empty)
+
+        # Case B: No added target line
+        diff_no_target = """diff --git a/link b/link
+index 1111111..2222222 120000
+--- a/link
++++ b/link
+@@ -1 +0,0 @@
+-old.txt
+"""
+        with pytest.raises(DiffParseError, match="Unparseable symlink target"):
+            parse_unified_diff_changes(diff_no_target)
+
+        # Case C: Multiple added target lines
+        diff_multi_target = """diff --git a/link b/link
+index 1111111..2222222 120000
+--- a/link
++++ b/link
+@@ -1 +1,2 @@
+-old.txt
++target1.txt
++target2.txt
+"""
+        with pytest.raises(DiffParseError, match="expected exactly 1 target line"):
+            parse_unified_diff_changes(diff_multi_target)
 
     def test_validate_diff_rejects_malicious_diff_touching_agents_md(
         self, manifest: ProtectedSurfaceManifest

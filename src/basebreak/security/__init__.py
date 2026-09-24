@@ -1,6 +1,7 @@
 """Basebreak security and untrusted-code policy foundation primitives."""
 
 from basebreak.security.protected_surfaces import (
+    DiffParseError,
     FileChange,
     FileChangeKind,
     InvalidPathError,
@@ -45,6 +46,7 @@ from basebreak.security.secret_policy import (
 )
 
 __all__ = [
+    "DiffParseError",
     "FileChange",
     "FileChangeKind",
     "InvalidPathError",
