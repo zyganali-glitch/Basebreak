@@ -145,8 +145,8 @@ Acceptance:
 - candidate pushed and remote SHA verified.
 
 ### P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt
-Status: IN_PROGRESS (executor documentation completed; independent QA candidate)
-Prerequisite status: Builder Program Token Factory promotional code successfully redeemed. Account balance: $25.00; Trial credits: $1.00 (untouched); Billing: Active; TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00 satisfied. (Promo-arrival preemption applies: P-01.02 is the active executable task following independent QA PASS on P-04.02).
+Status: DONE (independently VERIFIED / PASS at SHA 5991b29f2c3c1c987d5d24fcd4eeaaf27b4c0fb5)
+Prerequisite status: Builder Program Token Factory promotional code successfully redeemed. Account balance: $25.00; Trial credits: $1.00 (untouched); Billing: Active; TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00 satisfied.
 Acceptance:
 - real request/response;
 - model/runtime identity recorded;
@@ -154,6 +154,7 @@ Acceptance:
 - no mock fallback.
 
 ### P-01.03 — Discover and execute minimal Token Factory Sandbox workflow
+Status: BLOCKED (external prerequisite: awaiting Nebius team beta access enablement on project aiproject-e00mae0nmzkxjswr1k; discovery, SDK/CLI analysis, OpenAPI schema, live whoami probe, and official beta application completed; documented in docs/P01_03_LIVE_SANDBOX_DISCOVERY.md)
 Acceptance:
 - create supported sandbox;
 - execute harmless command;

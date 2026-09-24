@@ -40,41 +40,43 @@ Judge claim:
 - P-01.01B (Extend bounded provider-neutral parallel execution to platform-independent P-04 security primitives while the live gate remains externally blocked) is independently VERIFIED / PASS at SHA `9ccf9e8c1ec34927142da69532814a030e0c2290`.
 - P-04.01 (Formalize target-repository threat model) is independently VERIFIED / PASS at SHA `4db39b136d2fd12e6ebd67eb5c5577d283f279e2`.
 - P-04.02 (Implement secret redaction and forbidden persistence rules) is independently VERIFIED / PASS at SHA `c285379b3a453767db6434786c26ff0c6b6ec34b`.
- 
+- P-01.02 (Execute first real Token Factory Nemotron inference call with sanitized minimal prompt) is independently VERIFIED / PASS at SHA `5991b29f2c3c1c987d5d24fcd4eeaaf27b4c0fb5`.
+
 ## Last independently VERIFIED baseline SHA
-`c285379b3a453767db6434786c26ff0c6b6ec34b` (P-04.02 independent QA PASS).
+`5991b29f2c3c1c987d5d24fcd4eeaaf27b4c0fb5` (P-01.02 independent QA PASS).
 
-## Blocking live gate vs active executable task
+## Blocking live gate vs active task
 
-### Blocking live gate / Active executable task
-`P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt`
-- Status: `IN_PROGRESS (executor documentation completed; independent QA candidate)`
-- Prerequisite status: Builder Program Token Factory promotional code successfully redeemed. Account balance: $25.00; Trial credits: $1.00 (untouched); Billing: Active; `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` satisfied.
-- Execution & Reproduction status:
-  - Original Builder API inference recorded as `RECORDED_LIVE` candidate evidence (HTTP 200, model `nvidia/Nemotron-3_5-Lightning`, 61 tokens, 0.717s).
-  - Independent operator manual reproduction executed in Token Factory web Playground (`https://tokenfactory.nebius.com/playground?models=nvidia/Nemotron-3_5-Lightning`) with prompt `Return only BASEBREAK_QA_OK.`, model `nvidia/Nemotron-3_5-Lightning`, returning reasoning thoughts and completion `BASEBREAK_QA_OK` (`LIVE_NEBIUS`).
-  - Account balance ($25.00) and trial credits ($1.00 untouched) verified via provider web console (`LIVE_ACCOUNT`).
-  - Misleading post-hoc response-content digest removed entirely; socket digest classified as NOT_INDEPENDENTLY_REPRODUCIBLE_FROM_COMMITTED_RECORD; Usage UI observation wording repaired to reflect "No usage" provided NO provider-side corroboration at observation time.
-  - Final evidence documented in `docs/P01_02_LIVE_INFERENCE.md`.
-- Policy floor: `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` satisfied ($25.00 post-call balance verified).
-- Gate condition: The `$1.00` trial credit MUST NOT be consumed (verified untouched). No automatic paid fallback.
-- Phase impact: P-01 phase remains OPEN; no GO decision can be awarded without required `LIVE_NEBIUS` evidence.
+### Blocking live gate / Active task
+`P-01.03 — Discover and execute minimal Token Factory Sandbox workflow`
+- Status: `BLOCKED` (external platform prerequisite: awaiting Nebius team beta access enablement on project `aiproject-e00mae0nmzkxjswr1k`).
+- Discovery & Architecture findings:
+  - Official sources, OpenAPI schema (`https://eu-north.nebius.computer/static/api.yaml`), first-party `contree-sdk` (v0.3.6), `contree-client` (v0.4.0), and `contree-cli` (v0.9.4) analyzed in an isolated temporary environment.
+  - Auth structure: `Authorization: Bearer <NEBIUS_API_KEY>` + `Project: <NEBIUS_PROJECT_ID>` (enforced at HTTP level; omission returns 400 `Missing "Project" header`).
+  - Zero-Cost verified: Web console Sandboxes section explicitly confirms: *"Free while in beta — runs don't consume your credits."* Account balance: $25.00 promotional, $1.00 trial untouched (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` satisfied).
+  - Project ID resolved: Operator located and copied Project ID `aiproject-e00mae0nmzkxjswr1k` from Token Factory project settings.
+  - Live authentication probe: `GET /sandboxes/v1/whoami` executed with bearer token and project ID returned HTTP 200 OK (`token_uuid: 448346d4-b5bc-5a03-b722-3f90a2bbcf51`), but all permissions returned `false` (`import`, `spawn`, `spawn_disposable`, `list`, `cancel`, `set_image_tag`).
+  - Live execution attempt: `POST /sandboxes/v1/instances` with `/bin/echo BASEBREAK_SANDBOX_OK` returned HTTP 403 `{"status": 403, "error": "Insufficient permissions: spawn or spawn_disposable"}`. `GET /sandboxes/v1/images` returned HTTP 403 `{"status": 403, "error": "Insufficient permissions: list"}`.
+  - First-party CLI corroboration: `contree-cli` codebase (`contree_cli/cli/auth.py` lines 278-286) explicitly warns: `"Warning: token is valid but sandboxes are disabled on %s (no 'list' permission). The profile will be saved but no commands will work until the service is enabled."`
+  - External beta request submitted: Operator clicked "Request beta access" in web console, submitted official form for `aiproject-e00mae0nmzkxjswr1k` with email `zyganali@gmail.com` and hackathon causal verification use case, and platform confirmed submission (`"Teşekkürler, yanıtınız gönderildi"`).
+  - Full evidence documented in `docs/P01_03_LIVE_SANDBOX_DISCOVERY.md`.
+- Gate condition: Awaiting Nebius team activation of Sandboxes beta access for `aiproject-e00mae0nmzkxjswr1k`.
+- Phase impact: P-01 phase remains OPEN; no GO decision can be awarded without required `LIVE_NEBIUS` sandbox execution evidence.
 
 ### Current QA candidate
-`P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt` (executor documentation completed; independent QA candidate).
+None (P-01.03 is BLOCKED by external Nebius beta access review).
 
-### Active executable task
-`P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt` (executor documentation completed; awaiting independent QA).
+### Active exact task
+`P-01.03 — Discover and execute minimal Token Factory Sandbox workflow` (discovery complete; live execution blocked pending external beta access approval).
 
 *(Note: Exactly ONE executable micro-task is active at a time. P-01 is OPEN. P-04 is OPEN. P-04.04 is PENDING / NOT ACTIVE. P-05+ remain strictly forbidden).*
 
 ## Parallelization boundary & rules
-- **Allowlist:** Under P-01.01B amendment, the previous P-02 and P-03 lanes are complete and independently closed. The active allowlist permits sequential execution ONLY of platform-independent P-04 security primitives: `P-04.01` (threat model), `P-04.02` (secret redaction / persistence), and `P-04.04` (protected-surface manifest/diff).
-- **Promo-arrival preemption rule:** Operator has redeemed promotional credits ($25 balance verified). Under promo-arrival preemption: complete P-04.02 third surgical repair, stop, obtain independent QA, then immediately return to P-01.02.
-- **P-04.04 restriction:** P-04.04 is PENDING and MUST NOT START before P-04.02 independent PASS.
-- **Provider neutrality:** P-04 allowlisted tasks must remain strictly provider-neutral; zero Nebius/NVIDIA/Tavily SDK imports; deterministic validation only; zero assumptions regarding sandbox filesystem, network, or process isolation capabilities.
-- **Not authorized / forbidden:** `P-04.03`, `P-04.05`, and `P-04.06` are NOT authorized under this offline lane because they depend on unverified platform/sandbox realities. `P-05+` remain strictly forbidden.
-- **Phase status:** P-04 phase MUST remain OPEN; completion of P-04.01, P-04.02, and P-04.04 cannot close P-04.
+- **Allowlist:** Under P-01.01B amendment, the previous P-02 and P-03 lanes are complete and independently closed. The offline allowlist permits sequential execution ONLY of platform-independent P-04 security primitives: `P-04.01` (threat model, DONE), `P-04.02` (secret redaction, DONE), and `P-04.04` (protected-surface manifest/diff, PENDING).
+- **P-04.04 restriction:** P-04.04 is PENDING and MUST NOT START during P-01.03 unless explicitly instructed by architecture authority.
+- **Provider neutrality:** All domain contracts and evidence primitives remain strictly provider-neutral; zero Nebius/NVIDIA/Tavily dependencies in committed application code.
+- **Not authorized / forbidden:** `P-01.04+`, `P-04.03`, `P-04.05`, `P-04.06`, and `P-05+` remain strictly unauthorized / forbidden.
+- **Phase status:** P-01 phase MUST remain OPEN. P-04 phase MUST remain OPEN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -92,9 +94,10 @@ Judge claim:
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-01.02 (repaired live evidence and independent operator reproduction recorded in `docs/P01_02_LIVE_INFERENCE.md`) for independent QA review.
-2. Do NOT start P-01.03.
-3. Do NOT start P-04.04.
-4. P-01 phase remains OPEN.
-5. P-04 phase remains OPEN.
-6. P-04.03, P-04.05, P-04.06 and P-05+ remain strictly unauthorized / forbidden under the current offline lane.
+1. Wait for Nebius team to approve and activate Sandboxes beta access on project `aiproject-e00mae0nmzkxjswr1k`.
+2. Once beta permissions are granted (`whoami` permissions become `true`), execute harmless command `/bin/echo BASEBREAK_SANDBOX_OK` to complete live execution and teardown observation.
+3. Do NOT start P-01.04.
+4. Do NOT start P-04.04.
+5. P-01 phase remains OPEN.
+6. P-04 phase remains OPEN.
+7. P-05+ remain strictly unauthorized / forbidden.

@@ -118,3 +118,30 @@ This log may also be used as source material for the "Most Valuable Feedback" pr
 - **Severity/Value:** CRITICAL
 - **Provenance:** LIVE_OBSERVATION
 - **Status:** WORKAROUND_APPLIED
+
+### F-006 — Token Factory Sandboxes requires separate project-level beta access application; API returns HTTP 403 / zero permissions until approved despite active Builder credits
+
+- **Date/Time:** 2026-09-24 10:15 UTC
+- **Provider/Tool:** Nebius Token Factory / ConTree Sandboxes
+- **Feature/API:** Token Factory Sandboxes (`https://api.tokenfactory.nebius.com/sandboxes/v1/`)
+- **Task/Run Context:** P-01.03 (Discover and execute minimal Token Factory Sandbox workflow)
+- **What Worked Well:**
+  - Token Factory web UI explicitly clarifies zero cost during beta: *"Free while in beta — runs don't consume your credits."*
+  - First-party Python SDK (`contree-sdk==0.3.6`) and CLI (`contree-cli==0.9.4`) provide excellent developer experience, comprehensive inline documentation, and clean architecture combining VM isolation with Git-like execution branching.
+  - The live `/sandboxes/v1/whoami` endpoint reliably introspects token validity, expiration, and granular permissions (`import`, `spawn`, `spawn_disposable`, `list`, `cancel`, `set_image_tag`).
+- **Friction/Bug/Limitation:**
+  - Even when an organization has active billing and redeemed Builder Program promotional credits ($25 balance), Sandboxes permissions are disabled by default (`permissions: all False`).
+  - Attempting to list images (`GET /sandboxes/v1/images`) or spawn an instance (`POST /sandboxes/v1/instances`) returns HTTP 403 Forbidden (`Insufficient permissions: list` / `Insufficient permissions: spawn or spawn_disposable`).
+  - Access is not automatically enabled for Builder Program / hackathon participants; it requires navigating to the web console Sandboxes section, clicking "Request beta access", and submitting an external form with Project ID, email, and use case, then awaiting manual review.
+- **Deterministic Evidence:**
+  - `GET https://api.tokenfactory.nebius.com/sandboxes/v1/whoami` returned HTTP 200 with `permissions: {'import': False, 'spawn': False, 'spawn_disposable': False, 'list': False, 'cancel': False, 'set_image_tag': False}`.
+  - `POST https://api.tokenfactory.nebius.com/sandboxes/v1/instances` returned HTTP 403: `{"status": 403, "error": "Insufficient permissions: spawn or spawn_disposable"}`.
+  - `contree-cli/cli/auth.py` lines 278-286 contains explicit first-party warning: `"Warning: token is valid but sandboxes are disabled on %s (no 'list' permission). The profile will be saved but no commands will work until the service is enabled."`
+  - Token Factory web console displayed a "Request beta access" modal form.
+- **Developer Impact:** Temporarily blocks live sandbox execution in P-01.03 while awaiting Nebius beta enablement for project `aiproject-e00mae0nmzkxjswr1k`.
+- **Workaround:** Operator submitted the official beta access form specifying hackathon participation, Project ID `aiproject-e00mae0nmzkxjswr1k`, and Basebreak causal verification use case. Form submission confirmed (`"Teşekkürler, yanıtınız gönderildi"`).
+- **Concrete Product Suggestion:** Automatically enable Sandboxes beta access for Builder Program promotional credit recipients and official hackathon participants upon promo redemption, or provide automated instant approval in the web console rather than a manual form review.
+- **Severity/Value:** HIGH
+- **Provenance:** LIVE_OBSERVATION
+- **Status:** UNRESOLVED (awaiting beta access activation)
+
