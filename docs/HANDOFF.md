@@ -48,18 +48,23 @@ Judge claim:
 
 ### Blocking live gate / Active executable task
 `P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt`
-- Status: `IN_PROGRESS (executor-completed; repaired live evidence awaiting independent QA)`
+- Status: `IN_PROGRESS (executor documentation completed; independent QA candidate)`
 - Prerequisite status: Builder Program Token Factory promotional code successfully redeemed. Account balance: $25.00; Trial credits: $1.00 (untouched); Billing: Active; `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` satisfied.
-- Execution status: Single real live inference executed (HTTP 200, model `nvidia/Nemotron-3_5-Lightning`, 61 tokens, 0.717s). Repaired live evidence documented in `docs/P01_02_LIVE_INFERENCE.md`.
+- Execution & Reproduction status:
+  - Original Builder API inference recorded as `RECORDED_LIVE` candidate evidence (HTTP 200, model `nvidia/Nemotron-3_5-Lightning`, 61 tokens, 0.717s).
+  - Independent operator manual reproduction executed in Token Factory web Playground (`https://tokenfactory.nebius.com/playground?models=nvidia/Nemotron-3_5-Lightning`) with prompt `Return only BASEBREAK_QA_OK.`, model `nvidia/Nemotron-3_5-Lightning`, returning reasoning thoughts and completion `BASEBREAK_QA_OK` (`LIVE_NEBIUS`).
+  - Account balance ($25.00) and trial credits ($1.00 untouched) verified via provider web console (`LIVE_ACCOUNT`).
+  - Misleading post-hoc response-content digest removed entirely; socket digest classified as NOT_INDEPENDENTLY_REPRODUCIBLE_FROM_COMMITTED_RECORD; Usage UI observation wording repaired to reflect "No usage" provided NO provider-side corroboration at observation time.
+  - Final evidence documented in `docs/P01_02_LIVE_INFERENCE.md`.
 - Policy floor: `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` satisfied ($25.00 post-call balance verified).
 - Gate condition: The `$1.00` trial credit MUST NOT be consumed (verified untouched). No automatic paid fallback.
 - Phase impact: P-01 phase remains OPEN; no GO decision can be awarded without required `LIVE_NEBIUS` evidence.
 
 ### Current QA candidate
-`P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt` (repaired LIVE_NEBIUS candidate awaiting independent QA).
+`P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt` (executor documentation completed; independent QA candidate).
 
 ### Active executable task
-`P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt` (executor-completed).
+`P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt` (executor documentation completed; awaiting independent QA).
 
 *(Note: Exactly ONE executable micro-task is active at a time. P-01 is OPEN. P-04 is OPEN. P-04.04 is PENDING / NOT ACTIVE. P-05+ remain strictly forbidden).*
 
@@ -87,7 +92,7 @@ Judge claim:
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-01.02 (LIVE_NEBIUS evidence recorded in `docs/P01_02_LIVE_INFERENCE.md`) for independent QA review.
+1. Submit P-01.02 (repaired live evidence and independent operator reproduction recorded in `docs/P01_02_LIVE_INFERENCE.md`) for independent QA review.
 2. Do NOT start P-01.03.
 3. Do NOT start P-04.04.
 4. P-01 phase remains OPEN.

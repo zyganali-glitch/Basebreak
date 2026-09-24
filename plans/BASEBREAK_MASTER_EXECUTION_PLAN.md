@@ -145,7 +145,7 @@ Acceptance:
 - candidate pushed and remote SHA verified.
 
 ### P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt
-Status: IN_PROGRESS (executor-completed; LIVE_NEBIUS candidate awaiting independent QA)
+Status: IN_PROGRESS (executor documentation completed; independent QA candidate)
 Prerequisite status: Builder Program Token Factory promotional code successfully redeemed. Account balance: $25.00; Trial credits: $1.00 (untouched); Billing: Active; TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00 satisfied. (Promo-arrival preemption applies: P-01.02 is the active executable task following independent QA PASS on P-04.02).
 Acceptance:
 - real request/response;
