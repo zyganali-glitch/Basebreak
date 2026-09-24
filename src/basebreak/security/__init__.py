@@ -11,9 +11,13 @@ from basebreak.security.secret_policy import (
     redact_for_display,
     redact_log_text,
     redact_text,
+    validate_artifact_reference_for_persistence,
+    validate_candidate_identity_for_persistence,
+    validate_causal_binding_for_persistence,
     validate_evidence_record_for_persistence,
     validate_execution_command_for_persistence,
     validate_no_secrets,
+    validate_source_identity_for_persistence,
 )
 
 __all__ = [
@@ -27,7 +31,11 @@ __all__ = [
     "redact_for_display",
     "redact_log_text",
     "redact_text",
+    "validate_artifact_reference_for_persistence",
+    "validate_candidate_identity_for_persistence",
+    "validate_causal_binding_for_persistence",
     "validate_evidence_record_for_persistence",
     "validate_execution_command_for_persistence",
     "validate_no_secrets",
+    "validate_source_identity_for_persistence",
 ]

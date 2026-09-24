@@ -703,7 +703,8 @@ class TestSecretPersistenceBoundaryAndAtomicity:
                 command=cmd,
             )
         err = exc_info.value
-        assert "command.env[NEBIUS_API_KEY]" in err.path
+        assert "command.env[0].value" in err.path
+        assert "NEBIUS_API_KEY" not in err.path
         assert synthetic_key not in str(err)
         assert synthetic_key not in repr(err)
 

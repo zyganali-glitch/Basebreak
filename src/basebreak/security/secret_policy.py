@@ -8,6 +8,7 @@ redaction from authoritative evidence fail-closed persistence boundaries.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -381,6 +382,8 @@ def validate_no_secrets(value: Any, path: str = "") -> None:
     """Validate that value contains no raw secrets.
 
     Raises SecretPersistenceError on violation without echoing raw secrets.
+    Diagnostic paths use structural and index representations to ensure
+    attacker-controlled keys are never echoed into error metadata.
     """
     if isinstance(value, str):
         findings = find_secret_findings(value)
@@ -399,23 +402,114 @@ def validate_no_secrets(value: Any, path: str = "") -> None:
             validate_no_secrets(item, item_path)
         return
 
-    if isinstance(value, dict):
-        for k, v in value.items():
-            key_str = str(k)
-            item_path = f"{path}.{key_str}" if path else key_str
-            if is_sensitive_key(key_str):
+    if isinstance(value, (dict, Mapping)):
+        for idx, (k, v) in enumerate(value.items()):
+            key_path = f"{path}[{idx}].key" if path else f"[{idx}].key"
+            val_path = f"{path}[{idx}].value" if path else f"[{idx}].value"
+
+            # Check mapping key itself for secret-shaped material
+            if isinstance(k, str):
+                validate_no_secrets(k, key_path)
+            else:
+                validate_no_secrets(k, key_path)
+
+            # Check sensitive key rule
+            key_str = str(k) if isinstance(k, str) else ""
+            if key_str and is_sensitive_key(key_str):
                 if isinstance(v, str) and v and v != REDACTION_MARKER:
                     raise SecretPersistenceError(
                         rule_id="SENSITIVE_KEY",
-                        path=item_path,
+                        path=val_path,
                         category="SECRET_PERSISTENCE_FORBIDDEN",
                     )
-            validate_no_secrets(v, item_path)
+            validate_no_secrets(v, val_path)
         return
 
 
+def validate_source_identity_for_persistence(source: Any, path: str = "source") -> None:
+    """Validate that SourceIdentity contains no raw secrets in its string fields."""
+    if source is None:
+        return
+    locator = getattr(source, "locator", None)
+    if isinstance(locator, str) and locator:
+        validate_no_secrets(locator, f"{path}.locator")
+    subpath = getattr(source, "subpath", None)
+    if isinstance(subpath, str) and subpath:
+        validate_no_secrets(subpath, f"{path}.subpath")
+    req_ref = getattr(source, "requested_ref", None)
+    if req_ref is not None:
+        name = getattr(req_ref, "name", None)
+        if isinstance(name, str) and name:
+            validate_no_secrets(name, f"{path}.requested_ref.name")
+
+
+def validate_candidate_identity_for_persistence(candidate: Any, path: str = "candidate") -> None:
+    """Validate that CandidateIdentity contains no raw secrets in its string fields."""
+    if candidate is None:
+        return
+    cand_id = getattr(candidate, "candidate_id", None)
+    if isinstance(cand_id, str) and cand_id:
+        validate_no_secrets(cand_id, f"{path}.candidate_id")
+    source = getattr(candidate, "source", None)
+    if source is not None:
+        validate_source_identity_for_persistence(source, f"{path}.source")
+    desc = getattr(candidate, "description", None)
+    if isinstance(desc, str) and desc:
+        validate_no_secrets(desc, f"{path}.description")
+
+
+def validate_causal_binding_for_persistence(binding: Any, path: str = "causal_binding") -> None:
+    """Validate that CausalBinding contains no raw secrets in its string fields."""
+    if binding is None:
+        return
+    req_id = getattr(binding, "requirement_id", None)
+    if isinstance(req_id, str) and req_id:
+        validate_no_secrets(req_id, f"{path}.requirement_id")
+    witness = getattr(binding, "witness", None)
+    if witness is not None:
+        w_id = getattr(witness, "witness_id", None)
+        if isinstance(w_id, str) and w_id:
+            validate_no_secrets(w_id, f"{path}.witness.witness_id")
+        w_desc = getattr(witness, "description", None)
+        if isinstance(w_desc, str) and w_desc:
+            validate_no_secrets(w_desc, f"{path}.witness.description")
+    base_src = getattr(binding, "base_source", None)
+    if base_src is not None:
+        validate_source_identity_for_persistence(base_src, f"{path}.base_source")
+    cand = getattr(binding, "candidate", None)
+    if cand is not None:
+        validate_candidate_identity_for_persistence(cand, f"{path}.candidate")
+    cf = getattr(binding, "counterfactual", None)
+    if cf is not None:
+        cf_id = getattr(cf, "counterfactual_id", None)
+        if isinstance(cf_id, str) and cf_id:
+            validate_no_secrets(cf_id, f"{path}.counterfactual.counterfactual_id")
+        target_cand = getattr(cf, "target_candidate", None)
+        if target_cand is not None:
+            validate_candidate_identity_for_persistence(
+                target_cand, f"{path}.counterfactual.target_candidate"
+            )
+        cf_desc = getattr(cf, "description", None)
+        if isinstance(cf_desc, str) and cf_desc:
+            validate_no_secrets(cf_desc, f"{path}.counterfactual.description")
+
+
+def validate_artifact_reference_for_persistence(art: Any, path: str = "artifact") -> None:
+    """Validate that ArtifactReference contains no raw secrets in its media_type."""
+    if art is None:
+        return
+    media_type = getattr(art, "media_type", None)
+    if isinstance(media_type, str) and media_type:
+        validate_no_secrets(media_type, f"{path}.media_type")
+
+
 def validate_execution_command_for_persistence(command: Any, path: str = "command") -> None:
-    """Validate that ExecutionCommand carries no forbidden raw secrets."""
+    """Validate that ExecutionCommand carries no forbidden raw secrets.
+
+    Validates argv, cwd, and environment variable keys and values.
+    Uses structural indexing for environment variables (command.env[idx].key/value)
+    so attacker-controlled keys are never echoed into error paths.
+    """
     if command is None:
         return
 
@@ -423,25 +517,45 @@ def validate_execution_command_for_persistence(command: Any, path: str = "comman
     argv = getattr(command, "argv", ())
     for idx, arg in enumerate(argv):
         arg_path = f"{path}.argv[{idx}]"
-        validate_no_secrets(arg, arg_path)
+        if isinstance(arg, str):
+            validate_no_secrets(arg, arg_path)
 
     # Check cwd
     cwd = getattr(command, "cwd", None)
-    if cwd is not None:
+    if cwd is not None and isinstance(cwd, str):
         validate_no_secrets(cwd, f"{path}.cwd")
 
     # Check env pairs
     env = getattr(command, "env", ())
-    for k, v in env:
-        env_path = f"{path}.env[{k}]"
-        if is_sensitive_key(k):
-            if v and v != REDACTION_MARKER:
-                raise SecretPersistenceError(
-                    rule_id="SENSITIVE_ENV_KEY",
-                    path=env_path,
-                    category="SECRET_PERSISTENCE_FORBIDDEN",
-                )
-        validate_no_secrets(v, env_path)
+    if isinstance(env, dict):
+        env_items = list(env.items())
+    elif isinstance(env, (list, tuple)):
+        env_items = list(env)
+    else:
+        env_items = []
+
+    for idx, item in enumerate(env_items):
+        if isinstance(item, (tuple, list)) and len(item) == 2:
+            k, v = item
+            key_path = f"{path}.env[{idx}].key"
+            val_path = f"{path}.env[{idx}].value"
+
+            # Check key text itself for secret-shaped material
+            if isinstance(k, str):
+                validate_no_secrets(k, key_path)
+
+            # Check sensitive key rule
+            if isinstance(k, str) and is_sensitive_key(k):
+                if isinstance(v, str) and v and v != REDACTION_MARKER:
+                    raise SecretPersistenceError(
+                        rule_id="SENSITIVE_ENV_KEY",
+                        path=val_path,
+                        category="SECRET_PERSISTENCE_FORBIDDEN",
+                    )
+
+            # Check value text
+            if isinstance(v, str):
+                validate_no_secrets(v, val_path)
 
 
 def validate_evidence_record_for_persistence(record: Any, path: str = "") -> None:
@@ -449,38 +563,49 @@ def validate_evidence_record_for_persistence(record: Any, path: str = "") -> Non
 
     Fails closed: if any authoritative fact contains secret-shaped material,
     raises SecretPersistenceError. Rejection never echoes raw secrets.
+    Covers all serialized string-bearing fields reachable from EvidenceRecord:
+    evidence_id, run_id, candidate, causal_binding, command, result, artifacts.
     """
     prefix = f"{path}." if path else ""
 
-    # 1. Validate command (argv, cwd, env)
+    # 1. Validate evidence_id
+    ev_id = getattr(record, "evidence_id", None)
+    if ev_id is not None:
+        raw_ev = getattr(ev_id, "evidence_id", ev_id)
+        if isinstance(raw_ev, str) and raw_ev:
+            validate_no_secrets(raw_ev, f"{prefix}evidence_id")
+
+    # 2. Validate run_id
+    run_id = getattr(record, "run_id", None)
+    if run_id is not None:
+        raw_run = getattr(run_id, "run_id", run_id)
+        if isinstance(raw_run, str) and raw_run:
+            validate_no_secrets(raw_run, f"{prefix}run_id")
+
+    # 3. Validate command (argv, cwd, env keys/values)
     cmd = getattr(record, "command", None)
     if cmd is not None:
         validate_execution_command_for_persistence(cmd, f"{prefix}command")
 
-    # 2. Validate candidate descriptions or locator if present
+    # 4. Validate candidate (candidate_id, source, description)
     candidate = getattr(record, "candidate", None)
     if candidate is not None:
-        desc = getattr(candidate, "description", "")
-        if desc:
-            validate_no_secrets(desc, f"{prefix}candidate.description")
-        source = getattr(candidate, "source", None)
-        if source is not None:
-            loc = getattr(source, "locator", "")
-            if loc:
-                validate_no_secrets(loc, f"{prefix}candidate.source.locator")
+        validate_candidate_identity_for_persistence(candidate, f"{prefix}candidate")
 
-    # 3. Validate causal_binding descriptions
+    # 5. Validate causal_binding (requirement_id, witness, base_source, candidate, counterfactual)
     cb = getattr(record, "causal_binding", None)
     if cb is not None:
-        witness = getattr(cb, "witness", None)
-        if witness is not None:
-            w_desc = getattr(witness, "description", "")
-            if w_desc:
-                validate_no_secrets(w_desc, f"{prefix}causal_binding.witness.description")
+        validate_causal_binding_for_persistence(cb, f"{prefix}causal_binding")
 
-    # 4. Validate artifacts descriptions
+    # 6. Validate result if present
+    res = getattr(record, "result", None)
+    if res is not None:
+        for attr in ("description", "message", "narrative"):
+            val = getattr(res, attr, None)
+            if isinstance(val, str) and val:
+                validate_no_secrets(val, f"{prefix}result.{attr}")
+
+    # 7. Validate artifacts (media_type for each artifact; no fake description)
     artifacts = getattr(record, "artifacts", ())
     for idx, art in enumerate(artifacts):
-        art_desc = getattr(art, "description", "")
-        if art_desc:
-            validate_no_secrets(art_desc, f"{prefix}artifacts[{idx}].description")
+        validate_artifact_reference_for_persistence(art, f"{prefix}artifacts[{idx}]")

@@ -2,9 +2,30 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
+from basebreak.domain.causal import (
+    CandidateIdentity,
+    CausalBinding,
+    ExecutionWorld,
+    WitnessIdentity,
+)
 from basebreak.domain.execution import ExecutionCommand
+from basebreak.domain.source import CommitRevision, SourceIdentity
+from basebreak.domain.verdict import EvidenceProvenance
+from basebreak.evidence.append_model import (
+    EvidenceIdentity,
+    EvidenceRecord,
+    EvidenceStore,
+    RunIdentity,
+)
+from basebreak.evidence.artifact import (
+    ArtifactDigest,
+    ArtifactReference,
+    DigestAlgorithm,
+)
 from basebreak.security.secret_policy import (
     REDACTION_MARKER,
     SecretFinding,
@@ -15,8 +36,13 @@ from basebreak.security.secret_policy import (
     redact_for_display,
     redact_log_text,
     redact_text,
+    validate_artifact_reference_for_persistence,
+    validate_candidate_identity_for_persistence,
+    validate_causal_binding_for_persistence,
+    validate_evidence_record_for_persistence,
     validate_execution_command_for_persistence,
     validate_no_secrets,
+    validate_source_identity_for_persistence,
 )
 
 
@@ -171,7 +197,8 @@ class TestKeyAwarePolicy:
             validate_execution_command_for_persistence(cmd)
         err = exc_info.value
         assert err.rule_id == "SENSITIVE_ENV_KEY"
-        assert "API_KEY" in err.path
+        assert "command.env[0].value" in err.path
+        assert "API_KEY" not in err.path
         assert "abc" not in str(err)
         assert "abc" not in repr(err)
 
@@ -488,3 +515,583 @@ class TestPropertyInvariants:
         assert not mod
         assert redacted == benign
         assert not contains_secret(benign)
+
+
+class TestGenericMappingValidation:
+    """Verify generic mapping and dict validation with safe structural paths (Repair D)."""
+
+    def test_dict_key_with_secret_rejected_with_safe_path(self) -> None:
+        secret = "sk-synthetic1234567890abcdef"
+        data = {secret: "clean_value"}
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            validate_no_secrets(data)
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert exc.path == "[0].key"
+
+    def test_dict_value_with_secret_rejected_with_safe_path(self) -> None:
+        secret = "sk-synthetic1234567890abcdef"
+        data = {"clean_key": secret}
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            validate_no_secrets(data)
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert exc.path == "[0].value"
+
+    def test_dict_sensitive_key_with_unredacted_value_rejected(self) -> None:
+        secret = "unredacted_password_123"
+        data = {"password": secret}
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            validate_no_secrets(data)
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert exc.rule_id == "SENSITIVE_KEY"
+        assert exc.path == "[0].value"
+        assert "password" not in exc.path
+
+    def test_dict_sensitive_key_with_redacted_value_accepted(self) -> None:
+        data = {"api_key": REDACTION_MARKER, "token": REDACTION_MARKER}
+        validate_no_secrets(data)
+
+    def test_dict_nested_mapping_safe_structural_path(self) -> None:
+        secret = "sk-synthetic1234567890abcdef"
+        data = {"outer": {"inner_key": secret}}
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            validate_no_secrets(data, path="root")
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert exc.path == "root[0].value[0].value"
+
+    def test_dict_mapping_clean_keys_and_values_accepted(self) -> None:
+        data = {
+            "name": "basebreak_run",
+            "version": 1,
+            "subpath": "src/basebreak",
+            "active": True,
+        }
+        validate_no_secrets(data)
+
+
+class TestDurableSurfaceBypassRegression:
+    """Verify all 12 required adversarial bypass channels are strictly closed."""
+
+    def test_bypass_evidence_id_secret_rejected(self) -> None:
+        secret = "sk-synthetic1234567890abcdef"
+        ev_id = EvidenceIdentity(secret)
+        run_id = RunIdentity("run-clean")
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=ev_id,
+                run_id=run_id,
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            )
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert exc.path == "evidence_id"
+
+    def test_bypass_run_id_secret_rejected(self) -> None:
+        secret = "sk-synthetic9876543210abcdef"
+        ev_id = EvidenceIdentity("ev-clean")
+        run_id = RunIdentity(secret)
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=ev_id,
+                run_id=run_id,
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            )
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert exc.path == "run_id"
+
+    def test_bypass_candidate_id_secret_rejected(self) -> None:
+        secret = "sk-synthetic_cand_1234567890"
+        source = SourceIdentity(
+            locator="https://github.com/repo",
+            revision=CommitRevision("0" * 40),
+        )
+        cand = CandidateIdentity(candidate_id=secret, source=source, patch_digest="a" * 64)
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-clean"),
+                run_id=RunIdentity("run-clean"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                candidate=cand,
+            )
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert exc.path == "candidate.candidate_id"
+
+    def test_bypass_source_identity_subpath_secret_rejected(self) -> None:
+        secret = "sk-synthetic_subpath_12345678"
+        source = SourceIdentity(
+            locator="https://github.com/repo",
+            revision=CommitRevision("0" * 40),
+            subpath=f"src/{secret}",
+        )
+        cand = CandidateIdentity(candidate_id="cand-01", source=source, patch_digest="a" * 64)
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-clean"),
+                run_id=RunIdentity("run-clean"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                candidate=cand,
+            )
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert exc.path == "candidate.source.subpath"
+
+    def test_bypass_causal_binding_requirement_id_secret_rejected(self) -> None:
+        secret = "sk-synthetic_req_1234567890"
+        source = SourceIdentity(
+            locator="https://github.com/repo",
+            revision=CommitRevision("0" * 40),
+        )
+        cand = CandidateIdentity(candidate_id="cand-01", source=source, patch_digest="a" * 64)
+        witness = WitnessIdentity(witness_id="wit-01", digest="b" * 64, description="clean")
+        cb = CausalBinding(
+            requirement_id=secret,
+            witness=witness,
+            base_source=source,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-clean"),
+                run_id=RunIdentity("run-clean"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                causal_binding=cb,
+            )
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert exc.path == "causal_binding.requirement_id"
+
+    def test_bypass_causal_binding_witness_id_secret_rejected(self) -> None:
+        secret = "sk-synthetic_wit_1234567890"
+        source = SourceIdentity(
+            locator="https://github.com/repo",
+            revision=CommitRevision("0" * 40),
+        )
+        cand = CandidateIdentity(candidate_id="cand-01", source=source, patch_digest="a" * 64)
+        witness = WitnessIdentity(witness_id=secret, digest="b" * 64, description="clean")
+        cb = CausalBinding(
+            requirement_id="req-01",
+            witness=witness,
+            base_source=source,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-clean"),
+                run_id=RunIdentity("run-clean"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                causal_binding=cb,
+            )
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert exc.path == "causal_binding.witness.witness_id"
+
+    def test_bypass_causal_binding_nested_source_subpath_rejected(self) -> None:
+        secret = "sk-synthetic_nested_base_sub_12345"
+        base_src = SourceIdentity(
+            locator="https://github.com/repo",
+            revision=CommitRevision("0" * 40),
+            subpath=f"pkg/{secret}",
+        )
+        cand_src = SourceIdentity(
+            locator="https://github.com/repo",
+            revision=CommitRevision("0" * 40),
+        )
+        cand = CandidateIdentity(candidate_id="cand-01", source=cand_src, patch_digest="a" * 64)
+        witness = WitnessIdentity(witness_id="wit-01", digest="b" * 64, description="clean")
+        cb = CausalBinding(
+            requirement_id="req-01",
+            witness=witness,
+            base_source=base_src,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-clean"),
+                run_id=RunIdentity("run-clean"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                causal_binding=cb,
+            )
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert exc.path == "causal_binding.base_source.subpath"
+
+    def test_bypass_artifact_reference_media_type_secret_rejected(self) -> None:
+        secret = "synthetic_secret_media_val"
+        media_type = f"text/plain; api_key={secret}"
+        digest = ArtifactDigest(
+            algorithm=DigestAlgorithm.SHA256,
+            value="0" * 64,
+            byte_length=100,
+        )
+        art = ArtifactReference(digest=digest, media_type=media_type)
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-clean"),
+                run_id=RunIdentity("run-clean"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                artifacts=(art,),
+            )
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert exc.path == "artifacts[0].media_type"
+
+    def test_bypass_env_key_with_secret_rejected(self) -> None:
+        secret = "sk-synthetic_env_key_123456789"
+        cmd = ExecutionCommand(argv=("echo", "hi"), env=((secret, "clean_val"),))
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-clean"),
+                run_id=RunIdentity("run-clean"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                command=cmd,
+            )
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert exc.path == "command.env[0].key"
+
+    def test_bypass_env_key_sensitive_and_attacker_secret_not_echoed(self) -> None:
+        secret = "sk-synthetic_attack_key_12345"
+        key_name = f"API_KEY_{secret}"
+        cmd = ExecutionCommand(argv=("echo", "hi"), env=((key_name, "some_val"),))
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-clean"),
+                run_id=RunIdentity("run-clean"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                command=cmd,
+            )
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert key_name not in exc.path
+        assert exc.path == "command.env[0].value"
+
+    def test_bypass_evidence_record_to_dict_fails_closed(self) -> None:
+        rec = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-clean-1"),
+            run_id=RunIdentity("run-clean-1"),
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            command=ExecutionCommand(argv=("pytest",)),
+        )
+        assert rec.to_dict()["evidence_id"] == "ev-clean-1"
+
+        bypass_cases: list[tuple[str, Any, str]] = [
+            (
+                "evidence_id",
+                EvidenceIdentity("sk-synthetic_ev_bypass_12345"),
+                "sk-synthetic_ev_bypass_12345",
+            ),
+            (
+                "run_id",
+                RunIdentity("sk-synthetic_run_bypass_12345"),
+                "sk-synthetic_run_bypass_12345",
+            ),
+            (
+                "artifacts",
+                (
+                    ArtifactReference(
+                        digest=ArtifactDigest(
+                            algorithm=DigestAlgorithm.SHA256,
+                            value="0" * 64,
+                            byte_length=10,
+                        ),
+                        media_type="text/plain; api_key=synthetic_secret_bypass",
+                    ),
+                ),
+                "synthetic_secret_bypass",
+            ),
+        ]
+        for field_name, tainted_value, secret in bypass_cases:
+            r = EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-clean-bypass"),
+                run_id=RunIdentity("run-clean-bypass"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                command=ExecutionCommand(argv=("pytest",)),
+            )
+            object.__setattr__(r, field_name, tainted_value)
+            with pytest.raises(SecretPersistenceError) as exc_info:
+                r.to_dict()
+            exc = exc_info.value
+            assert secret not in str(exc)
+            assert secret not in repr(exc)
+            assert secret not in exc.rule_id
+            assert secret not in exc.path
+            assert secret not in exc.category
+
+    def test_bypass_evidence_store_append_atomicity_on_tainted_record(self) -> None:
+        store = EvidenceStore()
+        run = RunIdentity("run-atomicity-bypass")
+
+        rec0 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-000"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            command=ExecutionCommand(argv=("echo", "clean")),
+        )
+        store.append(rec0)
+        assert len(store) == 1
+
+        secret = "synthetic_media_secret_9999"
+        rec1_tainted = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-001"),
+            run_id=run,
+            sequence_number=1,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            command=ExecutionCommand(argv=("echo", "clean1")),
+        )
+        art = ArtifactReference(
+            digest=ArtifactDigest(
+                algorithm=DigestAlgorithm.SHA256,
+                value="0" * 64,
+                byte_length=50,
+            ),
+            media_type=f"text/plain; api_key={secret}",
+        )
+        object.__setattr__(rec1_tainted, "artifacts", (art,))
+
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            store.append(rec1_tainted)
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+
+        assert len(store) == 1
+        assert store.get("ev-001") is None
+        assert store._run_next_sequence["run-atomicity-bypass"] == 1
+        assert store.get("ev-000") == rec0
+
+        rec1_clean = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-001"),
+            run_id=run,
+            sequence_number=1,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            command=ExecutionCommand(argv=("echo", "clean1")),
+            artifacts=(
+                ArtifactReference(
+                    digest=ArtifactDigest(
+                        algorithm=DigestAlgorithm.SHA256,
+                        value="0" * 64,
+                        byte_length=50,
+                    ),
+                    media_type="text/plain",
+                ),
+            ),
+        )
+        store.append(rec1_clean)
+        assert len(store) == 2
+        assert store.get("ev-001") == rec1_clean
+        assert store._run_next_sequence["run-atomicity-bypass"] == 2
+
+
+class TestFalsePositiveRegression:
+    """Verify normal domain values and benign patterns are preserved without false rejection."""
+
+    def test_normal_evidence_record_accepted(self) -> None:
+        source = SourceIdentity(
+            locator="https://github.com/zyganali-glitch/Basebreak",
+            revision=CommitRevision("0123456789abcdef0123456789abcdef01234567"),
+            subpath="src/basebreak/security",
+        )
+        cand = CandidateIdentity(
+            candidate_id="cand-2026-09-24",
+            source=source,
+            patch_digest="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            description="Fixing token budget calculation in authentication test suite",
+        )
+        witness = WitnessIdentity(
+            witness_id="wit-001",
+            digest="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            description="Verified by secretary test script",
+        )
+        cb = CausalBinding(
+            requirement_id="req-verify-001",
+            witness=witness,
+            base_source=source,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        cmd = ExecutionCommand(
+            argv=("python", "-m", "pytest", "tests/unit"),
+            cwd="src/basebreak",
+            env=(
+                ("PATH", "/usr/local/bin:/usr/bin"),
+                ("USER", "alice"),
+                ("PYTHONPATH", "."),
+            ),
+        )
+        art = ArtifactReference(
+            digest=ArtifactDigest(
+                algorithm=DigestAlgorithm.SHA256,
+                value="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                byte_length=1024,
+            ),
+            media_type="application/json",
+        )
+        rec = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-exec-001"),
+            run_id=RunIdentity("run-prod-001"),
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand,
+            causal_binding=cb,
+            command=cmd,
+            artifacts=(art,),
+        )
+        d = rec.to_dict()
+        assert d["evidence_id"] == "ev-exec-001"
+        assert d["run_id"] == "run-prod-001"
+        assert d["artifacts"][0]["media_type"] == "application/json"
+
+
+class TestDirectEntityValidators:
+    """Verify exported granular persistence validators."""
+
+    def test_validate_source_identity_none_and_clean(self) -> None:
+        validate_source_identity_for_persistence(None)
+        source = SourceIdentity(
+            locator="https://github.com/repo",
+            revision=CommitRevision("0" * 40),
+            subpath="src/clean",
+        )
+        validate_source_identity_for_persistence(source)
+
+    def test_validate_source_identity_tainted(self) -> None:
+        secret = "sk-synthetic_source_locator_12"
+        source = SourceIdentity(
+            locator=f"https://github.com/repo?token={secret}",
+            revision=CommitRevision("0" * 40),
+        )
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            validate_source_identity_for_persistence(source)
+        assert secret not in str(exc_info.value)
+        assert exc_info.value.path == "source.locator"
+
+    def test_validate_candidate_identity_none_and_clean(self) -> None:
+        validate_candidate_identity_for_persistence(None)
+        cand = CandidateIdentity(
+            candidate_id="cand-clean",
+            source=SourceIdentity(
+                locator="https://github.com/repo",
+                revision=CommitRevision("0" * 40),
+            ),
+            patch_digest="a" * 64,
+            description="clean candidate",
+        )
+        validate_candidate_identity_for_persistence(cand)
+
+    def test_validate_causal_binding_none_and_clean(self) -> None:
+        validate_causal_binding_for_persistence(None)
+        source = SourceIdentity(
+            locator="https://github.com/repo",
+            revision=CommitRevision("0" * 40),
+        )
+        cand = CandidateIdentity(candidate_id="c1", source=source, patch_digest="a" * 64)
+        witness = WitnessIdentity(witness_id="w1", digest="b" * 64, description="clean")
+        cb = CausalBinding(
+            requirement_id="req-1",
+            witness=witness,
+            base_source=source,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        validate_causal_binding_for_persistence(cb)
+
+    def test_validate_artifact_reference_none_and_clean(self) -> None:
+        validate_artifact_reference_for_persistence(None)
+        art = ArtifactReference(
+            digest=ArtifactDigest(
+                algorithm=DigestAlgorithm.SHA256,
+                value="0" * 64,
+                byte_length=10,
+            ),
+            media_type="application/json",
+        )
+        validate_artifact_reference_for_persistence(art)
+
+    def test_validate_evidence_record_direct(self) -> None:
+        rec = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-direct"),
+            run_id=RunIdentity("run-direct"),
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        validate_evidence_record_for_persistence(rec)

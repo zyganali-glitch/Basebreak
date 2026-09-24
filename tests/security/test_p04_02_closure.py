@@ -16,13 +16,25 @@ from __future__ import annotations
 
 import pytest
 
+from basebreak.domain.causal import (
+    CandidateIdentity,
+    CausalBinding,
+    ExecutionWorld,
+    WitnessIdentity,
+)
 from basebreak.domain.execution import ExecutionCommand
+from basebreak.domain.source import CommitRevision, SourceIdentity
 from basebreak.domain.verdict import EvidenceProvenance
 from basebreak.evidence.append_model import (
     EvidenceIdentity,
     EvidenceRecord,
     EvidenceStore,
     RunIdentity,
+)
+from basebreak.evidence.artifact import (
+    ArtifactDigest,
+    ArtifactReference,
+    DigestAlgorithm,
 )
 from basebreak.evidence.capture import StreamType, capture_stream
 from basebreak.security.secret_policy import (
@@ -277,3 +289,85 @@ class TestP0402ClosureBoundaryConsistency:
                 command=cmd,
             )
         assert synthetic_secret not in str(exc_info.value)
+
+
+class TestP0402ClosureDurableSurfaceCoverage:
+    """Verify durable string-bearing surface coverage and safe diagnostic paths."""
+
+    def test_artifact_media_type_persistence_rejection(self) -> None:
+        secret = "synthetic_media_secret_value"
+        media_type = f"application/json; secret_token={secret}"
+        digest = ArtifactDigest(
+            algorithm=DigestAlgorithm.SHA256,
+            value="a" * 64,
+            byte_length=128,
+        )
+        art = ArtifactReference(digest=digest, media_type=media_type)
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-art-test"),
+                run_id=RunIdentity("run-art-test"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                artifacts=(art,),
+            )
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert exc.path == "artifacts[0].media_type"
+
+    def test_causal_binding_surface_coverage(self) -> None:
+        secret = "sk-synthetic_cb_req_1234567890"
+        source = SourceIdentity(
+            locator="https://github.com/repo",
+            revision=CommitRevision("0" * 40),
+        )
+        cand = CandidateIdentity(candidate_id="cand-01", source=source, patch_digest="a" * 64)
+        witness = WitnessIdentity(witness_id="wit-01", digest="b" * 64, description="clean")
+        cb = CausalBinding(
+            requirement_id=secret,
+            witness=witness,
+            base_source=source,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-cb-test"),
+                run_id=RunIdentity("run-cb-test"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                causal_binding=cb,
+            )
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert exc.path == "causal_binding.requirement_id"
+
+    def test_env_key_and_value_structural_indexing(self) -> None:
+        secret = "sk-synthetic_env_key_secret_12"
+        cmd = ExecutionCommand(
+            argv=("test",),
+            env=((secret, "val"),),
+        )
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-env-test"),
+                run_id=RunIdentity("run-env-test"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                command=cmd,
+            )
+        exc = exc_info.value
+        assert secret not in str(exc)
+        assert secret not in repr(exc)
+        assert secret not in exc.rule_id
+        assert secret not in exc.path
+        assert secret not in exc.category
+        assert exc.path == "command.env[0].key"
