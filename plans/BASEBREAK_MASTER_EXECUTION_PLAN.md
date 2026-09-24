@@ -145,8 +145,8 @@ Acceptance:
 - candidate pushed and remote SHA verified.
 
 ### P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt
-Status: PENDING — promotional prerequisite satisfied; live inference NOT_RUN
-Prerequisite status: Builder Program Token Factory promotional code successfully redeemed. Account balance: $25.00; Trial credits: $1.00 (untouched); Billing: Active; TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00 satisfied. Live inference itself is NOT_RUN. (Promo-arrival preemption applies: P-01.02 executes immediately after independent QA PASS on P-04.02).
+Status: IN_PROGRESS (executor-completed; LIVE_NEBIUS candidate awaiting independent QA)
+Prerequisite status: Builder Program Token Factory promotional code successfully redeemed. Account balance: $25.00; Trial credits: $1.00 (untouched); Billing: Active; TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00 satisfied. (Promo-arrival preemption applies: P-01.02 is the active executable task following independent QA PASS on P-04.02).
 Acceptance:
 - real request/response;
 - model/runtime identity recorded;
@@ -286,7 +286,7 @@ Acceptance:
 - deterministic facts recognized as authoritative over model prose.
 
 ### P-04.02 — Implement secret redaction and forbidden persistence rules
-Status: IN_PROGRESS (executor-completed; awaiting independent QA)
+Status: DONE (independently VERIFIED / PASS at SHA c285379b3a453767db6434786c26ff0c6b6ec34b)
 Acceptance:
 - deterministic secret-shaped value redaction engine;
 - forbidden durable-secret persistence rules for evidence store and logs;

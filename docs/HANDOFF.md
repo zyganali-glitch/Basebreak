@@ -39,29 +39,29 @@ Judge claim:
 - P-03 phase (Evidence Store & Deterministic Fact Authority) is independently CLOSED / PASS at SHA `83eb91da3caec3d52c22c06cf19fd0d5020b1057` (recorded at SHA `666181053b49ebb49cb5fda64b6a5cd4dfb26c9b`).
 - P-01.01B (Extend bounded provider-neutral parallel execution to platform-independent P-04 security primitives while the live gate remains externally blocked) is independently VERIFIED / PASS at SHA `9ccf9e8c1ec34927142da69532814a030e0c2290`.
 - P-04.01 (Formalize target-repository threat model) is independently VERIFIED / PASS at SHA `4db39b136d2fd12e6ebd67eb5c5577d283f279e2`.
-- P-04.02 (Implement secret redaction and forbidden persistence rules) is IN_PROGRESS (third surgical repair completed; awaiting independent QA).
-
+- P-04.02 (Implement secret redaction and forbidden persistence rules) is independently VERIFIED / PASS at SHA `c285379b3a453767db6434786c26ff0c6b6ec34b`.
+ 
 ## Last independently VERIFIED baseline SHA
-`4db39b136d2fd12e6ebd67eb5c5577d283f279e2` (P-04.01 independent QA PASS).
+`c285379b3a453767db6434786c26ff0c6b6ec34b` (P-04.02 independent QA PASS).
 
 ## Blocking live gate vs active executable task
 
-### Blocking live gate
+### Blocking live gate / Active executable task
 `P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt`
-- Status: `PENDING — promotional prerequisite satisfied; live inference NOT_RUN`
-- Prerequisite status: Operator has redeemed Builder Program promotional code. Current live Token Factory UI observation: Account balance $25.00, Trial credits $1.00 (untouched), Billing Active, `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` satisfied.
-- Execution status: Live inference itself is NOT_RUN. No model/API calls performed; $1.00 trial credit remains untouched.
-- Policy floor: `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`.
-- Gate condition: The `$1.00` trial credit MUST NOT be consumed. No automatic paid fallback.
+- Status: `IN_PROGRESS (executor-completed; LIVE_NEBIUS candidate awaiting independent QA)`
+- Prerequisite status: Builder Program Token Factory promotional code successfully redeemed. Account balance: $25.00; Trial credits: $1.00 (untouched); Billing: Active; `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` satisfied.
+- Execution status: Single real live inference executed (HTTP 200, model `nvidia/Nemotron-3_5-Lightning`, 61 tokens, 0.717s). Documented in `docs/P01_02_LIVE_INFERENCE.md`.
+- Policy floor: `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` satisfied ($25.00 post-call balance verified).
+- Gate condition: The `$1.00` trial credit MUST NOT be consumed (verified untouched). No automatic paid fallback.
 - Phase impact: P-01 phase remains OPEN; no GO decision can be awarded without required `LIVE_NEBIUS` evidence.
 
 ### Current QA candidate
-`P-04.02 — Implement secret redaction and forbidden persistence rules` (executor-completed third surgical repair: auth-context repair; awaiting independent QA verification).
+`P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt` (LIVE_NEBIUS candidate awaiting independent QA).
 
 ### Active executable task
-`P-04.02 — Implement secret redaction and forbidden persistence rules` (third surgical repair completed).
+`P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt` (executor-completed).
 
-*(Note: Exactly ONE executable micro-task is active at a time. Promo-arrival preemption applies: finish P-04.02, stop, obtain independent QA, then return to P-01.02. P-04.04 MUST NOT START before P-04.02 independent PASS).*
+*(Note: Exactly ONE executable micro-task is active at a time. P-01 is OPEN. P-04 is OPEN. P-04.04 is PENDING / NOT ACTIVE. P-05+ remain strictly forbidden).*
 
 ## Parallelization boundary & rules
 - **Allowlist:** Under P-01.01B amendment, the previous P-02 and P-03 lanes are complete and independently closed. The active allowlist permits sequential execution ONLY of platform-independent P-04 security primitives: `P-04.01` (threat model), `P-04.02` (secret redaction / persistence), and `P-04.04` (protected-surface manifest/diff).
@@ -87,9 +87,9 @@ Judge claim:
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-04.02 (third surgical security repair) for independent QA review.
-2. Upon independent P-04.02 QA PASS: RETURN IMMEDIATELY TO P-01.02 (Execute first real Token Factory Nemotron inference call with sanitized minimal prompt).
-3. Do NOT start P-04.04 before P-04.02 independent PASS.
+1. Submit P-01.02 (LIVE_NEBIUS evidence recorded in `docs/P01_02_LIVE_INFERENCE.md`) for independent QA review.
+2. Do NOT start P-01.03.
+3. Do NOT start P-04.04.
 4. P-01 phase remains OPEN.
 5. P-04 phase remains OPEN.
 6. P-04.03, P-04.05, P-04.06 and P-05+ remain strictly unauthorized / forbidden under the current offline lane.
