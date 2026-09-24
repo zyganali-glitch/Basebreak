@@ -971,6 +971,293 @@ diff --git a/docs/mypolicy.md b/docs/mypolicy.md
             parse_unified_diff_changes(diff_missing_new)
 
 
+class TestDiffMetadataConsistency:
+    """Test cross-header consistency and contradictory state rejection."""
+
+    @pytest.fixture
+    def manifest(self) -> ProtectedSurfaceManifest:
+        return get_canonical_basebreak_protected_manifest()
+
+    def test_copy_to_protected_path_raises_diff_parse_error(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """1. Copy header targeting protected surface is rejected as unsupported."""
+        diff_text = """diff --git a/safe.txt b/safe.txt
+similarity index 100%
+copy from safe.txt
+copy to AGENTS.md
+"""
+        with pytest.raises(DiffParseError, match="Copy operations are not supported"):
+            parse_unified_diff_changes(diff_text)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_text, manifest)
+
+    def test_copy_to_safe_path_unsupported_raises_diff_parse_error(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """2. Copy operation to safe path is unsupported and raises DiffParseError."""
+        diff_text = """diff --git a/safe.txt b/safe_copy.txt
+similarity index 100%
+copy from safe.txt
+copy to safe_copy.txt
+"""
+        with pytest.raises(DiffParseError, match="Copy operations are not supported"):
+            parse_unified_diff_changes(diff_text)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_text, manifest)
+
+    def test_modify_path_mismatch_raises_diff_parse_error(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """3. Modify diff where +++ path contradicts git new path fails closed."""
+        diff_text = """diff --git a/safe.txt b/safe.txt
+--- a/safe.txt
++++ b/AGENTS.md
+@@ -1 +1 @@
+-old
++new
+"""
+        with pytest.raises(DiffParseError, match="Contradictory git diff paths"):
+            parse_unified_diff_changes(diff_text)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_text, manifest)
+
+    def test_reverse_mismatch_raises_diff_parse_error(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """4. Reverse mismatch where --- path contradicts git old path fails closed."""
+        diff_text = """diff --git a/AGENTS.md b/AGENTS.md
+--- a/safe.txt
++++ b/safe.txt
+@@ -1 +1 @@
+-old
++new
+"""
+        with pytest.raises(DiffParseError, match="Contradictory git diff paths"):
+            parse_unified_diff_changes(diff_text)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_text, manifest)
+
+    def test_add_destination_mismatch_raises_diff_parse_error(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """5. Add diff where +++ path contradicts git new path fails closed."""
+        diff_text = """diff --git a/new.txt b/new.txt
+--- /dev/null
++++ b/AGENTS.md
+@@ -0,0 +1 @@
++content
+"""
+        with pytest.raises(DiffParseError, match="Contradictory git diff paths"):
+            parse_unified_diff_changes(diff_text)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_text, manifest)
+
+    def test_delete_source_mismatch_raises_diff_parse_error(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """6. Delete diff where --- path contradicts git old path fails closed."""
+        diff_text = """diff --git a/del.txt b/del.txt
+--- a/AGENTS.md
++++ /dev/null
+@@ -1 +0,0 @@
+-content
+"""
+        with pytest.raises(DiffParseError, match="Contradictory git diff paths"):
+            parse_unified_diff_changes(diff_text)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_text, manifest)
+
+    def test_rename_destination_mismatch_raises_diff_parse_error(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """7. Rename where rename to contradicts git new path fails closed."""
+        diff_dest_mismatch = """diff --git a/old.txt b/safe.txt
+similarity index 100%
+rename from old.txt
+rename to AGENTS.md
+"""
+        with pytest.raises(DiffParseError, match="rename to"):
+            parse_unified_diff_changes(diff_dest_mismatch)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_dest_mismatch, manifest)
+
+        diff_inverse = """diff --git a/old.txt b/AGENTS.md
+similarity index 100%
+rename from old.txt
+rename to safe.txt
+"""
+        with pytest.raises(DiffParseError, match="rename to"):
+            parse_unified_diff_changes(diff_inverse)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_inverse, manifest)
+
+    def test_rename_source_mismatch_raises_diff_parse_error(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """8. Rename where rename from contradicts git old path fails closed."""
+        diff_text = """diff --git a/old.txt b/new.txt
+similarity index 100%
+rename from AGENTS.md
+rename to new.txt
+"""
+        with pytest.raises(DiffParseError, match="rename from"):
+            parse_unified_diff_changes(diff_text)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_text, manifest)
+
+    def test_binary_header_path_mismatch_raises_diff_parse_error(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """9. Binary files header with mismatched paths fails closed."""
+        diff_mismatch_new = """diff --git a/safe.bin b/safe.bin
+Binary files a/safe.bin and b/AGENTS.md differ
+"""
+        with pytest.raises(DiffParseError, match="Binary files"):
+            parse_unified_diff_changes(diff_mismatch_new)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_mismatch_new, manifest)
+
+        diff_mismatch_old = """diff --git a/safe.bin b/safe.bin
+Binary files a/AGENTS.md and b/safe.bin differ
+"""
+        with pytest.raises(DiffParseError, match="Binary files"):
+            parse_unified_diff_changes(diff_mismatch_old)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_mismatch_old, manifest)
+
+        # Corroborated binary diff is accepted as MODIFY
+        diff_valid = """diff --git a/safe.bin b/safe.bin
+Binary files a/safe.bin and b/safe.bin differ
+"""
+        changes = parse_unified_diff_changes(diff_valid)
+        assert len(changes) == 1
+        assert changes[0].path == "safe.bin"
+        assert changes[0].kind == FileChangeKind.MODIFY
+
+    def test_contradictory_new_and_deleted_file_mode_raises_diff_parse_error(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """10. Contradictory new file mode and deleted file mode in same section."""
+        diff_text = """diff --git a/file.txt b/file.txt
+new file mode 100644
+deleted file mode 100644
+"""
+        with pytest.raises(DiffParseError, match="both new file mode and deleted file mode"):
+            parse_unified_diff_changes(diff_text)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_text, manifest)
+
+    def test_half_mode_transition_raises_diff_parse_error(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """11. Old mode without new mode, or new mode without old mode."""
+        diff_old_only = """diff --git a/file.txt b/file.txt
+old mode 100644
+"""
+        with pytest.raises(DiffParseError, match="Incomplete mode transition"):
+            parse_unified_diff_changes(diff_old_only)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_old_only, manifest)
+
+        diff_new_only = """diff --git a/file.txt b/file.txt
+new mode 100755
+"""
+        with pytest.raises(DiffParseError, match="Incomplete mode transition"):
+            parse_unified_diff_changes(diff_new_only)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_new_only, manifest)
+
+    def test_contradictory_mode_and_state_combinations(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """Additional contradictory combinations raise DiffParseError."""
+        # A: new file mode with mode transition
+        diff_nfm_trans = """diff --git a/file.txt b/file.txt
+new file mode 100644
+old mode 100644
+new mode 100755
+"""
+        with pytest.raises(
+            DiffParseError, match="new file mode cannot coexist with mode transition"
+        ):
+            parse_unified_diff_changes(diff_nfm_trans)
+
+        # B: deleted file mode with mode transition
+        diff_dfm_trans = """diff --git a/file.txt b/file.txt
+deleted file mode 100644
+old mode 100644
+new mode 100755
+"""
+        with pytest.raises(
+            DiffParseError, match="deleted file mode cannot coexist with mode transition"
+        ):
+            parse_unified_diff_changes(diff_dfm_trans)
+
+        # C: rename with new file mode
+        diff_ren_nfm = """diff --git a/old.txt b/new.txt
+rename from old.txt
+rename to new.txt
+new file mode 100644
+"""
+        with pytest.raises(DiffParseError, match="rename cannot coexist with new file mode"):
+            parse_unified_diff_changes(diff_ren_nfm)
+
+        # D: rename with deleted file mode
+        diff_ren_dfm = """diff --git a/old.txt b/new.txt
+rename from old.txt
+rename to new.txt
+deleted file mode 100644
+"""
+        with pytest.raises(DiffParseError, match="rename cannot coexist with deleted file mode"):
+            parse_unified_diff_changes(diff_ren_dfm)
+
+        # E: diff --git paths disagree without rename headers
+        diff_no_ren = """diff --git a/safe.txt b/AGENTS.md
+--- a/safe.txt
++++ b/AGENTS.md
+@@ -1 +1 @@
+-old
++new
+"""
+        with pytest.raises(DiffParseError, match="without rename headers"):
+            parse_unified_diff_changes(diff_no_ren)
+
+        # F: conflicting mode evidence (new file mode vs index mode)
+        diff_conflicting_mode = """diff --git a/link b/link
+new file mode 100644
+index 1111111..2222222 120000
+--- /dev/null
++++ b/link
+@@ -0,0 +1 @@
++target.txt
+"""
+        with pytest.raises(DiffParseError, match="Conflicting mode metadata"):
+            parse_unified_diff_changes(diff_conflicting_mode)
+
+        # G: non-git unified diff path mismatch
+        diff_nongit_mismatch = """--- a/safe.txt
++++ b/AGENTS.md
+@@ -1 +1 @@
+-old
++new
+"""
+        with pytest.raises(DiffParseError, match="Mismatched paths in non-git unified diff"):
+            parse_unified_diff_changes(diff_nongit_mismatch)
+
+        # H: duplicate --- header in git diff
+        diff_dup_hdr = """diff --git a/safe.txt b/safe.txt
+--- a/safe.txt
+--- a/safe.txt
++++ b/safe.txt
+@@ -1 +1 @@
+-old
++new
+"""
+        with pytest.raises(DiffParseError, match="Duplicate --- header"):
+            parse_unified_diff_changes(diff_dup_hdr)
+
+
 class TestCanonicalBasebreakManifest:
     """Verify the canonical manifest derived from committed governance authority."""
 

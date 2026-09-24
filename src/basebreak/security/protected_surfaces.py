@@ -28,8 +28,6 @@ _FORBIDDEN_PATH_CHARS_PATTERN = re.compile(r"[\0\r\n\t]")
 _GIT_DIFF_HEADER = re.compile(r"^diff --git (?P<old>[^\"\s]+) (?P<new>[^\"\s]+)$")
 _GIT_RENAME_FROM = re.compile(r"^rename from (?P<path>[^\"\s]+)$")
 _GIT_RENAME_TO = re.compile(r"^rename to (?P<path>[^\"\s]+)$")
-_GIT_COPY_FROM = re.compile(r"^copy from (?P<path>[^\"\s]+)$")
-_GIT_COPY_TO = re.compile(r"^copy to (?P<path>[^\"\s]+)$")
 _GIT_NEW_FILE_MODE = re.compile(r"^new file mode (?P<mode>\d{6})$")
 _GIT_DELETED_FILE_MODE = re.compile(r"^deleted file mode (?P<mode>\d{6})$")
 _GIT_OLD_MODE = re.compile(r"^old mode (?P<mode>\d{6})$")
@@ -945,11 +943,13 @@ def parse_unified_diff_changes(diff_text: str) -> list[FileChange]:
 
             new_file_mode: str | None = None
             deleted_file_mode: str | None = None
-            _old_mode: str | None = None
+            old_mode: str | None = None
             new_mode: str | None = None
             index_mode: str | None = None
+            index_seen: bool = False
             rename_from: str | None = None
             rename_to: str | None = None
+            similarity_seen: bool = False
             diff_old_header: str | None = None
             diff_new_header: str | None = None
 
@@ -962,31 +962,44 @@ def parse_unified_diff_changes(diff_text: str) -> list[FileChange]:
                     break
 
                 if hdr.startswith("new file mode "):
+                    if new_file_mode is not None:
+                        raise DiffParseError(f"Duplicate new file mode header: {hdr!r}")
                     if m_nfm := _GIT_NEW_FILE_MODE.match(hdr):
                         new_file_mode = m_nfm.group("mode")
                     else:
                         raise DiffParseError(f"Malformed new file mode header: {hdr!r}")
                 elif hdr.startswith("deleted file mode "):
+                    if deleted_file_mode is not None:
+                        raise DiffParseError(f"Duplicate deleted file mode header: {hdr!r}")
                     if m_dfm := _GIT_DELETED_FILE_MODE.match(hdr):
                         deleted_file_mode = m_dfm.group("mode")
                     else:
                         raise DiffParseError(f"Malformed deleted file mode header: {hdr!r}")
                 elif hdr.startswith("old mode "):
+                    if old_mode is not None:
+                        raise DiffParseError(f"Duplicate old mode header: {hdr!r}")
                     if m_om := _GIT_OLD_MODE.match(hdr):
-                        _old_mode = m_om.group("mode")
+                        old_mode = m_om.group("mode")
                     else:
                         raise DiffParseError(f"Malformed old mode header: {hdr!r}")
                 elif hdr.startswith("new mode "):
+                    if new_mode is not None:
+                        raise DiffParseError(f"Duplicate new mode header: {hdr!r}")
                     if m_nm := _GIT_NEW_MODE.match(hdr):
                         new_mode = m_nm.group("mode")
                     else:
                         raise DiffParseError(f"Malformed new mode header: {hdr!r}")
                 elif hdr.startswith("index "):
+                    if index_seen:
+                        raise DiffParseError(f"Duplicate index header: {hdr!r}")
+                    index_seen = True
                     if m_idx := _GIT_INDEX_LINE.match(hdr):
                         index_mode = m_idx.group("mode")
                     else:
                         raise DiffParseError(f"Malformed index line: {hdr!r}")
                 elif hdr.startswith("rename from"):
+                    if rename_from is not None:
+                        raise DiffParseError(f"Duplicate rename from header: {hdr!r}")
                     if m_rf := _GIT_RENAME_FROM.match(hdr):
                         rename_from = m_rf.group("path")
                     else:
@@ -994,33 +1007,61 @@ def parse_unified_diff_changes(diff_text: str) -> list[FileChange]:
                             f"Unsupported or malformed rename from header: {hdr!r}"
                         )
                 elif hdr.startswith("rename to"):
+                    if rename_to is not None:
+                        raise DiffParseError(f"Duplicate rename to header: {hdr!r}")
                     if m_rt := _GIT_RENAME_TO.match(hdr):
                         rename_to = m_rt.group("path")
                     else:
                         raise DiffParseError(f"Unsupported or malformed rename to header: {hdr!r}")
                 elif hdr.startswith("similarity index ") or hdr.startswith("dissimilarity index "):
+                    if similarity_seen:
+                        raise DiffParseError(f"Duplicate similarity index header: {hdr!r}")
+                    similarity_seen = True
                     if not _GIT_SIMILARITY_INDEX.match(hdr):
                         raise DiffParseError(f"Malformed similarity index header: {hdr!r}")
-                elif hdr.startswith("copy from"):
-                    if not _GIT_COPY_FROM.match(hdr):
-                        raise DiffParseError(f"Unsupported or malformed copy from header: {hdr!r}")
-                elif hdr.startswith("copy to"):
-                    if not _GIT_COPY_TO.match(hdr):
-                        raise DiffParseError(f"Unsupported or malformed copy to header: {hdr!r}")
+                elif hdr.startswith("copy from") or hdr.startswith("copy to"):
+                    raise DiffParseError(
+                        f"Unsupported copy header in git diff: {hdr!r}. "
+                        "Copy operations are not supported."
+                    )
                 elif hdr.startswith("---"):
+                    if diff_old_header is not None:
+                        raise DiffParseError(f"Duplicate --- header in git diff: {hdr!r}")
                     if m_do := _DIFF_OLD_HEADER.match(hdr):
                         diff_old_header = m_do.group("path")
                     else:
                         raise DiffParseError(f"Unsupported or malformed --- path header: {hdr!r}")
                 elif hdr.startswith("+++"):
+                    if diff_new_header is not None:
+                        raise DiffParseError(f"Duplicate +++ header in git diff: {hdr!r}")
                     if m_dn := _DIFF_NEW_HEADER.match(hdr):
                         diff_new_header = m_dn.group("path")
                     else:
                         raise DiffParseError(f"Unsupported or malformed +++ path header: {hdr!r}")
                 elif hdr.startswith("Binary files "):
+                    if diff_old_header is not None or diff_new_header is not None:
+                        raise DiffParseError(
+                            f"Conflicting path headers before Binary files: {hdr!r}"
+                        )
                     if m_bin := _GIT_BINARY_FILES.match(hdr):
-                        diff_old_header = m_bin.group("old")
-                        diff_new_header = m_bin.group("new")
+                        bin_old = m_bin.group("old")
+                        bin_new = m_bin.group("new")
+                        if bin_old != "/dev/null" and _strip_git_diff_prefix(bin_old) != raw_old:
+                            raise DiffParseError(
+                                f"Contradictory Binary files old path: '{raw_old}' "
+                                f"!= '{_strip_git_diff_prefix(bin_old)}'"
+                            )
+                        if bin_new != "/dev/null" and _strip_git_diff_prefix(bin_new) != raw_new:
+                            raise DiffParseError(
+                                f"Contradictory Binary files new path: '{raw_new}' "
+                                f"!= '{_strip_git_diff_prefix(bin_new)}'"
+                            )
+                        if bin_old == "/dev/null" and bin_new == "/dev/null":
+                            raise DiffParseError(
+                                "Invalid Binary files diff: both old and new are /dev/null"
+                            )
+                        diff_old_header = bin_old
+                        diff_new_header = bin_new
                     else:
                         raise DiffParseError(
                             f"Unsupported or malformed Binary files header: {hdr!r}"
@@ -1041,44 +1082,210 @@ def parse_unified_diff_changes(diff_text: str) -> list[FileChange]:
 
                 i += 1
 
+            # --- Blocker C: Reject internally contradictory mode/state headers ---
+
+            # 1. new file mode and deleted file mode must not coexist
+            if new_file_mode is not None and deleted_file_mode is not None:
+                raise DiffParseError(
+                    "Contradictory git diff metadata: "
+                    "both new file mode and deleted file mode present"
+                )
+
+            # 2. new file mode must not coexist with mode transition
+            if new_file_mode is not None and (old_mode is not None or new_mode is not None):
+                raise DiffParseError(
+                    "Contradictory git diff metadata: "
+                    "new file mode cannot coexist with mode transition"
+                )
+
+            # 3. deleted file mode must not coexist with mode transition
+            if deleted_file_mode is not None and (old_mode is not None or new_mode is not None):
+                raise DiffParseError(
+                    "Contradictory git diff metadata: "
+                    "deleted file mode cannot coexist with mode transition"
+                )
+
+            # 4. old mode without new mode, or new mode without old mode
+            if (old_mode is None) != (new_mode is None):
+                raise DiffParseError(
+                    "Incomplete mode transition in git diff: "
+                    "old mode without new mode or vice versa"
+                )
+
+            # 5. rename completeness
             if (rename_from is None) != (rename_to is None):
                 raise DiffParseError(
                     "Incomplete rename in git diff: rename from without rename to or vice versa"
                 )
 
-            # 1. Handle deletion (deleted file mode or +++ /dev/null)
-            if deleted_file_mode is not None or diff_new_header == "/dev/null":
-                clean_old = (
-                    _strip_git_diff_prefix(diff_old_header)
-                    if diff_old_header and diff_old_header != "/dev/null"
-                    else raw_old
-                )
-                if not clean_old:
-                    raise DiffParseError("Empty path for deleted file in git diff")
-                changes.append(FileChange.delete(clean_old))
-                i = _skip_hunk_lines(lines, i)
-                continue
+            # 6. rename cannot coexist with new file mode or deleted file mode
+            if rename_from is not None:
+                if new_file_mode is not None:
+                    raise DiffParseError(
+                        "Contradictory git diff metadata: rename cannot coexist with new file mode"
+                    )
+                if deleted_file_mode is not None:
+                    raise DiffParseError(
+                        "Contradictory git diff metadata: "
+                        "rename cannot coexist with deleted file mode"
+                    )
 
-            # 2. Determine resulting file mode
+            # 7. similarity index without rename
+            if similarity_seen and rename_from is None:
+                raise DiffParseError("Orphaned similarity index in git diff without rename headers")
+
+            # 8. --- and +++ pair completeness within git diff section
+            if (diff_old_header is None) != (diff_new_header is None):
+                raise DiffParseError(
+                    "Incomplete git diff path headers: --- without +++ or vice versa"
+                )
+
+            if diff_old_header == "/dev/null" and diff_new_header == "/dev/null":
+                raise DiffParseError("Invalid git diff: both --- and +++ are /dev/null")
+
+            # 9. Determine resulting mode and verify no conflicting mode evidence
             resulting_mode: str | None = None
             if new_file_mode is not None:
+                if index_mode is not None and index_mode != new_file_mode:
+                    raise DiffParseError(
+                        f"Conflicting mode metadata: new file mode '{new_file_mode}' "
+                        f"vs index mode '{index_mode}'"
+                    )
                 resulting_mode = new_file_mode
             elif new_mode is not None:
+                if index_mode is not None and index_mode != new_mode:
+                    raise DiffParseError(
+                        f"Conflicting mode metadata: new mode '{new_mode}' "
+                        f"vs index mode '{index_mode}'"
+                    )
                 resulting_mode = new_mode
             elif index_mode is not None:
+                if deleted_file_mode is not None and index_mode != deleted_file_mode:
+                    raise DiffParseError(
+                        f"Conflicting mode metadata: deleted file mode '{deleted_file_mode}' "
+                        f"vs index mode '{index_mode}'"
+                    )
                 resulting_mode = index_mode
 
             resulting_is_symlink = resulting_mode == "120000"
 
-            # 3. Handle resulting symlink (new, modified target, or converted to symlink)
-            if resulting_is_symlink:
-                target_path = (
-                    _strip_git_diff_prefix(diff_new_header)
-                    if diff_new_header and diff_new_header != "/dev/null"
-                    else raw_new
+            # 10. Symlink conversion cannot coexist with rename
+            if resulting_is_symlink and rename_from is not None:
+                raise DiffParseError(
+                    "Contradictory git diff metadata: rename cannot coexist with symlink conversion"
                 )
-                if not target_path:
-                    raise DiffParseError("Empty path for symlink in git diff")
+
+            # --- Blocker B: Cross-header path consistency ---
+
+            # 11. Rename headers path consistency
+            if rename_from is not None and rename_to is not None:
+                clean_from = _strip_git_diff_prefix(rename_from)
+                clean_to = _strip_git_diff_prefix(rename_to)
+                if not clean_from or not clean_to:
+                    raise DiffParseError("Empty path in rename headers")
+                if clean_from == clean_to:
+                    raise DiffParseError(
+                        "Contradictory git diff metadata: "
+                        f"rename source and destination are identical: {clean_from!r}"
+                    )
+                if clean_from != raw_old:
+                    raise DiffParseError(
+                        f"Contradictory git diff paths: rename from '{clean_from}' "
+                        f"does not match git old path '{raw_old}'"
+                    )
+                if clean_to != raw_new:
+                    raise DiffParseError(
+                        f"Contradictory git diff paths: rename to '{clean_to}' "
+                        f"does not match git new path '{raw_new}'"
+                    )
+                if diff_old_header is not None and diff_old_header == "/dev/null":
+                    raise DiffParseError(
+                        "Contradictory git diff metadata: rename cannot have /dev/null --- header"
+                    )
+                if diff_new_header is not None and diff_new_header == "/dev/null":
+                    raise DiffParseError(
+                        "Contradictory git diff metadata: rename cannot have /dev/null +++ header"
+                    )
+            else:
+                # When rename headers are absent, diff --git old and new paths must match
+                if raw_old != raw_new:
+                    raise DiffParseError(
+                        f"Contradictory git diff paths without rename headers: "
+                        f"old path '{raw_old}' != new path '{raw_new}'"
+                    )
+
+            # 12. --- and +++ path corroboration against git old and new paths
+            if diff_old_header is not None:
+                if diff_old_header != "/dev/null":
+                    clean_diff_old = _strip_git_diff_prefix(diff_old_header)
+                    if clean_diff_old != raw_old:
+                        raise DiffParseError(
+                            f"Contradictory git diff paths: git old path '{raw_old}' "
+                            f"!= --- path '{clean_diff_old}'"
+                        )
+
+            if diff_new_header is not None:
+                if diff_new_header != "/dev/null":
+                    clean_diff_new = _strip_git_diff_prefix(diff_new_header)
+                    if clean_diff_new != raw_new:
+                        raise DiffParseError(
+                            f"Contradictory git diff paths: git new path '{raw_new}' "
+                            f"!= +++ path '{clean_diff_new}'"
+                        )
+
+            # 13. Add / Delete state corroboration
+            is_deletion = deleted_file_mode is not None or diff_new_header == "/dev/null"
+            is_addition = new_file_mode is not None or diff_old_header == "/dev/null"
+
+            if is_deletion and is_addition:
+                raise DiffParseError(
+                    "Contradictory git diff metadata: section cannot be both addition and deletion"
+                )
+
+            if new_file_mode is not None:
+                if diff_old_header is not None and diff_old_header != "/dev/null":
+                    raise DiffParseError(
+                        "Contradictory git diff metadata: "
+                        "new file mode with non-/dev/null --- header"
+                    )
+                if diff_new_header == "/dev/null":
+                    raise DiffParseError(
+                        "Contradictory git diff metadata: new file mode with /dev/null +++ header"
+                    )
+
+            if deleted_file_mode is not None:
+                if diff_new_header is not None and diff_new_header != "/dev/null":
+                    raise DiffParseError(
+                        "Contradictory git diff metadata: "
+                        "deleted file mode with non-/dev/null +++ header"
+                    )
+                if diff_old_header == "/dev/null":
+                    raise DiffParseError(
+                        "Contradictory git diff metadata: "
+                        "deleted file mode with /dev/null --- header"
+                    )
+
+            if diff_old_header is None and diff_new_header is None:
+                if (
+                    new_file_mode is None
+                    and deleted_file_mode is None
+                    and old_mode is None
+                    and rename_from is None
+                ):
+                    raise DiffParseError(
+                        f"Git diff section for '{raw_old}' has no recognized "
+                        "diff headers or changes"
+                    )
+
+            # 1. Handle deletion (deleted file mode or +++ /dev/null)
+            if is_deletion:
+                changes.append(FileChange.delete(raw_old))
+                i = _skip_hunk_lines(lines, i)
+                continue
+
+            # 2. Handle resulting symlink (new, modified target, or converted to symlink)
+            if resulting_is_symlink:
+                target_path = raw_new
 
                 added_targets: list[str] = []
                 while i < len(lines):
@@ -1115,46 +1322,20 @@ def parse_unified_diff_changes(diff_text: str) -> list[FileChange]:
                         "resulting state is mode 120000 but no added target line found in diff"
                     )
 
-            # 4. Handle rename
+            # 3. Handle rename
             if rename_from is not None and rename_to is not None:
-                clean_from = _strip_git_diff_prefix(rename_from)
-                clean_to = _strip_git_diff_prefix(rename_to)
-                if not clean_from or not clean_to:
-                    raise DiffParseError("Empty path in rename headers")
-                changes.append(FileChange.rename(old_path=clean_from, new_path=clean_to))
+                changes.append(FileChange.rename(old_path=raw_old, new_path=raw_new))
                 i = _skip_hunk_lines(lines, i)
                 continue
 
-            # 5. Handle addition (--- /dev/null +++ b/path or new file mode)
-            if diff_old_header == "/dev/null" and diff_new_header:
-                clean_new = _strip_git_diff_prefix(diff_new_header)
-                if not clean_new:
-                    raise DiffParseError("Empty path for added file in git diff")
-                changes.append(FileChange.add(clean_new))
+            # 4. Handle addition (--- /dev/null +++ b/path or new file mode)
+            if is_addition:
+                changes.append(FileChange.add(raw_new))
                 i = _skip_hunk_lines(lines, i)
                 continue
 
-            if new_file_mode is not None:
-                clean_new = (
-                    _strip_git_diff_prefix(diff_new_header)
-                    if diff_new_header and diff_new_header != "/dev/null"
-                    else raw_new
-                )
-                if not clean_new:
-                    raise DiffParseError("Empty path for added file in git diff")
-                changes.append(FileChange.add(clean_new))
-                i = _skip_hunk_lines(lines, i)
-                continue
-
-            # 6. Handle standard modify
-            effective_path = (
-                _strip_git_diff_prefix(diff_new_header)
-                if diff_new_header and diff_new_header != "/dev/null"
-                else raw_new
-            )
-            if not effective_path:
-                raise DiffParseError("Empty path for modified file in git diff")
-            changes.append(FileChange.modify(effective_path))
+            # 5. Handle standard modify
+            changes.append(FileChange.modify(raw_new))
             i = _skip_hunk_lines(lines, i)
             continue
 
@@ -1204,7 +1385,13 @@ def parse_unified_diff_changes(diff_text: str) -> list[FileChange]:
                     raise DiffParseError("Empty path in --- header")
                 changes.append(FileChange.delete(path))
             else:
-                path = _strip_git_diff_prefix(new_h)
+                old_p = _strip_git_diff_prefix(old_h)
+                new_p = _strip_git_diff_prefix(new_h)
+                if old_p != new_p:
+                    raise DiffParseError(
+                        f"Mismatched paths in non-git unified diff: {old_p!r} vs {new_p!r}"
+                    )
+                path = new_p
                 if not path:
                     raise DiffParseError("Empty path in +++ header")
                 changes.append(FileChange.modify(path))
