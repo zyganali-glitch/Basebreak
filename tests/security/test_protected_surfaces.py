@@ -745,6 +745,231 @@ index 1111111..2222222 120000
         assert report.is_valid
         assert len(report.violations) == 0
 
+    def test_quoted_git_diff_path_with_internal_spaces_fails_closed(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """Quoted git diff paths with internal spaces do not get truncated or accepted."""
+        diff_text = """diff --git "a/docs/my policy.md" "b/docs/my policy.md"
+--- "a/docs/my policy.md"
++++ "b/docs/my policy.md"
+@@ -1 +1 @@
+-old
++new
+"""
+        with pytest.raises(DiffParseError, match="Quoted paths and paths with spaces"):
+            parse_unified_diff_changes(diff_text)
+
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_text, manifest)
+
+    def test_protected_manifest_with_space_cannot_be_bypassed_by_quoted_diff(self) -> None:
+        """Protected manifest with file containing space cannot be bypassed by quoted diff.
+
+        Must fail closed with DiffParseError and never return PASS.
+        Direct FileChange mutation is also verified as EXACT_MATCH violation.
+        """
+        manifest = ProtectedSurfaceManifest(
+            exact_files=frozenset({"docs/my policy.md"}),
+            directory_prefixes=frozenset(),
+            description="Manifest with spaced path",
+        )
+        diff_text = """diff --git "a/docs/my policy.md" "b/docs/my policy.md"
+--- "a/docs/my policy.md"
++++ "b/docs/my policy.md"
+@@ -1 +1 @@
+-old
++new
+"""
+        # Quoted diff must fail closed with DiffParseError, never PASS
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_text, manifest)
+
+        # Direct FileChange mutation also raises ProtectedSurfaceViolation
+        with pytest.raises(ProtectedSurfaceViolation) as exc_info:
+            validate_protected_surfaces([FileChange.modify("docs/my policy.md")], manifest)
+        assert any(
+            v.violation_kind == ProtectedSurfaceViolationKind.EXACT_MATCH
+            for v in exc_info.value.findings
+        )
+
+    def test_multifile_diff_with_bad_section_fails_closed(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """Multi-file diff containing safe section and bad section fails closed.
+
+        The bad section must not silently disappear while accepting the safe section.
+        """
+        # Case A: Second section has quoted diff --git header
+        diff_quoted = """diff --git a/src/app.py b/src/app.py
+--- a/src/app.py
++++ b/src/app.py
+@@ -1 +1 @@
+-old
++new
+diff --git "a/docs/my policy.md" "b/docs/my policy.md"
+--- "a/docs/my policy.md"
++++ "b/docs/my policy.md"
+@@ -1 +1 @@
+-old
++new
+"""
+        with pytest.raises(DiffParseError):
+            parse_unified_diff_changes(diff_quoted)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_quoted, manifest)
+
+        # Case B: Second section has malformed diff --git header
+        diff_malformed_header = """diff --git a/src/app.py b/src/app.py
+--- a/src/app.py
++++ b/src/app.py
+@@ -1 +1 @@
+-old
++new
+diff --git
+"""
+        with pytest.raises(DiffParseError):
+            parse_unified_diff_changes(diff_malformed_header)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_malformed_header, manifest)
+
+        # Case C: Second section has quoted --- header
+        diff_quoted_old = """diff --git a/src/app.py b/src/app.py
+--- a/src/app.py
++++ b/src/app.py
+@@ -1 +1 @@
+-old
++new
+diff --git a/docs/mypolicy.md b/docs/mypolicy.md
+--- "a/docs/my policy.md"
++++ "b/docs/my policy.md"
+@@ -1 +1 @@
+-old
++new
+"""
+        with pytest.raises(DiffParseError):
+            parse_unified_diff_changes(diff_quoted_old)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_quoted_old, manifest)
+
+        # Case D: Second section has quoted +++ header
+        diff_quoted_new = """diff --git a/src/app.py b/src/app.py
+--- a/src/app.py
++++ b/src/app.py
+@@ -1 +1 @@
+-old
++new
+diff --git a/docs/mypolicy.md b/docs/mypolicy.md
+--- a/docs/mypolicy.md
++++ "b/docs/my policy.md"
+@@ -1 +1 @@
+-old
++new
+"""
+        with pytest.raises(DiffParseError):
+            parse_unified_diff_changes(diff_quoted_new)
+        with pytest.raises(DiffParseError):
+            validate_diff(diff_quoted_new, manifest)
+
+    @pytest.mark.parametrize(
+        "malformed_header",
+        [
+            "diff --git",
+            "diff --git a/only_one",
+            "diff --git a/one b/two c/three",
+            'diff --git "a/quoted" b/unquoted',
+            'diff --git a/unquoted "b/quoted"',
+            "diff --git a/path with spaces b/path with spaces",
+            "diff --git a/ b/",
+            "diff --git a/foo b/foo trailing_garbage",
+        ],
+    )
+    def test_malformed_git_diff_header_fails_closed(self, malformed_header: str) -> None:
+        """Malformed or unsupported diff --git headers raise DiffParseError."""
+        diff_text = f"{malformed_header}\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b\n"
+        with pytest.raises(DiffParseError):
+            parse_unified_diff_changes(diff_text)
+
+    @pytest.mark.parametrize(
+        "bad_old_header",
+        [
+            '--- "a/docs/my policy.md"',
+            "--- a/docs/my policy.md",
+            "---",
+            "--- ",
+            "--- \t",
+        ],
+    )
+    def test_malformed_diff_old_header_fails_closed(self, bad_old_header: str) -> None:
+        """Malformed or unsupported --- headers in a git diff raise DiffParseError."""
+        diff_text = f"diff --git a/f b/f\n{bad_old_header}\n+++ b/f\n@@ -1 +1 @@\n-a\n+b\n"
+        with pytest.raises(DiffParseError):
+            parse_unified_diff_changes(diff_text)
+
+    @pytest.mark.parametrize(
+        "bad_new_header",
+        [
+            '+++ "b/docs/my policy.md"',
+            "+++ b/docs/my policy.md",
+            "+++",
+            "+++ ",
+            "+++ \t",
+        ],
+    )
+    def test_malformed_diff_new_header_fails_closed(self, bad_new_header: str) -> None:
+        """Malformed or unsupported +++ headers in a git diff raise DiffParseError."""
+        diff_text = f"diff --git a/f b/f\n--- a/f\n{bad_new_header}\n@@ -1 +1 @@\n-a\n+b\n"
+        with pytest.raises(DiffParseError):
+            parse_unified_diff_changes(diff_text)
+
+    def test_empty_or_whitespace_diff_explicit_behavior(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """Empty and whitespace-only diffs return empty changes and valid report with 0 changes."""
+        for empty_input in ("", "   ", "\n\n", "  \t\n  \r\n  "):
+            changes = parse_unified_diff_changes(empty_input)
+            assert changes == []
+            report = validate_diff(empty_input, manifest)
+            assert report.is_valid is True
+            assert report.checked_changes == 0
+            assert len(report.violations) == 0
+
+    def test_non_empty_unparseable_diff_fails_closed(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """Non-empty diff without recognized file change sections raises DiffParseError."""
+        unparseable_inputs = [
+            "random unparseable text",
+            "# just a comment",
+            "+++ b/orphaned_header.py\n@@ -1 +1 @@\n+content\n",
+            "--- /dev/null\n+++ /dev/null\n@@ -0,0 +0,0 @@\n",
+        ]
+        for bad_input in unparseable_inputs:
+            with pytest.raises(DiffParseError):
+                parse_unified_diff_changes(bad_input)
+            with pytest.raises(DiffParseError):
+                validate_diff(bad_input, manifest)
+
+    def test_non_git_unified_diff_quoted_or_malformed_fails_closed(
+        self, manifest: ProtectedSurfaceManifest
+    ) -> None:
+        """Non-git unified diff with quoted path or missing header fails closed."""
+        diff_quoted = """--- "a/docs/my policy.md"
++++ "b/docs/my policy.md"
+@@ -1 +1 @@
+-old
++new
+"""
+        with pytest.raises(DiffParseError):
+            parse_unified_diff_changes(diff_quoted)
+
+        diff_missing_new = """--- a/src/app.py
+@@ -1 +1 @@
+-old
++new
+"""
+        with pytest.raises(DiffParseError):
+            parse_unified_diff_changes(diff_missing_new)
+
 
 class TestCanonicalBasebreakManifest:
     """Verify the canonical manifest derived from committed governance authority."""

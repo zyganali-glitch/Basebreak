@@ -24,17 +24,21 @@ _WINDOWS_DRIVE_PATTERN = re.compile(r"^[a-zA-Z]:")
 # Forbidden path characters (null bytes, newlines, carriage returns, tabs)
 _FORBIDDEN_PATH_CHARS_PATTERN = re.compile(r"[\0\r\n\t]")
 
-# Git diff header patterns
-_GIT_DIFF_HEADER = re.compile(r"^diff --git (?P<old>\S+) (?P<new>\S+)")
-_GIT_RENAME_FROM = re.compile(r"^rename from (?P<path>.+)$")
-_GIT_RENAME_TO = re.compile(r"^rename to (?P<path>.+)$")
-_GIT_NEW_FILE_MODE = re.compile(r"^new file mode (?P<mode>\d{6})")
-_GIT_DELETED_FILE_MODE = re.compile(r"^deleted file mode (?P<mode>\d{6})")
-_GIT_OLD_MODE = re.compile(r"^old mode (?P<mode>\d{6})")
-_GIT_NEW_MODE = re.compile(r"^new mode (?P<mode>\d{6})")
-_GIT_INDEX_LINE = re.compile(r"^index\s+[0-9a-fA-F]+\.\.[0-9a-fA-F]+(?:\s+(?P<mode>\d{6}))?")
-_DIFF_OLD_HEADER = re.compile(r"^--- (?P<path>\S+)")
-_DIFF_NEW_HEADER = re.compile(r"^\+\+\+ (?P<path>\S+)")
+# Git diff header patterns - strict unquoted syntax
+_GIT_DIFF_HEADER = re.compile(r"^diff --git (?P<old>[^\"\s]+) (?P<new>[^\"\s]+)$")
+_GIT_RENAME_FROM = re.compile(r"^rename from (?P<path>[^\"\s]+)$")
+_GIT_RENAME_TO = re.compile(r"^rename to (?P<path>[^\"\s]+)$")
+_GIT_COPY_FROM = re.compile(r"^copy from (?P<path>[^\"\s]+)$")
+_GIT_COPY_TO = re.compile(r"^copy to (?P<path>[^\"\s]+)$")
+_GIT_NEW_FILE_MODE = re.compile(r"^new file mode (?P<mode>\d{6})$")
+_GIT_DELETED_FILE_MODE = re.compile(r"^deleted file mode (?P<mode>\d{6})$")
+_GIT_OLD_MODE = re.compile(r"^old mode (?P<mode>\d{6})$")
+_GIT_NEW_MODE = re.compile(r"^new mode (?P<mode>\d{6})$")
+_GIT_INDEX_LINE = re.compile(r"^index\s+[0-9a-fA-F]+\.\.[0-9a-fA-F]+(?:\s+(?P<mode>\d{6}))?$")
+_GIT_SIMILARITY_INDEX = re.compile(r"^(?:dis)?similarity index \d+%$")
+_GIT_BINARY_FILES = re.compile(r"^Binary files (?P<old>[^\"\s]+) and (?P<new>[^\"\s]+) differ$")
+_DIFF_OLD_HEADER = re.compile(r"^--- (?P<path>[^\"\s]+)$")
+_DIFF_NEW_HEADER = re.compile(r"^\+\+\+ (?P<path>[^\"\s]+)$")
 
 
 def _posix_dirname(path: str) -> str:
@@ -867,14 +871,49 @@ def _strip_git_diff_prefix(path: str) -> str:
     return path
 
 
+def _skip_hunk_lines(lines: list[str], start_idx: int) -> int:
+    """Advance line index past valid hunk lines until next section or EOF.
+
+    Raises DiffParseError if unparseable or malformed content is encountered.
+    """
+    i = start_idx
+    while i < len(lines):
+        if lines[i].startswith("diff --git"):
+            break
+        if lines[i].startswith("---") and (i + 1 < len(lines) and lines[i + 1].startswith("+++")):
+            break
+        if lines[i].startswith((" ", "+", "-", "\\", "@@")) or lines[i] == "":
+            i += 1
+        else:
+            raise DiffParseError(f"Malformed diff hunk line or unexpected content: {lines[i]!r}")
+    return i
+
+
 def parse_unified_diff_changes(diff_text: str) -> list[FileChange]:
     """Parse candidate file changes from unified diff text.
 
     Supports standard unified diffs, Git extended diffs (renames, modes,
     mode 120000 symlinks, additions from /dev/null, deletions to /dev/null).
+
+    Fail-closed security invariants:
+    - Empty or whitespace-only diff produces 0 changes.
+    - Non-empty diff must produce at least one recognized file change or raise DiffParseError.
+    - Lines starting with 'diff --git' must strictly match two supported unquoted path tokens,
+      or raise DiffParseError.
+    - Inside git sections, lines starting with '---' or '+++' must strictly match supported
+      unquoted path tokens or '/dev/null', or raise DiffParseError.
+    - Quoted path forms and internal whitespace in git path headers are unsupported and
+      fail closed with DiffParseError.
+    - Every file section must produce exactly one FileChange; malformed sections or headers
+      fail closed with DiffParseError without silently skipping sections.
+    - Non-git unified diffs must strictly match '---' and '+++' headers; malformed or orphaned
+      headers fail closed with DiffParseError.
     """
     if not isinstance(diff_text, str):
         raise TypeError(f"diff_text must be a string, got {type(diff_text).__name__}")
+
+    if not diff_text.strip():
+        return []
 
     lines = [ln.rstrip("\r\n") for ln in diff_text.splitlines()]
     changes: list[FileChange] = []
@@ -883,11 +922,25 @@ def parse_unified_diff_changes(diff_text: str) -> list[FileChange]:
     while i < len(lines):
         line = lines[i]
 
-        # Check git diff header: diff --git a/path b/path
-        m_git = _GIT_DIFF_HEADER.match(line)
-        if m_git:
+        # Ignore empty lines between sections
+        if not line.strip():
+            i += 1
+            continue
+
+        # Case 1: Git diff header: diff --git <old> <new>
+        if line.startswith("diff --git"):
+            m_git = _GIT_DIFF_HEADER.match(line)
+            if not m_git:
+                raise DiffParseError(
+                    f"Unsupported or malformed git diff header: {line!r}. "
+                    "Quoted paths and paths with spaces are not supported."
+                )
+
             raw_old = _strip_git_diff_prefix(m_git.group("old"))
             raw_new = _strip_git_diff_prefix(m_git.group("new"))
+            if not raw_old or not raw_new or raw_old in ("a/", "b/") or raw_new in ("a/", "b/"):
+                raise DiffParseError(f"Empty path in git diff header: {line!r}")
+
             i += 1
 
             new_file_mode: str | None = None
@@ -901,41 +954,109 @@ def parse_unified_diff_changes(diff_text: str) -> list[FileChange]:
             diff_new_header: str | None = None
 
             # Scan extended git headers until next hunk or next file diff
-            while i < len(lines) and not lines[i].startswith("diff --git "):
+            while i < len(lines) and not lines[i].startswith("diff --git"):
                 hdr = lines[i]
-                if m_nfm := _GIT_NEW_FILE_MODE.match(hdr):
-                    new_file_mode = m_nfm.group("mode")
-                elif m_dfm := _GIT_DELETED_FILE_MODE.match(hdr):
-                    deleted_file_mode = m_dfm.group("mode")
-                elif m_om := _GIT_OLD_MODE.match(hdr):
-                    _old_mode = m_om.group("mode")
-                elif m_nm := _GIT_NEW_MODE.match(hdr):
-                    new_mode = m_nm.group("mode")
-                elif m_idx := _GIT_INDEX_LINE.match(hdr):
-                    index_mode = m_idx.group("mode")
-                elif m_rf := _GIT_RENAME_FROM.match(hdr):
-                    rename_from = m_rf.group("path").strip('"')
-                elif m_rt := _GIT_RENAME_TO.match(hdr):
-                    rename_to = m_rt.group("path").strip('"')
-                elif m_do := _DIFF_OLD_HEADER.match(hdr):
-                    diff_old_header = m_do.group("path")
-                elif m_dn := _DIFF_NEW_HEADER.match(hdr):
-                    diff_new_header = m_dn.group("path")
-                elif hdr.startswith("@@ "):
+
+                if hdr.startswith("@@ "):
                     # Reached hunk header
                     break
+
+                if hdr.startswith("new file mode "):
+                    if m_nfm := _GIT_NEW_FILE_MODE.match(hdr):
+                        new_file_mode = m_nfm.group("mode")
+                    else:
+                        raise DiffParseError(f"Malformed new file mode header: {hdr!r}")
+                elif hdr.startswith("deleted file mode "):
+                    if m_dfm := _GIT_DELETED_FILE_MODE.match(hdr):
+                        deleted_file_mode = m_dfm.group("mode")
+                    else:
+                        raise DiffParseError(f"Malformed deleted file mode header: {hdr!r}")
+                elif hdr.startswith("old mode "):
+                    if m_om := _GIT_OLD_MODE.match(hdr):
+                        _old_mode = m_om.group("mode")
+                    else:
+                        raise DiffParseError(f"Malformed old mode header: {hdr!r}")
+                elif hdr.startswith("new mode "):
+                    if m_nm := _GIT_NEW_MODE.match(hdr):
+                        new_mode = m_nm.group("mode")
+                    else:
+                        raise DiffParseError(f"Malformed new mode header: {hdr!r}")
+                elif hdr.startswith("index "):
+                    if m_idx := _GIT_INDEX_LINE.match(hdr):
+                        index_mode = m_idx.group("mode")
+                    else:
+                        raise DiffParseError(f"Malformed index line: {hdr!r}")
+                elif hdr.startswith("rename from"):
+                    if m_rf := _GIT_RENAME_FROM.match(hdr):
+                        rename_from = m_rf.group("path")
+                    else:
+                        raise DiffParseError(
+                            f"Unsupported or malformed rename from header: {hdr!r}"
+                        )
+                elif hdr.startswith("rename to"):
+                    if m_rt := _GIT_RENAME_TO.match(hdr):
+                        rename_to = m_rt.group("path")
+                    else:
+                        raise DiffParseError(f"Unsupported or malformed rename to header: {hdr!r}")
+                elif hdr.startswith("similarity index ") or hdr.startswith("dissimilarity index "):
+                    if not _GIT_SIMILARITY_INDEX.match(hdr):
+                        raise DiffParseError(f"Malformed similarity index header: {hdr!r}")
+                elif hdr.startswith("copy from"):
+                    if not _GIT_COPY_FROM.match(hdr):
+                        raise DiffParseError(f"Unsupported or malformed copy from header: {hdr!r}")
+                elif hdr.startswith("copy to"):
+                    if not _GIT_COPY_TO.match(hdr):
+                        raise DiffParseError(f"Unsupported or malformed copy to header: {hdr!r}")
+                elif hdr.startswith("---"):
+                    if m_do := _DIFF_OLD_HEADER.match(hdr):
+                        diff_old_header = m_do.group("path")
+                    else:
+                        raise DiffParseError(f"Unsupported or malformed --- path header: {hdr!r}")
+                elif hdr.startswith("+++"):
+                    if m_dn := _DIFF_NEW_HEADER.match(hdr):
+                        diff_new_header = m_dn.group("path")
+                    else:
+                        raise DiffParseError(f"Unsupported or malformed +++ path header: {hdr!r}")
+                elif hdr.startswith("Binary files "):
+                    if m_bin := _GIT_BINARY_FILES.match(hdr):
+                        diff_old_header = m_bin.group("old")
+                        diff_new_header = m_bin.group("new")
+                    else:
+                        raise DiffParseError(
+                            f"Unsupported or malformed Binary files header: {hdr!r}"
+                        )
+                elif (
+                    hdr == "GIT binary patch"
+                    or hdr.startswith("literal ")
+                    or hdr.startswith("delta ")
+                    or hdr == r"\ No newline at end of file"
+                ):
+                    pass
+                elif not hdr.strip():
+                    pass
+                else:
+                    raise DiffParseError(
+                        f"Unsupported or malformed extended git diff header: {hdr!r}"
+                    )
+
                 i += 1
+
+            if (rename_from is None) != (rename_to is None):
+                raise DiffParseError(
+                    "Incomplete rename in git diff: rename from without rename to or vice versa"
+                )
 
             # 1. Handle deletion (deleted file mode or +++ /dev/null)
             if deleted_file_mode is not None or diff_new_header == "/dev/null":
                 clean_old = (
-                    _strip_git_diff_prefix(diff_old_header).strip('"')
+                    _strip_git_diff_prefix(diff_old_header)
                     if diff_old_header and diff_old_header != "/dev/null"
-                    else raw_old.strip('"')
+                    else raw_old
                 )
+                if not clean_old:
+                    raise DiffParseError("Empty path for deleted file in git diff")
                 changes.append(FileChange.delete(clean_old))
-                while i < len(lines) and not lines[i].startswith("diff --git "):
-                    i += 1
+                i = _skip_hunk_lines(lines, i)
                 continue
 
             # 2. Determine resulting file mode
@@ -952,16 +1073,26 @@ def parse_unified_diff_changes(diff_text: str) -> list[FileChange]:
             # 3. Handle resulting symlink (new, modified target, or converted to symlink)
             if resulting_is_symlink:
                 target_path = (
-                    _strip_git_diff_prefix(diff_new_header).strip('"')
+                    _strip_git_diff_prefix(diff_new_header)
                     if diff_new_header and diff_new_header != "/dev/null"
-                    else raw_new.strip('"')
+                    else raw_new
                 )
+                if not target_path:
+                    raise DiffParseError("Empty path for symlink in git diff")
 
                 added_targets: list[str] = []
-                while i < len(lines) and not lines[i].startswith("diff --git "):
+                while i < len(lines):
+                    if lines[i].startswith("diff --git"):
+                        break
+                    if lines[i].startswith("---") and (
+                        i + 1 < len(lines) and lines[i + 1].startswith("+++")
+                    ):
+                        break
                     hunk_line = lines[i]
                     if hunk_line.startswith("+") and not hunk_line.startswith("+++"):
                         added_targets.append(hunk_line[1:])
+                    elif not hunk_line.startswith((" ", "-", "\\", "@@")) and hunk_line != "":
+                        raise DiffParseError(f"Malformed symlink hunk line: {hunk_line!r}")
                     i += 1
 
                 if len(added_targets) == 1:
@@ -986,48 +1117,110 @@ def parse_unified_diff_changes(diff_text: str) -> list[FileChange]:
 
             # 4. Handle rename
             if rename_from is not None and rename_to is not None:
-                changes.append(FileChange.rename(old_path=rename_from, new_path=rename_to))
-                while i < len(lines) and not lines[i].startswith("diff --git "):
-                    i += 1
+                clean_from = _strip_git_diff_prefix(rename_from)
+                clean_to = _strip_git_diff_prefix(rename_to)
+                if not clean_from or not clean_to:
+                    raise DiffParseError("Empty path in rename headers")
+                changes.append(FileChange.rename(old_path=clean_from, new_path=clean_to))
+                i = _skip_hunk_lines(lines, i)
                 continue
 
-            # 5. Handle addition (--- /dev/null +++ b/path)
+            # 5. Handle addition (--- /dev/null +++ b/path or new file mode)
             if diff_old_header == "/dev/null" and diff_new_header:
-                clean_new = _strip_git_diff_prefix(diff_new_header).strip('"')
+                clean_new = _strip_git_diff_prefix(diff_new_header)
+                if not clean_new:
+                    raise DiffParseError("Empty path for added file in git diff")
                 changes.append(FileChange.add(clean_new))
-                while i < len(lines) and not lines[i].startswith("diff --git "):
-                    i += 1
+                i = _skip_hunk_lines(lines, i)
+                continue
+
+            if new_file_mode is not None:
+                clean_new = (
+                    _strip_git_diff_prefix(diff_new_header)
+                    if diff_new_header and diff_new_header != "/dev/null"
+                    else raw_new
+                )
+                if not clean_new:
+                    raise DiffParseError("Empty path for added file in git diff")
+                changes.append(FileChange.add(clean_new))
+                i = _skip_hunk_lines(lines, i)
                 continue
 
             # 6. Handle standard modify
             effective_path = (
-                _strip_git_diff_prefix(diff_new_header).strip('"')
+                _strip_git_diff_prefix(diff_new_header)
                 if diff_new_header and diff_new_header != "/dev/null"
-                else raw_new.strip('"')
+                else raw_new
             )
+            if not effective_path:
+                raise DiffParseError("Empty path for modified file in git diff")
             changes.append(FileChange.modify(effective_path))
-            while i < len(lines) and not lines[i].startswith("diff --git "):
-                i += 1
+            i = _skip_hunk_lines(lines, i)
             continue
 
-        # Non-git unified diff headers: --- a/path \n +++ b/path
-        m_old = _DIFF_OLD_HEADER.match(line)
-        if m_old and (i + 1) < len(lines):
-            m_new = _DIFF_NEW_HEADER.match(lines[i + 1])
-            if m_new:
-                old_h = m_old.group("path")
-                new_h = m_new.group("path")
-                i += 2
+        # Case 2: Non-git unified diff headers: --- a/path \n +++ b/path
+        if line.startswith("---"):
+            m_old = _DIFF_OLD_HEADER.match(line)
+            if not m_old:
+                raise DiffParseError(
+                    f"Unsupported or malformed --- diff header: {line!r}. "
+                    "Quoted paths and paths with spaces are not supported."
+                )
 
-                if old_h == "/dev/null":
-                    changes.append(FileChange.add(_strip_git_diff_prefix(new_h).strip('"')))
-                elif new_h == "/dev/null":
-                    changes.append(FileChange.delete(_strip_git_diff_prefix(old_h).strip('"')))
-                else:
-                    changes.append(FileChange.modify(_strip_git_diff_prefix(new_h).strip('"')))
-                continue
+            if (i + 1) >= len(lines):
+                raise DiffParseError(
+                    "Incomplete unified diff: --- header without +++ header at end of diff: "
+                    f"{line!r}"
+                )
 
-        i += 1
+            next_line = lines[i + 1]
+            if not next_line.startswith("+++"):
+                raise DiffParseError(
+                    f"Incomplete unified diff: expected +++ header after ---, got: {next_line!r}"
+                )
+
+            m_new = _DIFF_NEW_HEADER.match(next_line)
+            if not m_new:
+                raise DiffParseError(
+                    f"Unsupported or malformed +++ diff header: {next_line!r}. "
+                    "Quoted paths and paths with spaces are not supported."
+                )
+
+            old_h = m_old.group("path")
+            new_h = m_new.group("path")
+            i += 2
+
+            if old_h == "/dev/null" and new_h == "/dev/null":
+                raise DiffParseError("Invalid diff: both --- and +++ are /dev/null")
+
+            if old_h == "/dev/null":
+                path = _strip_git_diff_prefix(new_h)
+                if not path:
+                    raise DiffParseError("Empty path in +++ header")
+                changes.append(FileChange.add(path))
+            elif new_h == "/dev/null":
+                path = _strip_git_diff_prefix(old_h)
+                if not path:
+                    raise DiffParseError("Empty path in --- header")
+                changes.append(FileChange.delete(path))
+            else:
+                path = _strip_git_diff_prefix(new_h)
+                if not path:
+                    raise DiffParseError("Empty path in +++ header")
+                changes.append(FileChange.modify(path))
+
+            i = _skip_hunk_lines(lines, i)
+            continue
+
+        # Case 3: Orphaned +++ header without preceding ---
+        if line.startswith("+++"):
+            raise DiffParseError(f"Orphaned or malformed +++ diff header: {line!r}")
+
+        # Case 4: Any other unexpected content outside a recognized section
+        raise DiffParseError(f"Unrecognized or unsupported diff content: {line!r}")
+
+    if not changes:
+        raise DiffParseError("Non-empty diff text yielded 0 recognized file changes")
 
     return changes
 
