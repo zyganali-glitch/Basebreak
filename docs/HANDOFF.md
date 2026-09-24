@@ -39,7 +39,7 @@ Judge claim:
 - P-03 phase (Evidence Store & Deterministic Fact Authority) is independently CLOSED / PASS at SHA `83eb91da3caec3d52c22c06cf19fd0d5020b1057` (recorded at SHA `666181053b49ebb49cb5fda64b6a5cd4dfb26c9b`).
 - P-01.01B (Extend bounded provider-neutral parallel execution to platform-independent P-04 security primitives while the live gate remains externally blocked) is independently VERIFIED / PASS at SHA `9ccf9e8c1ec34927142da69532814a030e0c2290`.
 - P-04.01 (Formalize target-repository threat model) is independently VERIFIED / PASS at SHA `4db39b136d2fd12e6ebd67eb5c5577d283f279e2`.
-- P-04.02 (Implement secret redaction and forbidden persistence rules) is IN_PROGRESS (executor-completed; awaiting independent QA).
+- P-04.02 (Implement secret redaction and forbidden persistence rules) is IN_PROGRESS (third surgical repair completed; awaiting independent QA).
 
 ## Last independently VERIFIED baseline SHA
 `4db39b136d2fd12e6ebd67eb5c5577d283f279e2` (P-04.01 independent QA PASS).
@@ -56,16 +56,16 @@ Judge claim:
 - Phase impact: P-01 phase remains OPEN; no GO decision can be awarded without required `LIVE_NEBIUS` evidence.
 
 ### Current QA candidate
-`P-04.02 — Implement secret redaction and forbidden persistence rules` (executor-completed second surgical repair; awaiting independent QA verification).
+`P-04.02 — Implement secret redaction and forbidden persistence rules` (executor-completed third surgical repair: auth-context repair; awaiting independent QA verification).
 
 ### Active executable task
-`P-04.02 — Implement secret redaction and forbidden persistence rules` (second surgical repair completed).
+`P-04.02 — Implement secret redaction and forbidden persistence rules` (third surgical repair completed).
 
 *(Note: Exactly ONE executable micro-task is active at a time. Promo-arrival preemption applies: finish P-04.02, stop, obtain independent QA, then return to P-01.02. P-04.04 MUST NOT START before P-04.02 independent PASS).*
 
 ## Parallelization boundary & rules
 - **Allowlist:** Under P-01.01B amendment, the previous P-02 and P-03 lanes are complete and independently closed. The active allowlist permits sequential execution ONLY of platform-independent P-04 security primitives: `P-04.01` (threat model), `P-04.02` (secret redaction / persistence), and `P-04.04` (protected-surface manifest/diff).
-- **Promo-arrival preemption rule:** Operator has redeemed promotional credits ($25 balance verified). Under promo-arrival preemption: complete P-04.02 second surgical repair, stop, obtain independent QA, then immediately return to P-01.02.
+- **Promo-arrival preemption rule:** Operator has redeemed promotional credits ($25 balance verified). Under promo-arrival preemption: complete P-04.02 third surgical repair, stop, obtain independent QA, then immediately return to P-01.02.
 - **P-04.04 restriction:** P-04.04 is PENDING and MUST NOT START before P-04.02 independent PASS.
 - **Provider neutrality:** P-04 allowlisted tasks must remain strictly provider-neutral; zero Nebius/NVIDIA/Tavily SDK imports; deterministic validation only; zero assumptions regarding sandbox filesystem, network, or process isolation capabilities.
 - **Not authorized / forbidden:** `P-04.03`, `P-04.05`, and `P-04.06` are NOT authorized under this offline lane because they depend on unverified platform/sandbox realities. `P-05+` remain strictly forbidden.
@@ -87,7 +87,7 @@ Judge claim:
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-04.02 (second surgical security repair) for independent QA review.
+1. Submit P-04.02 (third surgical security repair) for independent QA review.
 2. Upon independent P-04.02 QA PASS: RETURN IMMEDIATELY TO P-01.02 (Execute first real Token Factory Nemotron inference call with sanitized minimal prompt).
 3. Do NOT start P-04.04 before P-04.02 independent PASS.
 4. P-01 phase remains OPEN.

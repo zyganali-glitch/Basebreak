@@ -1297,3 +1297,77 @@ class TestDisplayMappingKeyRedaction:
         assert displayed["API_KEY"] == REDACTION_MARKER
         assert displayed["token"] == REDACTION_MARKER
         assert displayed["normal_key"] == "safe_value"
+
+
+class TestContextAwareAuthAndBenignProse:
+    """Verify ordinary natural-language uses of Basic/Bearer are not credentials."""
+
+    @pytest.mark.parametrize(
+        "prose",
+        [
+            "This is a basic test for parsing.",
+            "Basic example follows.",
+            "Bearer token handling is documented.",
+            "Use the bearer token budget estimate.",
+            "The bearer token budget is described in the documentation.",
+        ],
+    )
+    def test_benign_prose_not_classified_as_secret(self, prose: str) -> None:
+        # 1. contains_secret must be False
+        assert not contains_secret(prose), f"False positive on prose: {prose!r}"
+
+        # 2. redact_text must leave prose unmodified
+        redacted, modified = redact_text(prose)
+        assert not modified, f"redact_text modified benign prose: {prose!r} -> {redacted!r}"
+        assert redacted == prose
+
+        # 3. redact_log_text must leave prose unmodified
+        log_out = redact_log_text(prose)
+        assert log_out == prose
+
+        # 4. capture_stream must not sanitize benign prose
+        stream = capture_stream(prose, stream_type=StreamType.STDOUT)
+        assert not stream.is_sanitized
+        assert stream.retained_text == prose
+        assert stream.sanitized_text == prose
+
+    def test_authoritative_persistence_with_basic_test_prose(self) -> None:
+        """Verify EvidenceRecord containing 'basic test' does not fail persistence."""
+        source = SourceIdentity(
+            locator="https://github.com/zyganali-glitch/Basebreak",
+            revision=CommitRevision("0123456789abcdef0123456789abcdef01234567"),
+        )
+        cand = CandidateIdentity(
+            candidate_id="cand-basic-test-01",
+            source=source,
+            patch_digest="a" * 64,
+            description="This is a basic test for parsing.",
+        )
+        witness = WitnessIdentity(
+            witness_id="wit-basic-test-01",
+            digest="b" * 64,
+            description="Basic example follows with bearer token handling documented.",
+        )
+        cb = CausalBinding(
+            requirement_id="req-basic-001",
+            witness=witness,
+            base_source=source,
+            candidate=cand,
+            world=ExecutionWorld.CANDIDATE,
+        )
+        cmd = ExecutionCommand(
+            argv=("python", "-m", "pytest", "-k", "basic test"),
+        )
+        rec = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-basic-prose"),
+            run_id=RunIdentity("run-basic-prose"),
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand,
+            causal_binding=cb,
+            command=cmd,
+        )
+        # Must not raise SecretPersistenceError
+        validate_evidence_record_for_persistence(rec)
+        d = rec.to_dict()
+        assert d["candidate"]["payload"]["description"] == "This is a basic test for parsing."

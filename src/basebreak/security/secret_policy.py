@@ -150,11 +150,31 @@ _PEM_PRIVATE_KEY_PATTERN = re.compile(
 # 2. URL credentials (user-info in URL schemes)
 _URL_CREDENTIALS_PATTERN = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)([^/\s@:]*:[^/\s@]+@)")
 
-# 3. Bearer authorization tokens
-_AUTH_BEARER_PATTERN = re.compile(r"(?i)\b(Bearer\s+)(?!\[REDACTED\])[A-Za-z0-9_\-\.~+=/]+")
+# 3a. Explicit Authorization header context with Bearer tokens (allows short credentials)
+_AUTH_HEADER_BEARER_PATTERN = re.compile(
+    r"(?i)(['\"]?\b(?:authorization|proxy-authorization|auth)\b['\"]?\s*[:=]\s*['\"]?Bearer\s+)"
+    r"(?!\[REDACTED\])[A-Za-z0-9_\-\.~+=/]+"
+)
 
-# 4. Basic authorization credentials
-_AUTH_BASIC_PATTERN = re.compile(r"(?i)\b(Basic\s+)(?!\[REDACTED\])[A-Za-z0-9+/=]+")
+# 3b. Explicit Authorization header context with Basic credentials (allows short credentials)
+_AUTH_HEADER_BASIC_PATTERN = re.compile(
+    r"(?i)(['\"]?\b(?:authorization|proxy-authorization|auth)\b['\"]?\s*[:=]\s*['\"]?Basic\s+)"
+    r"(?!\[REDACTED\])[A-Za-z0-9+/=]+"
+)
+
+# 4a. Bare Bearer tokens (must be >= 8 chars and contain non-alphabetic chars)
+_AUTH_BARE_BEARER_PATTERN = re.compile(
+    r"(?i)\b(Bearer\s+)(?!\[REDACTED\])(?=[A-Za-z0-9_\-\.~+=/]*[0-9_\-\.~+=/])[A-Za-z0-9_\-\.~+=/]{8,}"
+)
+
+# 4b. Bare Basic credentials (must be >= 8 chars and contain non-alphabetic chars)
+_AUTH_BARE_BASIC_PATTERN = re.compile(
+    r"(?i)\b(Basic\s+)(?!\[REDACTED\])(?=[A-Za-z0-9+/=]*[0-9+/=])[A-Za-z0-9+/=]{8,}"
+)
+
+# Backward-compatibility aliases
+_AUTH_BEARER_PATTERN = _AUTH_HEADER_BEARER_PATTERN
+_AUTH_BASIC_PATTERN = _AUTH_HEADER_BASIC_PATTERN
 
 # 5. Common token prefix forms
 _TOKEN_PREFIX_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -216,14 +236,26 @@ def redact_text(text: str) -> tuple[str, bool]:
         sanitized = new_text
         is_modified = True
 
-    # 3. Bearer tokens (Bearer <token> -> Bearer [REDACTED])
-    new_text, count = _AUTH_BEARER_PATTERN.subn(rf"\1{REDACTION_MARKER}", sanitized)
+    # 3a. Header Bearer tokens (Authorization: Bearer <token> -> Authorization: Bearer [REDACTED])
+    new_text, count = _AUTH_HEADER_BEARER_PATTERN.subn(rf"\1{REDACTION_MARKER}", sanitized)
     if count > 0:
         sanitized = new_text
         is_modified = True
 
-    # 4. Basic credentials (Basic <base64> -> Basic [REDACTED])
-    new_text, count = _AUTH_BASIC_PATTERN.subn(rf"\1{REDACTION_MARKER}", sanitized)
+    # 3b. Header Basic credentials (Authorization: Basic <data> -> Basic [REDACTED])
+    new_text, count = _AUTH_HEADER_BASIC_PATTERN.subn(rf"\1{REDACTION_MARKER}", sanitized)
+    if count > 0:
+        sanitized = new_text
+        is_modified = True
+
+    # 4a. Bare Bearer tokens (Bearer <token> -> Bearer [REDACTED])
+    new_text, count = _AUTH_BARE_BEARER_PATTERN.subn(rf"\1{REDACTION_MARKER}", sanitized)
+    if count > 0:
+        sanitized = new_text
+        is_modified = True
+
+    # 4b. Bare Basic credentials (Basic <base64> -> Basic [REDACTED])
+    new_text, count = _AUTH_BARE_BASIC_PATTERN.subn(rf"\1{REDACTION_MARKER}", sanitized)
     if count > 0:
         sanitized = new_text
         is_modified = True
@@ -331,7 +363,7 @@ def find_secret_findings(text: str) -> tuple[SecretFinding, ...]:
             )
         )
 
-    for match in _AUTH_BEARER_PATTERN.finditer(text):
+    for match in _AUTH_HEADER_BEARER_PATTERN.finditer(text):
         findings.append(
             SecretFinding(
                 rule_id="AUTH_BEARER",
@@ -341,7 +373,27 @@ def find_secret_findings(text: str) -> tuple[SecretFinding, ...]:
             )
         )
 
-    for match in _AUTH_BASIC_PATTERN.finditer(text):
+    for match in _AUTH_HEADER_BASIC_PATTERN.finditer(text):
+        findings.append(
+            SecretFinding(
+                rule_id="AUTH_BASIC",
+                category=SecretCategory.AUTH_BASIC,
+                start=match.start(),
+                end=match.end(),
+            )
+        )
+
+    for match in _AUTH_BARE_BEARER_PATTERN.finditer(text):
+        findings.append(
+            SecretFinding(
+                rule_id="AUTH_BEARER",
+                category=SecretCategory.AUTH_BEARER,
+                start=match.start(),
+                end=match.end(),
+            )
+        )
+
+    for match in _AUTH_BARE_BASIC_PATTERN.finditer(text):
         findings.append(
             SecretFinding(
                 rule_id="AUTH_BASIC",
@@ -382,7 +434,13 @@ def find_secret_findings(text: str) -> tuple[SecretFinding, ...]:
             )
         )
 
-    return tuple(sorted(findings, key=lambda f: (f.start, f.end)))
+    # Deduplicate overlapping findings (e.g. bare sub-matches contained within header matches)
+    filtered: list[SecretFinding] = []
+    for f in sorted(findings, key=lambda x: (x.start, -x.end)):
+        if not filtered or f.end > filtered[-1].end:
+            filtered.append(f)
+
+    return tuple(sorted(filtered, key=lambda f: (f.start, f.end)))
 
 
 def contains_secret(text: str) -> bool:

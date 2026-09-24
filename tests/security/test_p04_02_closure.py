@@ -511,3 +511,61 @@ class TestP0402ClosureShortCredentialsAndDisplayKeys:
         r_schema = redact_for_display(schema_dict)
         assert "secret_data" not in str(r_schema)
         assert r_schema == {"API_KEY": REDACTION_MARKER}
+
+
+class TestP0402ClosureBenignAuthProse:
+    """Verify ordinary natural-language uses of Basic/Bearer are not credentials."""
+
+    @pytest.mark.parametrize(
+        "prose",
+        [
+            "This is a basic test for parsing.",
+            "Basic example follows.",
+            "Bearer token handling is documented.",
+            "Use the bearer token budget estimate.",
+            "The bearer token budget is described in the documentation.",
+        ],
+    )
+    def test_benign_prose_survives_all_boundaries(self, prose: str) -> None:
+        from basebreak.security.secret_policy import contains_secret
+
+        # 1. contains_secret is False
+        assert not contains_secret(prose)
+
+        # 2. redact_text leaves unmodified
+        redacted, mod = redact_text(prose)
+        assert not mod
+        assert redacted == prose
+
+        # 3. redact_log_text leaves unmodified
+        assert redact_log_text(prose) == prose
+
+        # 4. capture_stream leaves unmodified
+        stream = capture_stream(prose, stream_type=StreamType.STDOUT)
+        assert not stream.is_sanitized
+        assert stream.retained_text == prose
+        assert stream.sanitized_text == prose
+
+    def test_candidate_description_with_basic_test_accepted_at_boundary(self) -> None:
+        """Verify candidate description containing 'basic test' passes persistence validation."""
+        source = SourceIdentity(
+            locator="https://github.com/zyganali-glitch/Basebreak",
+            revision=CommitRevision("0" * 40),
+        )
+        cand = CandidateIdentity(
+            candidate_id="cand-prose-ok",
+            source=source,
+            patch_digest="a" * 64,
+            description="This is a basic test for parsing.",
+        )
+        rec = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-prose-ok"),
+            run_id=RunIdentity("run-prose-ok"),
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            candidate=cand,
+        )
+        assert rec.candidate is not None
+        assert rec.candidate.description == "This is a basic test for parsing."
+        d = rec.to_dict()
+        assert d["candidate"]["payload"]["description"] == "This is a basic test for parsing."
