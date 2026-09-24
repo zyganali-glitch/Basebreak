@@ -4,8 +4,8 @@
 - **Starting Canonical Remote SHA:** `5991b29f2c3c1c987d5d24fcd4eeaaf27b4c0fb5`
 - **Active Micro-Task:** `P-01.03 — Discover and execute minimal Token Factory Sandbox workflow`
 - **Execution Status:** EXECUTOR_COMPLETED / BLOCKED_EXTERNAL_BETA_ACCESS
-  (Discovery complete, SDK/CLI analysed, live authentication verified via `/whoami`, exact Project ID identified, harmless execution attempted, official Beta access form submitted; awaiting Nebius team beta enablement on `aiproject-e00mae0nmzkxjswr1k`)
-- **Zero-Cost Gate Verdict:** PASS / FULLY VERIFIED
+  (Discovery complete, SDK/CLI analysed, recorded live authentication probe via `/whoami`, exact Project ID identified, harmless execution attempted, official Beta access form submitted; awaiting Nebius team beta enablement on `aiproject-e00mae0nmzkxjswr1k`)
+- **Zero-Cost Policy Check:** SATISFIED (Operator observed; target personal spend $0.00)
   - Promotional balance: `$25.00`
   - Trial credit: `$1.00` untouched
   - Operational safety reserve: `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` satisfied
@@ -15,7 +15,7 @@
 
 ## 1. Official Sources & Discovery Scope
 
-| Source | Official Location | Verified Facts & Contract | Provenance |
+| Source | Official Location | Documented Facts & Contract | Provenance |
 |---|---|---|---|
 | Sandboxes Overview | `https://docs.tokenfactory.nebius.com/sandboxes/overview.md` | Beta status; VM-level isolation; Git-like branching; 50 concurrent ops limit; 180-day retention; email `contree@nebius.com` | `OFFICIAL_DOC` |
 | Sandboxes SDK Guide | `https://docs.tokenfactory.nebius.com/sandboxes/sdk/python_sdk/getting-started.md` | PyPI `contree-sdk`, `contree-client`; Async & Sync clients (`Contree`, `ContreeSync`); image execution via `image.run()` | `OFFICIAL_DOC` |
@@ -24,8 +24,8 @@
 | CLI Sessions & Rollback | `https://docs.tokenfactory.nebius.com/sandboxes/cli/tutorial/sessions.md` | Sessions track image DAG; `contree session branch`, `contree session rollback [N]`, `contree run -D` (disposable) | `OFFICIAL_DOC` |
 | OpenAPI Specification | `https://eu-north.nebius.computer/static/api.yaml` | Contree API v1.0.0; Base URL `https://api.tokenfactory.nebius.com/sandboxes/v1`; `IAMBearerAuth` + `IAMProjectHeader` | `OFFICIAL_DOC` |
 | Live Token Factory Portal | `https://tokenfactory.nebius.com/` | Web console bundle exposes `sandboxesURL: "https://api.tokenfactory.nebius.com/sandboxes/v1/"`; banner confirms free beta | `OFFICIAL_DOC` / `LIVE_ACCOUNT` |
-| Live Sandboxes Auth API | `GET https://api.tokenfactory.nebius.com/sandboxes/v1/whoami` | Live token introspection endpoint; validates Bearer token and inspects project permissions | `LIVE_NEBIUS` |
-| Live Instance Spawn API | `POST https://api.tokenfactory.nebius.com/sandboxes/v1/instances` | Live sandbox instance creation endpoint; requires `image` and `command`; returns operation location | `LIVE_NEBIUS` |
+| Sandboxes Auth API Probe | `GET https://api.tokenfactory.nebius.com/sandboxes/v1/whoami` | Builder-recorded token introspection probe; validates Bearer token and inspects project permissions | `RECORDED_LIVE` |
+| Instance Spawn API Probe | `POST https://api.tokenfactory.nebius.com/sandboxes/v1/instances` | Builder-recorded sandbox instance spawn probe; returned HTTP 403 Insufficient permissions | `RECORDED_LIVE` |
 
 ---
 
@@ -52,7 +52,7 @@ First-party packages installed in ephemeral virtual environment (outside reposit
 
 ---
 
-## 3. Live Account & Runtime Probe Findings (`LIVE_NEBIUS` & `LIVE_ACCOUNT`)
+## 3. Account Observation & Recorded Live Probe Findings (`RECORDED_LIVE` & `LIVE_ACCOUNT`)
 
 ### A. Pre-Execution Balance & Budget Observation
 - **Observation Timestamp:** `2026-09-24T10:08:00Z` (13:08 Local)
@@ -70,14 +70,14 @@ First-party packages installed in ephemeral virtual environment (outside reposit
 - **Project Name:** `default-project`
 - **Resolved Project ID:** `aiproject-e00mae0nmzkxjswr1k` (retrieved via console "Copy project ID").
 
-### C. Live Token Introspection (`GET /sandboxes/v1/whoami`)
-Executed live against `https://api.tokenfactory.nebius.com/sandboxes/v1/whoami`:
+### C. Recorded Live Token Introspection (`GET /sandboxes/v1/whoami`)
+Executed as a Builder-recorded live probe (`RECORDED_LIVE`) against `https://api.tokenfactory.nebius.com/sandboxes/v1/whoami`:
 - **Headers:** `Authorization: Bearer <redacted>`, `Project: aiproject-e00mae0nmzkxjswr1k`
 - **HTTP Status:** `200 OK`
 - **Deterministic Response Payload:**
 ```json
 {
-  "token_uuid": "448346d4-b5bc-5a03-b722-3f90a2bbcf51",
+  "token_uuid": "<redacted-token-uuid>",
   "token_expiration": 1790244789,
   "permissions": {
     "import": false,
@@ -100,9 +100,9 @@ Executed live against `https://api.tokenfactory.nebius.com/sandboxes/v1/whoami`:
   }
 }
 ```
-- **Deterministic Finding:** The token and project header are valid, authenticated, and return system limits (50 concurrent instances, 12GB max layer, 3600s timeout). However, all functional permissions are currently `false`.
+- **Recorded Probe Finding:** The token and project header are valid, authenticated, and return system limits (50 concurrent instances, 12GB max layer, 3600s timeout). However, all functional permissions are currently `false`.
 
-### D. Live Harmless Command Execution Probe (`POST /sandboxes/v1/instances`)
+### D. Recorded Harmless Command Execution Attempt (`POST /sandboxes/v1/instances`)
 - **Submitted Payload:**
 ```json
 {
@@ -118,7 +118,7 @@ Executed live against `https://api.tokenfactory.nebius.com/sandboxes/v1/whoami`:
 {"status": 403, "error": "Insufficient permissions: spawn or spawn_disposable"}
 ```
 
-### E. Live Image List Probe (`GET /sandboxes/v1/images`)
+### E. Recorded Image List Probe (`GET /sandboxes/v1/images`)
 - **HTTP Status:** `403 Forbidden`
 - **Error Response:**
 ```json
@@ -141,7 +141,7 @@ if not check_permission(whoami, REQUIRED_PERMISSION):  # REQUIRED_PERMISSION = "
 ### G. External Beta Access Request Action
 - **Operator Action:** The operator navigated to `Sandboxes` in the Token Factory web console, clicked **"Request beta access"**, and submitted the official form:
   - `Project ID`: `aiproject-e00mae0nmzkxjswr1k`
-  - `Email`: `zyganali@gmail.com`
+  - `Email`: `[redacted operator contact]`
   - `Use Case`: *"Participating in the official Nebius x NVIDIA Global AI Hackathon. Developing Basebreak, an agent causal verification runtime using NVIDIA Nemotron and Token Factory Sandboxes for isolated execution branching."*
 - **Platform Confirmation:** Platform displayed: *"Teşekkürler, yanıtınız gönderildi"*.
 - **Post-Submission State:** Application is in review / awaiting enablement by the Nebius team.
@@ -152,14 +152,14 @@ if not check_permission(whoami, REQUIRED_PERMISSION):  # REQUIRED_PERMISSION = "
 
 | Primitive | Status | Discovery Source | Exact Current API / SDK Primitive | Live Tested? | Notes / Constraints |
 |---|:---:|---|---|:---:|---|
-| **CHECKPOINT** | `SUPPORTED` | `OFFICIAL_DOC` | `result_image_uuid` in `OperationResponse`; `image.run(disposable=False)` returns child `ContreeImage` with new `uuid` | `NO` (blocked by beta access) | Each non-disposable execution produces an immutable image checkpoint layer retained for 180 days. |
-| **SNAPSHOT** | `SUPPORTED` | `OFFICIAL_DOC` | Synonymous with immutable image checkpoint in ConTree architecture; referenced by image UUID | `NO` (blocked by beta access) | Filesystem state is captured immutably post-execution; can be inspected via `/inspect` without spinning up a VM. |
-| **CLONE / FORK** | `SUPPORTED` | `OFFICIAL_DOC` | Executing multiple commands from the same parent image UUID: `gc1 = await child.run(...)`, `gc2 = await child.run(...)` | `NO` (blocked by beta access) | Documented in `branching.md`. Independent execution branches share parent history without mutating the parent state. |
-| **BRANCH** | `SUPPORTED` | `OFFICIAL_DOC` | CLI: `contree session branch <name>`, `contree session checkout <name>`; SDK: local session DAG tracking | `NO` (blocked by beta access) | CLI manages named branches via local SQLite database (`sessions-{profile}.db`), tracking the remote image UUID tree. |
-| **ROLLBACK / RESET** | `SUPPORTED` | `OFFICIAL_DOC` | CLI: `contree session rollback [N]`; SDK/API: re-executing from an earlier parent image UUID | `NO` (blocked by beta access) | Moving back in session DAG restores earlier image UUID as the active base for subsequent commands. |
+| **CHECKPOINT** | `SUPPORTED` | `OFFICIAL_DOC` | `result_image_uuid` in `OperationResponse`; `image.run(disposable=False)` returns child `ContreeImage` with new `uuid` | `NO` (blocked by beta access) | Non-disposable execution produces an immutable image layer retained for 180 days. |
+| **SNAPSHOT** | `SUPPORTED` | `OFFICIAL_DOC` | Post-execution filesystem state captured as an immutable image layer referenced by image UUID | `NO` (blocked by beta access) | Filesystem state is captured as an image layer post-execution; can be inspected via `/inspect` without spinning up a VM. Official docs manage execution states as image layers rather than defining a separate snapshot entity. |
+| **CLONE / FORK** | `SUPPORTED` | `OFFICIAL_DOC` | Executing multiple commands from the same parent image UUID: `gc1 = await child.run(...)`, `gc2 = await child.run(...)` | `NO` (blocked by beta access) | Documented in `branching.md`. Multiple execution runs can originate from the same parent image UUID without mutating the parent state. |
+| **BRANCH** | `SUPPORTED` | `OFFICIAL_DOC` | CLI: `contree session branch <name>`, `contree session checkout <name>`; SDK: local session DAG tracking | `NO` (blocked by beta access) | Client-side feature: `contree-cli` manages named branches via local SQLite database (`sessions-{profile}.db`), referencing remote image UUIDs. Server-side REST API has no branch resource. |
+| **ROLLBACK / RESET** | `SUPPORTED` | `OFFICIAL_DOC` | CLI: `contree session rollback [N]`; SDK/API: re-executing from an earlier parent image UUID | `NO` (blocked by beta access) | In CLI, resets the active session pointer to an earlier step in the local DAG. In REST API/SDK, achieved by targeting an earlier parent image UUID. |
 | **CLEAN-WORLD / REPRODUCTION** | `SUPPORTED` | `OFFICIAL_DOC` | `disposable: true` (`-D` flag in CLI); running from clean base tag e.g. `tag:busybox:latest` | `NO` (blocked by beta access) | `disposable: true` ensures no modified state is saved; container VM is destroyed without persisting an image layer. |
 
-*Semantic rule compliance: Platform terminology distinguishes between local DAG session branches (CLI layer) and remote immutable image checkpoints / fork execution (REST API / SDK layer). Marketing prose has NOT been converted into unverified runtime claims.*
+*Semantic boundary: Capability classifications are derived strictly from official ConTree documentation, first-party SDK/CLI source code, and OpenAPI schema definitions. Primitives are distinct: ConTree manages immutable image layers (UUIDs) at the platform layer, while named branches and linear rollback are client-side session DAG abstractions in contree-cli. No equivalence is assumed, and no capability has been validated via live sandbox execution due to the active beta access blocker.*
 
 ---
 
@@ -209,6 +209,6 @@ Investigation of official OpenAPI schema and SDK code reveals the exact platform
 
 ## 8. Summary of Findings & Blocker Classification
 
-1. **Authentication & API Contract:** Fully proven and documented. Sandboxes API is operational at `https://api.tokenfactory.nebius.com/sandboxes/v1/`, requires Bearer auth plus `Project: <project_id>`, and is supported by first-party `contree-sdk` and `contree-cli`.
+1. **Authentication & API Contract:** Documented via official OpenAPI schema, first-party SDK/CLI source, and Builder-recorded live probes at `https://api.tokenfactory.nebius.com/sandboxes/v1/`. Requires Bearer auth plus `Project: <project_id>`. All functional operations currently require beta enablement.
 2. **Current Blocker:** `BLOCKED_EXTERNAL_BETA_ACCESS`. The operator has submitted the official beta request form for Project ID `aiproject-e00mae0nmzkxjswr1k`. Until Nebius activates beta permissions on this project, calls to `/sandboxes/v1/instances` return HTTP 403 `Insufficient permissions: spawn or spawn_disposable`.
-3. **Next Steps:** When Nebius grants beta access, P-01.03 live execution can proceed immediately using the proven endpoint, resolved project ID, and harmless command workflow.
+3. **Next Steps:** When Nebius grants beta access, P-01.03 live execution can proceed using the identified endpoint, resolved project ID, and harmless command workflow.

@@ -128,7 +128,7 @@ This log may also be used as source material for the "Most Valuable Feedback" pr
 - **What Worked Well:**
   - Token Factory web UI explicitly clarifies zero cost during beta: *"Free while in beta — runs don't consume your credits."*
   - First-party Python SDK (`contree-sdk==0.3.6`) and CLI (`contree-cli==0.9.4`) provide excellent developer experience, comprehensive inline documentation, and clean architecture combining VM isolation with Git-like execution branching.
-  - The live `/sandboxes/v1/whoami` endpoint reliably introspects token validity, expiration, and granular permissions (`import`, `spawn`, `spawn_disposable`, `list`, `cancel`, `set_image_tag`).
+  - The `/sandboxes/v1/whoami` endpoint reliably introspects token validity, expiration, and granular permissions (`import`, `spawn`, `spawn_disposable`, `list`, `cancel`, `set_image_tag`).
 - **Friction/Bug/Limitation:**
   - Even when an organization has active billing and redeemed Builder Program promotional credits ($25 balance), Sandboxes permissions are disabled by default (`permissions: all False`).
   - Attempting to list images (`GET /sandboxes/v1/images`) or spawn an instance (`POST /sandboxes/v1/instances`) returns HTTP 403 Forbidden (`Insufficient permissions: list` / `Insufficient permissions: spawn or spawn_disposable`).
