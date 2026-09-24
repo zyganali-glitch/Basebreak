@@ -48,15 +48,15 @@ Judge claim:
 
 ### Blocking live gate / Active executable task
 `P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt`
-- Status: `IN_PROGRESS (executor-completed; LIVE_NEBIUS candidate awaiting independent QA)`
+- Status: `IN_PROGRESS (executor-completed; repaired live evidence awaiting independent QA)`
 - Prerequisite status: Builder Program Token Factory promotional code successfully redeemed. Account balance: $25.00; Trial credits: $1.00 (untouched); Billing: Active; `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` satisfied.
-- Execution status: Single real live inference executed (HTTP 200, model `nvidia/Nemotron-3_5-Lightning`, 61 tokens, 0.717s). Documented in `docs/P01_02_LIVE_INFERENCE.md`.
+- Execution status: Single real live inference executed (HTTP 200, model `nvidia/Nemotron-3_5-Lightning`, 61 tokens, 0.717s). Repaired live evidence documented in `docs/P01_02_LIVE_INFERENCE.md`.
 - Policy floor: `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` satisfied ($25.00 post-call balance verified).
 - Gate condition: The `$1.00` trial credit MUST NOT be consumed (verified untouched). No automatic paid fallback.
 - Phase impact: P-01 phase remains OPEN; no GO decision can be awarded without required `LIVE_NEBIUS` evidence.
 
 ### Current QA candidate
-`P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt` (LIVE_NEBIUS candidate awaiting independent QA).
+`P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt` (repaired LIVE_NEBIUS candidate awaiting independent QA).
 
 ### Active executable task
 `P-01.02 — Execute first real Token Factory Nemotron inference call with sanitized minimal prompt` (executor-completed).
