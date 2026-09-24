@@ -41,13 +41,14 @@ Judge claim:
 - P-04.01 (Formalize target-repository threat model) is independently VERIFIED / PASS at SHA `4db39b136d2fd12e6ebd67eb5c5577d283f279e2`.
 - P-04.02 (Implement secret redaction and forbidden persistence rules) is independently VERIFIED / PASS at SHA `c285379b3a453767db6434786c26ff0c6b6ec34b`.
 - P-01.02 (Execute first real Token Factory Nemotron inference call with sanitized minimal prompt) is independently VERIFIED / PASS at SHA `5991b29f2c3c1c987d5d24fcd4eeaaf27b4c0fb5`.
+- P-04.04 (Implement protected-surface manifest and diff checks) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented; awaiting independent QA).
 
 ## Last independently VERIFIED baseline SHA
 `5991b29f2c3c1c987d5d24fcd4eeaaf27b4c0fb5` (P-01.02 independent QA PASS).
 
 ## Blocking live gate vs active task
 
-### Blocking live gate / Active task
+### Blocking live gate
 `P-01.03 — Discover and execute minimal Token Factory Sandbox workflow`
 - Status: `BLOCKED` (external platform prerequisite: awaiting Nebius team beta access enablement on project `aiproject-e00mae0nmzkxjswr1k`).
 - Discovery & Architecture findings:
@@ -64,17 +65,17 @@ Judge claim:
 - Phase impact: P-01 phase remains OPEN; no GO decision can be awarded without required `LIVE_NEBIUS` sandbox execution evidence.
 
 ### Current QA candidate
-None (P-01.03 is BLOCKED by external Nebius beta access review).
+`P-04.04 — Implement protected-surface manifest and diff checks` (implemented; awaiting independent QA).
 
 ### Active exact task
-`P-01.03 — Discover and execute minimal Token Factory Sandbox workflow` (discovery complete; live execution blocked pending external beta access approval).
+`P-04.04 — Implement protected-surface manifest and diff checks` (executor-completed; awaiting independent QA).
 
-*(Note: Exactly ONE executable micro-task is active at a time. P-01 is OPEN. P-04 is OPEN. P-04.04 is PENDING / NOT ACTIVE. P-05+ remain strictly forbidden).*
+*(Note: Exactly ONE executable micro-task is active at a time. P-01 is OPEN. P-04 is OPEN. P-04.03, P-04.05, P-04.06 are NOT AUTHORIZED. P-05+ remain strictly forbidden).*
 
 ## Parallelization boundary & rules
-- **Allowlist:** Under P-01.01B amendment, the previous P-02 and P-03 lanes are complete and independently closed. The offline allowlist permits sequential execution ONLY of platform-independent P-04 security primitives: `P-04.01` (threat model, DONE), `P-04.02` (secret redaction, DONE), and `P-04.04` (protected-surface manifest/diff, PENDING).
-- **P-04.04 restriction:** P-04.04 is PENDING and MUST NOT START during P-01.03 unless explicitly instructed by architecture authority.
-- **Provider neutrality:** All domain contracts and evidence primitives remain strictly provider-neutral; zero Nebius/NVIDIA/Tavily dependencies in committed application code.
+- **Allowlist:** Under P-01.01B amendment, the previous P-02 and P-03 lanes are complete and independently closed. The offline allowlist permitted sequential execution ONLY of platform-independent P-04 security primitives: `P-04.01` (threat model, DONE), `P-04.02` (secret redaction, DONE), and `P-04.04` (protected-surface manifest/diff, EXECUTOR_COMPLETED / AWAITING_INDEPENDENT_QA).
+- **Hard stop reached:** With P-04.04 executor-completed, all authorized platform-independent P-04 primitives are completed. No further tasks may begin without explicit architecture authorization.
+- **Provider neutrality:** All domain contracts, evidence primitives, and security primitives remain strictly provider-neutral; zero Nebius/NVIDIA/Tavily dependencies in committed application code.
 - **Not authorized / forbidden:** `P-01.04+`, `P-04.03`, `P-04.05`, `P-04.06`, and `P-05+` remain strictly unauthorized / forbidden.
 - **Phase status:** P-01 phase MUST remain OPEN. P-04 phase MUST remain OPEN.
 
@@ -94,10 +95,10 @@ None (P-01.03 is BLOCKED by external Nebius beta access review).
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Wait for Nebius team to approve and activate Sandboxes beta access on project `aiproject-e00mae0nmzkxjswr1k`.
-2. Once beta permissions are granted (`whoami` permissions become `true`), execute harmless command `/bin/echo BASEBREAK_SANDBOX_OK` to complete live execution and teardown observation.
-3. Do NOT start P-01.04.
-4. Do NOT start P-04.04.
+1. Conduct independent QA verification for `P-04.04 — Implement protected-surface manifest and diff checks`.
+2. Await Nebius team approval and activation of Sandboxes beta access on project `aiproject-e00mae0nmzkxjswr1k` for `P-01.03`.
+3. Once beta permissions are granted (`whoami` permissions become `true`), execute harmless command `/bin/echo BASEBREAK_SANDBOX_OK` to complete live execution and teardown observation.
+4. HARD STOP: Do NOT start P-01.04, P-04.03, P-04.05, P-04.06, or P-05+.
 5. P-01 phase remains OPEN.
 6. P-04 phase remains OPEN.
 7. P-05+ remain strictly unauthorized / forbidden.

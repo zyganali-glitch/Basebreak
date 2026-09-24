@@ -303,7 +303,7 @@ Acceptance:
 - defines resource ceilings, network policy, and process limits from verified facts.
 
 ### P-04.04 — Implement protected-surface manifest and diff checks
-Status: PENDING / MUST NOT START before P-04.02 independent PASS
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented; awaiting independent QA)
 Acceptance:
 - protected-surface manifest contract;
 - normalized repository path validation;
