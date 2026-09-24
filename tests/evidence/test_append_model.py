@@ -26,6 +26,7 @@ from basebreak.evidence.append_model import (
     RunIdentity,
 )
 from basebreak.evidence.artifact import ArtifactDigest, DigestAlgorithm
+from basebreak.security.secret_policy import REDACTION_MARKER, SecretPersistenceError
 
 
 def _make_candidate(
@@ -666,3 +667,151 @@ class TestPerRunSequenceSemantics:
         recs = store.get_for_run("run-order")
         assert [r.sequence_number for r in recs] == [0, 1, 2]
         assert [r.evidence_id.evidence_id for r in recs] == ["ev-0", "ev-1", "ev-2"]
+
+
+class TestSecretPersistenceBoundaryAndAtomicity:
+    """Validate forbidden durable secret persistence and atomic failure in EvidenceStore."""
+
+    def test_record_construction_rejects_secret_in_argv(self) -> None:
+        synthetic_token = "sk-synthetic1234567890abcdef"
+        cmd = ExecutionCommand(argv=("pytest", f"--api-key={synthetic_token}"))
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-secret-argv"),
+                run_id=RunIdentity("run-sec-1"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                command=cmd,
+            )
+        err = exc_info.value
+        assert "command.argv[1]" in err.path
+        assert synthetic_token not in str(err)
+        assert synthetic_token not in repr(err)
+
+    def test_record_construction_rejects_secret_in_env(self) -> None:
+        synthetic_key = "synthetic_api_key_xyz123"
+        cmd = ExecutionCommand(
+            argv=("python", "script.py"),
+            env=(("NEBIUS_API_KEY", synthetic_key),),
+        )
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-secret-env"),
+                run_id=RunIdentity("run-sec-2"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                command=cmd,
+            )
+        err = exc_info.value
+        assert "command.env[NEBIUS_API_KEY]" in err.path
+        assert synthetic_key not in str(err)
+        assert synthetic_key not in repr(err)
+
+    def test_record_construction_rejects_secret_in_candidate_description(self) -> None:
+        synthetic_secret = "synthetic_candidate_secret_123"
+        source = SourceIdentity(
+            locator="https://github.com/repo",
+            revision=CommitRevision("0" * 40),
+        )
+        cand = CandidateIdentity(
+            candidate_id="cand-desc",
+            source=source,
+            patch_digest="a" * 64,
+            description=f"Candidate generated with api_key={synthetic_secret}",
+        )
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            EvidenceRecord(
+                evidence_id=EvidenceIdentity("ev-secret-cand"),
+                run_id=RunIdentity("run-sec-3"),
+                sequence_number=0,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                candidate=cand,
+            )
+        err = exc_info.value
+        assert "candidate.description" in err.path
+        assert synthetic_secret not in str(err)
+        assert synthetic_secret not in repr(err)
+
+    def test_serialization_fails_closed_on_secret(self) -> None:
+        run = RunIdentity("run-sec-serial")
+        ev_id = EvidenceIdentity("ev-serial-1")
+        clean_cmd = ExecutionCommand(argv=("pytest",))
+        rec = EvidenceRecord(
+            evidence_id=ev_id,
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            command=clean_cmd,
+        )
+        # Normal record serializes cleanly
+        d = rec.to_dict()
+        assert d["evidence_id"] == "ev-serial-1"
+
+        # Simulate a bypass where a record holds secret-bearing command
+        tainted_cmd = ExecutionCommand(argv=("pytest", "sk-synthetic1234567890abcdef"))
+        object.__setattr__(rec, "command", tainted_cmd)
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            rec.to_dict()
+        assert "sk-synthetic1234567890abcdef" not in str(exc_info.value)
+
+    def test_evidence_store_append_failure_atomicity(self) -> None:
+        store = EvidenceStore()
+        run = RunIdentity("run-atomicity")
+
+        # 1. Append legitimate first record at sequence 0
+        rec0 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-000"),
+            run_id=run,
+            sequence_number=0,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            command=ExecutionCommand(argv=("pytest", "tests/unit")),
+        )
+        store.append(rec0)
+        assert len(store) == 1
+        assert store._run_next_sequence["run-atomicity"] == 1
+
+        # 2. Prepare record at sequence 1, tainted with secret
+        rec1 = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-001"),
+            run_id=run,
+            sequence_number=1,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            command=ExecutionCommand(argv=("pytest", "tests/clean")),
+        )
+        tainted_cmd = ExecutionCommand(
+            argv=("curl",),
+            env=(("API_KEY", "synthetic_secret_token_never_persist"),),
+        )
+        object.__setattr__(rec1, "command", tainted_cmd)
+
+        # 3. Attempt append - must fail closed with SecretPersistenceError
+        with pytest.raises(SecretPersistenceError) as exc_info:
+            store.append(rec1)
+        err = exc_info.value
+        assert "synthetic_secret_token_never_persist" not in str(err)
+
+        # 4. Strict atomicity assertions:
+        # - store length unchanged
+        assert len(store) == 1
+        # - rejected record absent from store
+        assert store.get("ev-001") is None
+        # - next expected sequence unchanged (still 1)
+        assert store._run_next_sequence["run-atomicity"] == 1
+        # - pre-existing records completely unaffected
+        assert store.get("ev-000") == rec0
+
+        # 5. Retry with safe/sanitized record at sequence 1 succeeds deterministically
+        rec1_clean = EvidenceRecord(
+            evidence_id=EvidenceIdentity("ev-001"),
+            run_id=run,
+            sequence_number=1,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            command=ExecutionCommand(
+                argv=("curl",),
+                env=(("API_KEY", REDACTION_MARKER),),
+            ),
+        )
+        store.append(rec1_clean)
+        assert len(store) == 2
+        assert store._run_next_sequence["run-atomicity"] == 2
+        assert store.get("ev-001") == rec1_clean

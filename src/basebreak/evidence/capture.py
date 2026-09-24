@@ -8,49 +8,14 @@ bounded secret sanitization without merging streams.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
 from basebreak.evidence.artifact import ArtifactDigest, compute_bytes_digest
+from basebreak.security.secret_policy import redact_text
 
 DEFAULT_MAX_CAPTURE_BYTES: int = 65536  # 64 KiB default bound
-
-# Narrow, deterministic sanitization patterns for credential and secret formats
-_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    # Bearer authorization tokens: Bearer <token>
-    (
-        re.compile(r"(?i)\b(Bearer\s+)[A-Za-z0-9_\-\.]{10,}\b"),
-        r"\1[REDACTED]",
-    ),
-    # Basic authorization credentials: Basic <base64>
-    (
-        re.compile(r"(?i)\b(Basic\s+)[A-Za-z0-9+/=]{10,}\b"),
-        r"\1[REDACTED]",
-    ),
-    # Known secret/token key-value assignments
-    (
-        re.compile(
-            r"(?i)\b((?:api[_-]?key|token|secret|password|auth|authorization|private[_-]?key)"
-            r"\s*[:=]\s*['\"]?)[A-Za-z0-9_\-\.]{8,}['\"]?\b"
-        ),
-        r"\1[REDACTED]",
-    ),
-    # Common token prefix formats
-    (
-        re.compile(r"\b(sk-[A-Za-z0-9_\-]{16,})\b"),
-        "[REDACTED]",
-    ),
-    (
-        re.compile(r"\b(ghp_[A-Za-z0-9]{36})\b"),
-        "[REDACTED]",
-    ),
-    (
-        re.compile(r"\b(gho_[A-Za-z0-9]{36})\b"),
-        "[REDACTED]",
-    ),
-)
 
 
 class StreamType(str, Enum):
@@ -61,23 +26,16 @@ class StreamType(str, Enum):
 
 
 def sanitize_text(text: str) -> tuple[str, bool]:
-    """Apply narrow deterministic sanitization to text.
+    """Apply deterministic secret sanitization to text.
+
+    Delegates to the canonical Basebreak secret policy (P-04.02).
 
     Returns:
         tuple of (sanitized_text, is_sanitized).
     """
     if not isinstance(text, str):
         raise TypeError(f"text must be a str, got {type(text).__name__}")
-
-    sanitized = text
-    is_modified = False
-    for pattern, replacement in _SECRET_PATTERNS:
-        new_text, count = pattern.subn(replacement, sanitized)
-        if count > 0:
-            sanitized = new_text
-            is_modified = True
-
-    return sanitized, is_modified
+    return redact_text(text)
 
 
 @dataclass(frozen=True)

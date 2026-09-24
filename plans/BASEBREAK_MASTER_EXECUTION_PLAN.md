@@ -274,7 +274,7 @@ Why the remaining tasks are NOT authorized under the offline lane:
 - P-04.05 and P-04.06: Keep timeout/resource/fork-bomb behavior from encoding unverified platform semantics before live sandbox discovery.
 
 ### P-04.01 — Formalize target-repository threat model
-Status: IN_PROGRESS (executor-completed; awaiting independent QA)
+Status: DONE (independently VERIFIED / PASS at SHA 4db39b136d2fd12e6ebd67eb5c5577d283f279e2)
 Acceptance:
 - formal threat model document in docs/;
 - generic adversaries and trust boundaries defined;
@@ -286,7 +286,7 @@ Acceptance:
 - deterministic facts recognized as authoritative over model prose.
 
 ### P-04.02 — Implement secret redaction and forbidden persistence rules
-Status: PENDING
+Status: IN_PROGRESS (executor-completed; awaiting independent QA)
 Acceptance:
 - deterministic secret-shaped value redaction engine;
 - forbidden durable-secret persistence rules for evidence store and logs;

@@ -38,10 +38,11 @@ Judge claim:
 - P-03.06 (Add tamper/mismatch/replay tests) is independently VERIFIED / PASS at SHA `83eb91da3caec3d52c22c06cf19fd0d5020b1057`.
 - P-03 phase (Evidence Store & Deterministic Fact Authority) is independently CLOSED / PASS at SHA `83eb91da3caec3d52c22c06cf19fd0d5020b1057` (recorded at SHA `666181053b49ebb49cb5fda64b6a5cd4dfb26c9b`).
 - P-01.01B (Extend bounded provider-neutral parallel execution to platform-independent P-04 security primitives while the live gate remains externally blocked) is independently VERIFIED / PASS at SHA `9ccf9e8c1ec34927142da69532814a030e0c2290`.
-- P-04.01 (Formalize target-repository threat model) is IN_PROGRESS (executor-completed; awaiting independent QA).
+- P-04.01 (Formalize target-repository threat model) is independently VERIFIED / PASS at SHA `4db39b136d2fd12e6ebd67eb5c5577d283f279e2`.
+- P-04.02 (Implement secret redaction and forbidden persistence rules) is IN_PROGRESS (executor-completed; awaiting independent QA).
 
 ## Last independently VERIFIED baseline SHA
-`9ccf9e8c1ec34927142da69532814a030e0c2290` (P-01.01B independent QA PASS).
+`4db39b136d2fd12e6ebd67eb5c5577d283f279e2` (P-04.01 independent QA PASS).
 
 ## Blocking live gate vs active executable task
 
@@ -54,10 +55,10 @@ Judge claim:
 - Phase impact: P-01 phase remains OPEN; no GO decision can be awarded without required `LIVE_NEBIUS` evidence.
 
 ### Current QA candidate
-`P-04.01 — Formalize target-repository threat model` (executor-completed; awaiting independent QA verification).
+`P-04.02 — Implement secret redaction and forbidden persistence rules` (executor-completed; awaiting independent QA verification).
 
 ### Active executable task
-`P-04.01 — Formalize target-repository threat model`
+`P-04.02 — Implement secret redaction and forbidden persistence rules`
 
 *(Note: Exactly ONE executable micro-task is active at a time. P-01.02 remains BLOCKED. The parallel offline lane for P-02 and P-03 is complete. The narrow P-04 offline subset under P-01.01B does not substitute for or bypass the live gate).*
 
@@ -85,10 +86,9 @@ Judge claim:
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Complete P-04.01 executor deliverables: expand docs/SECURITY_BOUNDARY.md into formal provider-neutral threat model.
-2. Submit P-04.01 for independent QA review.
-3. Once P-04.01 is awarded PASS: execute next allowlisted task P-04.02 (Implement secret redaction and forbidden persistence rules).
-4. Blocking live gate P-01.02 remains BLOCKED until Builder Program promotional-code email is delivered and redeemed ($1.00 trial credit MUST NOT be consumed; Token Factory balance must be verified > $5.00; operator authorization required).
-5. P-01 phase remains OPEN.
-6. P-04 phase remains OPEN.
-7. P-04.03, P-04.05, P-04.06 and P-05+ remain strictly unauthorized / forbidden under the current offline lane.
+1. Execute allowlisted task P-04.02 (Implement secret redaction and forbidden persistence rules).
+2. Submit P-04.02 for independent QA review.
+3. Blocking live gate P-01.02 remains BLOCKED until Builder Program promotional-code email is delivered and redeemed ($1.00 trial credit MUST NOT be consumed; Token Factory balance must be verified > $5.00; operator authorization required).
+4. P-01 phase remains OPEN.
+5. P-04 phase remains OPEN.
+6. P-04.03, P-04.05, P-04.06 and P-05+ remain strictly unauthorized / forbidden under the current offline lane.

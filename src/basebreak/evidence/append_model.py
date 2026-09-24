@@ -21,6 +21,9 @@ from basebreak.evidence.artifact import (
     ArtifactReference,
     compute_bytes_digest,
 )
+from basebreak.security.secret_policy import (
+    validate_evidence_record_for_persistence,
+)
 
 _IDENTIFIER_REGEX = re.compile(r"^[a-zA-Z0-9_\-]+$")
 
@@ -223,6 +226,9 @@ class EvidenceRecord:
                 f"recorded_at_epoch_ms must be non-negative, got {self.recorded_at_epoch_ms}"
             )
 
+        # P-04.02: Validate forbidden durable secrets before fact digest or persistence
+        validate_evidence_record_for_persistence(self)
+
         computed = _compute_record_fact_digest(
             evidence_id=self.evidence_id,
             run_id=self.run_id,
@@ -254,7 +260,12 @@ class EvidenceRecord:
         return None
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize evidence record facts to a dictionary."""
+        """Serialize evidence record facts to a dictionary.
+
+        Fails closed: raises SecretPersistenceError if authoritative facts
+        contain raw secret-shaped material.
+        """
+        validate_evidence_record_for_persistence(self)
         return {
             "artifacts": [art.to_dict() for art in self.artifacts],
             "candidate": to_dict(self.candidate) if self.candidate is not None else None,
@@ -313,12 +324,16 @@ class EvidenceStore:
 
         Raises:
             TypeError: if record is not an EvidenceRecord.
+            SecretPersistenceError: if record violates forbidden durable secret persistence rules.
             EvidenceRebindingError: if record violates store run or candidate binding.
             EvidenceConflictError: if record with same evidence_id has conflicting contents.
             EvidenceSequenceError: if record violates per-run sequence continuity.
         """
         if not isinstance(record, EvidenceRecord):
             raise TypeError(f"record must be an EvidenceRecord, got {type(record).__name__}")
+
+        # P-04.02: Validate forbidden durable secrets before modifying store state
+        validate_evidence_record_for_persistence(record)
 
         if self._run_id is not None and record.run_id != self._run_id:
             raise EvidenceRebindingError(

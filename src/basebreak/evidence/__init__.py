@@ -45,6 +45,10 @@ from basebreak.evidence.provenance import (
     validate_provenance_transition,
 )
 from basebreak.evidence.snapshot import VerdictInputSnapshot
+from basebreak.security.secret_policy import (
+    SecretPersistenceError,
+    validate_evidence_record_for_persistence,
+)
 
 __all__ = [
     "DEFAULT_MAX_CAPTURE_BYTES",
@@ -64,6 +68,7 @@ __all__ = [
     "ProvenanceLaunderingError",
     "ProvenanceTransitionError",
     "RunIdentity",
+    "SecretPersistenceError",
     "StreamType",
     "VerdictInputSnapshot",
     "artifact_from_bytes",
@@ -82,6 +87,7 @@ __all__ = [
     "is_recorded_live",
     "is_successful_execution",
     "sanitize_text",
+    "validate_evidence_record_for_persistence",
     "validate_provenance_derivation",
     "validate_provenance_transition",
 ]
