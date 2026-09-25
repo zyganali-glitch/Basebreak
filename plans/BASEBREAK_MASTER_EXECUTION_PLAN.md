@@ -154,7 +154,7 @@ Acceptance:
 - no mock fallback.
 
 ### P-01.03 — Discover and execute minimal Token Factory Sandbox workflow
-Status: BLOCKED (external prerequisite: awaiting Nebius team beta access enablement on project aiproject-e00mae0nmzkxjswr1k; discovery, SDK/CLI analysis, OpenAPI schema, recorded live whoami probe, and official beta application completed; documented in docs/P01_03_LIVE_SANDBOX_DISCOVERY.md)
+Status: BLOCKED (external prerequisite: awaiting Nebius team beta access enablement on project aiproject-e00mae0nmzkxjswr1k; discovery, SDK/CLI analysis, OpenAPI schema, recorded live whoami probe, official beta application completed; re-probed 2026-09-25: permissions still false / 403 Forbidden; documented in docs/P01_03_LIVE_SANDBOX_DISCOVERY.md)
 Acceptance:
 - create supported sandbox;
 - execute harmless command;

@@ -1,10 +1,11 @@
 # P-01.03 — Live Token Factory Sandbox Discovery Report
 
-- **Execution Date/Time:** 2026-09-24 10:15 UTC (13:15 Local)
-- **Starting Canonical Remote SHA:** `5991b29f2c3c1c987d5d24fcd4eeaaf27b4c0fb5`
+- **Initial Discovery Date/Time:** 2026-09-24 10:15 UTC (13:15 Local)
+- **Re-Probe Date/Time:** 2026-09-25 05:25 UTC (08:25 Local)
+- **Starting Canonical Remote SHA:** `e4892ea9a2ab98e464d2fc409b280a30d23ff3f0` (baseline SHA `96f032f1165425d88e1bbbc23d6b925ee05e2841` + P-04.04 truth sync)
 - **Active Micro-Task:** `P-01.03 — Discover and execute minimal Token Factory Sandbox workflow`
 - **Execution Status:** EXECUTOR_COMPLETED / BLOCKED_EXTERNAL_BETA_ACCESS
-  (Discovery complete, SDK/CLI analysed, recorded live authentication probe via `/whoami`, exact Project ID identified, harmless execution attempted, official Beta access form submitted; awaiting Nebius team beta enablement on `aiproject-e00mae0nmzkxjswr1k`)
+  (Discovery complete, SDK/CLI analysed, recorded live authentication probe via `/whoami`, exact Project ID identified, harmless execution attempted, official Beta access form submitted on 2026-09-24, re-probed on 2026-09-25; awaiting Nebius team beta enablement on `aiproject-e00mae0nmzkxjswr1k`)
 - **Zero-Cost Policy Check:** SATISFIED (Operator observed; target personal spend $0.00)
   - Promotional balance: `$25.00`
   - Trial credit: `$1.00` untouched
@@ -145,6 +146,59 @@ if not check_permission(whoami, REQUIRED_PERMISSION):  # REQUIRED_PERMISSION = "
   - `Use Case`: *"Participating in the official Nebius x NVIDIA Global AI Hackathon. Developing Basebreak, an agent causal verification runtime using NVIDIA Nemotron and Token Factory Sandboxes for isolated execution branching."*
 - **Platform Confirmation:** Platform displayed: *"Teşekkürler, yanıtınız gönderildi"*.
 - **Post-Submission State:** Application is in review / awaiting enablement by the Nebius team.
+
+### H. Re-Probe of Sandbox Access (2026-09-25 05:25 UTC / 08:25 Local)
+Executed as fresh live calls (`RECORDED_LIVE`) starting from remote SHA `e4892ea9a2ab98e464d2fc409b280a30d23ff3f0`:
+1. **Live Token Introspection (`GET https://api.tokenfactory.nebius.com/sandboxes/v1/whoami`):**
+   - Headers: `Authorization: Bearer <redacted>`, `Project: aiproject-e00mae0nmzkxjswr1k`, `User-Agent: Basebreak-Live-Probe/0.1`
+   - **HTTP Status:** `200 OK`
+   - **Deterministic Response Payload:**
+   ```json
+   {
+     "token_uuid": "<redacted>",
+     "token_expiration": 1790314242,
+     "permissions": {
+       "import": false,
+       "spawn": false,
+       "spawn_disposable": false,
+       "list": false,
+       "cancel": false,
+       "set_image_tag": false
+     },
+     "operations_stat": {
+       "running_instances": 0,
+       "running_imports": 0
+     },
+     "limits": {
+       "instance_max_timeout": 3600,
+       "instance_max_concurrency": 50,
+       "instance_max_layer_bytes": 12884901888,
+       "images_import_max_concurrency": 8,
+       "images_import_max_timeout": 3600
+     }
+   }
+   ```
+2. **Live Execution Attempt (`POST https://api.tokenfactory.nebius.com/sandboxes/v1/instances`):**
+   - Headers: `Authorization: Bearer <redacted>`, `Project: aiproject-e00mae0nmzkxjswr1k`, `Content-Type: application/json`
+   - Payload:
+   ```json
+   {
+     "image": "tag:busybox:latest",
+     "command": "echo BASEBREAK_SANDBOX_OK",
+     "shell": true,
+     "disposable": true
+   }
+   ```
+   - **HTTP Status:** `403 Forbidden`
+   - **Response Body:**
+   ```json
+   {"status": 403, "error": "Insufficient permissions: spawn or spawn_disposable"}
+   ```
+3. **Factual Conclusion:**
+   - Account permissions remain pending Nebius team enablement.
+   - P-01.03 remains `BLOCKED_EXTERNAL_BETA_ACCESS`.
+   - In accordance with the Master Plan and Conditional Batch Hard-Gate Law, a **HARD STOP** is enforced immediately.
+   - P-01.04 is NOT run and must not be started.
 
 ---
 

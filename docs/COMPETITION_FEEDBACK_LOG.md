@@ -144,4 +144,5 @@ This log may also be used as source material for the "Most Valuable Feedback" pr
 - **Severity/Value:** HIGH
 - **Provenance:** LIVE_OBSERVATION
 - **Status:** UNRESOLVED (awaiting beta access activation)
+- **Follow-up (2026-09-25 05:25 UTC):** Re-probed endpoints `/sandboxes/v1/whoami` and `/sandboxes/v1/instances` using project `aiproject-e00mae0nmzkxjswr1k`. All functional permissions remain `false`, instance spawn returns HTTP 403 `Insufficient permissions: spawn or spawn_disposable`. Access request remains pending review.
 

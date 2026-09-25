@@ -50,7 +50,7 @@ Judge claim:
 
 ### Blocking live gate
 `P-01.03 — Discover and execute minimal Token Factory Sandbox workflow`
-- Status: `BLOCKED` (external platform prerequisite: awaiting Nebius team beta access enablement on project `aiproject-e00mae0nmzkxjswr1k`).
+- Status: `BLOCKED` (external platform prerequisite: awaiting Nebius team beta access enablement on project `aiproject-e00mae0nmzkxjswr1k`; re-probed 2026-09-25: permissions still false / 403 Forbidden).
 - Discovery & Architecture findings:
   - Official sources, OpenAPI schema (`https://eu-north.nebius.computer/static/api.yaml`), first-party `contree-sdk` (v0.3.6), `contree-client` (v0.4.0), and `contree-cli` (v0.9.4) analyzed in an isolated temporary environment.
   - Auth structure: `Authorization: Bearer <NEBIUS_API_KEY>` + `Project: <NEBIUS_PROJECT_ID>` (enforced at HTTP level; omission returns 400 `Missing "Project" header`).
@@ -58,6 +58,7 @@ Judge claim:
   - Project ID resolved: Operator located and copied Project ID `aiproject-e00mae0nmzkxjswr1k` from Token Factory project settings.
   - Recorded live authentication probe (`RECORDED_LIVE`): `GET /sandboxes/v1/whoami` executed with bearer token and project ID returned HTTP 200 OK, but all functional permissions returned `false` (`import`, `spawn`, `spawn_disposable`, `list`, `cancel`, `set_image_tag`).
   - Recorded live execution attempt (`RECORDED_LIVE`): `POST /sandboxes/v1/instances` with `/bin/echo BASEBREAK_SANDBOX_OK` returned HTTP 403 `{"status": 403, "error": "Insufficient permissions: spawn or spawn_disposable"}`. `GET /sandboxes/v1/images` returned HTTP 403 `{"status": 403, "error": "Insufficient permissions: list"}`.
+  - Re-probed live authentication and execution attempt on 2026-09-25 (05:25 UTC / 08:25 Local, `RECORDED_LIVE`): `GET /sandboxes/v1/whoami` returned HTTP 200 with all permissions `false`; `POST /sandboxes/v1/instances` returned HTTP 403 `{"status": 403, "error": "Insufficient permissions: spawn or spawn_disposable"}`. Blocker confirmed active.
   - First-party CLI corroboration: `contree-cli` codebase (`contree_cli/cli/auth.py` lines 278-286) explicitly warns: `"Warning: token is valid but sandboxes are disabled on %s (no 'list' permission). The profile will be saved but no commands will work until the service is enabled."`
   - External beta request submitted: Operator clicked "Request beta access" in web console, submitted official form for project `aiproject-e00mae0nmzkxjswr1k` with hackathon causal verification use case, and platform confirmed submission (`"Teşekkürler, yanıtınız gönderildi"`).
   - Full evidence documented in `docs/P01_03_LIVE_SANDBOX_DISCOVERY.md`.
