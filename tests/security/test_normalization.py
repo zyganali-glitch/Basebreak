@@ -17,28 +17,14 @@ from basebreak.security.secret_policy import SecretPersistenceError
 class TestSuccessfulResult:
     """Verify normalization of successful executions."""
 
-    def test_provider_payload_success(self) -> None:
-        payload = {
-            "id": "01a0d8ca-28fd-777e-9d32-0907c4cb6f28",
-            "status": "SUCCESS",
-            "metadata": {
-                "result": {
-                    "exit_code": 0,
-                    "stdout": "BASEBREAK_SANDBOX_OK\n",
-                    "stderr": "",
-                    "duration": 0.338,
-                }
-            },
-        }
-        record = normalize_execution_result(raw_payload=payload)
+    def test_direct_exit_code_zero_success(self) -> None:
+        record = normalize_execution_result(exit_code=0, stdout="BASEBREAK_SANDBOX_OK\n")
         assert record.outcome == NormalizedExecutionOutcome.SUCCESS
         assert record.exit_code == 0
-        assert record.duration_seconds == 0.338
         assert record.stdout_preview == "BASEBREAK_SANDBOX_OK\n"
         assert record.is_timeout is False
         assert record.is_cancelled is False
         assert record.is_resource_failure is False
-        assert record.raw_payload_digest is not None
 
     def test_domain_execution_result_success(self) -> None:
         res = ExecutionResult(
@@ -51,24 +37,38 @@ class TestSuccessfulResult:
         assert record.exit_code == 0
         assert record.stdout_preview == "all passed"
 
+    def test_raw_payload_digested_without_becoming_classification_authority(self) -> None:
+        # Raw payload is digested for evidence, but exit_code must be passed authoritatively
+        payload = {
+            "id": "01a0d8ca-28fd-777e-9d32-0907c4cb6f28",
+            "status": "SUCCESS",
+            "metadata": {
+                "result": {
+                    "exit_code": 0,
+                    "stdout": "BASEBREAK_SANDBOX_OK\n",
+                    "stderr": "",
+                    "duration": 0.338,
+                }
+            },
+        }
+        record = normalize_execution_result(
+            exit_code=0,
+            stdout="BASEBREAK_SANDBOX_OK\n",
+            duration_seconds=0.338,
+            raw_payload=payload,
+        )
+        assert record.outcome == NormalizedExecutionOutcome.SUCCESS
+        assert record.exit_code == 0
+        assert record.raw_payload_digest is not None
+
 
 class TestNonzeroExitResult:
     """Verify normalization of process completion with non-zero exit codes."""
 
-    def test_provider_payload_nonzero_exit(self) -> None:
-        payload = {
-            "id": "01a0d8ce-9ce0-7310-846b-8b556856ce48",
-            "status": "SUCCESS",
-            "metadata": {
-                "result": {
-                    "exit_code": 1,
-                    "stdout": "FAILED tests/test_task.py\n",
-                    "stderr": "AssertionError",
-                    "duration": 4.1,
-                }
-            },
-        }
-        record = normalize_execution_result(raw_payload=payload)
+    def test_direct_nonzero_exit(self) -> None:
+        record = normalize_execution_result(
+            exit_code=1, stdout="FAILED tests/test_task.py\n", stderr="AssertionError"
+        )
         assert record.outcome == NormalizedExecutionOutcome.NONZERO_EXIT
         assert record.exit_code == 1
         assert record.is_timeout is False
@@ -87,36 +87,13 @@ class TestNonzeroExitResult:
 
 
 class TestTimeoutNormalization:
-    """Verify deterministic normalization of timeouts."""
+    """Verify deterministic normalization of timeouts and non-self-promotion."""
 
-    def test_provider_status_timed_out(self) -> None:
-        payload = {
-            "id": "op-timeout-1",
-            "status": "TIMED_OUT",
-            "metadata": {"result": {"exit_code": None, "stdout": "", "stderr": ""}},
-        }
-        record = normalize_execution_result(raw_payload=payload)
+    def test_explicit_timeout_flag(self) -> None:
+        record = normalize_execution_result(is_timeout=True)
         assert record.outcome == NormalizedExecutionOutcome.TIMEOUT
         assert record.is_timeout is True
         assert record.is_cancelled is False
-
-    def test_provider_http_408_error(self) -> None:
-        payload = {
-            "id": "op-timeout-2",
-            "status": "FAILURE",
-            "error": {"status": 408, "error": "Request timed out"},
-        }
-        record = normalize_execution_result(raw_payload=payload)
-        assert record.outcome == NormalizedExecutionOutcome.TIMEOUT
-        assert record.is_timeout is True
-
-    def test_error_message_indicates_timeout(self) -> None:
-        record = normalize_execution_result(
-            provider_status="FAILURE",
-            provider_error="Instance execution timeout exceeded 180s",
-        )
-        assert record.outcome == NormalizedExecutionOutcome.TIMEOUT
-        assert record.is_timeout is True
 
     def test_domain_execution_result_timed_out(self) -> None:
         res = ExecutionResult(status=TerminationStatus.TIMED_OUT)
@@ -124,30 +101,39 @@ class TestTimeoutNormalization:
         assert record.outcome == NormalizedExecutionOutcome.TIMEOUT
         assert record.is_timeout is True
 
+    def test_http_408_alone_fails_closed_as_unknown_provider_failure(self) -> None:
+        # HTTP 408 alone MUST NOT self-promote to TIMEOUT without verified adapter
+        record = normalize_execution_result(
+            provider_status="FAILURE",
+            provider_error={"status": 408, "error": "Request timed out"},
+        )
+        assert record.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert record.is_timeout is False
+
+    def test_provider_status_timed_out_alone_fails_closed(self) -> None:
+        # Unproven provider status string alone MUST NOT self-promote to TIMEOUT
+        record = normalize_execution_result(provider_status="TIMED_OUT")
+        assert record.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert record.is_timeout is False
+
+    def test_error_message_deadline_exceeded_alone_fails_closed(self) -> None:
+        # Generic deadline/timeout text MUST NOT self-promote to TIMEOUT
+        record = normalize_execution_result(
+            provider_status="FAILURE",
+            provider_error="Instance execution timeout exceeded 180s",
+        )
+        assert record.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert record.is_timeout is False
+
 
 class TestCancellationNormalization:
-    """Verify deterministic normalization of cancellations."""
+    """Verify deterministic normalization of cancellations and non-self-promotion."""
 
-    def test_provider_status_cancelled(self) -> None:
-        payload = {
-            "id": "op-cancel-1",
-            "status": "CANCELLED",
-            "metadata": {"result": None},
-        }
-        record = normalize_execution_result(raw_payload=payload)
+    def test_explicit_cancellation_flag(self) -> None:
+        record = normalize_execution_result(is_cancelled=True)
         assert record.outcome == NormalizedExecutionOutcome.CANCELLED
         assert record.is_cancelled is True
         assert record.is_timeout is False
-
-    def test_provider_http_499_error(self) -> None:
-        payload = {
-            "id": "op-cancel-2",
-            "status": "FAILURE",
-            "error": {"status": 499, "error": "Client closed request: operation cancelled"},
-        }
-        record = normalize_execution_result(raw_payload=payload)
-        assert record.outcome == NormalizedExecutionOutcome.CANCELLED
-        assert record.is_cancelled is True
 
     def test_domain_execution_result_cancelled(self) -> None:
         res = ExecutionResult(status=TerminationStatus.CANCELLED)
@@ -155,69 +141,113 @@ class TestCancellationNormalization:
         assert record.outcome == NormalizedExecutionOutcome.CANCELLED
         assert record.is_cancelled is True
 
+    def test_http_499_alone_fails_closed_as_unknown_provider_failure(self) -> None:
+        # HTTP 499 alone MUST NOT self-promote to CANCELLED without verified adapter
+        record = normalize_execution_result(
+            provider_status="FAILURE",
+            provider_error={"status": 499, "error": "Client closed request: operation cancelled"},
+        )
+        assert record.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert record.is_cancelled is False
+
+    def test_provider_status_cancelled_alone_fails_closed(self) -> None:
+        # Unproven provider status string alone MUST NOT self-promote to CANCELLED
+        record = normalize_execution_result(provider_status="CANCELLED")
+        assert record.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert record.is_cancelled is False
+
+    def test_cancellation_error_message_alone_fails_closed(self) -> None:
+        record = normalize_execution_result(
+            provider_status="FAILURE",
+            provider_error="Operation cancelled by user",
+        )
+        assert record.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert record.is_cancelled is False
+
 
 class TestResourceFailureNormalization:
     """Verify deterministic identification of verified resource exhaustion."""
 
-    def test_concurrency_limit_exhausted(self) -> None:
-        payload = {
-            "id": "op-rf-1",
-            "status": "FAILURE",
-            "error": {
-                "status": 429,
-                "error": "Max concurrency limit of 50 instances reached for project",
-            },
-        }
-        record = normalize_execution_result(raw_payload=payload)
+    def test_explicit_concurrency_exhausted_class(self) -> None:
+        record = normalize_execution_result(
+            resource_failure_class=ResourceFailureClass.CONCURRENCY_EXHAUSTED
+        )
         assert record.outcome == NormalizedExecutionOutcome.RESOURCE_FAILURE
         assert record.is_resource_failure is True
         assert record.resource_failure_class == ResourceFailureClass.CONCURRENCY_EXHAUSTED
 
-    def test_layer_bytes_quota_exceeded(self) -> None:
-        payload = {
-            "id": "op-rf-2",
-            "status": "FAILURE",
-            "error": {
-                "status": 400,
-                "error": "Instance_max_layer_bytes (12884901888) exceeded during execution",
-            },
-        }
-        record = normalize_execution_result(raw_payload=payload)
+    def test_explicit_layer_quota_exceeded_class(self) -> None:
+        record = normalize_execution_result(
+            resource_failure_class=ResourceFailureClass.LAYER_QUOTA_EXCEEDED
+        )
         assert record.outcome == NormalizedExecutionOutcome.RESOURCE_FAILURE
         assert record.is_resource_failure is True
         assert record.resource_failure_class == ResourceFailureClass.LAYER_QUOTA_EXCEEDED
 
-    def test_out_of_memory_failure(self) -> None:
+    def test_explicit_out_of_memory_class(self) -> None:
         record = normalize_execution_result(
-            provider_status="FAILURE",
-            provider_error="Process killed by cgroup memory OOM killer",
+            resource_failure_class=ResourceFailureClass.OUT_OF_MEMORY
         )
         assert record.outcome == NormalizedExecutionOutcome.RESOURCE_FAILURE
         assert record.is_resource_failure is True
         assert record.resource_failure_class == ResourceFailureClass.OUT_OF_MEMORY
+
+    def test_http_429_alone_fails_closed_as_unknown_provider_failure(self) -> None:
+        # HTTP 429 alone MUST NOT self-promote to CONCURRENCY_EXHAUSTED
+        record = normalize_execution_result(
+            provider_status="FAILURE",
+            provider_error={"status": 429, "error": "Too many requests"},
+        )
+        assert record.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert record.is_resource_failure is False
+        assert record.resource_failure_class is None
+
+    def test_oom_prose_alone_fails_closed_as_unknown_provider_failure(self) -> None:
+        # Free-form OOM text alone MUST NOT self-promote to OUT_OF_MEMORY
+        record = normalize_execution_result(
+            provider_status="FAILURE",
+            provider_error="Process killed by cgroup memory OOM killer",
+        )
+        assert record.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert record.is_resource_failure is False
+        assert record.resource_failure_class is None
+
+    def test_layer_bytes_prose_alone_fails_closed_as_unknown_provider_failure(self) -> None:
+        record = normalize_execution_result(
+            provider_status="FAILURE",
+            provider_error="instance_max_layer_bytes exceeded during command",
+        )
+        assert record.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert record.is_resource_failure is False
 
 
 class TestUnknownProviderFailure:
     """Verify that ambiguous or unverified failures fail closed as UNKNOWN_PROVIDER_FAILURE."""
 
     def test_http_500_internal_error_not_guessed(self) -> None:
+        err_dict = {"status": 500, "error": "Internal server error"}
         payload = {
             "id": "op-err-500",
             "status": "FAILURE",
-            "error": {"status": 500, "error": "Internal server error"},
+            "error": err_dict,
         }
-        record = normalize_execution_result(raw_payload=payload)
+        record = normalize_execution_result(
+            raw_payload=payload,
+            provider_error=err_dict,
+        )
         assert record.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
         assert record.is_timeout is False
         assert record.is_resource_failure is False
         assert record.resource_failure_class is None
 
     def test_http_403_insufficient_permissions(self) -> None:
-        payload = {
-            "status": 403,
-            "error": "Insufficient permissions: spawn or spawn_disposable",
-        }
-        record = normalize_execution_result(raw_payload=payload)
+        record = normalize_execution_result(
+            provider_status="FAILURE",
+            provider_error={
+                "status": 403,
+                "error": "Insufficient permissions: spawn or spawn_disposable",
+            },
+        )
         assert record.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
         assert record.is_timeout is False
         assert record.is_resource_failure is False
@@ -231,16 +261,11 @@ class TestUnknownProviderFailure:
         assert record.is_timeout is False
         assert record.is_resource_failure is False
 
-
-class TestMalformedAndPartialResults:
-    """Verify fail-closed handling of malformed or partial payloads."""
-
-    def test_empty_payload(self) -> None:
+    def test_empty_raw_payload_alone(self) -> None:
         record = normalize_execution_result(raw_payload={})
         assert record.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
 
-    def test_success_status_missing_exit_code(self) -> None:
-        # Incomplete metadata cannot be trusted as SUCCESS
+    def test_raw_payload_without_authoritative_facts_fails_closed(self) -> None:
         payload = {"status": "SUCCESS", "metadata": {"result": {}}}
         record = normalize_execution_result(raw_payload=payload)
         assert record.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE

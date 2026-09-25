@@ -152,7 +152,7 @@ class TestP0403Criterion3ProcessPolicy:
         with pytest.raises(ProcessPolicyError, match="exceeds maximum allowed length"):
             validate_command_string("x" * (MAX_COMMAND_LENGTH_BYTES + 1))
 
-    def test_process_fanout_safety_via_hard_timeout_ceiling(self) -> None:
+    def test_process_fanout_policy_timeout_ceiling_rejection(self) -> None:
         policy = SandboxExecutionPolicy()
         with pytest.raises(ResourceBudgetError, match="exceeds Basebreak ceiling"):
             policy.validate_execution_request(
@@ -162,6 +162,12 @@ class TestP0403Criterion3ProcessPolicy:
                 network_mode=SandboxNetworkMode.DISABLED,
                 timeout_seconds=MAX_SANDBOX_TIMEOUT_SECONDS + 1,
             )
+
+    def test_pid_process_limit_capability_is_explicitly_unproven(self) -> None:
+        rec = get_capability_record(SandboxCapability.PID_PROCESS_LIMIT)
+        assert rec.status == CapabilityStatus.UNPROVEN
+        assert "unproven" in rec.notes.lower()
+        assert is_capability_proven(SandboxCapability.PID_PROCESS_LIMIT) is False
 
 
 class TestP0403Criterion4UnknownCapabilitiesExplicit:

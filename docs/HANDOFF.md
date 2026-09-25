@@ -48,9 +48,9 @@ Judge claim:
 - P-01.06 (Phase feasibility decision and architecture freeze v0) is independently VERIFIED / PASS at SHA `ef5d79b1d421e628877522b16f4ab98dd0f515c2`.
 - P-01.07 (Freeze judge-visible causal vertical-slice contract from proven platform reality) is independently VERIFIED / PASS at SHA `ef5d79b1d421e628877522b16f4ab98dd0f515c2`.
 - P-01 phase (Live Platform Discovery & Feasibility Gate) is independently CLOSED / PASS at SHA `ef5d79b1d421e628877522b16f4ab98dd0f515c2`.
-- P-04.03 (Define sandbox resource/network/process policy from proven platform capability) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-04.05 (Implement execution timeout/cancellation/resource-failure normalization) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-04.06 (Add malicious-fixture tests for exfiltration attempts, fork bombs, verifier discovery, and protected-surface mutation) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-04.03 (Define sandbox resource/network/process policy from proven platform capability) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (repaired: PID_PROCESS_LIMIT explicitly classified as UNPROVEN; operational timeouts and disposable teardown clarified as application policy; OpenAPI facts reconciled).
+- P-04.05 (Implement execution timeout/cancellation/resource-failure normalization) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (repaired: removed all unproven regexes and HTTP status heuristics; provider-neutral normalizer driven strictly by authoritative facts; ambiguous/unverified signals fail closed as UNKNOWN_PROVIDER_FAILURE; raw_payload digested for audit trail without circular parsing).
+- P-04.06 (Add malicious-fixture tests for exfiltration attempts, fork bombs, verifier discovery, and protected-surface mutation) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (repaired: fork-bomb/command-size tests aligned with MAX_COMMAND_LENGTH_BYTES budget; explicit fact normalization verified for timeouts and OOM; capability tests verify PID_PROCESS_LIMIT is UNPROVEN; unproven cgroup prose fails closed).
 - P-04 phase (Security & Untrusted-Code Policy Foundation) is EXECUTOR_COMPLETED / CANDIDATE_FOR_INDEPENDENT_QA_CLOSURE.
 
 ## Last independently VERIFIED baseline SHA
@@ -62,12 +62,12 @@ Judge claim:
 None. P-01 live platform discovery is complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-Phase P-04 Live Security Completion Batch: `P-04.03`, `P-04.05`, and `P-04.06` (EXECUTOR_COMPLETED / CANDIDATE_FOR_INDEPENDENT_QA_CLOSURE).
+Phase P-04 Live Security Semantic Repair: `P-04.03`, `P-04.05`, and `P-04.06` (EXECUTOR_COMPLETED / CANDIDATE_FOR_INDEPENDENT_QA_CLOSURE).
 
 ### Active exact task
-Awaiting Independent QA evaluation of Phase P-04 (HARD STOP — P-05+ strictly forbidden).
+Awaiting Independent QA evaluation of Phase P-04 Security Semantic Repair (HARD STOP — P-05+ strictly forbidden).
 
-*(Note: All 6 tasks of Phase P-04 are completed by the executor. P-04 phase is submitted as candidate for independent QA closure. Under the Master Plan and batch hard-gate law, P-05+ remains strictly forbidden until independent QA awards closure).*
+*(Note: All 6 tasks of Phase P-04 are completed and repaired by the executor. P-04 phase is submitted as candidate for independent QA closure. Under the Master Plan and batch hard-gate law, P-05+ remains strictly forbidden until independent QA awards closure).*
 
 ## Parallelization boundary & rules
 - **Live batch executed & closed:** With Nebius Token Factory Sandboxes beta activation confirmed live, the conditional live batch (`P-01.03` through `P-01.07`) was executed, verified, and awarded independent QA PASS, closing Phase P-01.

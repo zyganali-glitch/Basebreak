@@ -24,7 +24,7 @@ Basebreak policy is constructed strictly from **empirically proven** and **first
 | **Inbound Network Isolation** | `UNPROVEN` | `UNPROVEN` | Inbound traffic handling, port bindings, and NAT isolation semantics were not tested. | Basebreak never binds or exposes inbound network ports in sandboxes. |
 | **CPU Hard Quota Enforcement** | `UNPROVEN` | `UNPROVEN` | API reports consumed CPU time, but whether CPU cores are throttled or capped is unproven. | Enforce CPU bounding through execution timeout. |
 | **Memory Hard-Kill / OOM Behavior** | `UNPROVEN` | `UNPROVEN` | API reports consumed memory, but deterministic OOM kill vs host crash behavior is unproven. | Enforce memory limits through bounded workload and timeout; no crash probes. |
-| **PID / Process Ceilings** | `UNPROVEN` | `UNPROVEN` | Platform `pids.max` or `RLIMIT_NPROC` values are unproven. | Strict execution timeout (<= 600s) and disposable VM cleanup prevent fork-bomb persistence. |
+| **PID / Process Ceilings** | `UNPROVEN` | `UNPROVEN` | Platform `pids.max` or `RLIMIT_NPROC` values are unproven. | Basebreak requires operational timeouts (<= 600s) and disposable VM cleanup by policy, but provider child-process kill semantics and process-explosion containment remain UNPROVEN. |
 | **Syscall Filtering (Seccomp)** | `UNPROVEN` | `UNPROVEN` | Container runs as root in LinuxKit VM; specific seccomp/AppArmor profile unproven. | Treat VM execution as untrusted root; never rely on syscall filtering for host safety. |
 | **Filesystem Mount Restrictions** | `UNPROVEN` | `UNPROVEN` | Rootfs is read-write; fine-grained mount restrictions are unproven. | Workspace changes are contained inside the VM; disposable mode discards all mutations. |
 | **Provider Secret Protection** | `UNSUPPORTED` | `POLICY_DERIVED` | The sandbox provider does not isolate guest memory or environment variables from guest code. | Zero credentials in sandbox environment. |
@@ -80,10 +80,10 @@ Basebreak distinguishes between provider-advertised account maximums and Basebre
 3. Commands must not contain null bytes (`\x00`) and must be <= 16 KB in length.
 
 ### Process Fanout & Fork-Bomb Protection
-1. Because platform-level PID ceilings (`pids.max`) are `UNPROVEN`, Basebreak enforces process safety through **hard temporal bounding**:
-   - The maximum operational timeout of 600s ensures that any process explosion (fork-bomb, runaway loop) is terminated by the platform watchdog.
-   - Disposable VM mode (`disposable: true`) ensures that upon operation termination, the entire VM is destroyed, terminating all lingering processes.
-2. In P-04.05, process termination due to timeout or resource failure is deterministically normalized to `TIMEOUT` or `RESOURCE_FAILURE`, never reported as a test failure or success.
+1. Because platform-level PID ceilings (`pids.max`) and child-process termination guarantees under fork-bombs remain `UNPROVEN`:
+   - Basebreak's security policy requires a hard operational timeout ceiling (<= 600s) and disposable VM mode (`disposable: true`) intended to destroy the VM environment upon termination.
+   - However, Basebreak does NOT claim that provider watchdogs or VM teardown are proven to deterministically prevent or terminate arbitrary process explosions without host degradation; this capability remains `UNPROVEN` at the platform layer. Mechanical prevention depends on subsequent runtime adapter enforcement (P-05).
+2. In P-04.05, process termination outcomes must be normalized from explicit authoritative facts, never derived from unproven provider error prose.
 
 ### Long-Running Daemons & Background Tasks
 1. Background daemons that outlive the requested execution command are strictly prohibited during verification runs.

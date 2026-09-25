@@ -133,7 +133,7 @@ class TestMaliciousSecretExfiltrationFixtures:
 class TestMaliciousProcessExplosionAndForkBombFixtures:
     """Fixture class 2: Process explosion, fork bombs, and resource exhaustion attacks."""
 
-    def test_fork_bomb_command_string_is_bounded_by_character_limit(self) -> None:
+    def test_oversized_malicious_command_rejected_by_budget(self) -> None:
         """Extremely bloated adversarial command string is rejected before dispatch."""
         bloated_command = ":(){ :|:& };: " * (MAX_COMMAND_LENGTH_BYTES // 10 + 5)
         with pytest.raises(ProcessPolicyError, match="exceeds maximum allowed length"):
@@ -144,45 +144,55 @@ class TestMaliciousProcessExplosionAndForkBombFixtures:
         with pytest.raises(ProcessPolicyError, match="cannot contain null bytes"):
             validate_command_string("echo malicious\x00extra_command")
 
-    def test_fork_bomb_simulated_cgroup_oom_normalizes_to_resource_failure(self) -> None:
-        """Simulated OOM killer event from process explosion normalizes deterministically."""
-        payload = {
-            "status": "FAILURE",
-            "error": "cgroup memory limit exceeded: Out of memory killer invoked",
-            "metadata": {
-                "result": {
-                    "exit_code": 137,
-                    "stdout": "",
-                    "stderr": "Killed\n",
-                    "duration": 4.12,
-                }
-            },
-        }
-        rec = normalize_execution_result(raw_payload=payload)
+    def test_process_explosion_resource_failure_normalized_from_explicit_fact(self) -> None:
+        """Process explosion causing OOM is normalized strictly from authoritative fact."""
+        rec = normalize_execution_result(
+            exit_code=137,
+            resource_failure_class=ResourceFailureClass.OUT_OF_MEMORY,
+            stderr="Killed\n",
+            provider_status="FAILED",
+        )
         assert rec.outcome == NormalizedExecutionOutcome.RESOURCE_FAILURE
         assert rec.is_resource_failure is True
         assert rec.resource_failure_class == ResourceFailureClass.OUT_OF_MEMORY
         assert rec.exit_code == 137
 
-    def test_runaway_execution_simulated_timeout_normalizes_to_timeout(self) -> None:
-        """Adversarial infinite loop or sleep exceeding timeout normalizes to TIMEOUT."""
-        payload = {
-            "status": "TIMED_OUT",
-            "error": "Execution timed out after 600 seconds",
-            "metadata": {
-                "result": {
-                    "exit_code": 124,
-                    "stdout": "working...\nworking...\n",
-                    "stderr": "",
-                    "duration": 600.05,
-                }
-            },
-        }
-        rec = normalize_execution_result(raw_payload=payload)
+    def test_runaway_execution_timeout_normalized_from_explicit_fact(self) -> None:
+        """Adversarial runaway timeout is normalized strictly from authoritative fact."""
+        rec = normalize_execution_result(
+            exit_code=124,
+            is_timeout=True,
+            duration_seconds=600.05,
+            stdout="working...\n",
+            provider_status="FAILED",
+        )
         assert rec.outcome == NormalizedExecutionOutcome.TIMEOUT
         assert rec.is_timeout is True
         assert rec.exit_code == 124
         assert rec.duration_seconds == 600.05
+
+    def test_pid_process_limit_capability_is_unproven(self) -> None:
+        """PID limit containment remains explicitly UNPROVEN pending live sandbox discovery."""
+        from basebreak.security.sandbox_policy import (
+            PLATFORM_CAPABILITIES,
+            CapabilityStatus,
+            SandboxCapability,
+        )
+
+        assert (
+            PLATFORM_CAPABILITIES[SandboxCapability.PID_PROCESS_LIMIT].status
+            == CapabilityStatus.UNPROVEN
+        )
+
+    def test_unproven_cgroup_prose_fails_closed_without_authoritative_fact(self) -> None:
+        """Unproven cgroup error prose without authoritative facts fails closed."""
+        payload = {
+            "status": "FAILURE",
+            "error": "cgroup memory limit exceeded: Out of memory killer invoked",
+        }
+        rec = normalize_execution_result(raw_payload=payload)
+        assert rec.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert rec.resource_failure_class is None
 
     def test_resource_budget_rejects_excessive_timeout_request(self) -> None:
         """Adversarial request for unbounded execution time is rejected by budget."""

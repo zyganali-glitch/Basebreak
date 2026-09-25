@@ -70,15 +70,50 @@ class TestP0406Criterion2ProcessExplosionAndForkBombSafety:
         with pytest.raises(ProcessPolicyError):
             validate_command_string(huge_cmd)
 
-    def test_process_runaway_simulated_oom_normalizes_deterministically(self) -> None:
+    def test_process_explosion_resource_failure_normalized_from_explicit_fact(self) -> None:
+        record = normalize_execution_result(
+            exit_code=137,
+            resource_failure_class=ResourceFailureClass.OUT_OF_MEMORY,
+            provider_status="FAILED",
+            stderr="Killed\n",
+        )
+        assert record.outcome == NormalizedExecutionOutcome.RESOURCE_FAILURE
+        assert record.is_resource_failure is True
+        assert record.resource_failure_class == ResourceFailureClass.OUT_OF_MEMORY
+        assert record.exit_code == 137
+
+    def test_runaway_execution_timeout_normalized_from_explicit_fact(self) -> None:
+        record = normalize_execution_result(
+            exit_code=124,
+            is_timeout=True,
+            provider_status="FAILED",
+            duration_seconds=600.05,
+        )
+        assert record.outcome == NormalizedExecutionOutcome.TIMEOUT
+        assert record.is_timeout is True
+        assert record.exit_code == 124
+
+    def test_pid_process_limit_capability_is_documented_as_unproven(self) -> None:
+        from basebreak.security.sandbox_policy import (
+            PLATFORM_CAPABILITIES,
+            CapabilityStatus,
+            SandboxCapability,
+        )
+
+        assert (
+            PLATFORM_CAPABILITIES[SandboxCapability.PID_PROCESS_LIMIT].status
+            == CapabilityStatus.UNPROVEN
+        )
+
+    def test_unproven_cgroup_prose_fails_closed(self) -> None:
         oom_payload = {
             "status": "FAILURE",
             "error": "cgroup memory limit reached, process killed by oom-killer",
             "metadata": {"result": {"exit_code": 137, "duration": 2.5}},
         }
         record = normalize_execution_result(raw_payload=oom_payload)
-        assert record.outcome == NormalizedExecutionOutcome.RESOURCE_FAILURE
-        assert record.resource_failure_class == ResourceFailureClass.OUT_OF_MEMORY
+        assert record.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert record.resource_failure_class is None
 
 
 class TestP0406Criterion3VerifierDiscoveryBlocked:

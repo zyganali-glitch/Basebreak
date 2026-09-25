@@ -234,7 +234,7 @@ Basebreak identifies the following primary attack surfaces:
 - **Description:** Untrusted repository code executes fork bombs (`:(){ :|:& };:`), infinite loops, massive memory allocations (`malloc`), or high-frequency disk writes.
 - **Impact:** Denial of service, runner crash, unmetered quota drainage, host instability.
 - **Attack Vector:** Build script or test launching thousands of processes or consuming gigabytes of RAM.
-- **Mitigation Status:** **IMPLEMENTED_PRIMITIVE (P-04.03 / P-04.05)** (Resource ceilings, operational budgets, and process policy defined from proven facts in `docs/SANDBOX_POLICY.md` and `src/basebreak/security/sandbox_policy.py`; execution timeout, cancellation, and resource-failure normalization implemented in `src/basebreak/security/normalization.py`).
+- **Mitigation Status:** **PARTIALLY_IMPLEMENTED_PRIMITIVE (P-04.03 / P-04.05 / P-04.06)** (Operational budget ceilings, command length bounding, and deterministic failure normalizer are implemented as policy and normalization primitives in `src/basebreak/security/`; however, runtime process-explosion / fork-bomb mechanical containment and PID limits remain UNPROVEN at the provider layer and depend on future runtime adapter enforcement in P-05).
 
 ### Threat I: Log & Output Channel Attacks
 - **Description:** Untrusted processes emit gigabytes of output to stdout/stderr to cause memory crashes, emit ANSI escape codes to disguise terminal logs, or print raw credentials to logs.
@@ -261,7 +261,7 @@ Basebreak identifies the following primary attack surfaces:
 | **THE** | Builder Self-Certification | Governance invariant forbidding self-certification; independent verifier witness runtime | P-02 (contracts); P-08, P-09, P-10 (runtime isolation) | **GOVERNANCE_INVARIANT / RUNTIME_PLANNED** |
 | **THF** | Verifier Contamination | Sealed witness storage; separate verifier execution workspace | P-08, P-09 | **PLANNED** |
 | **THG** | Path Manipulation & Traversal | Normalized path validation; symlink inspection; workspace root enclosure | P-04.04 | **IMPLEMENTED_PRIMITIVE (P-04.04)** |
-| **THH** | Malicious Execution Behavior | Sandbox process ceilings, operational budgets, execution timeouts, failure normalizer, malicious fixtures | P-01.03, P-04.03, P-04.05, P-04.06 | **IMPLEMENTED_PRIMITIVE (P-04.03 / P-04.05 / P-04.06)** |
+| **THH** | Malicious Execution Behavior | Sandbox process ceilings, operational budgets, execution timeouts, failure normalizer, malicious fixtures | P-01.03, P-04.03, P-04.05, P-04.06 | **PARTIALLY_IMPLEMENTED_PRIMITIVE (P-04.03 / P-04.05 / P-04.06; process-explosion containment UNPROVEN at platform layer)** |
 | **THI** | Log & Output Channel Floods | Bounded stdout/stderr capture (64KB); SHA-256 output digest; canonical secret filtering | P-03.03 (implemented capture); P-04.02 (implemented redaction & safe log) | **IMPLEMENTED** |
 | **THJ** | Supply-Chain / Install Hooks | Ephemeral disposable sandbox execution; network deny policy | P-01.03, P-04.03 | **IMPLEMENTED_PRIMITIVE (P-04.03)** |
 

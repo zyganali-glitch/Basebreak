@@ -28,9 +28,9 @@ from basebreak.security.normalization import (
 
 
 class TestP0405Criterion1TimeoutNormalization:
-    """Criterion 1: Timeout normalization."""
+    """Criterion 1: Timeout normalization from authoritative facts."""
 
-    def test_timeout_from_all_recognized_sources(self) -> None:
+    def test_timeout_from_authoritative_sources(self) -> None:
         # Source A: Explicit timeout flag
         r1 = normalize_execution_result(is_timeout=True)
         assert r1.outcome == NormalizedExecutionOutcome.TIMEOUT
@@ -43,24 +43,33 @@ class TestP0405Criterion1TimeoutNormalization:
         assert r2.outcome == NormalizedExecutionOutcome.TIMEOUT
         assert r2.is_timeout is True
 
-        # Source C: Provider status
-        r3 = normalize_execution_result(provider_status="TIMED_OUT")
-        assert r3.outcome == NormalizedExecutionOutcome.TIMEOUT
-        assert r3.is_timeout is True
-
-        # Source D: HTTP 408
-        r4 = normalize_execution_result(
+    def test_ambiguous_timeout_prose_or_http_408_never_self_promotes(self) -> None:
+        # Ambiguous HTTP 408 alone must fail closed as UNKNOWN_PROVIDER_FAILURE
+        r3 = normalize_execution_result(
             provider_status="FAILURE",
             provider_error={"status": 408, "error": "Deadline exceeded"},
         )
-        assert r4.outcome == NormalizedExecutionOutcome.TIMEOUT
-        assert r4.is_timeout is True
+        assert r3.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert r3.is_timeout is False
+
+        # Generic timeout string alone must fail closed
+        r4 = normalize_execution_result(
+            provider_status="FAILURE",
+            provider_error="Instance execution timeout exceeded 180s",
+        )
+        assert r4.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert r4.is_timeout is False
+
+        # Unproven status string alone must fail closed
+        r5 = normalize_execution_result(provider_status="TIMED_OUT")
+        assert r5.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert r5.is_timeout is False
 
 
 class TestP0405Criterion2CancellationNormalization:
-    """Criterion 2: Cancellation normalization where semantics are proven."""
+    """Criterion 2: Cancellation normalization from authoritative facts."""
 
-    def test_cancellation_from_all_recognized_sources(self) -> None:
+    def test_cancellation_from_authoritative_sources(self) -> None:
         # Source A: Explicit cancelled flag
         r1 = normalize_execution_result(is_cancelled=True)
         assert r1.outcome == NormalizedExecutionOutcome.CANCELLED
@@ -73,18 +82,19 @@ class TestP0405Criterion2CancellationNormalization:
         assert r2.outcome == NormalizedExecutionOutcome.CANCELLED
         assert r2.is_cancelled is True
 
-        # Source C: Provider status CANCELLED
-        r3 = normalize_execution_result(provider_status="CANCELLED")
-        assert r3.outcome == NormalizedExecutionOutcome.CANCELLED
-        assert r3.is_cancelled is True
-
-        # Source D: HTTP 499
-        r4 = normalize_execution_result(
+    def test_ambiguous_cancellation_prose_or_http_499_never_self_promotes(self) -> None:
+        # HTTP 499 alone must fail closed
+        r3 = normalize_execution_result(
             provider_status="FAILURE",
             provider_error={"status": 499, "error": "Client closed request"},
         )
-        assert r4.outcome == NormalizedExecutionOutcome.CANCELLED
-        assert r4.is_cancelled is True
+        assert r3.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert r3.is_cancelled is False
+
+        # Unproven status string alone must fail closed
+        r4 = normalize_execution_result(provider_status="CANCELLED")
+        assert r4.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert r4.is_cancelled is False
 
 
 class TestP0405Criterion3ResourceFailureDistinctionWithoutFabrication:
@@ -93,41 +103,47 @@ class TestP0405Criterion3ResourceFailureDistinctionWithoutFabrication:
     def test_verified_resource_failures_classified_with_exact_class(self) -> None:
         # Concurrency
         r1 = normalize_execution_result(
-            provider_status="FAILURE",
-            provider_error={"status": 429, "error": "Instance_max_concurrency limit reached"},
+            resource_failure_class=ResourceFailureClass.CONCURRENCY_EXHAUSTED
         )
         assert r1.outcome == NormalizedExecutionOutcome.RESOURCE_FAILURE
         assert r1.resource_failure_class == ResourceFailureClass.CONCURRENCY_EXHAUSTED
 
         # Layer quota
         r2 = normalize_execution_result(
-            provider_status="FAILURE",
-            provider_error="instance_max_layer_bytes exceeded during command",
+            resource_failure_class=ResourceFailureClass.LAYER_QUOTA_EXCEEDED
         )
         assert r2.outcome == NormalizedExecutionOutcome.RESOURCE_FAILURE
         assert r2.resource_failure_class == ResourceFailureClass.LAYER_QUOTA_EXCEEDED
 
         # OOM
-        r3 = normalize_execution_result(
-            provider_status="FAILURE",
-            provider_error="Killed by cgroup memory OOM killer",
-        )
+        r3 = normalize_execution_result(resource_failure_class=ResourceFailureClass.OUT_OF_MEMORY)
         assert r3.outcome == NormalizedExecutionOutcome.RESOURCE_FAILURE
         assert r3.resource_failure_class == ResourceFailureClass.OUT_OF_MEMORY
 
-    def test_ambiguous_failure_never_fabricated_as_resource_failure(self) -> None:
+    def test_ambiguous_failure_or_generic_prose_never_self_promotes(self) -> None:
         ambiguous = [
             "Internal server error",
             "Error: command failed",
             "Connection reset by peer",
             "Database unavailable",
             "Service error 503",
+            "Process killed by cgroup memory OOM killer",
+            "instance_max_layer_bytes exceeded during command",
+            "Max concurrency limit of 50 reached",
         ]
         for err in ambiguous:
             r = normalize_execution_result(provider_status="FAILURE", provider_error=err)
             assert r.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
             assert r.is_resource_failure is False
             assert r.resource_failure_class is None
+
+        # HTTP 429 alone must not self-promote
+        r_429 = normalize_execution_result(
+            provider_status="FAILURE",
+            provider_error={"status": 429, "error": "rate limit"},
+        )
+        assert r_429.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert r_429.is_resource_failure is False
 
 
 class TestP0405Criterion4DeterministicTests:

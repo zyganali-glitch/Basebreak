@@ -301,7 +301,7 @@ Acceptance:
 - no claim that any live runtime guarantees secret protection.
 
 ### P-04.03 — Define sandbox resource/network/process policy from proven platform capability
-Status: DONE (executor completed; pending independent QA; sandbox resource, network, and process policy derived from proven platform capabilities; documented in docs/SANDBOX_POLICY.md and implemented in src/basebreak/security/sandbox_policy.py)
+Status: DONE (executor completed & repaired; pending independent QA; sandbox resource, network, and process policy derived from proven platform capabilities; PID_PROCESS_LIMIT explicitly classified as UNPROVEN at platform layer; operational timeouts and disposable teardown documented as application policy; OpenAPI facts reconciled; documented in docs/SANDBOX_POLICY.md and implemented in src/basebreak/security/sandbox_policy.py)
 Acceptance:
 - requires proven live platform capabilities from P-01;
 - defines resource ceilings, network policy, and process limits from verified facts.
@@ -316,17 +316,17 @@ Acceptance:
 - no assumptions about specific sandbox filesystem APIs.
 
 ### P-04.05 — Implement execution timeout/cancellation/resource-failure normalization
-Status: DONE (executor completed; pending independent QA; deterministic outcome normalization into NormalizedExecutionRecord with fail-closed classification, stream output digesting, secret redaction, and verified resource failure distinction; unit and acceptance suites passed; implemented in src/basebreak/security/normalization.py)
+Status: DONE (executor completed & repaired; pending independent QA; deterministic outcome normalization into NormalizedExecutionRecord with fail-closed classification; removed unproven regexes and HTTP status heuristics; provider-neutral normalizer driven strictly by authoritative facts; raw payloads digested for audit trail without circular parsing; ambiguous signals fail closed as UNKNOWN_PROVIDER_FAILURE; implemented in src/basebreak/security/normalization.py)
 Acceptance:
 - requires proven platform timeout/cancellation semantics.
 
 ### P-04.06 — Add malicious-fixture tests for exfiltration attempts, fork bombs, verifier discovery, and protected-surface mutation
-Status: DONE (executor completed; pending independent QA; malicious-fixture test suite covering secret exfiltration, process explosion/fork bombs, verifier discovery, protected-surface mutation, and network egress policy; 32 acceptance and security tests passing deterministically; implemented in tests/security/test_malicious_fixtures.py and tests/security/test_p04_06_closure.py)
+Status: DONE (executor completed & repaired; pending independent QA; malicious-fixture test suite covering secret exfiltration, process explosion/command-length budget, verifier discovery, protected-surface mutation, and network egress policy; unproven cgroup prose fails closed; PID_PROCESS_LIMIT verified as UNPROVEN; all 465 security tests passing deterministically; implemented in tests/security/test_malicious_fixtures.py and tests/security/test_p04_06_closure.py)
 Acceptance:
 - malicious-fixture test suite exercising boundary enforcement without unverified sandbox assumptions.
 
 Phase exit: safe bounded execution contracts exist before autonomous building.
-(P-04 phase is EXECUTOR_COMPLETED / CANDIDATE_FOR_INDEPENDENT_QA_CLOSURE. All 6 tasks P-04.01 through P-04.06 completed by executor; awaiting independent QA evaluation; P-05+ remains strictly forbidden).
+(P-04 phase is EXECUTOR_COMPLETED / CANDIDATE_FOR_INDEPENDENT_QA_CLOSURE. All 6 tasks P-04.01 through P-04.06 completed and repaired by executor; awaiting independent QA evaluation; P-05+ remains strictly forbidden).
 
 ---
 

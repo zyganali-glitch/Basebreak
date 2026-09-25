@@ -185,8 +185,11 @@ PLATFORM_CAPABILITIES: dict[SandboxCapability, CapabilityRecord] = {
         provenance="UNPROVEN",
         description="Platform pids.max or RLIMIT_NPROC ceiling preventing fork-bombs.",
         notes=(
-            "Unproven at provider level. Basebreak enforces safety via timeouts "
-            "and disposable VM teardown."
+            "Platform PID ceilings (pids.max) and child-process termination semantics "
+            "under process explosion are unproven at the provider level. Basebreak "
+            "enforces operational timeouts and disposable VM teardown as application "
+            "policy, but mechanical containment of fork-bombs remains UNPROVEN "
+            "until validated by runtime adapters/probes."
         ),
     ),
     SandboxCapability.SYSCALL_FILTERING: CapabilityRecord(

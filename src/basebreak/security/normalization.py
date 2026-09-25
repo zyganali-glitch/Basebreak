@@ -9,7 +9,6 @@ digesting and secret redaction.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
@@ -47,29 +46,6 @@ class ResourceFailureClass(str, Enum):
     LAYER_QUOTA_EXCEEDED = "LAYER_QUOTA_EXCEEDED"
     OUT_OF_MEMORY = "OUT_OF_MEMORY"
     UNKNOWN_RESOURCE_FAILURE = "UNKNOWN_RESOURCE_FAILURE"
-
-
-# --- Deterministic Regex Patterns for Platform Error Classification ---
-
-_TIMEOUT_REGEX: re.Pattern[str] = re.compile(
-    r"(?i)\b(timed?\s*out|deadline\s*exceeded|execution\s*timeout|operation\s*timeout)\b"
-)
-_CANCELLATION_REGEX: re.Pattern[str] = re.compile(
-    r"(?i)\b(operation\s*cancelled|execution\s*cancelled|request\s*cancelled|"
-    r"instance\s*cancelled|client\s*cancelled|cancelled\s*by\s*user)\b"
-)
-
-_CONCURRENCY_REGEX: re.Pattern[str] = re.compile(
-    r"(?i)\b(concurrency\s*limit|max\s*concurrency|instance_max_concurrency|"
-    r"too\s*many\s*concurrent|rate\s*limit\s*exceeded)\b"
-)
-_LAYER_QUOTA_REGEX: re.Pattern[str] = re.compile(
-    r"(?i)\b(instance_max_layer_bytes|layer\s*bytes\s*limit|layer\s*bytes\s*exceeded|"
-    r"disk\s*space\s*exceeded|layer\s*quota\s*exceeded|layer_bytes)\b"
-)
-_OOM_REGEX: re.Pattern[str] = re.compile(
-    r"(?i)\b(out\s*of\s*memory|\boom\s*killer\b|cgroup\s*memory|memory\s*limit\s*exceeded)\b"
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +203,7 @@ def normalize_execution_result(
     exit_code: int | None = None,
     is_timeout: bool = False,
     is_cancelled: bool = False,
+    resource_failure_class: ResourceFailureClass | None = None,
     provider_status: str | None = None,
     provider_error: Mapping[str, Any] | str | None = None,
     duration_seconds: float | None = None,
@@ -234,46 +211,23 @@ def normalize_execution_result(
 ) -> NormalizedExecutionRecord:
     """Normalize execution results into a deterministic NormalizedExecutionRecord.
 
-    Accepts raw provider payloads (e.g. from Token Factory Sandboxes), domain
-    ExecutionResult contracts, or raw exit/status indicators. Classifies outcomes
-    fail-closed without guessing ambiguous errors as timeouts or resource limits.
+    Provider-neutral security normalizer. Accepts authoritative facts: domain
+    ExecutionResult contracts, explicit is_timeout/is_cancelled flags, explicit
+    validated ResourceFailureClass, exit codes, and stdout/stderr streams.
+
+    Raw provider payloads (raw_payload) are cryptographically digested for audit
+    evidence but NEVER parsed as an authoritative adapter or used to self-promote
+    ambiguous errors. Ambiguous provider signals fail closed as UNKNOWN_PROVIDER_FAILURE.
 
     Stream outputs are cryptographically digested and sanitized using P-04.02.
     """
+    # 1. Digest raw provider payload if supplied (never parsed as authoritative classification)
     raw_digest: str | None = None
-
-    # 1. Parse raw provider payload if supplied
     if raw_payload is not None:
         try:
             raw_digest = compute_bytes_digest(canonical_json_bytes(raw_payload)).value
         except Exception:
             raw_digest = None
-
-        # Extract platform fields (Token Factory OpenAPI schema convention)
-        if provider_status is None:
-            p_stat = raw_payload.get("status")
-            if isinstance(p_stat, str):
-                provider_status = p_stat.upper()
-
-        if provider_error is None and "error" in raw_payload:
-            provider_error = raw_payload.get("error")
-
-        meta = raw_payload.get("metadata")
-        if isinstance(meta, Mapping):
-            res = meta.get("result")
-            if isinstance(res, Mapping):
-                if exit_code is None and "exit_code" in res:
-                    ec = res.get("exit_code")
-                    if isinstance(ec, int):
-                        exit_code = ec
-                if not stdout and "stdout" in res:
-                    stdout = str(res.get("stdout") or "")
-                if not stderr and "stderr" in res:
-                    stderr = str(res.get("stderr") or "")
-                if duration_seconds is None and "duration" in res:
-                    dur = res.get("duration")
-                    if isinstance(dur, (int, float)):
-                        duration_seconds = float(dur)
 
     # 2. Reconcile domain execution result if supplied
     if execution_result is not None:
@@ -286,7 +240,7 @@ def normalize_execution_result(
         elif execution_result.status == TerminationStatus.CANCELLED:
             is_cancelled = True
 
-    # 3. Extract and sanitize provider error fields
+    # 3. Extract and sanitize provider error fields for evidence display only
     err_code, err_msg = _extract_provider_error(provider_error)
     sanitized_err_msg = redact_log_text(err_msg) if err_msg else None
 
@@ -308,16 +262,8 @@ def normalize_execution_result(
     stderr_preview = stderr_captured.sanitized_text
 
     # 5. Deterministic Outcome Resolution (Fail-Closed Classification)
-
-    # A. Check for TIMEOUT
-    timeout_detected = (
-        is_timeout
-        or provider_status in ("TIMED_OUT", "TIMEOUT")
-        or err_code == 408
-        or (err_msg is not None and bool(_TIMEOUT_REGEX.search(err_msg)))
-        or (exit_code == 124 and (is_timeout or (err_msg and bool(_TIMEOUT_REGEX.search(err_msg)))))
-    )
-    if timeout_detected:
+    # A. Check for TIMEOUT (Explicit authoritative fact only)
+    if is_timeout:
         return NormalizedExecutionRecord(
             outcome=NormalizedExecutionOutcome.TIMEOUT,
             exit_code=exit_code,
@@ -333,14 +279,8 @@ def normalize_execution_result(
             raw_payload_digest=raw_digest,
         )
 
-    # B. Check for CANCELLED
-    cancellation_detected = (
-        is_cancelled
-        or provider_status in ("CANCELLED", "CANCELED")
-        or err_code == 499
-        or (err_msg is not None and bool(_CANCELLATION_REGEX.search(err_msg)))
-    )
-    if cancellation_detected:
+    # B. Check for CANCELLED (Explicit authoritative fact only)
+    if is_cancelled:
         return NormalizedExecutionRecord(
             outcome=NormalizedExecutionOutcome.CANCELLED,
             exit_code=exit_code,
@@ -356,21 +296,7 @@ def normalize_execution_result(
             raw_payload_digest=raw_digest,
         )
 
-    # C. Check for RESOURCE_FAILURE (Strict deterministic matching only)
-    resource_failure_class: ResourceFailureClass | None = None
-    if err_msg is not None:
-        if bool(_CONCURRENCY_REGEX.search(err_msg)) or (
-            err_code == 429 and "concurrency" in err_msg.lower()
-        ):
-            resource_failure_class = ResourceFailureClass.CONCURRENCY_EXHAUSTED
-        elif bool(_LAYER_QUOTA_REGEX.search(err_msg)):
-            resource_failure_class = ResourceFailureClass.LAYER_QUOTA_EXCEEDED
-        elif bool(_OOM_REGEX.search(err_msg)):
-            resource_failure_class = ResourceFailureClass.OUT_OF_MEMORY
-    elif err_code == 429:
-        # Standard HTTP 429 is rate/concurrency exhaustion
-        resource_failure_class = ResourceFailureClass.CONCURRENCY_EXHAUSTED
-
+    # C. Check for RESOURCE_FAILURE (Explicit authoritative resource class only)
     if resource_failure_class is not None:
         return NormalizedExecutionRecord(
             outcome=NormalizedExecutionOutcome.RESOURCE_FAILURE,
@@ -389,7 +315,6 @@ def normalize_execution_result(
         )
 
     # D. Check for Process Completion (SUCCESS or NONZERO_EXIT)
-    # Recognized when provider status is SUCCESS or COMPLETED (or omitted for direct local results)
     is_completed_status = (
         provider_status in ("SUCCESS", "COMPLETED", None) and provider_error is None
     )
@@ -418,7 +343,8 @@ def normalize_execution_result(
             raw_payload_digest=raw_digest,
         )
 
-    # E. All other cases fail closed as UNKNOWN_PROVIDER_FAILURE
+    # E. All other cases (unverified errors, ambiguous raw states)
+    # fail closed as UNKNOWN_PROVIDER_FAILURE
     return NormalizedExecutionRecord(
         outcome=NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE,
         exit_code=exit_code,
