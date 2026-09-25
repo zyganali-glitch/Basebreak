@@ -234,7 +234,7 @@ Basebreak identifies the following primary attack surfaces:
 - **Description:** Untrusted repository code executes fork bombs (`:(){ :|:& };:`), infinite loops, massive memory allocations (`malloc`), or high-frequency disk writes.
 - **Impact:** Denial of service, runner crash, unmetered quota drainage, host instability.
 - **Attack Vector:** Build script or test launching thousands of processes or consuming gigabytes of RAM.
-- **Mitigation Status:** **PARTIALLY_IMPLEMENTED (P-04.03 / P-04.05)** (Resource ceilings, operational budgets, and process policy defined from proven facts in `docs/SANDBOX_POLICY.md` and `src/basebreak/security/sandbox_policy.py`; timeout/cancellation normalization implemented in P-04.05).
+- **Mitigation Status:** **IMPLEMENTED_PRIMITIVE (P-04.03 / P-04.05)** (Resource ceilings, operational budgets, and process policy defined from proven facts in `docs/SANDBOX_POLICY.md` and `src/basebreak/security/sandbox_policy.py`; execution timeout, cancellation, and resource-failure normalization implemented in `src/basebreak/security/normalization.py`).
 
 ### Threat I: Log & Output Channel Attacks
 - **Description:** Untrusted processes emit gigabytes of output to stdout/stderr to cause memory crashes, emit ANSI escape codes to disguise terminal logs, or print raw credentials to logs.

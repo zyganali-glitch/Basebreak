@@ -1,5 +1,11 @@
 """Basebreak security and untrusted-code policy foundation primitives."""
 
+from basebreak.security.normalization import (
+    NormalizedExecutionOutcome,
+    NormalizedExecutionRecord,
+    ResourceFailureClass,
+    normalize_execution_result,
+)
 from basebreak.security.protected_surfaces import (
     DiffParseError,
     FileChange,
@@ -100,6 +106,8 @@ __all__ = [
     "MAX_SANDBOX_TIMEOUT_SECONDS",
     "MIN_SANDBOX_TIMEOUT_SECONDS",
     "NetworkPolicyError",
+    "NormalizedExecutionOutcome",
+    "NormalizedExecutionRecord",
     "PLATFORM_CAPABILITIES",
     "PROVIDER_IMAGES_IMPORT_MAX_CONCURRENCY",
     "PROVIDER_IMAGES_IMPORT_MAX_TIMEOUT",
@@ -118,6 +126,7 @@ __all__ = [
     "ProtectedSurfaceViolationKind",
     "REDACTION_MARKER",
     "ResourceBudgetError",
+    "ResourceFailureClass",
     "SandboxCapability",
     "SandboxExecutionMode",
     "SandboxExecutionPolicy",
@@ -138,6 +147,7 @@ __all__ = [
     "is_path_protected",
     "is_sensitive_key",
     "match_protected_surface",
+    "normalize_execution_result",
     "normalize_repo_path",
     "parse_unified_diff_changes",
     "redact_for_display",

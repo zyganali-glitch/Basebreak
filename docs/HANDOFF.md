@@ -49,6 +49,7 @@ Judge claim:
 - P-01.07 (Freeze judge-visible causal vertical-slice contract from proven platform reality) is independently VERIFIED / PASS at SHA `ef5d79b1d421e628877522b16f4ab98dd0f515c2`.
 - P-01 phase (Live Platform Discovery & Feasibility Gate) is independently CLOSED / PASS at SHA `ef5d79b1d421e628877522b16f4ab98dd0f515c2`.
 - P-04.03 (Define sandbox resource/network/process policy from proven platform capability) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-04.05 (Implement execution timeout/cancellation/resource-failure normalization) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 
 ## Last independently VERIFIED baseline SHA
 `ef5d79b1d421e628877522b16f4ab98dd0f515c2` (P-01 phase independent closure / PASS).
@@ -59,12 +60,12 @@ Judge claim:
 None. P-01 live platform discovery is complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-`P-04.03 — Define sandbox resource/network/process policy from proven platform capability` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+`P-04.03` and `P-04.05` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
 
 ### Active exact task
-P-04.05 — Implement execution timeout/cancellation/resource-failure normalization.
+P-04.06 — Add malicious-fixture tests for exfiltration attempts, fork bombs, verifier discovery, and protected-surface mutation.
 
-*(Note: Exactly ONE executable micro-task is active at a time. P-04 is OPEN. Following P-04.03 completion, P-04.05 executes under batch hard-gate law. P-05+ remains strictly forbidden).*
+*(Note: Exactly ONE executable micro-task is active at a time. P-04 is OPEN. Following P-04.05 completion, P-04.06 executes under batch hard-gate law. P-05+ remains strictly forbidden).*
 
 ## Parallelization boundary & rules
 - **Live batch executed & closed:** With Nebius Token Factory Sandboxes beta activation confirmed live, the conditional live batch (`P-01.03` through `P-01.07`) was executed, verified, and awarded independent QA PASS, closing Phase P-01.
@@ -90,5 +91,5 @@ P-04.05 — Implement execution timeout/cancellation/resource-failure normalizat
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Execute P-04.03 — Define sandbox resource/network/process policy from proven platform capability.
-2. Verify acceptance criteria and evaluate hard gate before continuing to P-04.05.
+1. Execute P-04.06 — Add malicious-fixture tests for exfiltration attempts, fork bombs, verifier discovery, and protected-surface mutation.
+2. Verify acceptance criteria and evaluate hard gate before declaring P-04 candidate for independent QA closure.

@@ -277,3 +277,10 @@ def to_canonical_artifact_json(item: ArtifactDigest | ArtifactReference) -> str:
         data = item.to_dict()
         return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     raise TypeError(f"Unsupported artifact item type: {type(item).__name__}")
+
+
+def canonical_json_bytes(data: Any) -> bytes:
+    """Serialize a JSON-compatible dictionary or primitive to canonical UTF-8 bytes."""
+    return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+        "utf-8"
+    )

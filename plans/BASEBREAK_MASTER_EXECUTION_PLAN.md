@@ -316,7 +316,7 @@ Acceptance:
 - no assumptions about specific sandbox filesystem APIs.
 
 ### P-04.05 — Implement execution timeout/cancellation/resource-failure normalization
-Status: PENDING (authorized conditionally after P-04.03 completion)
+Status: DONE (executor completed; pending independent QA; deterministic outcome normalization into NormalizedExecutionRecord with fail-closed classification, stream output digesting, secret redaction, and verified resource failure distinction; unit and acceptance suites passed; implemented in src/basebreak/security/normalization.py)
 Acceptance:
 - requires proven platform timeout/cancellation semantics.
 
