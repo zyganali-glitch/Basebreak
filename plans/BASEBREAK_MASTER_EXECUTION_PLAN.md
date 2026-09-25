@@ -301,7 +301,7 @@ Acceptance:
 - no claim that any live runtime guarantees secret protection.
 
 ### P-04.03 — Define sandbox resource/network/process policy from proven platform capability
-Status: PENDING (authorized for execution following P-01 independent phase closure)
+Status: DONE (executor completed; pending independent QA; sandbox resource, network, and process policy derived from proven platform capabilities; documented in docs/SANDBOX_POLICY.md and implemented in src/basebreak/security/sandbox_policy.py)
 Acceptance:
 - requires proven live platform capabilities from P-01;
 - defines resource ceilings, network policy, and process limits from verified facts.

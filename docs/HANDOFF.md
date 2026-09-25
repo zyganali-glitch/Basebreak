@@ -48,6 +48,7 @@ Judge claim:
 - P-01.06 (Phase feasibility decision and architecture freeze v0) is independently VERIFIED / PASS at SHA `ef5d79b1d421e628877522b16f4ab98dd0f515c2`.
 - P-01.07 (Freeze judge-visible causal vertical-slice contract from proven platform reality) is independently VERIFIED / PASS at SHA `ef5d79b1d421e628877522b16f4ab98dd0f515c2`.
 - P-01 phase (Live Platform Discovery & Feasibility Gate) is independently CLOSED / PASS at SHA `ef5d79b1d421e628877522b16f4ab98dd0f515c2`.
+- P-04.03 (Define sandbox resource/network/process policy from proven platform capability) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 
 ## Last independently VERIFIED baseline SHA
 `ef5d79b1d421e628877522b16f4ab98dd0f515c2` (P-01 phase independent closure / PASS).
@@ -58,12 +59,12 @@ Judge claim:
 None. P-01 live platform discovery is complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-None. P-01 phase is independently CLOSED / PASS.
+`P-04.03 — Define sandbox resource/network/process policy from proven platform capability` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
 
 ### Active exact task
-P-04.03 — Define sandbox resource/network/process policy from proven platform capability.
+P-04.05 — Implement execution timeout/cancellation/resource-failure normalization.
 
-*(Note: Exactly ONE executable micro-task is active at a time. P-04 is OPEN. Following P-01 independent closure, P-04.03, P-04.05, and P-04.06 are conditionally authorized in sequence. P-05+ remains strictly forbidden).*
+*(Note: Exactly ONE executable micro-task is active at a time. P-04 is OPEN. Following P-04.03 completion, P-04.05 executes under batch hard-gate law. P-05+ remains strictly forbidden).*
 
 ## Parallelization boundary & rules
 - **Live batch executed & closed:** With Nebius Token Factory Sandboxes beta activation confirmed live, the conditional live batch (`P-01.03` through `P-01.07`) was executed, verified, and awarded independent QA PASS, closing Phase P-01.

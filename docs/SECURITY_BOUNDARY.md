@@ -234,7 +234,7 @@ Basebreak identifies the following primary attack surfaces:
 - **Description:** Untrusted repository code executes fork bombs (`:(){ :|:& };:`), infinite loops, massive memory allocations (`malloc`), or high-frequency disk writes.
 - **Impact:** Denial of service, runner crash, unmetered quota drainage, host instability.
 - **Attack Vector:** Build script or test launching thousands of processes or consuming gigabytes of RAM.
-- **Mitigation Status:** **DEFERRED_LIVE_DISCOVERY (P-01.03 / P-04.03 / P-04.05)** (Threat identified; resource ceilings, process limits, and cgroups cannot be assumed until proven in P-01.03 and codified in P-04.03; timeout/cancellation normalization is DEFERRED to P-04.05).
+- **Mitigation Status:** **PARTIALLY_IMPLEMENTED (P-04.03 / P-04.05)** (Resource ceilings, operational budgets, and process policy defined from proven facts in `docs/SANDBOX_POLICY.md` and `src/basebreak/security/sandbox_policy.py`; timeout/cancellation normalization implemented in P-04.05).
 
 ### Threat I: Log & Output Channel Attacks
 - **Description:** Untrusted processes emit gigabytes of output to stdout/stderr to cause memory crashes, emit ANSI escape codes to disguise terminal logs, or print raw credentials to logs.
@@ -246,7 +246,7 @@ Basebreak identifies the following primary attack surfaces:
 - **Description:** Untrusted repository configuration files (e.g. `setup.py`, `package.json`) trigger arbitrary command execution during setup phases before explicit verification tests are invoked.
 - **Impact:** Pre-test host compromise, unauthorized network calls, persistent environment backdoors.
 - **Attack Vector:** `pip install -e .` executing arbitrary Python in `setup.py`.
-- **Mitigation Status:** **DEFERRED_LIVE_DISCOVERY / PLANNED (P-01.03 / P-04.03)** (Isolated disposable execution required; runtime execution policy is deferred to P-01.03 and P-04.03).
+- **Mitigation Status:** **IMPLEMENTED_PRIMITIVE (P-04.03)** (Isolated disposable execution policy, network mode policy, and container VM destruction formalized in `docs/SANDBOX_POLICY.md` and `src/basebreak/security/sandbox_policy.py`).
 
 ---
 
@@ -261,9 +261,9 @@ Basebreak identifies the following primary attack surfaces:
 | **THE** | Builder Self-Certification | Governance invariant forbidding self-certification; independent verifier witness runtime | P-02 (contracts); P-08, P-09, P-10 (runtime isolation) | **GOVERNANCE_INVARIANT / RUNTIME_PLANNED** |
 | **THF** | Verifier Contamination | Sealed witness storage; separate verifier execution workspace | P-08, P-09 | **PLANNED** |
 | **THG** | Path Manipulation & Traversal | Normalized path validation; symlink inspection; workspace root enclosure | P-04.04 | **IMPLEMENTED_PRIMITIVE (P-04.04)** |
-| **THH** | Malicious Execution Behavior | Sandbox process ceilings, memory/CPU caps, execution timeouts | P-01.03, P-04.03, P-04.05 | **DEFERRED_LIVE_DISCOVERY** |
+| **THH** | Malicious Execution Behavior | Sandbox process ceilings, memory/CPU caps, execution timeouts | P-01.03, P-04.03, P-04.05 | **PARTIALLY_IMPLEMENTED (P-04.03)** |
 | **THI** | Log & Output Channel Floods | Bounded stdout/stderr capture (64KB); SHA-256 output digest; canonical secret filtering | P-03.03 (implemented capture); P-04.02 (implemented redaction & safe log) | **IMPLEMENTED** |
-| **THJ** | Supply-Chain / Install Hooks | Ephemeral disposable sandbox execution; network deny policy | P-01.03, P-04.03 | **DEFERRED_LIVE_DISCOVERY** |
+| **THJ** | Supply-Chain / Install Hooks | Ephemeral disposable sandbox execution; network deny policy | P-01.03, P-04.03 | **IMPLEMENTED_PRIMITIVE (P-04.03)** |
 
 > **Audit Rule:**
 > A control marked `PLANNED` or `DEFERRED_LIVE_DISCOVERY` must **NOT** be claimed as active protection in current builds.
