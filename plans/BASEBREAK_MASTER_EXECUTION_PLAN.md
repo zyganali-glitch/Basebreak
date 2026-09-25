@@ -154,7 +154,7 @@ Acceptance:
 - no mock fallback.
 
 ### P-01.03 — Discover and execute minimal Token Factory Sandbox workflow
-Status: DONE (executor completed; pending independent QA; live whoami confirmed all permissions true; minimal disposable execution succeeded with exit code 0; teardown observed; checkpoint, snapshot, and clone/fork tested live; documented in docs/P01_03_LIVE_SANDBOX_DISCOVERY.md)
+Status: DONE (independently VERIFIED / PASS at SHA ef5d79b1d421e628877522b16f4ab98dd0f515c2; live whoami confirmed all permissions true; minimal disposable execution succeeded with exit code 0; teardown observed; checkpoint, snapshot, and clone/fork tested live; documented in docs/P01_03_LIVE_SANDBOX_DISCOVERY.md)
 Acceptance:
 - create supported sandbox;
 - execute harmless command;
@@ -168,7 +168,7 @@ Acceptance:
 - architecture adapts to proven platform reality.
 
 ### P-01.04 — Prove live repository materialization inside supported sandbox
-Status: DONE (executor completed; pending independent QA; canonical repo cloned inside container VM; base SHA and tree SHA verified against local truth; 28 tests passed in 5.06s; documented in docs/P01_04_LIVE_REPO_MATERIALIZATION.md)
+Status: DONE (independently VERIFIED / PASS at SHA ef5d79b1d421e628877522b16f4ab98dd0f515c2; canonical repo cloned inside container VM; base SHA and tree SHA verified against local truth; 28 tests passed in 5.06s; documented in docs/P01_04_LIVE_REPO_MATERIALIZATION.md)
 Acceptance:
 - synthetic/public test repo materialized;
 - base SHA resolved inside sandbox;
@@ -176,7 +176,7 @@ Acceptance:
 - filesystem/network assumptions recorded.
 
 ### P-01.05 — Prove two independent clean sandbox executions from the same trusted source
-Status: DONE (executor completed; pending independent QA; two independent disposable sandboxes executed; zero workspace bleeding verified via marker test; identical tree SHA; independent test outputs; documented in docs/P01_05_TWO_CLEAN_EXECUTIONS.md)
+Status: DONE (independently VERIFIED / PASS at SHA ef5d79b1d421e628877522b16f4ab98dd0f515c2; two independent disposable sandboxes executed; zero workspace bleeding verified via marker test; identical tree SHA; independent test outputs; documented in docs/P01_05_TWO_CLEAN_EXECUTIONS.md)
 Acceptance:
 - unique sandbox identities;
 - no workspace sharing;
@@ -184,14 +184,14 @@ Acceptance:
 - independent outputs captured.
 
 ### P-01.06 — Phase feasibility decision and architecture freeze v0
-Status: DONE (executor completed; pending independent QA; evidence-driven GO decision issued based strictly on live P-01.02 through P-01.05 facts; architecture freeze v0 recorded in docs/P01_06_FEASIBILITY_DECISION.md)
+Status: DONE (independently VERIFIED / PASS at SHA ef5d79b1d421e628877522b16f4ab98dd0f515c2; evidence-driven GO decision issued based strictly on live P-01.02 through P-01.05 facts; architecture freeze v0 recorded in docs/P01_06_FEASIBILITY_DECISION.md)
 Acceptance:
 - GO/BLOCKED decision;
 - actual platform constraints drive architecture;
 - mocked substitutes cannot produce GO.
 
 ### P-01.07 — Freeze judge-visible causal vertical-slice contract from proven platform reality
-Status: DONE (executor completed; pending independent QA; judge-visible causal pipeline flow frozen; 3 research-only historical bug/fix pairs shortlisted without code importing; documented in docs/P01_07_VERTICAL_SLICE_CONTRACT.md)
+Status: DONE (independently VERIFIED / PASS at SHA ef5d79b1d421e628877522b16f4ab98dd0f515c2; judge-visible causal pipeline flow frozen; 3 research-only historical bug/fix pairs shortlisted without code importing; documented in docs/P01_07_VERTICAL_SLICE_CONTRACT.md)
 Acceptance:
 - written after P-01 proves actual platform capabilities;
 - defines what a judge will eventually see: task → Builder → independent witness → BASE result → CANDIDATE result → counterfactual where required → provenance → receipt;
@@ -200,7 +200,7 @@ Acceptance:
 - research-only shortlist 2–3 candidate real open-source bug/fix pairs for eventual P-23.08 replay (ResetVault remains the PRIMARY deterministic killer demo; P-23.08 is supplementary historical replay);
 - for each candidate, record: repository, immutable buggy/base SHA, immutable fixed SHA, root license, concise behavioral defect, likely independent witness, dependency/runtime footprint, sandbox/platform feasibility, reasons suitable/unsuitable;
 - at P-01.07: strictly NO donor/source importing, NO replay implementation, and NO claiming upstream patch was produced by Basebreak (early de-risking only).
-Phase exit: real model + real sandbox + two-clean-environment spine proven. (P-01 execution complete; truth repair applied to P-01.06 and P-01.07; submitted as CANDIDATE_FOR_INDEPENDENT_QA_CLOSURE for independent QA review and phase closure).
+Phase exit: real model + real sandbox + two-clean-environment spine proven. (P-01 phase independently CLOSED / PASS at SHA ef5d79b1d421e628877522b16f4ab98dd0f515c2).
 
 ---
 
@@ -266,16 +266,17 @@ P-03 phase was independently CLOSED / PASS at SHA 83eb91da3caec3d52c22c06cf19fd0
 
 # P-04 — Security & Untrusted-Code Policy Foundation
 Goal: establish bounded execution and integrity contracts before autonomous building.
-*(Platform-independent subset P-04.01, P-04.02, P-04.04 allowlisted for sequential parallel execution under P-01.01B amendment only after independent P-01.01B closure while P-01.02 is externally blocked. P-04 phase MUST remain OPEN; P-04.03, P-04.05, P-04.06 are NOT authorized under this lane).*
+*(Platform-independent subset P-04.01, P-04.02, P-04.04 independently closed. Following independent closure of P-01 at SHA ef5d79b1d421e628877522b16f4ab98dd0f515c2, P-04.03, P-04.05, and P-04.06 are conditionally authorized for sequential execution in exact Master Plan order. P-04 phase MUST remain OPEN; P-05+ remains strictly forbidden).*
 
-Why the allowlisted tasks are safe to execute offline:
+Why the allowlisted tasks were executed offline:
 - P-04.01 is provider-neutral threat modeling. It models generic adversaries and trust boundaries already established by Basebreak: target repository is untrusted input; Builder cannot certify itself; verifier assets must remain independent; repository content may attempt prompt injection; repository code may attempt secret discovery/exfiltration; generated patches may mutate protected verification/governance surfaces; logs/evidence must not persist credentials; deterministic facts have authority over model prose. It MUST NOT claim provider-specific sandbox protections.
 - P-04.02 is provider-neutral secret redaction / persistence policy. It implements deterministic: secret-shaped value redaction; forbidden durable-secret persistence rules; safe evidence/log serialization boundaries; synthetic-credential tests. It MUST NOT implement provider credential delivery/injection or claim that a specific live runtime protects secrets.
 - P-04.04 is provider-neutral repository integrity policy. It implements deterministic: protected-surface manifest contracts; normalized repository path validation; diff/change detection; protected-surface mutation rejection; traversal/symlink/path-normalization adversarial tests where relevant. It MUST NOT assume any specific sandbox filesystem API.
 
-Why the remaining tasks are NOT authorized under the offline lane:
-- P-04.03 explicitly depends on proven live platform/sandbox capability that has not yet been established because P-01 live feasibility remains blocked. Do not guess network policy support, process isolation behavior, sandbox privilege model, resource ceilings, filesystem guarantees, checkpoint/snapshot/fork/reset behavior, teardown semantics, runtime limits, concurrency, or provider error semantics.
-- P-04.05 and P-04.06: Keep timeout/resource/fork-bomb behavior from encoding unverified platform semantics before live sandbox discovery.
+Live platform integration for remaining P-04 tasks:
+- P-04.03 derives sandbox resource, network, and process policies directly from proven live platform capabilities from P-01 (disposable instances, LinuxKit VMs, pre-warmed uv images, outbound HTTPS, lack of platform egress filtering).
+- P-04.05 normalizes execution timeout, cancellation, and resource failures using proven platform semantics.
+- P-04.06 adds bounded malicious-fixture security tests covering exfiltration, process explosion, verifier discovery, and protected-surface mutation.
 
 ### P-04.01 — Formalize target-repository threat model
 Status: DONE (independently VERIFIED / PASS at SHA 4db39b136d2fd12e6ebd67eb5c5577d283f279e2)
@@ -300,7 +301,7 @@ Acceptance:
 - no claim that any live runtime guarantees secret protection.
 
 ### P-04.03 — Define sandbox resource/network/process policy from proven platform capability
-Status: PENDING (NOT AUTHORIZED UNDER CURRENT OFFLINE LANE; blocked on P-01 live platform discovery)
+Status: PENDING (authorized for execution following P-01 independent phase closure)
 Acceptance:
 - requires proven live platform capabilities from P-01;
 - defines resource ceilings, network policy, and process limits from verified facts.
@@ -315,21 +316,17 @@ Acceptance:
 - no assumptions about specific sandbox filesystem APIs.
 
 ### P-04.05 — Implement execution timeout/cancellation/resource-failure normalization
-Status: PENDING (NOT AUTHORIZED UNDER CURRENT OFFLINE LANE; blocked on P-01 live platform discovery)
+Status: PENDING (authorized conditionally after P-04.03 completion)
 Acceptance:
 - requires proven platform timeout/cancellation semantics.
 
 ### P-04.06 — Add malicious-fixture tests for exfiltration attempts, fork bombs, verifier discovery, and protected-surface mutation
-Status: PENDING (NOT AUTHORIZED UNDER CURRENT OFFLINE LANE; blocked on P-01 live platform discovery)
+Status: PENDING (authorized conditionally after P-04.05 completion)
 Acceptance:
 - malicious-fixture test suite exercising boundary enforcement without unverified sandbox assumptions.
 
 Phase exit: safe bounded execution contracts exist before autonomous building.
 (P-04 phase MUST remain OPEN. Completing P-04.01, P-04.02, and P-04.04 cannot close P-04. Phase exit remains unavailable until remaining exact tasks are legitimately completed).
-
-### Hard stop after P-04 offline subset:
-If P-04.01, P-04.02 and P-04.04 all independently close while P-01.02 is still blocked:
-STOP again. Do NOT automatically start P-04.03, P-04.05, P-04.06, P-05+, P-06+, or any other future phase. Return for another independent architecture decision.
 
 ---
 
