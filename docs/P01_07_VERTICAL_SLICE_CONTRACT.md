@@ -141,7 +141,7 @@ This contract relies strictly on proven platform realities:
 - **Root License:** Apache-2.0 (verified in `LICENSE` at fix revision)
 - **Buggy Base SHA:** `7341690e842a23cf18ded0abd9229765fa88c4e2` (immediate parent of fix commit)
 - **Fixed SHA:** `96ba401c1296ab1dda74a2365ef36d88f7d144ef` (commit "Only use hostname to do netrc lookup instead of netloc")
-- **Exact Upstream Evidence:** CVE-2024-47081 / GitHub Security Advisory GHSA-9wx4-h78v-56pm; commit `96ba401c1296ab1dda74a2365ef36d88f7d144ef`; regression test in commit `5b4b64c3467fd7a3c03f91ee641aaa348b6bed3b`.
+- **Exact Upstream Evidence:** CVE-2024-47081 / GitHub Security Advisory GHSA-9hjg-9r4m-mvj7; commit `96ba401c1296ab1dda74a2365ef36d88f7d144ef`; regression test in commit `5b4b64c3467fd7a3c03f91ee641aaa348b6bed3b`.
 - **Concise Behavioral Defect:** In `requests.utils.get_netrc_auth`, host parsing extracted the machine name via `ri.netloc.split(":")[0]` instead of `ri.hostname`. When requests targeted URLs with embedded userinfo (e.g., `http://example.com:@evil.com/`), credentials stored in `.netrc` for `example.com` were incorrectly sent to `evil.com`.
 - **Likely Independent Witness:** Self-contained unit test creating a temporary `.netrc` entry for `example.com`, invoking `requests.utils.get_netrc_auth("http://example.com:@evil.com/")`, asserting returned auth is `None` (on base: returns `("user", "pass")` -> FAIL; on fixed: returns `None` -> PASS).
 - **Dependency / Runtime Footprint:** Pure Python, standard requests dependencies (`urllib3`, `certifi`, `idna`, `charset-normalizer`).
