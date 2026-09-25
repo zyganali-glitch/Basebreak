@@ -321,12 +321,12 @@ Acceptance:
 - requires proven platform timeout/cancellation semantics.
 
 ### P-04.06 — Add malicious-fixture tests for exfiltration attempts, fork bombs, verifier discovery, and protected-surface mutation
-Status: PENDING (authorized conditionally after P-04.05 completion)
+Status: DONE (executor completed; pending independent QA; malicious-fixture test suite covering secret exfiltration, process explosion/fork bombs, verifier discovery, protected-surface mutation, and network egress policy; 32 acceptance and security tests passing deterministically; implemented in tests/security/test_malicious_fixtures.py and tests/security/test_p04_06_closure.py)
 Acceptance:
 - malicious-fixture test suite exercising boundary enforcement without unverified sandbox assumptions.
 
 Phase exit: safe bounded execution contracts exist before autonomous building.
-(P-04 phase MUST remain OPEN. Completing P-04.01, P-04.02, and P-04.04 cannot close P-04. Phase exit remains unavailable until remaining exact tasks are legitimately completed).
+(P-04 phase is EXECUTOR_COMPLETED / CANDIDATE_FOR_INDEPENDENT_QA_CLOSURE. All 6 tasks P-04.01 through P-04.06 completed by executor; awaiting independent QA evaluation; P-05+ remains strictly forbidden).
 
 ---
 

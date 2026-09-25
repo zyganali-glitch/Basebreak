@@ -50,6 +50,8 @@ Judge claim:
 - P-01 phase (Live Platform Discovery & Feasibility Gate) is independently CLOSED / PASS at SHA `ef5d79b1d421e628877522b16f4ab98dd0f515c2`.
 - P-04.03 (Define sandbox resource/network/process policy from proven platform capability) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-04.05 (Implement execution timeout/cancellation/resource-failure normalization) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-04.06 (Add malicious-fixture tests for exfiltration attempts, fork bombs, verifier discovery, and protected-surface mutation) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-04 phase (Security & Untrusted-Code Policy Foundation) is EXECUTOR_COMPLETED / CANDIDATE_FOR_INDEPENDENT_QA_CLOSURE.
 
 ## Last independently VERIFIED baseline SHA
 `ef5d79b1d421e628877522b16f4ab98dd0f515c2` (P-01 phase independent closure / PASS).
@@ -60,20 +62,20 @@ Judge claim:
 None. P-01 live platform discovery is complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-`P-04.03` and `P-04.05` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+Phase P-04 Live Security Completion Batch: `P-04.03`, `P-04.05`, and `P-04.06` (EXECUTOR_COMPLETED / CANDIDATE_FOR_INDEPENDENT_QA_CLOSURE).
 
 ### Active exact task
-P-04.06 — Add malicious-fixture tests for exfiltration attempts, fork bombs, verifier discovery, and protected-surface mutation.
+Awaiting Independent QA evaluation of Phase P-04 (HARD STOP — P-05+ strictly forbidden).
 
-*(Note: Exactly ONE executable micro-task is active at a time. P-04 is OPEN. Following P-04.05 completion, P-04.06 executes under batch hard-gate law. P-05+ remains strictly forbidden).*
+*(Note: All 6 tasks of Phase P-04 are completed by the executor. P-04 phase is submitted as candidate for independent QA closure. Under the Master Plan and batch hard-gate law, P-05+ remains strictly forbidden until independent QA awards closure).*
 
 ## Parallelization boundary & rules
 - **Live batch executed & closed:** With Nebius Token Factory Sandboxes beta activation confirmed live, the conditional live batch (`P-01.03` through `P-01.07`) was executed, verified, and awarded independent QA PASS, closing Phase P-01.
 - **Evidence Provenance:** All sandbox execution facts are recorded live against official Nebius Token Factory endpoints; zero mock or local checkout substitutions.
 - **Provider neutrality:** All domain contracts, evidence primitives, and security primitives remain strictly provider-neutral.
-- **Authorized sequence:** `P-04.03`, `P-04.05`, `P-04.06` conditionally authorized in exact Master Plan sequence under batch hard-gate law.
+- **Authorized sequence:** `P-04.03`, `P-04.05`, `P-04.06` completed sequentially under batch hard-gate law.
 - **Not authorized / forbidden:** `P-05+` remains strictly forbidden.
-- **Phase status:** P-01 phase is CLOSED / PASS. P-04 phase remains OPEN.
+- **Phase status:** P-01 phase is CLOSED / PASS. P-04 phase is CANDIDATE_FOR_INDEPENDENT_QA_CLOSURE.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -91,5 +93,6 @@ P-04.06 — Add malicious-fixture tests for exfiltration attempts, fork bombs, v
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Execute P-04.06 — Add malicious-fixture tests for exfiltration attempts, fork bombs, verifier discovery, and protected-surface mutation.
-2. Verify acceptance criteria and evaluate hard gate before declaring P-04 candidate for independent QA closure.
+1. Submit Phase P-04 completion report to Independent QA authority.
+2. Await independent QA evaluation and formal closure decision for Phase P-04.
+3. HARD STOP: Do NOT execute P-05+ without explicit independent authorization.
