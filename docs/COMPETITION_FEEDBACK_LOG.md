@@ -143,6 +143,7 @@ This log may also be used as source material for the "Most Valuable Feedback" pr
 - **Concrete Product Suggestion:** Automatically enable Sandboxes beta access for Builder Program promotional credit recipients and official hackathon participants upon promo redemption, or provide automated instant approval in the web console rather than a manual form review.
 - **Severity/Value:** HIGH
 - **Provenance:** LIVE_OBSERVATION
-- **Status:** UNRESOLVED (awaiting beta access activation)
-- **Follow-up (2026-09-25 05:25 UTC):** Re-probed endpoints `/sandboxes/v1/whoami` and `/sandboxes/v1/instances` using project `aiproject-e00mae0nmzkxjswr1k`. All functional permissions remain `false`, instance spawn returns HTTP 403 `Insufficient permissions: spawn or spawn_disposable`. Access request remains pending review.
+- **Status:** RESOLVED
+- **Follow-up (2026-09-25 05:25 UTC):** Re-probed endpoints `/sandboxes/v1/whoami` and `/sandboxes/v1/instances` using project `aiproject-e00mae0nmzkxjswr1k`. All functional permissions remain `false`, instance spawn returns HTTP 403 `Insufficient permissions: spawn or spawn_disposable`. Access request remained pending review.
+- **Follow-up (2026-09-25 13:38 UTC):** Nebius notified operator of beta activation. Fresh live probe of `/sandboxes/v1/whoami` confirmed all functional permissions (`import`, `spawn`, `spawn_disposable`, `list`, `cancel`, `set_image_tag`) enabled (`true`). Live disposable sandbox execution (`echo BASEBREAK_SANDBOX_OK`) succeeded with exit code 0 in 0.338s. Checkpoint/fork verified live. Blocker resolved.
 
