@@ -168,6 +168,7 @@ Acceptance:
 - architecture adapts to proven platform reality.
 
 ### P-01.04 — Prove live repository materialization inside supported sandbox
+Status: DONE (executor completed; pending independent QA; canonical repo cloned inside container VM; base SHA and tree SHA verified against local truth; 28 tests passed in 5.06s; documented in docs/P01_04_LIVE_REPO_MATERIALIZATION.md)
 Acceptance:
 - synthetic/public test repo materialized;
 - base SHA resolved inside sandbox;
@@ -175,6 +176,7 @@ Acceptance:
 - filesystem/network assumptions recorded.
 
 ### P-01.05 — Prove two independent clean sandbox executions from the same trusted source
+Status: DONE (executor completed; pending independent QA; two independent disposable sandboxes executed; zero workspace bleeding verified via marker test; identical tree SHA; independent test outputs; documented in docs/P01_05_TWO_CLEAN_EXECUTIONS.md)
 Acceptance:
 - unique sandbox identities;
 - no workspace sharing;
@@ -182,13 +184,14 @@ Acceptance:
 - independent outputs captured.
 
 ### P-01.06 — Phase feasibility decision and architecture freeze v0
+Status: DONE (executor completed; pending independent QA; evidence-driven GO decision issued based strictly on live P-01.02 through P-01.05 facts; architecture freeze v0 recorded in docs/P01_06_FEASIBILITY_DECISION.md)
 Acceptance:
 - GO/BLOCKED decision;
 - actual platform constraints drive architecture;
 - mocked substitutes cannot produce GO.
 
 ### P-01.07 — Freeze judge-visible causal vertical-slice contract from proven platform reality
-Status: PENDING
+Status: DONE (executor completed; pending independent QA; judge-visible causal pipeline flow frozen; 3 research-only historical bug/fix pairs shortlisted without code importing; documented in docs/P01_07_VERTICAL_SLICE_CONTRACT.md)
 Acceptance:
 - written after P-01 proves actual platform capabilities;
 - defines what a judge will eventually see: task → Builder → independent witness → BASE result → CANDIDATE result → counterfactual where required → provenance → receipt;
@@ -197,7 +200,7 @@ Acceptance:
 - research-only shortlist 2–3 candidate real open-source bug/fix pairs for eventual P-23.08 replay (ResetVault remains the PRIMARY deterministic killer demo; P-23.08 is supplementary historical replay);
 - for each candidate, record: repository, immutable buggy/base SHA, immutable fixed SHA, root license, concise behavioral defect, likely independent witness, dependency/runtime footprint, sandbox/platform feasibility, reasons suitable/unsuitable;
 - at P-01.07: strictly NO donor/source importing, NO replay implementation, and NO claiming upstream patch was produced by Basebreak (early de-risking only).
-Phase exit: real model + real sandbox + two-clean-environment spine proven. (P-01 phase remains OPEN; offline parallel work in P-02/P-03 does not satisfy or bypass this live feasibility gate).
+Phase exit: real model + real sandbox + two-clean-environment spine proven. (P-01 execution complete; submitted for independent QA review and phase closure).
 
 ---
 

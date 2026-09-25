@@ -43,6 +43,10 @@ Judge claim:
 - P-01.02 (Execute first real Token Factory Nemotron inference call with sanitized minimal prompt) is independently VERIFIED / PASS at SHA `5991b29f2c3c1c987d5d24fcd4eeaaf27b4c0fb5`.
 - P-04.04 (Implement protected-surface manifest and diff checks) is independently VERIFIED / PASS at SHA `96f032f1165425d88e1bbbc23d6b925ee05e2841`.
 - P-01.03 (Discover and execute minimal Token Factory Sandbox workflow) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-01.04 (Prove live repository materialization inside supported sandbox) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-01.05 (Prove two independent clean sandbox executions from the same trusted source) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-01.06 (Phase feasibility decision and architecture freeze v0) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-01.07 (Freeze judge-visible causal vertical-slice contract from proven platform reality) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 
 ## Last independently VERIFIED baseline SHA
 `96f032f1165425d88e1bbbc23d6b925ee05e2841` (P-04.04 independent QA PASS).
@@ -50,24 +54,22 @@ Judge claim:
 ## Blocking live gate vs active task
 
 ### Blocking live gate
-`P-01.03 — Discover and execute minimal Token Factory Sandbox workflow`
-- Status: `EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE` (Beta access activated by Nebius; authenticated `/whoami` returned all permissions `true`; minimal disposable execution succeeded with `echo BASEBREAK_SANDBOX_OK` producing expected stdout, exit code 0 in 0.338s; teardown observed; checkpoint, snapshot, and clone/fork tested live; documented in `docs/P01_03_LIVE_SANDBOX_DISCOVERY.md`).
-- Phase impact: P-01 phase remains OPEN until P-01.04, P-01.05, P-01.06, and P-01.07 complete.
+None. All live discovery, execution, repository materialization, two-clean-environment spine, feasibility GO decision, and vertical-slice contract tasks (P-01.01 through P-01.07) are complete at executor level with deterministic `RECORDED_LIVE` evidence.
 
 ### Current QA candidate
-`P-01.03 — Discover and execute minimal Token Factory Sandbox workflow`
+`P-01 Phase Closure (P-01.03, P-01.04, P-01.05, P-01.06, P-01.07)`
 
 ### Active exact task
-`P-01.04 — Prove live repository materialization inside supported sandbox` (authorized next task in resumed conditional live batch).
+Awaiting independent QA review and verification of P-01 conditional live batch (P-01.03 through P-01.07) for P-01 phase closure.
 
-*(Note: Exactly ONE executable micro-task is active at a time. P-01 is OPEN. P-04 is OPEN. P-04.03, P-04.05, P-04.06 are NOT AUTHORIZED. P-05+ remain strictly forbidden).*
+*(Note: Exactly ONE executable micro-task is active at a time. P-01 is OPEN awaiting QA closure. P-04 is OPEN awaiting live platform policy tasks. P-04.03, P-04.05, P-04.06, and P-05+ remain strictly forbidden).*
 
 ## Parallelization boundary & rules
-- **Allowlist:** Under P-01.01B amendment, the previous P-02 and P-03 lanes are complete and independently closed. The offline allowlist permitted sequential execution ONLY of platform-independent P-04 security primitives: `P-04.01` (threat model, DONE), `P-04.02` (secret redaction, DONE), and `P-04.04` (protected-surface manifest/diff, DONE).
-- **Hard stop reached:** With P-04.04 independently verified, all authorized platform-independent P-04 primitives are completed. Active focus returns to live gate P-01.03.
-- **Provider neutrality:** All domain contracts, evidence primitives, and security primitives remain strictly provider-neutral; zero Nebius/NVIDIA/Tavily dependencies in committed application code.
-- **Not authorized / forbidden:** `P-01.04+`, `P-04.03`, `P-04.05`, `P-04.06`, and `P-05+` remain strictly unauthorized / forbidden.
-- **Phase status:** P-01 phase MUST remain OPEN. P-04 phase MUST remain OPEN.
+- **Live batch executed:** With Nebius Token Factory Sandboxes beta activation confirmed live, the conditional live batch (`P-01.03` through `P-01.07`) was executed sequentially under strict hard-gate law.
+- **Evidence Provenance:** All sandbox execution facts are recorded live against official Nebius Token Factory endpoints; zero mock or local checkout substitutions.
+- **Provider neutrality:** All domain contracts, evidence primitives, and security primitives remain strictly provider-neutral.
+- **Not authorized / forbidden:** `P-04.03`, `P-04.05`, `P-04.06`, and `P-05+` remain strictly unauthorized until P-01 receives independent QA closure and the next plan micro-task is authorized.
+- **Phase status:** P-01 phase is awaiting independent QA phase closure. P-04 phase remains OPEN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -85,10 +87,5 @@ Judge claim:
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Probe current sandbox capability/permissions from live project for `P-01.03 — Discover and execute minimal Token Factory Sandbox workflow`.
-2. If permissions remain unavailable (HTTP 403 / all permissions false), record factual evidence, remain BLOCKED_EXTERNAL_BETA_ACCESS, and hard stop.
-3. If permissions are active, execute minimal harmless command (`/bin/echo BASEBREAK_SANDBOX_OK`), collect deterministic exit/output, observe teardown, and discover platform capabilities.
-4. HARD STOP: Do NOT start P-01.04, P-04.03, P-04.05, P-04.06, or P-05+ without satisfied prerequisites.
-5. P-01 phase remains OPEN.
-6. P-04 phase remains OPEN.
-7. P-05+ remain strictly unauthorized / forbidden.
+1. Submit P-01.03, P-01.04, P-01.05, P-01.06, and P-01.07 live evidence to independent QA for verification and P-01 phase closure.
+2. Following independent QA approval of P-01 phase closure, proceed to next authorized task in Master Plan (P-04 platform-dependent tasks P-04.03, P-04.05, P-04.06).
