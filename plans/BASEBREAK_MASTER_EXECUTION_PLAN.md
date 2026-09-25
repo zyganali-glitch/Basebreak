@@ -200,7 +200,7 @@ Acceptance:
 - research-only shortlist 2–3 candidate real open-source bug/fix pairs for eventual P-23.08 replay (ResetVault remains the PRIMARY deterministic killer demo; P-23.08 is supplementary historical replay);
 - for each candidate, record: repository, immutable buggy/base SHA, immutable fixed SHA, root license, concise behavioral defect, likely independent witness, dependency/runtime footprint, sandbox/platform feasibility, reasons suitable/unsuitable;
 - at P-01.07: strictly NO donor/source importing, NO replay implementation, and NO claiming upstream patch was produced by Basebreak (early de-risking only).
-Phase exit: real model + real sandbox + two-clean-environment spine proven. (P-01 execution complete; submitted for independent QA review and phase closure).
+Phase exit: real model + real sandbox + two-clean-environment spine proven. (P-01 execution complete; truth repair applied to P-01.06 and P-01.07; submitted as CANDIDATE_FOR_INDEPENDENT_QA_CLOSURE for independent QA review and phase closure).
 
 ---
 

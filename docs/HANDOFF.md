@@ -57,7 +57,7 @@ Judge claim:
 None. All live discovery, execution, repository materialization, two-clean-environment spine, feasibility GO decision, and vertical-slice contract tasks (P-01.01 through P-01.07) are complete at executor level with deterministic `RECORDED_LIVE` evidence.
 
 ### Current QA candidate
-`P-01 Phase Closure (P-01.03, P-01.04, P-01.05, P-01.06, P-01.07)`
+`P-01 Phase Closure (P-01.03, P-01.04, P-01.05, P-01.06, P-01.07)` — status: `CANDIDATE_FOR_INDEPENDENT_QA_CLOSURE` (truth repair applied to P-01.06 model-evidence and P-01.07 historical bug/fix research).
 
 ### Active exact task
 Awaiting independent QA review and verification of P-01 conditional live batch (P-01.03 through P-01.07) for P-01 phase closure.
@@ -69,7 +69,7 @@ Awaiting independent QA review and verification of P-01 conditional live batch (
 - **Evidence Provenance:** All sandbox execution facts are recorded live against official Nebius Token Factory endpoints; zero mock or local checkout substitutions.
 - **Provider neutrality:** All domain contracts, evidence primitives, and security primitives remain strictly provider-neutral.
 - **Not authorized / forbidden:** `P-04.03`, `P-04.05`, `P-04.06`, and `P-05+` remain strictly unauthorized until P-01 receives independent QA closure and the next plan micro-task is authorized.
-- **Phase status:** P-01 phase is awaiting independent QA phase closure. P-04 phase remains OPEN.
+- **Phase status:** P-01 phase remains `CANDIDATE_FOR_INDEPENDENT_QA_CLOSURE` (awaiting independent QA phase closure). P-04 phase remains OPEN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);

@@ -126,48 +126,64 @@ This contract relies strictly on proven platform realities:
 
 ### Candidate 1: `urllib3/urllib3` — Cookie Header Stripping on Cross-Origin Redirect
 - **Repository:** `https://github.com/urllib3/urllib3`
-- **Root License:** MIT
-- **Buggy Base SHA:** `b63cc50c25a0a382c40c3132e4d0c918c5c7d81a` (v2.0.5)
-- **Fixed SHA:** `0349ec14ee3a1372b781a5cbb7f2fd1aa58652da` (v2.0.6)
-- **Concise Behavioral Defect:** Cookie request headers were inadvertently preserved when following cross-origin redirects, potentially leaking session credentials across origins (CVE-2023-43804).
-- **Likely Independent Witness:** A unit test executing `PoolManager.request('GET', ..., redirect=True)` redirecting from `http://example.com` to `http://other.com` asserting that `Cookie` header is absent in the redirected request.
-- **Dependency / Runtime Footprint:** Pure Python, lightweight dependencies, installs via `uv` in < 2 seconds.
-- **Sandbox Feasibility:** Highly feasible in `tag:astral/uv:python3.11-alpine`.
-- **Verdict on Suitability:** **SUITABLE** (clean, self-contained, clear security relevance, deterministic pass/fail).
+- **Root License:** MIT (verified in `LICENSE.txt` at fix revision)
+- **Buggy Base SHA:** `740380c59ca2a7c2dceca19e5dba99f6b7060e62` (immediate parent of fix commit; also tag 2.0.5 resolves to `d9f85a749488188c286cd50606d159874db94d5f`)
+- **Fixed SHA:** `644124ecd0b6e417c527191f866daa05a5a2056d` (commit merging GHSA-v845-jxx5-vc9f; included in release tag 2.0.6 commit `262e3e332209ee93ff70e2b13502c8f20c105ac8`)
+- **Exact Upstream Evidence:** GitHub Security Advisory GHSA-v845-jxx5-vc9f (CVE-2023-43804); upstream `CHANGES.rst` entry for 2.0.6 release; commit `644124ecd0b6e417c527191f866daa05a5a2056d`.
+- **Concise Behavioral Defect:** In `urllib3.util.retry.Retry`, `DEFAULT_REMOVE_HEADERS_ON_REDIRECT` only included `Authorization`. `Cookie` request headers were inadvertently preserved when following cross-origin redirects, potentially leaking sensitive session tokens to untrusted domains.
+- **Likely Independent Witness:** Focused unit test checking `Retry().remove_headers_on_redirect` contains `"cookie"`, and/or functional test in `test/with_dummyserver/test_poolmanager.py` sending cross-host redirect asserting `Cookie` header is absent in redirected target request.
+- **Dependency / Runtime Footprint:** Pure Python, lightweight dependencies, fast install via `uv` in < 2 seconds.
+- **Nebius Linux Sandbox Feasibility:** High. Fully functional in `tag:astral/uv:python3.11-alpine`.
+- **Verdict on Suitability:** **SUITABLE** (clean, self-contained, high security relevance, deterministic `BASE=FAIL, CANDIDATE=PASS` invariant).
 
-### Candidate 2: `pallets/werkzeug` — Safe Join Path Traversal Edge Case
-- **Repository:** `https://github.com/pallets/werkzeug`
-- **Root License:** BSD-3-Clause
-- **Buggy Base SHA:** `76822c7a972c3d5268c5e638d01da93f3ef841cf` (v3.0.0)
-- **Fixed SHA:** `e8df35bbf6c96a79ee7eb269fa5ba5241fae0172` (v3.0.1)
-- **Concise Behavioral Defect:** `safe_join` improperly handled certain path segment combinations on Windows/POSIX boundaries, allowing directory traversal.
-- **Likely Independent Witness:** Direct functional test invoking `werkzeug.security.safe_join(base_dir, untrusted_path)` asserting `None` is returned for escaping paths.
-- **Dependency / Runtime Footprint:** Pure Python, zero external binary dependencies.
-- **Sandbox Feasibility:** Highly feasible in `tag:astral/uv:python3.11-alpine`.
-- **Verdict on Suitability:** **SUITABLE** (very fast execution, pure Python, zero network dependency during test run).
+### Candidate 2: `psf/requests` — .netrc Credential Leak on URLs with Embedded Userinfo
+- **Repository:** `https://github.com/psf/requests`
+- **Root License:** Apache-2.0 (verified in `LICENSE` at fix revision)
+- **Buggy Base SHA:** `7341690e842a23cf18ded0abd9229765fa88c4e2` (immediate parent of fix commit)
+- **Fixed SHA:** `96ba401c1296ab1dda74a2365ef36d88f7d144ef` (commit "Only use hostname to do netrc lookup instead of netloc")
+- **Exact Upstream Evidence:** CVE-2024-47081 / GitHub Security Advisory GHSA-9wx4-h78v-56pm; commit `96ba401c1296ab1dda74a2365ef36d88f7d144ef`; regression test in commit `5b4b64c3467fd7a3c03f91ee641aaa348b6bed3b`.
+- **Concise Behavioral Defect:** In `requests.utils.get_netrc_auth`, host parsing extracted the machine name via `ri.netloc.split(":")[0]` instead of `ri.hostname`. When requests targeted URLs with embedded userinfo (e.g., `http://example.com:@evil.com/`), credentials stored in `.netrc` for `example.com` were incorrectly sent to `evil.com`.
+- **Likely Independent Witness:** Self-contained unit test creating a temporary `.netrc` entry for `example.com`, invoking `requests.utils.get_netrc_auth("http://example.com:@evil.com/")`, asserting returned auth is `None` (on base: returns `("user", "pass")` -> FAIL; on fixed: returns `None` -> PASS).
+- **Dependency / Runtime Footprint:** Pure Python, standard requests dependencies (`urllib3`, `certifi`, `idna`, `charset-normalizer`).
+- **Nebius Linux Sandbox Feasibility:** High. Completely offline, zero network access required during witness run, executes in milliseconds in `tag:astral/uv:python3.11-alpine`.
+- **Verdict on Suitability:** **SUITABLE** (pure local unit test, no daemon/dummy server required, fast execution, zero network flakiness).
 
-### Candidate 3: `encode/httpx` — Query Parameter Encoding in URLs
+### Candidate 3: `encode/httpx` — NO_PROXY IPv4, IPv6 and Localhost Parsing
 - **Repository:** `https://github.com/encode/httpx`
-- **Root License:** BSD-3-Clause
-- **Buggy Base SHA:** `fbb39d4cae5d956bf193a401c4ecde65fc5bb565`
-- **Fixed SHA:** `834adcb0272bc13f9f30b91dcfba8b51206df6ce`
-- **Concise Behavioral Defect:** URL query parameter string serialization mishandled unescaped reserved characters.
-- **Likely Independent Witness:** Unit test instantiating `httpx.URL` with complex query parameters and asserting string representation matches RFC 3986.
-- **Dependency / Runtime Footprint:** Pure Python with `httpcore`, `anyio`.
-- **Sandbox Feasibility:** Highly feasible in `tag:astral/uv:python3.11-alpine`.
-- **Verdict on Suitability:** **SUITABLE** (straightforward pure Python test, fast runtime).
+- **Root License:** BSD-3-Clause (verified in `LICENSE.md` at fix revision)
+- **Buggy Base SHA:** `7d7c4f15b8784e4a550d974139acfa64193b32c2` (immediate parent of fix commit)
+- **Fixed SHA:** `15d09a3bbc20372cd87e48f17f7c9381c8220a0f` (commit "fix: NO_PROXY should support IPv4, IPv6 and localhost (#2659)")
+- **Exact Upstream Evidence:** Pull Request #2659; commit `15d09a3bbc20372cd87e48f17f7c9381c8220a0f`; unit tests in `tests/test_utils.py`.
+- **Concise Behavioral Defect:** In `httpx._utils.get_environment_proxies`, all `NO_PROXY` entries were formatted as wildcard domain patterns `all://*<hostname>`, which broke exact IP and localhost matching (e.g., `127.0.0.1` improperly mapped to `all://*127.0.0.1` rather than `all://127.0.0.1`).
+- **Likely Independent Witness:** Unit test invoking `get_environment_proxies()` with `no_proxy="127.0.0.1"` asserting `mounts["all://127.0.0.1"] is None`.
+- **Dependency / Runtime Footprint:** Pure Python (`httpcore`, `anyio`, `certifi`, `idna`, `sniffio`).
+- **Nebius Linux Sandbox Feasibility:** High. Installs in < 2 seconds in `tag:astral/uv:python3.11-alpine`.
+- **Verdict on Suitability:** **SUITABLE** (deterministic unit test, pure Python, zero network dependency during test run).
+
+### Audited & Disqualified Candidate: `pallets/werkzeug` — Safe Join Directory Traversal Edge Case
+- **Repository:** `https://github.com/pallets/werkzeug`
+- **Root License:** BSD-3-Clause (verified in `LICENSE.txt` at fix revision)
+- **Buggy Base SHA:** `50cfeebcb0727e18cc52ffbeb125f4a66551179b` (immediate parent of fix; release tag 3.0.5 is `9caf72ac060181a3171d91fd12279e071df430ca`)
+- **Fixed SHA:** `87cc78a25f782f8c59fbde786840a00cf0d09b3d` (commit "catch special absolute path on Windows Python < 3.11", merged in 3.0.6 release `5eaefc3996aa5cc8c5237d8b82f1b89eed6ea624`)
+- **Exact Upstream Evidence:** GitHub Security Advisory GHSA-f9vj-2wh5-fj8j; Werkzeug 3.0.6 release notes in `CHANGES.rst`.
+- **Concise Behavioral Defect:** `safe_join` did not catch certain leading slash path combinations (e.g., `//b/c`) on Windows when running on Python < 3.11 because `ntpath.isabs` did not treat them as absolute paths.
+- **Likely Independent Witness:** Direct functional test invoking `werkzeug.security.safe_join("a", "//b/c")` asserting `None` is returned.
+- **Dependency / Runtime Footprint:** Pure Python.
+- **Nebius Linux Sandbox Feasibility:** **Infeasible / Non-discriminating in Linux container**. The proven Nebius sandbox runs LinuxKit Alpine with Python 3.11 (`tag:astral/uv:python3.11-alpine`). On POSIX systems, `posixpath.isabs` already identifies leading slashes as absolute, meaning the test passes even on the buggy base revision on Linux. It requires Windows and Python < 3.11 to exhibit the failure.
+- **Verdict on Suitability:** **UNSUITABLE**
+- **Reason for Disqualification:** Fails the causal verification invariant `BASE=FAIL` inside the proven Nebius Linux sandbox environment; platform-dependent bug that cannot be reliably witnessed on Linux Python 3.11.
 
 ---
 
-## 5. Phase P-01 Completion & Exit Gate Validation
+## 5. Phase P-01 Completion Status & Independent QA Gate
 
 With:
-1. `P-01.01`: Official API and model catalog discovery complete;
-2. `P-01.02`: Real Nemotron inference verified live;
-3. `P-01.03`: Real sandbox beta access and execution primitives verified live;
-4. `P-01.04`: Real repository materialization and cryptographic source identity verified live;
-5. `P-01.05`: Two clean independent sandbox executions without mutable workspace sharing verified live;
-6. `P-01.06`: Feasibility GO decision and architecture v0 frozen;
-7. `P-01.07`: Judge-visible causal vertical-slice contract frozen;
+1. `P-01.01`: Official API and model catalog discovery complete (independently VERIFIED / PASS);
+2. `P-01.02`: Real Nemotron inference verified live (independently VERIFIED / PASS);
+3. `P-01.03`: Real sandbox beta access and execution primitives verified live (`EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE`);
+4. `P-01.04`: Real repository materialization and cryptographic source identity verified live (`EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE`);
+5. `P-01.05`: Two clean independent sandbox executions without mutable workspace sharing verified live (`EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE`);
+6. `P-01.06`: Feasibility GO decision and architecture v0 frozen (`EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE`);
+7. `P-01.07`: Judge-visible causal vertical-slice contract frozen (`EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE`);
 
-Phase `P-01` (Live Platform Discovery & Feasibility Proof) has successfully proven all real model, real sandbox, and two-clean-environment spine requirements.
+Phase `P-01` (Live Platform Discovery & Feasibility Proof) has proven all required real model, real sandbox, and two-clean-environment spine capabilities at executor level. Phase status is submitted as `CANDIDATE_FOR_INDEPENDENT_QA_CLOSURE` and remains open until independent QA verification is completed.

@@ -11,11 +11,11 @@
 
 ## 1. Feasibility Decision Summary
 
-Based strictly and exclusively on deterministic runtime evidence gathered across `P-01.02`, `P-01.03`, `P-01.04`, and `P-01.05`, the executor issues an unambiguous:
+Based strictly and exclusively on deterministic runtime evidence gathered across `P-01.02` (real model inference), `P-01.03` (real sandbox execution), `P-01.04` (real repository materialization), and `P-01.05` (two clean independent executions), the core platform capabilities required to support Basebreak's causal verification runtime are proven feasible. The executor issues an unambiguous:
 
 # **DECISION: GO**
 
-Every core technical assumption required for Basebreak's causal verification runtime has been verified live against official Nebius Token Factory infrastructure. No mock, simulation, or local checkout substitution was accepted.
+The fundamental platform prerequisites (real Nemotron model call + real container sandbox execution + real repository materialization + two clean executions without mutable workspace bleeding) have been proven through live execution against official Nebius Token Factory infrastructure. No mock, simulation, or local checkout substitution was accepted.
 
 ---
 
@@ -35,8 +35,15 @@ Every core technical assumption required for Basebreak's causal verification run
 With live platform realities proven, the Basebreak architecture v0 is frozen around the following concrete primitives:
 
 ### A. Inference Engine
-- **Primary Fast Model:** `nvidia/Nemotron-3_5-Lightning` (fast, low-cost, strong code comprehension).
-- **Deep Reasoning Model:** `nvidia/nemotron-3-super-120b-a12b` (for complex causal patch synthesis and verifier formulation).
+- **Primary Model (LIVE_PROVEN):** `nvidia/Nemotron-3_5-Lightning`
+  - *Provenance & Verification Level:* `LIVE_PROVEN` in `P-01.02` (executed live via `/v1/chat/completions` and corroborated via operator reproduction in the Token Factory Playground).
+  - *Intended Runtime Role:* Builder patch generation, independent witness generation, and core causal pipeline orchestration.
+  - *Empirically Verified Scope:* Verified for low-latency live HTTPS completion (0.72s duration, valid reasoning token generation). Specific benchmark quality or causal-patch superiority was not measured in P-01 and is not claimed.
+- **Candidate Deep Model (CATALOG_CONFIRMED / NOT_YET_LIVE_VALIDATED):** `nvidia/nemotron-3-super-120b-a12b`
+  - *Provenance & Verification Level:* `CATALOG_CONFIRMED / NOT_YET_LIVE_VALIDATED / CANDIDATE_DEEP_MODEL`.
+  - *Provider Availability:* Catalog-confirmed active in Nebius Token Factory (`GET /v1/models`).
+  - *Intended Future Role:* Potential candidate for complex multi-file causal reasoning and verifier formulation in later phases.
+  - *Runtime Constraint:* Not executed live in P-01. P-01.02 proved live connectivity with `nvidia/Nemotron-3_5-Lightning`, not the Super model. Its final runtime role, operational stability, and performance suitability require later bounded live validation before any implementation reliance.
 - **Transport:** Official Token Factory OpenAI-compatible API (`https://api.tokenfactory.nebius.com/v1/chat/completions`).
 
 ### B. Sandbox Execution Engine
