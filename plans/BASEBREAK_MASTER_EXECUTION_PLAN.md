@@ -340,6 +340,7 @@ Status: DONE (executor completed; candidate for independent QA; implemented Nebi
 ### P-05.04 — Implement model/sandbox telemetry normalization with secret-safe logs
 Status: DONE (executor completed; candidate for independent QA; implemented secret-safe model and sandbox telemetry normalization; bounds payloads and strings, sanitizes synthetic credentials, preserves evidence provenance without conflation, preserves deterministic authority separation; 18 unit and closure tests passing; implemented in src/basebreak/adapters/nebius/telemetry.py)
 ### P-05.05 — Implement retry/idempotency policy without duplicating external actions
+Status: DONE (executor completed; candidate for independent QA; implemented NebiusRetryExecutor with deterministic OperationEffect classification, bounded backoff, zero duplication of non-idempotent mutations, fail-closed semantics, complete RetryAuditTrail, and secret-safe logging; 29 unit and closure tests passing; implemented in src/basebreak/adapters/nebius/retry.py)
 ### P-05.06 — Execute live adapter integration suite
 Phase exit: provider adapter is real, fail-closed, and replaceable from domain core.
 

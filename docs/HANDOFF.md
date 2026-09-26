@@ -57,6 +57,7 @@ Judge claim:
 - P-05.02 (Implement sandbox create/exec/inspect/teardown adapter) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-05.03 (Implement repository materialization and source-hash verification adapter) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-05.04 (Implement model/sandbox telemetry normalization with secret-safe logs) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-05.05 (Implement retry/idempotency policy without duplicating external actions) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 
 ## Last independently VERIFIED baseline SHA
 `90e5391b9bd7a406c62b838bfa1f24e85400ad65` (Entering conditional sequential batch).
@@ -67,17 +68,19 @@ Judge claim:
 None. P-01 live platform discovery is complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-`P-05.04 — Implement model/sandbox telemetry normalization with secret-safe logs` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+- `P-05.02 — Implement sandbox create/exec/inspect/teardown adapter` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE)
+- `P-05.03 — Implement repository materialization and source-hash verification adapter` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE)
+- `P-05.04 — Implement model/sandbox telemetry normalization with secret-safe logs` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE)
+- `P-05.05 — Implement retry/idempotency policy without duplicating external actions` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE)
 
 ### Active exact task
-`P-05.05 — Implement retry/idempotency policy without duplicating external actions` (next authorized in sequential batch).
+Awaiting independent QA review for Phase P-05 batch. HARD STOP: P-05.06 remains NOT_RUN / NOT AUTHORIZED.
 
 ## Parallelization boundary & rules
-- **Live batch executed & closed:** With Nebius Token Factory Sandboxes beta activation confirmed live, the conditional live batch (`P-01.03` through `P-01.07`) was executed, verified, and awarded independent QA PASS, closing Phase P-01.
-- **Evidence Provenance:** All sandbox execution facts are recorded live against official Nebius Token Factory endpoints; zero mock or local checkout substitutions.
+- **Sequential batch execution:** Under user batch authorization, tasks P-05.02, P-05.03, P-05.04, and P-05.05 were sequentially implemented, verified with comprehensive unit and closure test gates, and committed.
 - **Provider neutrality:** All domain contracts, evidence primitives, and security primitives remain strictly provider-neutral.
-- **Phase status:** P-01 phase is CLOSED / PASS. P-04 phase is CLOSED / PASS. P-05.01 is EXECUTOR_COMPLETED.
-- **Not authorized / forbidden:** `P-05.02+` remains strictly forbidden.
+- **Phase status:** P-01 phase is CLOSED / PASS. P-04 phase is CLOSED / PASS. P-05 tasks P-05.01 through P-05.05 are EXECUTOR_COMPLETED.
+- **Not authorized / forbidden:** `P-05.06` (live adapter integration suite) and `P-06+` remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -95,6 +98,6 @@ None. P-01 live platform discovery is complete and independently CLOSED / PASS.
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-05.01 completion report to Independent QA authority.
-2. Await independent QA evaluation and formal decision for P-05.01.
-3. HARD STOP: Do NOT execute P-05.02+ without explicit independent authorization.
+1. Submit batch completion report (P-05.02, P-05.03, P-05.04, P-05.05) to Independent QA authority.
+2. Await independent QA evaluation and formal decision for Phase P-05.
+3. HARD STOP: Do NOT execute P-05.06 or P-06+ without explicit independent authorization.
