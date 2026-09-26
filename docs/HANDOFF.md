@@ -56,6 +56,7 @@ Judge claim:
 - P-05.01 (Implement bounded model client using discovered model identifiers/config) is independently VERIFIED baseline entering this batch at SHA `90e5391b9bd7a406c62b838bfa1f24e85400ad65`.
 - P-05.02 (Implement sandbox create/exec/inspect/teardown adapter) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-05.03 (Implement repository materialization and source-hash verification adapter) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-05.04 (Implement model/sandbox telemetry normalization with secret-safe logs) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 
 ## Last independently VERIFIED baseline SHA
 `90e5391b9bd7a406c62b838bfa1f24e85400ad65` (Entering conditional sequential batch).
@@ -66,10 +67,10 @@ Judge claim:
 None. P-01 live platform discovery is complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-`P-05.03 — Implement repository materialization and source-hash verification adapter` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+`P-05.04 — Implement model/sandbox telemetry normalization with secret-safe logs` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
 
 ### Active exact task
-`P-05.04 — Implement model/sandbox telemetry normalization with secret-safe logs` (next authorized in sequential batch).
+`P-05.05 — Implement retry/idempotency policy without duplicating external actions` (next authorized in sequential batch).
 
 ## Parallelization boundary & rules
 - **Live batch executed & closed:** With Nebius Token Factory Sandboxes beta activation confirmed live, the conditional live batch (`P-01.03` through `P-01.07`) was executed, verified, and awarded independent QA PASS, closing Phase P-01.

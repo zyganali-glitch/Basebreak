@@ -338,6 +338,7 @@ Status: DONE (executor completed; candidate for independent QA; implemented Nebi
 ### P-05.03 — Implement repository materialization and source-hash verification adapter
 Status: DONE (executor completed; candidate for independent QA; implemented NebiusSourceMaterializer binding repository materialization into clean sandbox contexts to immutable SourceIdentity/CommitRevision; deterministic verification of git commit SHA and tree SHA with fail-closed mismatch detection; secret-safe error handling; zero verdict authority; 17 unit and closure tests passing; implemented in src/basebreak/adapters/nebius/materialization.py)
 ### P-05.04 — Implement model/sandbox telemetry normalization with secret-safe logs
+Status: DONE (executor completed; candidate for independent QA; implemented secret-safe model and sandbox telemetry normalization; bounds payloads and strings, sanitizes synthetic credentials, preserves evidence provenance without conflation, preserves deterministic authority separation; 18 unit and closure tests passing; implemented in src/basebreak/adapters/nebius/telemetry.py)
 ### P-05.05 — Implement retry/idempotency policy without duplicating external actions
 ### P-05.06 — Execute live adapter integration suite
 Phase exit: provider adapter is real, fail-closed, and replaceable from domain core.

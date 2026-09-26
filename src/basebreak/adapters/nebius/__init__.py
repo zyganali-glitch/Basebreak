@@ -1,7 +1,7 @@
 """Nebius Token Factory adapter package.
 
 Exposes bounded model client, bounded sandbox adapter, materialization adapter,
-constants, and adapter error classes.
+telemetry normalization, constants, and adapter error classes.
 """
 
 from .client import (
@@ -79,6 +79,16 @@ from .sandbox_constants import (
     OPERATIONS_PATH,
     WHOAMI_PATH,
 )
+from .telemetry import (
+    MAX_TELEMETRY_STRING_BYTES,
+    NormalizedModelTelemetry,
+    NormalizedSandboxTelemetry,
+    compute_sanitized_payload_digest,
+    format_telemetry_log,
+    normalize_model_telemetry,
+    normalize_sandbox_telemetry,
+    sanitize_and_bound_text,
+)
 
 __all__ = [
     "BUSYBOX_SANDBOX_IMAGE",
@@ -100,6 +110,7 @@ __all__ = [
     "MAX_PROMPT_CHARACTERS",
     "MAX_RESPONSE_CHARACTERS",
     "MAX_SANDBOX_TIMEOUT_SECONDS",
+    "MAX_TELEMETRY_STRING_BYTES",
     "MAX_TEMPERATURE",
     "MAX_TIMEOUT_SECONDS",
     "MIN_MAX_TOKENS",
@@ -126,6 +137,8 @@ __all__ = [
     "NebiusSandboxExecutionResult",
     "NebiusSandboxHandle",
     "NebiusSourceMaterializer",
+    "NormalizedModelTelemetry",
+    "NormalizedSandboxTelemetry",
     "OPERATIONS_PATH",
     "SandboxAdapterError",
     "SandboxClientConfig",
@@ -145,5 +158,10 @@ __all__ = [
     "TransportResponse",
     "WHOAMI_PATH",
     "build_materialization_script",
+    "compute_sanitized_payload_digest",
     "default_urllib_transport",
+    "format_telemetry_log",
+    "normalize_model_telemetry",
+    "normalize_sandbox_telemetry",
+    "sanitize_and_bound_text",
 ]
