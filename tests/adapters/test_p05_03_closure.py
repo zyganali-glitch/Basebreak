@@ -24,15 +24,24 @@ from typing import Any
 import pytest
 
 from basebreak.adapters.nebius import (
+    PRE_EXISTING_WORKSPACE_EXIT_CODE,
+    PRE_EXISTING_WORKSPACE_MARKER,
     MalformedSourceIdentityError,
+    MalformedWorkspacePathError,
     MaterializationExecutionError,
     MaterializedSourceRecord,
     NebiusSandboxAdapter,
+    NebiusSandboxHandle,
     NebiusSourceMaterializer,
+    PreExistingWorkspaceError,
     SandboxClientConfig,
+    SandboxLifecycleState,
     SourceCommitMismatchError,
     TransportResponse,
+    build_materialization_script,
+    validate_workspace_path,
 )
+from basebreak.domain.execution import SandboxIdentity
 from basebreak.domain.source import CommitRevision, SourceIdentity
 
 TEST_LOCATOR = "https://github.com/zyganali-glitch/Basebreak.git"
@@ -228,12 +237,94 @@ class TestP0503ClosureGate:
         source_id = SourceIdentity(
             locator=TEST_LOCATOR, revision=CommitRevision(commit_id=TEST_COMMIT)
         )
-        from basebreak.adapters.nebius.materialization import build_materialization_script
 
+        # 6a: Materialization script encodes pre-existence check and fail-closed exit
         script = build_materialization_script(source_id, "/workspace/clean_repo")
         assert "git clone" in script
         assert "/workspace/clean_repo" in script
-        # Clones into fresh destination path inside container; does not assume pre-existing checkout
+        assert f"exit {PRE_EXISTING_WORKSPACE_EXIT_CODE}" in script
+        assert PRE_EXISTING_WORKSPACE_MARKER in script
+
+        # 6b: Malformed / traversal workspace path fails closed early
+        with pytest.raises(MalformedWorkspacePathError):
+            validate_workspace_path("/workspace/../etc")
+        with pytest.raises(MalformedWorkspacePathError):
+            validate_workspace_path("relative/path")
+
+        # 6c: Pre-existing workspace fails closed with PreExistingWorkspaceError
+        def transport_pre_exist(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            if "/instances" in req.full_url:
+                return _make_transport_response(
+                    status_code=201,
+                    headers={"Location": "/sandboxes/v1/operations/gate-pre-exist"},
+                )
+            return _make_transport_response(
+                status_code=200,
+                body={
+                    "id": "gate-pre-exist",
+                    "status": "FAILED",
+                    "result": {
+                        "exit_code": PRE_EXISTING_WORKSPACE_EXIT_CODE,
+                        "stdout": "",
+                        "stderr": (
+                            f"{PRE_EXISTING_WORKSPACE_MARKER}: target workspace already exists"
+                        ),
+                    },
+                },
+            )
+
+        adapter_pe = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="k", project_id="p", poll_interval_seconds=0.01),
+            transport=transport_pre_exist,
+        )
+        mat_pe = NebiusSourceMaterializer(adapter_pe)
+        with pytest.raises(PreExistingWorkspaceError):
+            mat_pe.materialize_repository(source_id)
+
+        # 6d: Reused handle marks is_fresh_sandbox=False, while fresh sandbox marks True
+        handle = NebiusSandboxHandle(
+            sandbox_identity=SandboxIdentity(sandbox_id="sb-gate-reuse"),
+            image="ubuntu:22.04",
+            disposable=False,
+            lifecycle_state=SandboxLifecycleState.CREATED,
+        )
+
+        def transport_ok(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            if "/instances" in req.full_url:
+                return _make_transport_response(
+                    status_code=201,
+                    headers={"Location": "/sandboxes/v1/operations/gate-reuse-ok"},
+                )
+            return _make_transport_response(
+                status_code=200,
+                body={
+                    "id": "gate-reuse-ok",
+                    "status": "SUCCESS",
+                    "result": {
+                        "exit_code": 0,
+                        "duration": 1.0,
+                        "stdout": (
+                            f"BASEBREAK_RESOLVED_COMMIT={TEST_COMMIT}\n"
+                            f"BASEBREAK_RESOLVED_TREE={TEST_TREE}\n"
+                        ),
+                        "stderr": "",
+                    },
+                },
+            )
+
+        adapter_ok = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="k", project_id="p", poll_interval_seconds=0.01),
+            transport=transport_ok,
+        )
+        mat_ok = NebiusSourceMaterializer(adapter_ok)
+
+        record_reused = mat_ok.materialize_repository(source_id, sandbox=handle)
+        assert record_reused.is_clean_workspace is True
+        assert record_reused.is_fresh_sandbox is False
+
+        record_fresh = mat_ok.materialize_repository(source_id, sandbox=None)
+        assert record_fresh.is_clean_workspace is True
+        assert record_fresh.is_fresh_sandbox is True
 
     # Gate 7: Provider purity
     def test_gate_provider_purity(self) -> None:

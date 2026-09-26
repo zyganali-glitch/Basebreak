@@ -13,18 +13,26 @@ from typing import Any
 import pytest
 
 from basebreak.adapters.nebius import (
+    PRE_EXISTING_WORKSPACE_EXIT_CODE,
+    PRE_EXISTING_WORKSPACE_MARKER,
     MalformedSourceIdentityError,
+    MalformedWorkspacePathError,
     MaterializationExecutionError,
     MaterializedSourceRecord,
     NebiusSandboxAdapter,
+    NebiusSandboxHandle,
     NebiusSourceMaterializer,
+    PreExistingWorkspaceError,
     SandboxClientConfig,
+    SandboxLifecycleState,
     SourceCommitMismatchError,
     SourceTreeMismatchError,
     SourceVerificationError,
     TransportResponse,
     build_materialization_script,
+    validate_workspace_path,
 )
+from basebreak.domain.execution import SandboxIdentity
 from basebreak.domain.source import CommitRevision, RequestedRef, SourceIdentity
 
 TEST_LOCATOR = "https://github.com/zyganali-glitch/Basebreak.git"
@@ -344,3 +352,247 @@ class TestNebiusSourceMaterializer:
         err_text = str(exc_info.value)
         assert synthetic_secret not in err_text
         assert "[REDACTED" in err_text
+
+    # 9. Workspace path validation: valid paths normalize properly
+    def test_validate_workspace_path_valid(self) -> None:
+        assert validate_workspace_path("/workspace/repo") == "/workspace/repo"
+        assert validate_workspace_path("/opt/project/my-repo/") == "/opt/project/my-repo"
+        assert validate_workspace_path("  /custom/path/repo  ") == "/custom/path/repo"
+
+    # 10. Workspace path validation: malformed and unsafe paths fail closed
+    @pytest.mark.parametrize(
+        "bad_path",
+        [
+            "",
+            "   ",
+            "workspace/repo",
+            "relative/path",
+            "/workspace/../etc",
+            "/workspace/./repo",
+            "/",
+            "///",
+            "/bin",
+            "/etc",
+            "/usr",
+            "/proc",
+            "/sys",
+            "/dev",
+            "/tmp",
+            "/workspace/\x00repo",
+            "/workspace/\nrepo",
+            "/workspace/\rrepo",
+        ],
+    )
+    def test_validate_workspace_path_malformed_rejects(self, bad_path: str) -> None:
+        with pytest.raises(MalformedWorkspacePathError):
+            validate_workspace_path(bad_path)
+
+    # 11. Pre-existing target workspace fails closed with PreExistingWorkspaceError
+    def test_materialize_pre_existing_workspace_fails_closed(self) -> None:
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            if "/instances" in req.full_url:
+                return _make_transport_response(
+                    status_code=201,
+                    headers={"Location": "/sandboxes/v1/operations/op-pre-exist"},
+                )
+            return _make_transport_response(
+                status_code=200,
+                body={
+                    "id": "op-pre-exist",
+                    "status": "FAILED",
+                    "result": {
+                        "exit_code": PRE_EXISTING_WORKSPACE_EXIT_CODE,
+                        "duration": 0.5,
+                        "stdout": "",
+                        "stderr": (
+                            f"{PRE_EXISTING_WORKSPACE_MARKER}: target workspace already exists: "
+                            "/workspace/repo"
+                        ),
+                    },
+                },
+            )
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(
+                api_key="key", project_id="proj", poll_interval_seconds=0.01
+            ),
+            transport=fake_transport,
+        )
+        materializer = NebiusSourceMaterializer(adapter)
+        source_id = SourceIdentity(
+            locator=TEST_LOCATOR,
+            revision=CommitRevision(commit_id=TEST_COMMIT),
+        )
+
+        with pytest.raises(PreExistingWorkspaceError, match="Target workspace already exists"):
+            materializer.materialize_repository(source_id, workspace_path="/workspace/repo")
+
+    # 12. Existing sandbox handle does not bypass clean workspace check; distinguishes freshness
+    def test_materialize_existing_sandbox_handle_clean_vs_pre_existing(self) -> None:
+        handle = NebiusSandboxHandle(
+            sandbox_identity=SandboxIdentity(sandbox_id="sb-reused"),
+            image="ubuntu:22.04",
+            disposable=False,
+            lifecycle_state=SandboxLifecycleState.CREATED,
+        )
+
+        # 12a: Pre-existing workspace inside reused handle still fails closed
+        def fake_transport_dirty(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            if "/instances" in req.full_url:
+                return _make_transport_response(
+                    status_code=201,
+                    headers={"Location": "/sandboxes/v1/operations/op-dirty-handle"},
+                )
+            return _make_transport_response(
+                status_code=200,
+                body={
+                    "id": "op-dirty-handle",
+                    "status": "FAILED",
+                    "result": {
+                        "exit_code": PRE_EXISTING_WORKSPACE_EXIT_CODE,
+                        "stdout": "",
+                        "stderr": (
+                            f"{PRE_EXISTING_WORKSPACE_MARKER}: target workspace already exists"
+                        ),
+                    },
+                },
+            )
+
+        adapter_dirty = NebiusSandboxAdapter(
+            config=SandboxClientConfig(
+                api_key="key", project_id="proj", poll_interval_seconds=0.01
+            ),
+            transport=fake_transport_dirty,
+        )
+        mat_dirty = NebiusSourceMaterializer(adapter_dirty)
+        source_id = SourceIdentity(
+            locator=TEST_LOCATOR,
+            revision=CommitRevision(commit_id=TEST_COMMIT),
+        )
+
+        with pytest.raises(PreExistingWorkspaceError):
+            mat_dirty.materialize_repository(source_id, sandbox=handle)
+
+        # 12b: Clean workspace inside reused handle succeeds and marks is_fresh_sandbox=False
+        def fake_transport_clean(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            if "/instances" in req.full_url:
+                return _make_transport_response(
+                    status_code=201,
+                    headers={"Location": "/sandboxes/v1/operations/op-clean-handle"},
+                )
+            return _make_transport_response(
+                status_code=200,
+                body={
+                    "id": "op-clean-handle",
+                    "status": "SUCCESS",
+                    "result": {
+                        "exit_code": 0,
+                        "duration": 2.1,
+                        "stdout": (
+                            f"BASEBREAK_RESOLVED_COMMIT={TEST_COMMIT}\n"
+                            f"BASEBREAK_RESOLVED_TREE={TEST_TREE}\n"
+                        ),
+                        "stderr": "",
+                    },
+                },
+            )
+
+        adapter_clean = NebiusSandboxAdapter(
+            config=SandboxClientConfig(
+                api_key="key", project_id="proj", poll_interval_seconds=0.01
+            ),
+            transport=fake_transport_clean,
+        )
+        mat_clean = NebiusSourceMaterializer(adapter_clean)
+        record = mat_clean.materialize_repository(source_id, sandbox=handle)
+
+        assert record.is_clean_workspace is True
+        assert record.is_fresh_sandbox is False
+
+    # 13. Fresh sandbox flag is True when sandbox is None or image string
+    def test_materialize_fresh_sandbox_flag(self) -> None:
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            if "/instances" in req.full_url:
+                return _make_transport_response(
+                    status_code=201,
+                    headers={"Location": "/sandboxes/v1/operations/op-fresh"},
+                )
+            return _make_transport_response(
+                status_code=200,
+                body={
+                    "id": "op-fresh",
+                    "status": "SUCCESS",
+                    "result": {
+                        "exit_code": 0,
+                        "duration": 3.0,
+                        "stdout": (
+                            f"BASEBREAK_RESOLVED_COMMIT={TEST_COMMIT}\n"
+                            f"BASEBREAK_RESOLVED_TREE={TEST_TREE}\n"
+                        ),
+                        "stderr": "",
+                    },
+                },
+            )
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(
+                api_key="key", project_id="proj", poll_interval_seconds=0.01
+            ),
+            transport=fake_transport,
+        )
+        materializer = NebiusSourceMaterializer(adapter)
+        source_id = SourceIdentity(
+            locator=TEST_LOCATOR,
+            revision=CommitRevision(commit_id=TEST_COMMIT),
+        )
+
+        record_default = materializer.materialize_repository(source_id)
+        assert record_default.is_fresh_sandbox is True
+        assert record_default.is_clean_workspace is True
+
+        record_image = materializer.materialize_repository(source_id, sandbox="custom-image:latest")
+        assert record_image.is_fresh_sandbox is True
+        assert record_image.is_clean_workspace is True
+
+    # 14. No automatic retries on materialization failure
+    def test_materialize_no_automatic_retry(self) -> None:
+        call_count = 0
+
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            nonlocal call_count
+            call_count += 1
+            if "/instances" in req.full_url:
+                return _make_transport_response(
+                    status_code=201,
+                    headers={"Location": "/sandboxes/v1/operations/op-noretry"},
+                )
+            return _make_transport_response(
+                status_code=200,
+                body={
+                    "id": "op-noretry",
+                    "status": "FAILED",
+                    "result": {
+                        "exit_code": 1,
+                        "stdout": "",
+                        "stderr": "git error",
+                    },
+                },
+            )
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(
+                api_key="key", project_id="proj", poll_interval_seconds=0.01
+            ),
+            transport=fake_transport,
+        )
+        materializer = NebiusSourceMaterializer(adapter)
+        source_id = SourceIdentity(
+            locator=TEST_LOCATOR,
+            revision=CommitRevision(commit_id=TEST_COMMIT),
+        )
+
+        with pytest.raises(MaterializationExecutionError):
+            materializer.materialize_repository(source_id)
+
+        # Exactly 2 calls: 1 POST to create instance, 1 GET to poll operation; no retries
+        assert call_count == 2

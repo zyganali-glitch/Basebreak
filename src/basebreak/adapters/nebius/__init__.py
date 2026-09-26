@@ -23,15 +23,20 @@ from .client import (
     default_urllib_transport,
 )
 from .materialization import (
+    PRE_EXISTING_WORKSPACE_EXIT_CODE,
+    PRE_EXISTING_WORKSPACE_MARKER,
     MalformedSourceIdentityError,
+    MalformedWorkspacePathError,
     MaterializationExecutionError,
     MaterializedSourceRecord,
     NebiusSourceMaterializer,
+    PreExistingWorkspaceError,
     SourceCommitMismatchError,
     SourceMaterializationError,
     SourceTreeMismatchError,
     SourceVerificationError,
     build_materialization_script,
+    validate_workspace_path,
 )
 from .models import (
     CANDIDATE_DEEP_MODEL,
@@ -171,6 +176,10 @@ __all__ = [
     "NormalizedSandboxTelemetry",
     "OPERATIONS_PATH",
     "OperationEffect",
+    "PRE_EXISTING_WORKSPACE_EXIT_CODE",
+    "PRE_EXISTING_WORKSPACE_MARKER",
+    "PreExistingWorkspaceError",
+    "MalformedWorkspacePathError",
     "RetryAuditTrail",
     "RetryPolicyConfig",
     "RetryPolicyError",
@@ -202,4 +211,5 @@ __all__ = [
     "normalize_model_telemetry",
     "normalize_sandbox_telemetry",
     "sanitize_and_bound_text",
+    "validate_workspace_path",
 ]

@@ -7,6 +7,7 @@ Authority:
 - Binds materialized repository state to the exact requested immutable revision.
 - Rejects mutable branch labels alone, builder summaries, or provider prose.
 - Deterministic verification: actual git commit and tree hashes must match requested truth.
+- Clean workspace guarantee: verifies absence of target workspace prior to materialization.
 """
 
 from __future__ import annotations
@@ -37,6 +38,13 @@ _TREE_RE = re.compile(r"BASEBREAK_RESOLVED_TREE=([0-9a-fA-F]{40,64})")
 _ALT_COMMIT_RE = re.compile(r"RESOLVED_BASE_SHA=([0-9a-fA-F]{40,64})")
 _ALT_TREE_RE = re.compile(r"TREE_SHA=([0-9a-fA-F]{40,64})")
 
+_FORBIDDEN_ROOT_DIRS: frozenset[str] = frozenset(
+    {"bin", "boot", "dev", "etc", "lib", "proc", "root", "sys", "usr", "tmp", "var"}
+)
+
+PRE_EXISTING_WORKSPACE_EXIT_CODE: int = 42
+PRE_EXISTING_WORKSPACE_MARKER: str = "BASEBREAK_PRE_EXISTING_WORKSPACE"
+
 
 # --- Exceptions ---
 
@@ -47,6 +55,14 @@ class SourceMaterializationError(SandboxAdapterError):
 
 class MalformedSourceIdentityError(SourceMaterializationError):
     """Raised when the requested source identity or commit revision is malformed."""
+
+
+class MalformedWorkspacePathError(SourceMaterializationError):
+    """Raised when workspace_path is invalid, relative, unsafe, or malformed."""
+
+
+class PreExistingWorkspaceError(SourceMaterializationError):
+    """Raised when target workspace path already exists in sandbox context."""
 
 
 class MaterializationExecutionError(SourceMaterializationError):
@@ -93,6 +109,55 @@ class SourceTreeMismatchError(SourceVerificationError):
         )
 
 
+# --- Workspace Path Validation ---
+
+
+def validate_workspace_path(workspace_path: str) -> str:
+    """Validate and normalize target workspace path inside container VM.
+
+    Rejects:
+    - Non-string, empty, or whitespace paths;
+    - Paths with null bytes or control characters;
+    - Non-absolute paths (must start with '/');
+    - Path traversal segments ('..');
+    - Dot segments ('.');
+    - Root directory ('/');
+    - Critical top-level system directories.
+    """
+    if not isinstance(workspace_path, str) or not workspace_path.strip():
+        raise MalformedWorkspacePathError("workspace_path must be a non-empty string")
+
+    clean = workspace_path.strip()
+    if "\x00" in clean or "\r" in clean or "\n" in clean:
+        raise MalformedWorkspacePathError(
+            "workspace_path contains forbidden null or control characters"
+        )
+
+    if not clean.startswith("/"):
+        raise MalformedWorkspacePathError(
+            f"workspace_path must be absolute (start with '/'), got: {clean!r}"
+        )
+
+    parts = [p for p in clean.split("/") if p]
+    if not parts:
+        raise MalformedWorkspacePathError("workspace_path cannot be the root directory '/'")
+
+    if any(p == ".." for p in parts):
+        raise MalformedWorkspacePathError(
+            "workspace_path cannot contain path traversal ('..') segments"
+        )
+
+    if any(p == "." for p in parts):
+        raise MalformedWorkspacePathError("workspace_path cannot contain '.' segments")
+
+    if len(parts) == 1 and parts[0] in _FORBIDDEN_ROOT_DIRS:
+        raise MalformedWorkspacePathError(
+            f"workspace_path cannot be a critical top-level system directory: '/{parts[0]}'"
+        )
+
+    return "/" + "/".join(parts)
+
+
 # --- Data Records ---
 
 
@@ -102,6 +167,13 @@ class MaterializedSourceRecord:
 
     Records the verified commit SHA and tree SHA resolved directly from the
     materialized git workspace inside the container VM.
+
+    Guarantees:
+    - Target workspace was absent prior to materialization (is_clean_workspace=True);
+    - Resolved commit SHA and tree SHA are deterministically verified;
+    - Sandbox freshness is distinguished: is_fresh_sandbox is True only when
+      spawned in an unshared sandbox context (sandbox is None or image string),
+      and False when executed in an existing NebiusSandboxHandle.
     """
 
     source_identity: SourceIdentity
@@ -113,6 +185,8 @@ class MaterializedSourceRecord:
     duration_seconds: float | None
     result_image_uuid: str | None = None
     is_verified: bool = True
+    is_clean_workspace: bool = True
+    is_fresh_sandbox: bool = False
 
     def __repr__(self) -> str:
         return (
@@ -120,7 +194,9 @@ class MaterializedSourceRecord:
             f"tree={self.resolved_tree_sha[:12]!r}, "
             f"workspace={self.workspace_path!r}, "
             f"sandbox_id={self.sandbox_identity.sandbox_id!r}, "
-            f"is_verified={self.is_verified})"
+            f"is_verified={self.is_verified}, "
+            f"is_clean_workspace={self.is_clean_workspace}, "
+            f"is_fresh_sandbox={self.is_fresh_sandbox})"
         )
 
 
@@ -131,19 +207,17 @@ def build_materialization_script(
     source_identity: SourceIdentity,
     workspace_path: str = "/workspace/repo",
 ) -> str:
-    """Build a deterministic, bounded shell command to clone and checkout exact commit."""
-    clean_workspace = workspace_path.rstrip("/")
+    """Build a deterministic, bounded shell command to clone and checkout exact commit.
+
+    Validates workspace_path and asserts that the target workspace does not already
+    exist prior to clone.
+    """
+    clean_workspace = validate_workspace_path(workspace_path)
     parent_dir = "/".join(clean_workspace.split("/")[:-1]) or "/"
 
     locator = source_identity.locator
     commit_sha = source_identity.resolved_commit_id
 
-    # Proven live sequence from P-01.04:
-    # 1. Ensure git is installed in container
-    # 2. Clone repository quietly into clean workspace path
-    # 3. Checkout authoritative commit SHA
-    # 4. Resolve exact commit SHA (git rev-parse HEAD)
-    # 5. Resolve exact tree SHA (git write-tree)
     git_check_cmd = (
         "(which git >/dev/null 2>&1 || "
         "apk add --no-cache git >/dev/null 2>&1 || "
@@ -151,6 +225,11 @@ def build_materialization_script(
     )
     lines = [
         "set -e",
+        f"if [ -e {shlex.quote(clean_workspace)} ] || [ -L {shlex.quote(clean_workspace)} ]; then",
+        f'    echo "{PRE_EXISTING_WORKSPACE_MARKER}: target workspace already exists: '
+        f'{clean_workspace}" >&2',
+        f"    exit {PRE_EXISTING_WORKSPACE_EXIT_CODE}",
+        "fi",
         git_check_cmd,
         f"mkdir -p {shlex.quote(parent_dir)}",
         f"git clone --quiet {shlex.quote(locator)} {shlex.quote(clean_workspace)}",
@@ -204,6 +283,8 @@ class NebiusSourceMaterializer:
 
         Raises:
             MalformedSourceIdentityError: If source identity or hashes are invalid.
+            MalformedWorkspacePathError: If workspace_path is invalid or unsafe.
+            PreExistingWorkspaceError: If workspace_path already exists in sandbox.
             MaterializationExecutionError: If command execution inside sandbox fails.
             SourceCommitMismatchError: If resolved commit != requested commit.
             SourceTreeMismatchError: If expected_tree_sha is given and does not match.
@@ -216,6 +297,9 @@ class NebiusSourceMaterializer:
                 f"got {type(source_identity).__name__}"
             )
 
+        # Validate workspace path early
+        clean_workspace = validate_workspace_path(workspace_path)
+
         if expected_tree_sha is not None:
             clean_tree = expected_tree_sha.strip().lower()
             if len(clean_tree) not in (40, 64) or not set(clean_tree).issubset(_HEX_CHARS):
@@ -224,8 +308,11 @@ class NebiusSourceMaterializer:
                 )
             expected_tree_sha = clean_tree
 
+        # Distinguish sandbox freshness from workspace cleanliness
+        is_fresh_sandbox = (sandbox is None) or isinstance(sandbox, str)
+
         target_sandbox = sandbox or DEFAULT_SANDBOX_IMAGE
-        cmd_script = build_materialization_script(source_identity, workspace_path)
+        cmd_script = build_materialization_script(source_identity, clean_workspace)
 
         # Execute materialization script inside sandbox
         exec_result: NebiusSandboxExecutionResult = self._adapter.execute_command(
@@ -246,6 +333,14 @@ class NebiusSourceMaterializer:
         if exec_result.exit_code != 0:
             err_output = redact_log_text(exec_result.stderr or exec_result.stdout or "")
             code = exec_result.exit_code
+            if (
+                code == PRE_EXISTING_WORKSPACE_EXIT_CODE
+                or PRE_EXISTING_WORKSPACE_MARKER in err_output
+            ):
+                raise PreExistingWorkspaceError(
+                    f"Target workspace already exists before materialization: '{clean_workspace}' "
+                    f"(refusing to inherit mutable or non-clean state)"
+                )
             msg = (
                 f"Repository materialization command failed with exit code {code}: "
                 f"{err_output.strip()}"
@@ -292,10 +387,12 @@ class NebiusSourceMaterializer:
             source_identity=source_identity,
             resolved_commit_sha=resolved_commit,
             resolved_tree_sha=resolved_tree,
-            workspace_path=workspace_path,
+            workspace_path=clean_workspace,
             sandbox_identity=exec_result.sandbox_identity,
             operation_id=exec_result.operation_id,
             duration_seconds=exec_result.duration_seconds,
             result_image_uuid=exec_result.result_image_uuid,
             is_verified=True,
+            is_clean_workspace=True,
+            is_fresh_sandbox=is_fresh_sandbox,
         )
