@@ -53,14 +53,14 @@ Judge claim:
 - P-04.06 (Add malicious-fixture tests for exfiltration attempts, fork bombs, verifier discovery, and protected-surface mutation) is independently VERIFIED / PASS at SHA `5673b0ae07120151a08626161a21586b44c75bc1`.
 - P-04 phase (Security & Untrusted-Code Policy Foundation) is independently CLOSED / PASS at SHA `5673b0ae07120151a08626161a21586b44c75bc1`.
 
-- P-05.01 (Implement bounded model client using discovered model identifiers/config) is independently VERIFIED baseline entering this batch at SHA `90e5391b9bd7a406c62b838bfa1f24e85400ad65`.
+- P-05.01 (Implement bounded model client using discovered model identifiers/config) is independently VERIFIED / PASS at SHA `90e5391b9bd7a406c62b838bfa1f24e85400ad65`.
 - P-05.02 (Implement sandbox create/exec/inspect/teardown adapter) is independently VERIFIED / PASS at SHA `c49da8394ceac30832643f760ad303ead185c4a3`.
 - P-05.03 (Implement repository materialization and source-hash verification adapter) is independently VERIFIED / PASS at SHA `f149afffb58b72dfeba301e59868c38eef6a7107`.
 - P-05.04 (Implement model/sandbox telemetry normalization with secret-safe logs) is independently VERIFIED / PASS at SHA `899fe27feb8ec530c226a46832d47f886cd6947d`.
-- P-05.05 (Implement retry/idempotency policy without duplicating external actions) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (final surgical repair: operation identity made mandatory for public retry-decision helper `is_operation_retryable`; canonical operation classification authoritative on all execution and public policy decision surfaces via shared `validate_operation_classification`; caller assertions cannot upgrade known or unknown operations; unnamed caller IDEMPOTENT_MUTATION assertions eliminated; 66 focused unit and closure tests passing).
+- P-05.05 (Implement retry/idempotency policy without duplicating external actions) is independently VERIFIED / PASS at SHA `ef2d55c6ed6195e291b5e3ba8fe753541e5863c4`.
 
 ## Last independently VERIFIED baseline SHA
-`899fe27feb8ec530c226a46832d47f886cd6947d` (P-05.04 independently VERIFIED / PASS).
+`ef2d55c6ed6195e291b5e3ba8fe753541e5863c4` (P-05.05 independently VERIFIED / PASS).
 
 ## Blocking live gate vs active task
 
@@ -68,16 +68,16 @@ Judge claim:
 None. P-01 live platform discovery is complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-- `P-05.05 — Implement retry/idempotency policy without duplicating external actions` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; final surgical repair: operation identity mandatory on public retry helper, shared canonical classification validation, zero caller bypass)
+None. P-05.01 through P-05.05 are independently VERIFIED / PASS.
 
 ### Active exact task
-Awaiting independent QA review for P-05.05 final surgical repair. HARD STOP: P-05.06 remains NOT_RUN / NOT AUTHORIZED.
+`P-05.06 — Execute live adapter integration suite` (executing live adapter integration suite against real Token Factory services to produce LIVE_NEBIUS evidence).
 
 ## Parallelization boundary & rules
-- **Sequential batch execution:** Under user batch authorization, tasks P-05.02, P-05.03, P-05.04, and P-05.05 were sequentially implemented, verified with comprehensive unit and closure test gates, and committed.
+- **Sequential batch execution:** P-05 tasks P-05.01 through P-05.05 are completed and independently VERIFIED / PASS.
 - **Provider neutrality:** All domain contracts, evidence primitives, and security primitives remain strictly provider-neutral.
-- **Phase status:** P-01 phase is CLOSED / PASS. P-04 phase is CLOSED / PASS. P-05 tasks P-05.01 through P-05.05 are EXECUTOR_COMPLETED.
-- **Not authorized / forbidden:** `P-05.06` (live adapter integration suite) and `P-06+` remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Phase status:** P-01 phase is CLOSED / PASS. P-04 phase is CLOSED / PASS. P-05 is in progress with active task P-05.06.
+- **Not authorized / forbidden:** P-06+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -95,6 +95,6 @@ Awaiting independent QA review for P-05.05 final surgical repair. HARD STOP: P-0
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit batch completion report (P-05.02, P-05.03, P-05.04, P-05.05) to Independent QA authority.
-2. Await independent QA evaluation and formal decision for Phase P-05.
-3. HARD STOP: Do NOT execute P-05.06 or P-06+ without explicit independent authorization.
+1. Execute P-05.06 live adapter integration suite against real Nebius Token Factory services (model inference, sandbox lifecycle, repo materialization, command execution, telemetry normalization) producing genuine LIVE_NEBIUS evidence.
+2. Complete local validation (pytest, ruff check, ruff format, mypy).
+3. Submit P-05.06 completion report to Independent QA authority.

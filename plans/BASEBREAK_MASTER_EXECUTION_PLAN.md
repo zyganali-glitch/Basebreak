@@ -332,7 +332,7 @@ Phase exit: safe bounded execution contracts exist before autonomous building.
 
 # P-05 — Nebius/Nemotron Adapter Layer
 ### P-05.01 — Implement bounded model client using discovered model identifiers/config
-Status: DONE (executor completed; candidate for independent QA; implemented NebiusModelClient bounding model identity, timeout, max_tokens, temperature, prompt/response size; runtime-only credential handling; fail-closed on missing credentials, model mismatch, transport errors; zero verdict authority; 33 unit and purity tests passing; implemented in src/basebreak/adapters/nebius/)
+Status: DONE (independently VERIFIED / PASS at SHA 90e5391b9bd7a406c62b838bfa1f24e85400ad65)
 ### P-05.02 — Implement sandbox create/exec/inspect/teardown adapter
 Status: DONE (independently VERIFIED / PASS at SHA c49da8394ceac30832643f760ad303ead185c4a3)
 ### P-05.03 — Implement repository materialization and source-hash verification adapter
@@ -340,8 +340,9 @@ Status: DONE (independently VERIFIED / PASS at SHA f149afffb58b72dfeba301e59868c
 ### P-05.04 — Implement model/sandbox telemetry normalization with secret-safe logs
 Status: DONE (independently VERIFIED / PASS at SHA 899fe27feb8ec530c226a46832d47f886cd6947d)
 ### P-05.05 — Implement retry/idempotency policy without duplicating external actions
-Status: DONE (executor completed; candidate for independent QA; final surgical repair: operation identity made mandatory for public retry-decision helper `is_operation_retryable`; canonical operation classification authoritative on all execution and public policy decision surfaces via shared `validate_operation_classification`; caller assertions cannot upgrade known or unknown operations; unnamed caller IDEMPOTENT_MUTATION assertions eliminated; 66 focused unit and closure tests passing; implemented in src/basebreak/adapters/nebius/retry.py)
+Status: DONE (independently VERIFIED / PASS at SHA ef2d55c6ed6195e291b5e3ba8fe753541e5863c4)
 ### P-05.06 — Execute live adapter integration suite
+Status: IN_PROGRESS
 Phase exit: provider adapter is real, fail-closed, and replaceable from domain core.
 
 ---
