@@ -28,12 +28,14 @@ from basebreak.adapters.nebius.retry import (
     DEFAULT_INITIAL_BACKOFF_SECONDS,
     DEFAULT_MAX_ATTEMPTS,
     DEFAULT_MAX_BACKOFF_SECONDS,
+    KNOWN_OPERATION_EFFECTS,
     MaxAttemptsExceededError,
     NebiusRetryExecutor,
     NonRetryableOperationError,
     OperationEffect,
     RetryPolicyConfig,
     RetryPolicyError,
+    classify_operation_effect,
     compute_backoff_seconds,
     is_operation_retryable,
     is_permanent_failure,
@@ -43,6 +45,7 @@ from basebreak.adapters.nebius.sandbox import (
     MissingSandboxCredentialError,
     SandboxConfigError,
     SandboxProviderError,
+    SandboxTimeoutError,
     SandboxTransportError,
 )
 
@@ -163,11 +166,67 @@ class TestErrorClassification:
         assert can_retry is False
         assert "Non-idempotent operation risks duplicating" in rationale
 
+        # cancel_operation specifically blocked by name regardless of asserted effect
+        can_retry_cancel, rationale_cancel = is_operation_retryable(
+            OperationEffect.IDEMPOTENT_MUTATION, transient_exc, operation_name="cancel_operation"
+        )
+        assert can_retry_cancel is False
+        assert "no proven provider idempotency guarantee" in rationale_cancel
+
         # Any operation on permanent failure -> cannot retry
         can_retry, _ = is_operation_retryable(OperationEffect.READ_ONLY, perm_exc)
         assert can_retry is False
         can_retry, _ = is_operation_retryable(OperationEffect.IDEMPOTENT_MUTATION, perm_exc)
         assert can_retry is False
+
+
+class TestOperationClassification:
+    """Tests for classify_operation_effect and KNOWN_OPERATION_EFFECTS."""
+
+    def test_read_only_operations(self) -> None:
+        assert classify_operation_effect("whoami") == OperationEffect.READ_ONLY
+        assert classify_operation_effect("inspect_whoami") == OperationEffect.READ_ONLY
+        assert classify_operation_effect("inspect_operation") == OperationEffect.READ_ONLY
+        assert classify_operation_effect("poll_operation") == OperationEffect.READ_ONLY
+        assert classify_operation_effect("list_images") == OperationEffect.READ_ONLY
+        assert classify_operation_effect("inspect_image") == OperationEffect.READ_ONLY
+
+    def test_mutating_operations_are_non_idempotent(self) -> None:
+        # cancel_operation is non-idempotent because no provider idempotency guarantee exists
+        mutating_ops = (
+            "cancel_operation",
+            "cancel",
+            "create_instance",
+            "chat_completion",
+            "spawn_disposable",
+            "spawn_instance",
+            "clone_repository",
+            "materialize_source",
+        )
+        for op in mutating_ops:
+            assert classify_operation_effect(op) == OperationEffect.NON_IDEMPOTENT_MUTATION
+
+    def test_known_operation_effects_mapping(self) -> None:
+        assert KNOWN_OPERATION_EFFECTS["cancel_operation"] == (
+            OperationEffect.NON_IDEMPOTENT_MUTATION
+        )
+        assert KNOWN_OPERATION_EFFECTS["whoami"] == OperationEffect.READ_ONLY
+
+    def test_unknown_operation_defaults_to_non_idempotent_mutation(self) -> None:
+        assert (
+            classify_operation_effect("unknown_action_xyz")
+            == OperationEffect.NON_IDEMPOTENT_MUTATION
+        )
+        assert (
+            classify_operation_effect("custom_post_call") == OperationEffect.NON_IDEMPOTENT_MUTATION
+        )
+
+    def test_case_and_whitespace_insensitivity(self) -> None:
+        assert (
+            classify_operation_effect("  CANCEL_OPERATION  ")
+            == OperationEffect.NON_IDEMPOTENT_MUTATION
+        )
+        assert classify_operation_effect("  WhoAmI  ") == OperationEffect.READ_ONLY
 
 
 class TestNebiusRetryExecutor:
@@ -318,35 +377,169 @@ class TestNebiusRetryExecutor:
         assert err.audit_trail.is_terminal_success is False
         assert len(err.audit_trail.attempts) == 3
 
-    def test_idempotent_mutation_retries_transient_error(self) -> None:
-        """Idempotent mutation (e.g. cancel_operation) is allowed to retry."""
+    def test_cancel_operation_strictly_one_attempt_on_success(self) -> None:
+        """Requirement A: cancel_operation makes strictly 1 attempt on success."""
         call_count = 0
-        sleep_durations: list[float] = []
 
         def cancel_action() -> bool:
             nonlocal call_count
             call_count += 1
-            if call_count < 3:
-                raise SandboxProviderError(status_code=429, sanitized_message="Busy")
             return True
 
-        config = RetryPolicyConfig(
-            max_attempts=3,
-            initial_backoff_seconds=0.1,
-            sleep_callable=sleep_durations.append,
-        )
-        executor = NebiusRetryExecutor(config)
-
+        executor = NebiusRetryExecutor(RetryPolicyConfig(max_attempts=3))
         result, trail = executor.execute(
             operation_name="cancel_operation",
-            operation_effect=OperationEffect.IDEMPOTENT_MUTATION,
             action=cancel_action,
         )
-
         assert result is True
-        assert call_count == 3
-        assert trail.total_attempts == 3
+        assert call_count == 1
+        assert trail.total_attempts == 1
         assert trail.is_terminal_success is True
+        assert trail.operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+
+    def test_cancel_operation_transient_5xx_fails_closed(self) -> None:
+        """Requirement B: transient 5xx on cancel_operation fails closed, call count = 1."""
+        call_count = 0
+        sleep_durations: list[float] = []
+
+        def cancel_503() -> None:
+            nonlocal call_count
+            call_count += 1
+            raise SandboxProviderError(status_code=503, sanitized_message="Overloaded")
+
+        executor = NebiusRetryExecutor(
+            RetryPolicyConfig(max_attempts=3, sleep_callable=sleep_durations.append)
+        )
+        with pytest.raises(NonRetryableOperationError) as exc_info:
+            executor.execute(
+                operation_name="cancel_operation",
+                action=cancel_503,
+            )
+
+        err = exc_info.value
+        assert err.operation_name == "cancel_operation"
+        assert err.operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+        assert "retrying is forbidden to prevent duplicate external execution" in err.reason
+        assert call_count == 1
+        assert len(sleep_durations) == 0
+
+    def test_cancel_operation_timeout_fails_closed(self) -> None:
+        """Requirement C: timeout on cancel_operation fails closed, call count = 1."""
+        call_count = 0
+        sleep_durations: list[float] = []
+
+        def cancel_timeout() -> None:
+            nonlocal call_count
+            call_count += 1
+            raise SandboxTimeoutError("Operation cancel timeout")
+
+        executor = NebiusRetryExecutor(
+            RetryPolicyConfig(max_attempts=3, sleep_callable=sleep_durations.append)
+        )
+        with pytest.raises(NonRetryableOperationError) as exc_info:
+            executor.execute(
+                operation_name="cancel_operation",
+                action=cancel_timeout,
+            )
+
+        err = exc_info.value
+        assert err.operation_name == "cancel_operation"
+        assert err.operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+        assert call_count == 1
+        assert len(sleep_durations) == 0
+
+    def test_create_instance_remains_strictly_one_attempt(self) -> None:
+        """Requirement D: create_instance fails closed after strictly 1 attempt."""
+        call_count = 0
+
+        def create_action() -> None:
+            nonlocal call_count
+            call_count += 1
+            raise SandboxProviderError(status_code=500, sanitized_message="Internal Error")
+
+        executor = NebiusRetryExecutor(RetryPolicyConfig(max_attempts=3))
+        with pytest.raises(NonRetryableOperationError):
+            executor.execute(
+                operation_name="create_instance",
+                action=create_action,
+            )
+        assert call_count == 1
+
+    def test_chat_completion_remains_strictly_one_attempt(self) -> None:
+        """Requirement E: chat_completion fails closed after strictly 1 attempt."""
+        call_count = 0
+
+        def chat_action() -> None:
+            nonlocal call_count
+            call_count += 1
+            raise ModelProviderError(status_code=429, sanitized_message="Rate limit")
+
+        executor = NebiusRetryExecutor(RetryPolicyConfig(max_attempts=3))
+        with pytest.raises(NonRetryableOperationError):
+            executor.execute(
+                operation_name="chat_completion",
+                action=chat_action,
+            )
+        assert call_count == 1
+
+    def test_deterministic_audit_trail_structure(self) -> None:
+        """Requirement H: deterministic AttemptRecord and RetryAuditTrail structure."""
+
+        def action() -> str:
+            return "ok"
+
+        executor = NebiusRetryExecutor()
+        result, trail = executor.execute("whoami", action=action)
+        assert result == "ok"
+        d = trail.to_dict()
+        assert d["operation_name"] == "whoami"
+        assert d["operation_effect"] == "READ_ONLY"
+        assert d["total_attempts"] == 1
+        assert d["is_terminal_success"] is True
+        assert len(d["attempts"]) == 1
+        assert d["attempts"][0]["status"] == "SUCCESS"
+        assert d["attempts"][0]["status_code"] == 200
+
+    def test_no_lower_adapter_duplicate_external_mutation(self) -> None:
+        """Requirement J: lower adapter mutating action is called strictly once on error."""
+        calls: list[str] = []
+
+        class MockLowerAdapter:
+            def cancel_op(self, op_id: str) -> None:
+                calls.append(f"cancel:{op_id}")
+                raise SandboxProviderError(status_code=503, sanitized_message="Busy")
+
+        adapter = MockLowerAdapter()
+        executor = NebiusRetryExecutor(RetryPolicyConfig(max_attempts=5))
+
+        with pytest.raises(NonRetryableOperationError):
+            executor.execute(
+                operation_name="cancel_operation",
+                action=lambda: adapter.cancel_op("op-12345"),
+            )
+
+        assert calls == ["cancel:op-12345"]
+        assert len(calls) == 1
+
+    def test_unproven_mutation_claiming_idempotent_raises_retry_policy_error(self) -> None:
+        """Requirement K: unproven mutation claiming IDEMPOTENT_MUTATION raises error."""
+        executor = NebiusRetryExecutor()
+
+        for op_name in (
+            "cancel_operation",
+            "cancel",
+            "create_instance",
+            "chat_completion",
+            "spawn_disposable",
+        ):
+            with pytest.raises(
+                RetryPolicyError, match="has no proven provider idempotency guarantee"
+            ):
+                executor.execute(
+                    operation_name=op_name,
+                    operation_effect=OperationEffect.IDEMPOTENT_MUTATION,
+                    action=lambda: None,
+                )
 
     def test_secret_redaction_in_audit_trail_and_errors(self) -> None:
         """Synthetic secrets in error messages must be redacted in AttemptRecords and errors."""

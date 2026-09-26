@@ -8,7 +8,10 @@ Acceptance Criteria:
 - Gate 2: Read-only transient 503 succeeds on retry with bounded delay and audit trail.
 - Gate 3: Read-only query permanent 403 failure makes exactly 1 attempt without retry.
 - Gate 4: Exhausted attempts on persistent 503 raises MaxAttemptsExceededError.
-- Gate 5: Idempotent mutations (e.g. cancel_operation) safely retry on transient failure.
+- Gate 5: Mutating cancel_operation makes strictly 1 attempt and fails closed on 5xx.
+- Gate 5b: Mutating cancel_operation fails closed on timeout after strictly 1 attempt.
+- Gate 5c: Attempting unproven mutation as IDEMPOTENT_MUTATION raises RetryPolicyError.
+- Gate 5d: Operation effect classification correctly maps mutating and read-only ops.
 - Gate 6: Deterministic bounded backoff progression respecting ceilings.
 - Gate 7: Secret safety: credentials and tokens are redacted in all attempt surfaces.
 - Gate 8: Operational ceilings enforced (1 <= max_attempts <= 5, bounded backoff).
@@ -35,6 +38,8 @@ from basebreak.adapters.nebius import (
     RetryPolicyConfig,
     RetryPolicyError,
     SandboxProviderError,
+    SandboxTimeoutError,
+    classify_operation_effect,
     compute_backoff_seconds,
 )
 
@@ -162,33 +167,84 @@ class TestP0505ClosureGate:
         assert err.audit_trail.is_terminal_success is False
         assert len(err.audit_trail.attempts) == 3
 
-    # Gate 5: Idempotent mutations safely retry on transient failure
-    def test_gate_5_idempotent_mutation_retries_transient(self) -> None:
+    # Gate 5: cancel_operation makes strictly 1 attempt and fails closed on error
+    def test_gate_5_cancel_operation_fails_closed_on_transient_failure(self) -> None:
         attempts = 0
 
         def cancel_action() -> str:
             nonlocal attempts
             attempts += 1
-            if attempts == 1:
-                raise SandboxProviderError(status_code=429, sanitized_message="Rate limit")
-            return "CANCELLED"
+            raise SandboxProviderError(status_code=429, sanitized_message="Rate limit")
 
         cfg = RetryPolicyConfig(
-            max_attempts=2,
+            max_attempts=3,
             initial_backoff_seconds=0.01,
             sleep_callable=lambda _: None,
         )
         executor = NebiusRetryExecutor(cfg)
 
-        result, trail = executor.execute(
-            operation_name="cancel_operation",
-            operation_effect=OperationEffect.IDEMPOTENT_MUTATION,
-            action=cancel_action,
-        )
+        with pytest.raises(NonRetryableOperationError) as exc_info:
+            executor.execute(
+                operation_name="cancel_operation",
+                action=cancel_action,
+            )
 
-        assert result == "CANCELLED"
-        assert attempts == 2
-        assert trail.is_terminal_success is True
+        err = exc_info.value
+        assert err.operation_name == "cancel_operation"
+        assert err.operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+        assert "retrying is forbidden to prevent duplicate external execution" in err.reason
+        assert attempts == 1
+
+    # Gate 5b: Unproven mutating cancel_operation fails closed on timeout after strictly 1 attempt
+    def test_gate_5b_cancel_operation_fails_closed_on_timeout(self) -> None:
+        attempts = 0
+
+        def cancel_action() -> str:
+            nonlocal attempts
+            attempts += 1
+            raise SandboxTimeoutError("Timeout cancelling operation")
+
+        executor = NebiusRetryExecutor(RetryPolicyConfig(max_attempts=3))
+
+        with pytest.raises(NonRetryableOperationError) as exc_info:
+            executor.execute(
+                operation_name="cancel_operation",
+                action=cancel_action,
+            )
+
+        err = exc_info.value
+        assert err.operation_name == "cancel_operation"
+        assert err.operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+        assert attempts == 1
+
+    # Gate 5c: Unproven mutation as IDEMPOTENT_MUTATION raises RetryPolicyError
+    def test_gate_5c_unproven_mutation_claiming_idempotent_raises_policy_error(self) -> None:
+        executor = NebiusRetryExecutor()
+
+        with pytest.raises(RetryPolicyError, match="has no proven provider idempotency guarantee"):
+            executor.execute(
+                operation_name="cancel_operation",
+                operation_effect=OperationEffect.IDEMPOTENT_MUTATION,
+                action=lambda: None,
+            )
+
+    # Gate 5d: Operation effect classification correctly maps mutating and read-only operations
+    def test_gate_5d_operation_effect_classification_contract(self) -> None:
+        assert (
+            classify_operation_effect("cancel_operation") == OperationEffect.NON_IDEMPOTENT_MUTATION
+        )
+        assert (
+            classify_operation_effect("create_instance") == OperationEffect.NON_IDEMPOTENT_MUTATION
+        )
+        assert (
+            classify_operation_effect("chat_completion") == OperationEffect.NON_IDEMPOTENT_MUTATION
+        )
+        assert classify_operation_effect("inspect_operation") == OperationEffect.READ_ONLY
+        assert classify_operation_effect("whoami") == OperationEffect.READ_ONLY
+        assert (
+            classify_operation_effect("unknown_operation")
+            == OperationEffect.NON_IDEMPOTENT_MUTATION
+        )
 
     # Gate 6: Deterministic bounded backoff progression respecting ceilings
     def test_gate_6_backoff_progression_and_ceilings(self) -> None:

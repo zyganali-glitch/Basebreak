@@ -336,11 +336,11 @@ Status: DONE (executor completed; candidate for independent QA; implemented Nebi
 ### P-05.02 — Implement sandbox create/exec/inspect/teardown adapter
 Status: DONE (independently VERIFIED / PASS at SHA c49da8394ceac30832643f760ad303ead185c4a3)
 ### P-05.03 — Implement repository materialization and source-hash verification adapter
-Status: DONE (executor completed; candidate for independent QA; surgically repaired fail-closed clean workspace state and path validation in NebiusSourceMaterializer; validates POSIX absolute paths without traversal or system root directories; verifies absence of target workspace prior to clone in container VM with exit code 42 / PreExistingWorkspaceError; distinguishes workspace cleanliness from sandbox container freshness; preserves deterministic commit and tree SHA verification; 40 unit and closure tests passing; implemented in src/basebreak/adapters/nebius/materialization.py)
+Status: DONE (independently VERIFIED / PASS at SHA f149afffb58b72dfeba301e59868c38eef6a7107)
 ### P-05.04 — Implement model/sandbox telemetry normalization with secret-safe logs
-Status: DONE (executor completed; candidate for independent QA; surgically repaired payload bounding with real enforced MAX_PAYLOAD_DIGEST_BYTES, SanitizedPayloadDigest with explicit is_truncated contract, recursive depth and collection bounding, safe handling of malformed/custom objects without synthetic secret leaks through __str__/__repr__, and full secret-safe logging; 31 unit and closure tests passing; implemented in src/basebreak/adapters/nebius/telemetry.py)
+Status: DONE (independently VERIFIED / PASS at SHA 899fe27feb8ec530c226a46832d47f886cd6947d)
 ### P-05.05 — Implement retry/idempotency policy without duplicating external actions
-Status: DONE (executor completed; candidate for independent QA; implemented NebiusRetryExecutor with deterministic OperationEffect classification, bounded backoff, zero duplication of non-idempotent mutations, fail-closed semantics, complete RetryAuditTrail, and secret-safe logging; 29 unit and closure tests passing; implemented in src/basebreak/adapters/nebius/retry.py)
+Status: DONE (executor completed; candidate for independent QA; surgically repaired retry policy: unproven mutating operations including cancel_operation classified as NON_IDEMPOTENT_MUTATION based on lack of provider idempotency guarantees in P-01 evidence; mutating actions execute strictly once and fail closed on transient 5xx or timeout errors; attempting to claim unproven mutations as IDEMPOTENT_MUTATION raises RetryPolicyError; comprehensive unit and closure test gates passing; implemented in src/basebreak/adapters/nebius/retry.py)
 ### P-05.06 — Execute live adapter integration suite
 Phase exit: provider adapter is real, fail-closed, and replaceable from domain core.
 

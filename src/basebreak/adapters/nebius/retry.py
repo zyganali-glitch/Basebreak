@@ -5,10 +5,19 @@ Authority:
 - Core Invariant: A retry MUST NOT cause an externally visible operation to execute twice
   unless the provider contract supplies a proven idempotency mechanism that makes the repeat safe.
 - Unproven provider idempotency guarantees MUST NOT be assumed.
-- Non-idempotent mutating actions (spawning sandbox VMs, running non-disposable commands,
-  chat completions) fail closed on ambiguous or transient failure to prevent duplication.
-- Read-only queries (whoami, inspect_operation) and proven idempotent commands (cancel_operation)
-  may be retried with strictly bounded attempts and deterministic backoff.
+- Evidence Audit (P-01):
+  Inspection of canonical P-01 live platform evidence and committed documentation confirms
+  that the provider supplies ZERO idempotency guarantees for mutating operations.
+  Specifically, POST /operations/{operationId}/cancel, POST /sandboxes/v1/instances,
+  and POST /v1/chat/completions have no proven provider idempotency mechanisms.
+  Resource targeting (e.g. specifying an operation ID in the URL) is NOT proof of idempotency.
+- Classification Policy:
+  All mutating operations (including cancel_operation, create_instance, chat_completion,
+  and repository materialization) are classified strictly as NON_IDEMPOTENT_MUTATION.
+  They execute exactly ONCE. On any failure (transient, timeout, or permanent), they fail
+  closed immediately with NonRetryableOperationError rather than repeat an external mutation.
+- Only READ_ONLY queries (e.g. whoami, inspect_whoami, inspect_operation, poll_operation,
+  list_images, inspect_image) are eligible for bounded retries with deterministic backoff.
 - Secret safety: credentials and bearer tokens are never exposed in attempt records or errors.
 """
 
@@ -66,10 +75,46 @@ class OperationEffect(str, Enum):
     """Queries that read provider state without allocating compute or mutating data."""
 
     IDEMPOTENT_MUTATION = "IDEMPOTENT_MUTATION"
-    """Mutating operations proven idempotent by design or targeting a specific resource."""
+    """Mutating operations with a proven provider idempotency contract.
+    (None currently proven in Nebius Token Factory).
+    """
 
     NON_IDEMPOTENT_MUTATION = "NON_IDEMPOTENT_MUTATION"
-    """Mutating operations that allocate compute or consume resources without idempotency keys."""
+    """Mutating operations that allocate compute, consume resources, or lack proven
+    provider idempotency guarantees.
+    """
+
+
+# Canonical classification registry derived strictly from proven platform evidence
+KNOWN_OPERATION_EFFECTS: dict[str, OperationEffect] = {
+    # READ_ONLY: Proven safe to retry on transient failure
+    "whoami": OperationEffect.READ_ONLY,
+    "inspect_whoami": OperationEffect.READ_ONLY,
+    "inspect_operation": OperationEffect.READ_ONLY,
+    "poll_operation": OperationEffect.READ_ONLY,
+    "list_images": OperationEffect.READ_ONLY,
+    "inspect_image": OperationEffect.READ_ONLY,
+    # NON_IDEMPOTENT_MUTATION: No proven provider idempotency guarantee exists; exactly ONE attempt
+    "cancel_operation": OperationEffect.NON_IDEMPOTENT_MUTATION,
+    "cancel": OperationEffect.NON_IDEMPOTENT_MUTATION,
+    "create_instance": OperationEffect.NON_IDEMPOTENT_MUTATION,
+    "chat_completion": OperationEffect.NON_IDEMPOTENT_MUTATION,
+    "spawn_disposable": OperationEffect.NON_IDEMPOTENT_MUTATION,
+    "spawn_instance": OperationEffect.NON_IDEMPOTENT_MUTATION,
+    "clone_repository": OperationEffect.NON_IDEMPOTENT_MUTATION,
+    "materialize_source": OperationEffect.NON_IDEMPOTENT_MUTATION,
+}
+
+
+def classify_operation_effect(operation_name: str) -> OperationEffect:
+    """Classify operation effect based strictly on proven platform evidence.
+
+    Mutating operations without a proven provider idempotency contract (including
+    cancel_operation) are classified as NON_IDEMPOTENT_MUTATION.
+    Unrecognized operations conservatively default to NON_IDEMPOTENT_MUTATION.
+    """
+    clean_name = operation_name.strip().lower()
+    return KNOWN_OPERATION_EFFECTS.get(clean_name, OperationEffect.NON_IDEMPOTENT_MUTATION)
 
 
 # --- Exceptions ---
@@ -263,12 +308,25 @@ def is_transient_failure(exc: BaseException) -> bool:
 def is_operation_retryable(
     operation_effect: OperationEffect,
     exc: BaseException,
+    operation_name: str | None = None,
 ) -> tuple[bool, str]:
     """Evaluate whether an operation is eligible for retry under Basebreak law.
 
     Returns:
         (is_retryable, rationale_string)
     """
+    if operation_name is not None:
+        clean_name = operation_name.strip().lower()
+        if (
+            clean_name in KNOWN_OPERATION_EFFECTS
+            and KNOWN_OPERATION_EFFECTS[clean_name] == OperationEffect.NON_IDEMPOTENT_MUTATION
+        ):
+            return (
+                False,
+                f"Operation {operation_name!r} has no proven provider idempotency guarantee "
+                f"and cannot be retried ({operation_effect.value})",
+            )
+
     if is_permanent_failure(exc):
         return False, "Permanent failure: error is not transient"
 
@@ -325,15 +383,15 @@ class NebiusRetryExecutor:
     def execute(
         self,
         operation_name: str,
-        operation_effect: OperationEffect,
-        action: Callable[[], T],
+        operation_effect: OperationEffect | None = None,
+        action: Callable[[], T] = None,  # type: ignore[assignment]
     ) -> tuple[T, RetryAuditTrail]:
         """Execute action under retry policy.
 
         Args:
             operation_name: Human-readable name for logging and auditing.
             operation_effect: Classification (READ_ONLY, IDEMPOTENT_MUTATION,
-                NON_IDEMPOTENT_MUTATION).
+                NON_IDEMPOTENT_MUTATION). If None, derived from classify_operation_effect().
             action: Zero-argument callable to execute.
 
         Returns:
@@ -342,12 +400,34 @@ class NebiusRetryExecutor:
         Raises:
             NonRetryableOperationError: If a non-idempotent mutation fails and cannot be retried.
             MaxAttemptsExceededError: If retryable attempts exceed config.max_attempts.
+            RetryPolicyError: If an unproven mutating action is falsely claimed as
+                IDEMPOTENT_MUTATION.
             Original Exception: If a permanent failure occurs.
         """
+        if action is None:
+            raise RetryPolicyError("action callable must be provided")
+
+        clean_name = operation_name.strip().lower()
+        if operation_effect is None:
+            effective_effect = classify_operation_effect(operation_name)
+        else:
+            effective_effect = operation_effect
+
+        # Safeguard: prevent unproven mutating actions from being falsely marked IDEMPOTENT_MUTATION
+        if effective_effect == OperationEffect.IDEMPOTENT_MUTATION:
+            if (
+                clean_name in KNOWN_OPERATION_EFFECTS
+                and KNOWN_OPERATION_EFFECTS[clean_name] == OperationEffect.NON_IDEMPOTENT_MUTATION
+            ):
+                raise RetryPolicyError(
+                    f"Operation {operation_name!r} has no proven provider idempotency guarantee "
+                    f"and cannot be executed as IDEMPOTENT_MUTATION."
+                )
+
         attempts_list: list[AttemptRecord] = []
         max_attempts = (
             1
-            if operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+            if effective_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
             else self._config.max_attempts
         )
 
@@ -362,7 +442,7 @@ class NebiusRetryExecutor:
                     attempt_number=attempt_idx,
                     timestamp_utc=now_iso,
                     operation_name=operation_name,
-                    operation_effect=operation_effect,
+                    operation_effect=effective_effect,
                     status="SUCCESS",
                     status_code=200,
                     error_message=None,
@@ -373,7 +453,7 @@ class NebiusRetryExecutor:
                 attempts_list.append(record)
                 trail = RetryAuditTrail(
                     operation_name=operation_name,
-                    operation_effect=operation_effect,
+                    operation_effect=effective_effect,
                     total_attempts=len(attempts_list),
                     is_terminal_success=True,
                     attempts=tuple(attempts_list),
@@ -386,7 +466,9 @@ class NebiusRetryExecutor:
                 clean_err = redact_log_text(raw_err)
                 code: int | None = getattr(exc, "status_code", None)
 
-                can_retry, rationale = is_operation_retryable(operation_effect, exc)
+                can_retry, rationale = is_operation_retryable(
+                    effective_effect, exc, operation_name=operation_name
+                )
 
                 if can_retry and attempt_idx < max_attempts:
                     delay = compute_backoff_seconds(attempt_idx, self._config)
@@ -394,7 +476,7 @@ class NebiusRetryExecutor:
                         attempt_number=attempt_idx,
                         timestamp_utc=now_iso,
                         operation_name=operation_name,
-                        operation_effect=operation_effect,
+                        operation_effect=effective_effect,
                         status="TRANSIENT_FAILURE",
                         status_code=code,
                         error_message=clean_err,
@@ -411,7 +493,7 @@ class NebiusRetryExecutor:
                     attempt_number=attempt_idx,
                     timestamp_utc=now_iso,
                     operation_name=operation_name,
-                    operation_effect=operation_effect,
+                    operation_effect=effective_effect,
                     status="TERMINAL_FAILURE",
                     status_code=code,
                     error_message=clean_err,
@@ -423,18 +505,18 @@ class NebiusRetryExecutor:
 
                 trail = RetryAuditTrail(
                     operation_name=operation_name,
-                    operation_effect=operation_effect,
+                    operation_effect=effective_effect,
                     total_attempts=len(attempts_list),
                     is_terminal_success=False,
                     attempts=tuple(attempts_list),
                     final_error_message=clean_err,
                 )
 
-                if operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION:
+                if effective_effect == OperationEffect.NON_IDEMPOTENT_MUTATION:
                     # Non-idempotent mutation failure fails closed
                     raise NonRetryableOperationError(
                         operation_name=operation_name,
-                        operation_effect=operation_effect,
+                        operation_effect=effective_effect,
                         reason=f"Mutating action encountered failure ({clean_err}); "
                         f"retrying is forbidden to prevent duplicate external execution.",
                     ) from exc
