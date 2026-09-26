@@ -62,6 +62,7 @@ Judge claim:
 - P-05.06 (Execute live adapter integration suite) is independently VERIFIED / PASS at SHA `eeba36126968f34494ef1c12b1e3ddbccc18ad91` (genuine LIVE_NEBIUS evidence in `docs/P05_06_LIVE_ADAPTER_INTEGRATION.md`).
 - P-05 phase (Nebius/Nemotron Adapter Layer) is independently CLOSED / PASS at SHA `eeba36126968f34494ef1c12b1e3ddbccc18ad91`.
 - P-Ω broad phase-closure audit: PASS.
+- P-06.01 (Define task ingestion and deterministic normalization) is EXECUTOR_COMPLETED / CANDIDATE (deterministic normalization, raw text preservation, bounded size ceiling, SHA-256 digests, secret-safe summary and repr, 16 focused tests passing in `tests/compiler/test_ingestion.py`).
 
 ## Last independently VERIFIED baseline SHA
 `eeba36126968f34494ef1c12b1e3ddbccc18ad91` (independently VERIFIED baseline at P-05.06 / P-05 phase closure).
@@ -72,10 +73,10 @@ Judge claim:
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-None (P-06.01 active).
+P-06.01 (Define task ingestion and deterministic normalization).
 
 ### Active exact task
-`P-06.01 — Define task ingestion and deterministic normalization`
+`P-06.02 — Use Nemotron to propose atomic acceptance requirements with citations to task text`
 (Batch P-06.01 through P-06.04 conditionally authorized by Independent QA; P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN).
 
 ## Parallelization boundary & rules

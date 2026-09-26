@@ -351,7 +351,7 @@ Phase exit: provider adapter is real, fail-closed, and replaceable from domain c
 Goal: convert natural-language task into reviewable verification contract.
 
 ### P-06.01 — Define task ingestion and deterministic normalization
-Status: IN_PROGRESS (batch P-06.01 through P-06.04 conditionally authorized; P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN)
+Status: DONE (executor completed; deterministic task ingestion and normalization with raw text preservation, NFC Unicode normalization, BOM stripping, line-ending standardization, indentation-preserving whitespace rules, bounded byte ceilings, SHA-256 digests, and secret-safe representations in src/basebreak/compiler/ingestion.py; 16 focused tests passing in tests/compiler/test_ingestion.py)
 ### P-06.02 — Use Nemotron to propose atomic acceptance requirements with citations to task text
 ### P-06.03 — Classify change semantics and uncertainty
 ### P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions

@@ -602,16 +602,16 @@ def test_p05_06_live_nebius_skipped_when_credentials_absent(
     monkeypatch.delenv("CONTREE_TOKEN", raising=False)
     monkeypatch.delenv("NEBIUS_PROJECT_ID", raising=False)
     monkeypatch.delenv("CONTREE_PROJECT", raising=False)
+    monkeypatch.setenv("BASEBREAK_SKIP_LIVE_EXECUTION", "1")
 
     api_key, project_id = _load_credentials(load_env=False)
     assert api_key is None
 
+    monkeypatch.setattr(
+        sys.modules[__name__], "_load_credentials", lambda load_env=True: (None, None)
+    )
     with pytest.raises(RuntimeError, match="Missing required credentials"):
-        with patch(
-            "tests.adapters.test_p05_06_closure._load_credentials",
-            return_value=(None, None),
-        ):
-            run_live_adapter_suite()
+        run_live_adapter_suite()
 
 
 def test_p05_06_no_mock_fixture_relabeled_live_nebius() -> None:
