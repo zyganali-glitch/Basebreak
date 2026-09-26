@@ -222,6 +222,65 @@ class TestResourceFailureNormalization:
         assert record.is_resource_failure is False
 
 
+class TestFailedToStartNormalization:
+    """Verify deterministic normalization of FAILED_TO_START outcomes."""
+
+    def test_failed_to_start_with_exit_code_none(self) -> None:
+        res = ExecutionResult(status=TerminationStatus.FAILED_TO_START)
+        record = normalize_execution_result(execution_result=res)
+        assert record.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert record.exit_code is None
+        assert record.is_timeout is False
+        assert record.is_cancelled is False
+        assert record.is_resource_failure is False
+        assert record.resource_failure_class is None
+
+    def test_failed_to_start_with_exit_code_zero_not_success(self) -> None:
+        res = ExecutionResult(status=TerminationStatus.FAILED_TO_START, exit_code=0)
+        record = normalize_execution_result(execution_result=res)
+        assert record.outcome != NormalizedExecutionOutcome.SUCCESS
+        assert record.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert record.exit_code == 0
+        assert record.is_timeout is False
+        assert record.is_cancelled is False
+        assert record.is_resource_failure is False
+
+    def test_failed_to_start_with_exit_code_one_not_nonzero_exit(self) -> None:
+        res = ExecutionResult(status=TerminationStatus.FAILED_TO_START, exit_code=1)
+        record = normalize_execution_result(execution_result=res)
+        assert record.outcome != NormalizedExecutionOutcome.NONZERO_EXIT
+        assert record.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert record.exit_code == 1
+        assert record.is_timeout is False
+        assert record.is_cancelled is False
+        assert record.is_resource_failure is False
+
+    def test_failed_to_start_with_exit_code_127(self) -> None:
+        res = ExecutionResult(status=TerminationStatus.FAILED_TO_START, exit_code=127)
+        record = normalize_execution_result(execution_result=res)
+        assert record.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert record.exit_code == 127
+
+    def test_failed_to_start_with_opaque_provider_status_success(self) -> None:
+        res = ExecutionResult(status=TerminationStatus.FAILED_TO_START)
+        record = normalize_execution_result(execution_result=res, provider_status="SUCCESS")
+        assert record.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert record.provider_status == "SUCCESS"
+
+    def test_failed_to_start_with_opaque_provider_status_completed(self) -> None:
+        res = ExecutionResult(status=TerminationStatus.FAILED_TO_START, exit_code=0)
+        record = normalize_execution_result(execution_result=res, provider_status="COMPLETED")
+        assert record.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert record.provider_status == "COMPLETED"
+
+    def test_explicit_failed_to_start_flag(self) -> None:
+        record = normalize_execution_result(is_failed_to_start=True)
+        assert record.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert record.is_timeout is False
+        assert record.is_cancelled is False
+        assert record.is_resource_failure is False
+
+
 class TestUnknownProviderFailure:
     """Verify that ambiguous or unverified failures fail closed as UNKNOWN_PROVIDER_FAILURE."""
 
@@ -467,6 +526,108 @@ class TestAuthoritativeFactConflictValidation:
         assert record.is_timeout is False
         assert record.is_resource_failure is False
 
+    def test_failed_to_start_and_timeout_conflict(self) -> None:
+        with pytest.raises(
+            NormalizationConflictError, match="both is_timeout=True and is_failed_to_start=True"
+        ):
+            normalize_execution_result(is_timeout=True, is_failed_to_start=True)
+
+    def test_failed_to_start_and_cancelled_conflict(self) -> None:
+        with pytest.raises(
+            NormalizationConflictError, match="both is_cancelled=True and is_failed_to_start=True"
+        ):
+            normalize_execution_result(is_cancelled=True, is_failed_to_start=True)
+
+    def test_failed_to_start_and_resource_failure_conflict(self) -> None:
+        with pytest.raises(
+            NormalizationConflictError,
+            match="both is_failed_to_start=True and resource_failure_class=",
+        ):
+            normalize_execution_result(
+                is_failed_to_start=True,
+                resource_failure_class=ResourceFailureClass.OUT_OF_MEMORY,
+            )
+
+    def test_execution_result_failed_to_start_and_timeout_conflict(self) -> None:
+        with pytest.raises(
+            NormalizationConflictError, match="status FAILED_TO_START but is_timeout=True"
+        ):
+            normalize_execution_result(
+                execution_result=ExecutionResult(status=TerminationStatus.FAILED_TO_START),
+                is_timeout=True,
+            )
+
+    def test_execution_result_failed_to_start_and_cancelled_conflict(self) -> None:
+        with pytest.raises(
+            NormalizationConflictError, match="status FAILED_TO_START but is_cancelled=True"
+        ):
+            normalize_execution_result(
+                execution_result=ExecutionResult(status=TerminationStatus.FAILED_TO_START),
+                is_cancelled=True,
+            )
+
+    def test_execution_result_failed_to_start_and_resource_failure_conflict(self) -> None:
+        with pytest.raises(
+            NormalizationConflictError, match="status FAILED_TO_START but resource_failure_class="
+        ):
+            normalize_execution_result(
+                execution_result=ExecutionResult(status=TerminationStatus.FAILED_TO_START),
+                resource_failure_class=ResourceFailureClass.OUT_OF_MEMORY,
+            )
+
+    def test_execution_result_completed_and_failed_to_start_conflict(self) -> None:
+        with pytest.raises(
+            NormalizationConflictError, match="status COMPLETED but is_failed_to_start=True"
+        ):
+            normalize_execution_result(
+                execution_result=ExecutionResult(status=TerminationStatus.COMPLETED, exit_code=0),
+                is_failed_to_start=True,
+            )
+
+    def test_execution_result_timed_out_and_failed_to_start_conflict(self) -> None:
+        with pytest.raises(
+            NormalizationConflictError, match="status TIMED_OUT but is_failed_to_start=True"
+        ):
+            normalize_execution_result(
+                execution_result=ExecutionResult(status=TerminationStatus.TIMED_OUT),
+                is_failed_to_start=True,
+            )
+
+    def test_execution_result_cancelled_and_failed_to_start_conflict(self) -> None:
+        with pytest.raises(
+            NormalizationConflictError, match="status CANCELLED but is_failed_to_start=True"
+        ):
+            normalize_execution_result(
+                execution_result=ExecutionResult(status=TerminationStatus.CANCELLED),
+                is_failed_to_start=True,
+            )
+
+    def test_failed_to_start_matching_explicit_exit_code_accepted(self) -> None:
+        record = normalize_execution_result(
+            execution_result=ExecutionResult(
+                status=TerminationStatus.FAILED_TO_START, exit_code=127
+            ),
+            exit_code=127,
+        )
+        assert record.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert record.exit_code == 127
+
+    def test_failed_to_start_conflicting_explicit_exit_code_rejected(self) -> None:
+        with pytest.raises(NormalizationConflictError, match="conflicts with explicit exit_code"):
+            normalize_execution_result(
+                execution_result=ExecutionResult(
+                    status=TerminationStatus.FAILED_TO_START, exit_code=127
+                ),
+                exit_code=1,
+            )
+
+    def test_duplicate_compatible_failed_to_start_accepted(self) -> None:
+        record = normalize_execution_result(
+            execution_result=ExecutionResult(status=TerminationStatus.FAILED_TO_START),
+            is_failed_to_start=True,
+        )
+        assert record.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+
 
 class TestNormalizedExecutionRecordInvariants:
     """Verify strengthened post-init invariants on NormalizedExecutionRecord."""
@@ -541,3 +702,56 @@ class TestNormalizedExecutionRecordInvariants:
         assert record.outcome == NormalizedExecutionOutcome.RESOURCE_FAILURE
         assert record.is_resource_failure is True
         assert record.resource_failure_class == ResourceFailureClass.OUT_OF_MEMORY
+
+    def test_record_failed_to_start_with_resource_failure_class_rejected(self) -> None:
+        with pytest.raises(
+            ValueError, match="resource_failure_class must be None when outcome is FAILED_TO_START"
+        ):
+            NormalizedExecutionRecord(
+                outcome=NormalizedExecutionOutcome.FAILED_TO_START,
+                resource_failure_class=ResourceFailureClass.OUT_OF_MEMORY,
+            )
+
+    def test_record_failed_to_start_with_timeout_flag_rejected(self) -> None:
+        with pytest.raises(ValueError, match="is_timeout .* does not match outcome"):
+            NormalizedExecutionRecord(
+                outcome=NormalizedExecutionOutcome.FAILED_TO_START,
+                is_timeout=True,
+            )
+
+    def test_record_failed_to_start_with_cancelled_flag_rejected(self) -> None:
+        with pytest.raises(ValueError, match="is_cancelled .* does not match outcome"):
+            NormalizedExecutionRecord(
+                outcome=NormalizedExecutionOutcome.FAILED_TO_START,
+                is_cancelled=True,
+            )
+
+    def test_record_failed_to_start_with_resource_failure_flag_rejected(self) -> None:
+        with pytest.raises(ValueError, match="is_resource_failure .* does not match outcome"):
+            NormalizedExecutionRecord(
+                outcome=NormalizedExecutionOutcome.FAILED_TO_START,
+                is_resource_failure=True,
+            )
+
+    def test_record_failed_to_start_valid_accepted(self) -> None:
+        r1 = NormalizedExecutionRecord(outcome=NormalizedExecutionOutcome.FAILED_TO_START)
+        assert r1.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert r1.exit_code is None
+        assert r1.is_timeout is False
+        assert r1.is_cancelled is False
+        assert r1.is_resource_failure is False
+        assert r1.resource_failure_class is None
+
+        r2 = NormalizedExecutionRecord(
+            outcome=NormalizedExecutionOutcome.FAILED_TO_START,
+            exit_code=0,
+        )
+        assert r2.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert r2.exit_code == 0
+
+        r3 = NormalizedExecutionRecord(
+            outcome=NormalizedExecutionOutcome.FAILED_TO_START,
+            exit_code=127,
+        )
+        assert r3.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert r3.exit_code == 127

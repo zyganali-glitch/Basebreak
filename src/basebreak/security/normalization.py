@@ -40,6 +40,7 @@ class NormalizedExecutionOutcome(str, Enum):
     TIMEOUT = "TIMEOUT"
     CANCELLED = "CANCELLED"
     RESOURCE_FAILURE = "RESOURCE_FAILURE"
+    FAILED_TO_START = "FAILED_TO_START"
     UNKNOWN_PROVIDER_FAILURE = "UNKNOWN_PROVIDER_FAILURE"
 
 
@@ -224,6 +225,7 @@ def normalize_execution_result(
     exit_code: int | None = None,
     is_timeout: bool = False,
     is_cancelled: bool = False,
+    is_failed_to_start: bool = False,
     resource_failure_class: ResourceFailureClass | None = None,
     provider_status: str | None = None,
     provider_error: Mapping[str, Any] | str | None = None,
@@ -255,6 +257,14 @@ def normalize_execution_result(
         raise NormalizationConflictError(
             "Contradictory execution facts: both is_timeout=True and is_cancelled=True"
         )
+    if is_timeout and is_failed_to_start:
+        raise NormalizationConflictError(
+            "Contradictory execution facts: both is_timeout=True and is_failed_to_start=True"
+        )
+    if is_cancelled and is_failed_to_start:
+        raise NormalizationConflictError(
+            "Contradictory execution facts: both is_cancelled=True and is_failed_to_start=True"
+        )
     if is_timeout and resource_failure_class is not None:
         raise NormalizationConflictError(
             "Contradictory execution facts: both is_timeout=True and "
@@ -263,6 +273,11 @@ def normalize_execution_result(
     if is_cancelled and resource_failure_class is not None:
         raise NormalizationConflictError(
             "Contradictory execution facts: both is_cancelled=True and "
+            f"resource_failure_class={resource_failure_class.value}"
+        )
+    if is_failed_to_start and resource_failure_class is not None:
+        raise NormalizationConflictError(
+            "Contradictory execution facts: both is_failed_to_start=True and "
             f"resource_failure_class={resource_failure_class.value}"
         )
 
@@ -278,6 +293,11 @@ def normalize_execution_result(
                     "Contradictory execution facts: execution_result has status COMPLETED "
                     "but is_cancelled=True was provided"
                 )
+            if is_failed_to_start:
+                raise NormalizationConflictError(
+                    "Contradictory execution facts: execution_result has status COMPLETED "
+                    "but is_failed_to_start=True was provided"
+                )
             if resource_failure_class is not None:
                 raise NormalizationConflictError(
                     "Contradictory execution facts: execution_result has status COMPLETED "
@@ -288,6 +308,11 @@ def normalize_execution_result(
                 raise NormalizationConflictError(
                     "Contradictory execution facts: execution_result has status TIMED_OUT "
                     "but is_cancelled=True was provided"
+                )
+            if is_failed_to_start:
+                raise NormalizationConflictError(
+                    "Contradictory execution facts: execution_result has status TIMED_OUT "
+                    "but is_failed_to_start=True was provided"
                 )
             if resource_failure_class is not None:
                 raise NormalizationConflictError(
@@ -300,6 +325,11 @@ def normalize_execution_result(
                 raise NormalizationConflictError(
                     "Contradictory execution facts: execution_result has status CANCELLED "
                     "but is_timeout=True was provided"
+                )
+            if is_failed_to_start:
+                raise NormalizationConflictError(
+                    "Contradictory execution facts: execution_result has status CANCELLED "
+                    "but is_failed_to_start=True was provided"
                 )
             if resource_failure_class is not None:
                 raise NormalizationConflictError(
@@ -318,6 +348,12 @@ def normalize_execution_result(
                     "Contradictory execution facts: execution_result has status FAILED_TO_START "
                     "but is_cancelled=True was provided"
                 )
+            if resource_failure_class is not None:
+                raise NormalizationConflictError(
+                    "Contradictory execution facts: execution_result has status FAILED_TO_START "
+                    f"but resource_failure_class={resource_failure_class.value} was provided"
+                )
+            is_failed_to_start = True
 
         if exit_code is None:
             exit_code = execution_result.exit_code
@@ -405,7 +441,23 @@ def normalize_execution_result(
             raw_payload_digest=raw_digest,
         )
 
-    # D. Check for Process Completion (SUCCESS or NONZERO_EXIT)
+    # D. Check for FAILED_TO_START (Authoritative domain fact or explicit flag)
+    if is_failed_to_start:
+        return NormalizedExecutionRecord(
+            outcome=NormalizedExecutionOutcome.FAILED_TO_START,
+            exit_code=exit_code,
+            duration_seconds=duration_seconds,
+            stdout_digest=stdout_digest,
+            stderr_digest=stderr_digest,
+            stdout_preview=stdout_preview,
+            stderr_preview=stderr_preview,
+            provider_status=provider_status,
+            provider_error_code=err_code,
+            provider_error_message=sanitized_err_msg,
+            raw_payload_digest=raw_digest,
+        )
+
+    # E. Check for Process Completion (SUCCESS or NONZERO_EXIT)
     is_completed_status = (
         provider_status in ("SUCCESS", "COMPLETED", None) and provider_error is None
     )
@@ -434,7 +486,7 @@ def normalize_execution_result(
             raw_payload_digest=raw_digest,
         )
 
-    # E. All other cases (unverified errors, ambiguous raw states)
+    # F. All other cases (unverified errors, ambiguous raw states)
     # fail closed as UNKNOWN_PROVIDER_FAILURE
     return NormalizedExecutionRecord(
         outcome=NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE,

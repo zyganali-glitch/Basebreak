@@ -353,3 +353,132 @@ class TestP0405Criterion7AuthoritativeFactConflictFailClosed:
         assert rec.outcome == NormalizedExecutionOutcome.RESOURCE_FAILURE
         assert rec.is_resource_failure is True
         assert rec.resource_failure_class == ResourceFailureClass.OUT_OF_MEMORY
+
+        # 15. direct NormalizedExecutionRecord: FAILED_TO_START + resource_failure_class => rejected
+        with pytest.raises(
+            ValueError, match="resource_failure_class must be None when outcome is FAILED_TO_START"
+        ):
+            NormalizedExecutionRecord(
+                outcome=NormalizedExecutionOutcome.FAILED_TO_START,
+                resource_failure_class=ResourceFailureClass.OUT_OF_MEMORY,
+            )
+
+        # 16. direct NormalizedExecutionRecord: FAILED_TO_START + is_timeout=True => rejected
+        with pytest.raises(ValueError, match="is_timeout .* does not match outcome"):
+            NormalizedExecutionRecord(
+                outcome=NormalizedExecutionOutcome.FAILED_TO_START,
+                is_timeout=True,
+            )
+
+        # 17. direct NormalizedExecutionRecord: FAILED_TO_START + is_cancelled=True => rejected
+        with pytest.raises(ValueError, match="is_cancelled .* does not match outcome"):
+            NormalizedExecutionRecord(
+                outcome=NormalizedExecutionOutcome.FAILED_TO_START,
+                is_cancelled=True,
+            )
+
+        # 18. ExecutionResult(FAILED_TO_START) + conflicting terminal facts fail closed
+        with pytest.raises(NormalizationConflictError):
+            normalize_execution_result(
+                execution_result=ExecutionResult(status=TerminationStatus.FAILED_TO_START),
+                is_timeout=True,
+            )
+        with pytest.raises(NormalizationConflictError):
+            normalize_execution_result(
+                execution_result=ExecutionResult(status=TerminationStatus.FAILED_TO_START),
+                is_cancelled=True,
+            )
+        with pytest.raises(NormalizationConflictError):
+            normalize_execution_result(
+                execution_result=ExecutionResult(status=TerminationStatus.FAILED_TO_START),
+                resource_failure_class=ResourceFailureClass.OUT_OF_MEMORY,
+            )
+
+
+class TestP0405FailedToStartNormalizationSemanticIntegrity:
+    """Acceptance criteria: FAILED_TO_START semantic normalization integrity."""
+
+    def test_failed_to_start_retains_status_and_never_misclassified_as_success_or_nonzero(
+        self,
+    ) -> None:
+        # FAILED_TO_START with exit_code=None
+        r_none = normalize_execution_result(
+            execution_result=ExecutionResult(status=TerminationStatus.FAILED_TO_START)
+        )
+        assert r_none.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert r_none.exit_code is None
+        assert r_none.is_timeout is False
+        assert r_none.is_cancelled is False
+        assert r_none.is_resource_failure is False
+
+        # FAILED_TO_START with exit_code=0 MUST NOT become SUCCESS
+        r_zero = normalize_execution_result(
+            execution_result=ExecutionResult(status=TerminationStatus.FAILED_TO_START, exit_code=0)
+        )
+        assert r_zero.outcome != NormalizedExecutionOutcome.SUCCESS
+        assert r_zero.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert r_zero.exit_code == 0
+
+        # FAILED_TO_START with exit_code=1 MUST NOT become NONZERO_EXIT
+        r_one = normalize_execution_result(
+            execution_result=ExecutionResult(status=TerminationStatus.FAILED_TO_START, exit_code=1)
+        )
+        assert r_one.outcome != NormalizedExecutionOutcome.NONZERO_EXIT
+        assert r_one.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert r_one.exit_code == 1
+
+        # FAILED_TO_START with exit_code=127
+        r_127 = normalize_execution_result(
+            execution_result=ExecutionResult(
+                status=TerminationStatus.FAILED_TO_START, exit_code=127
+            )
+        )
+        assert r_127.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert r_127.exit_code == 127
+
+    def test_failed_to_start_opaque_provider_status_never_overrides_domain_fact(self) -> None:
+        r_success = normalize_execution_result(
+            execution_result=ExecutionResult(status=TerminationStatus.FAILED_TO_START, exit_code=0),
+            provider_status="SUCCESS",
+        )
+        assert r_success.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert r_success.provider_status == "SUCCESS"
+
+        r_completed = normalize_execution_result(
+            execution_result=ExecutionResult(status=TerminationStatus.FAILED_TO_START, exit_code=0),
+            provider_status="COMPLETED",
+        )
+        assert r_completed.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert r_completed.provider_status == "COMPLETED"
+
+    def test_failed_to_start_exit_code_reconciliation(self) -> None:
+        # Matching explicit exit_code is accepted
+        r_match = normalize_execution_result(
+            execution_result=ExecutionResult(
+                status=TerminationStatus.FAILED_TO_START, exit_code=127
+            ),
+            exit_code=127,
+        )
+        assert r_match.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert r_match.exit_code == 127
+
+        # Conflicting explicit exit_code raises NormalizationConflictError
+        with pytest.raises(NormalizationConflictError, match="conflicts with explicit exit_code"):
+            normalize_execution_result(
+                execution_result=ExecutionResult(
+                    status=TerminationStatus.FAILED_TO_START, exit_code=127
+                ),
+                exit_code=1,
+            )
+
+    def test_direct_failed_to_start_record_invariants(self) -> None:
+        rec = NormalizedExecutionRecord(
+            outcome=NormalizedExecutionOutcome.FAILED_TO_START,
+            exit_code=0,
+        )
+        assert rec.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert rec.exit_code == 0
+        assert rec.is_timeout is False
+        assert rec.is_cancelled is False
+        assert rec.is_resource_failure is False
+        assert rec.resource_failure_class is None
