@@ -62,16 +62,16 @@ Judge claim:
 None. P-01 live platform discovery is complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-None. Phase P-04 is independently CLOSED / PASS.
+`P-05.01 — Implement bounded model client using discovered model identifiers/config` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
 
 ### Active exact task
-`P-05.01 — Implement bounded model client using discovered model identifiers/config`
+Awaiting Independent QA evaluation of `P-05.01` (HARD STOP — P-05.02+ strictly forbidden).
 
 ## Parallelization boundary & rules
 - **Live batch executed & closed:** With Nebius Token Factory Sandboxes beta activation confirmed live, the conditional live batch (`P-01.03` through `P-01.07`) was executed, verified, and awarded independent QA PASS, closing Phase P-01.
 - **Evidence Provenance:** All sandbox execution facts are recorded live against official Nebius Token Factory endpoints; zero mock or local checkout substitutions.
 - **Provider neutrality:** All domain contracts, evidence primitives, and security primitives remain strictly provider-neutral.
-- **Phase status:** P-01 phase is CLOSED / PASS. P-04 phase is CLOSED / PASS. P-05.01 is active.
+- **Phase status:** P-01 phase is CLOSED / PASS. P-04 phase is CLOSED / PASS. P-05.01 is EXECUTOR_COMPLETED.
 - **Not authorized / forbidden:** `P-05.02+` remains strictly forbidden.
 
 ## Frozen constraints
@@ -90,6 +90,6 @@ None. Phase P-04 is independently CLOSED / PASS.
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Implement P-05.01 bounded model client using discovered model identifiers/config.
-2. Verify deterministic behavior, bounded constraints, error model, and test suite.
-3. Submit P-05.01 for independent QA evaluation.
+1. Submit P-05.01 completion report to Independent QA authority.
+2. Await independent QA evaluation and formal decision for P-05.01.
+3. HARD STOP: Do NOT execute P-05.02+ without explicit independent authorization.

@@ -332,6 +332,7 @@ Phase exit: safe bounded execution contracts exist before autonomous building.
 
 # P-05 — Nebius/Nemotron Adapter Layer
 ### P-05.01 — Implement bounded model client using discovered model identifiers/config
+Status: DONE (executor completed; candidate for independent QA; implemented NebiusModelClient bounding model identity, timeout, max_tokens, temperature, prompt/response size; runtime-only credential handling; fail-closed on missing credentials, model mismatch, transport errors; zero verdict authority; 33 unit and purity tests passing; implemented in src/basebreak/adapters/nebius/)
 ### P-05.02 — Implement sandbox create/exec/inspect/teardown adapter
 ### P-05.03 — Implement repository materialization and source-hash verification adapter
 ### P-05.04 — Implement model/sandbox telemetry normalization with secret-safe logs
