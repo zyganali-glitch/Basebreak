@@ -512,6 +512,7 @@ class NebiusSandboxAdapter:
 
         Fails closed with SandboxResponseFormatError if:
         - stream_data is a Mapping without supported content field ('value' or 'data')
+        - supported content key ('value' or 'data') is present but its value is not a string
         - both 'value' and 'data' fields are present and conflict
         - stream_data is an unsupported non-None type
         """
@@ -530,22 +531,39 @@ class NebiusSandboxAdapter:
             raw_value = stream_data.get("value")
             raw_data = stream_data.get("data")
 
-            # Extract string representations preserving empty strings
-            val_str = str(raw_value) if raw_value is not None else None
-            data_str = str(raw_data) if raw_data is not None else None
+            val_str: str | None = None
+            if has_value:
+                if not isinstance(raw_value, str):
+                    raise SandboxResponseFormatError(
+                        f"Stream mapping 'value' field must be a string, got {raw_value!r} "
+                        f"(type: {type(raw_value).__name__})"
+                    )
+                val_str = raw_value
+
+            data_str: str | None = None
+            if has_data:
+                if not isinstance(raw_data, str):
+                    raise SandboxResponseFormatError(
+                        f"Stream mapping 'data' field must be a string, got {raw_data!r} "
+                        f"(type: {type(raw_data).__name__})"
+                    )
+                data_str = raw_data
 
             if has_value and has_data:
                 if val_str != data_str:
                     raise SandboxResponseFormatError(
                         f"Conflicting stream fields: 'value'={val_str!r} != 'data'={data_str!r}"
                     )
-                return val_str if val_str is not None else ""
+                assert val_str is not None
+                return val_str
 
             if has_value:
-                return val_str if val_str is not None else ""
+                assert val_str is not None
+                return val_str
 
             if has_data:
-                return data_str if data_str is not None else ""
+                assert data_str is not None
+                return data_str
 
         raise SandboxResponseFormatError(
             f"Unsupported stream output type: {type(stream_data).__name__}"
@@ -604,16 +622,27 @@ class NebiusSandboxAdapter:
 
         # Parse direct and nested (state.exit_code) exit codes
         direct_raw: Any = None
-        if "exit_code" in result_meta and result_meta["exit_code"] is not None:
+        has_direct = False
+        if "exit_code" in result_meta:
             direct_raw = result_meta["exit_code"]
-        elif (
-            top_result is not None
-            and "exit_code" in top_result
-            and top_result["exit_code"] is not None
-        ):
+            has_direct = True
+            if (
+                top_result is not None
+                and top_result is not result_meta
+                and "exit_code" in top_result
+            ):
+                top_direct_raw = top_result["exit_code"]
+                if top_direct_raw != direct_raw:
+                    raise SandboxResponseFormatError(
+                        f"Conflicting direct exit code fields in payload: "
+                        f"{direct_raw!r} != {top_direct_raw!r}"
+                    )
+        elif top_result is not None and "exit_code" in top_result:
             direct_raw = top_result["exit_code"]
+            has_direct = True
 
         nested_raw: Any = None
+        has_nested = False
         state_dict: Any = None
         if isinstance(result_meta.get("state"), dict):
             state_dict = result_meta["state"]
@@ -622,40 +651,52 @@ class NebiusSandboxAdapter:
         elif top_result is not None and isinstance(top_result.get("state"), dict):
             state_dict = top_result["state"]
 
-        if (
-            isinstance(state_dict, dict)
-            and "exit_code" in state_dict
-            and state_dict["exit_code"] is not None
-        ):
+        if isinstance(state_dict, dict) and "exit_code" in state_dict:
             nested_raw = state_dict["exit_code"]
+            has_nested = True
 
-        direct_exit: int | None = None
-        if direct_raw is not None:
-            try:
-                if not isinstance(direct_raw, bool):
-                    direct_exit = int(direct_raw)
-            except (ValueError, TypeError):
-                direct_exit = None
+        if (
+            meta_result is not None
+            and isinstance(meta_result.get("state"), dict)
+            and "exit_code" in meta_result["state"]
+            and top_result is not None
+            and isinstance(top_result.get("state"), dict)
+            and "exit_code" in top_result["state"]
+            and meta_result["state"] is not top_result["state"]
+        ):
+            if meta_result["state"]["exit_code"] != top_result["state"]["exit_code"]:
+                raise SandboxResponseFormatError(
+                    f"Conflicting nested state.exit_code fields: "
+                    f"{meta_result['state']['exit_code']!r} != {top_result['state']['exit_code']!r}"
+                )
 
-        nested_exit: int | None = None
-        if nested_raw is not None:
-            try:
-                if not isinstance(nested_raw, bool):
-                    nested_exit = int(nested_raw)
-            except (ValueError, TypeError):
-                nested_exit = None
+        if has_direct:
+            if not (isinstance(direct_raw, int) and not isinstance(direct_raw, bool)):
+                raise SandboxResponseFormatError(
+                    "Direct exit_code must be a strict integer (excluding bool), "
+                    f"got {direct_raw!r} (type: {type(direct_raw).__name__})"
+                )
+
+        if has_nested:
+            if not (isinstance(nested_raw, int) and not isinstance(nested_raw, bool)):
+                raise SandboxResponseFormatError(
+                    "Nested state.exit_code must be a strict integer (excluding bool), "
+                    f"got {nested_raw!r} (type: {type(nested_raw).__name__})"
+                )
 
         exit_code: int | None = None
-        if direct_raw is not None and nested_raw is not None:
-            if direct_exit is None or nested_exit is None or direct_exit != nested_exit:
+        if has_direct and has_nested:
+            if direct_raw != nested_raw:
                 raise SandboxResponseFormatError(
                     f"Conflicting exit code fields: direct {direct_raw!r} != nested {nested_raw!r}"
                 )
-            exit_code = direct_exit
-        elif nested_raw is not None:
-            exit_code = nested_exit
-        elif direct_raw is not None:
-            exit_code = direct_exit
+            exit_code = direct_raw
+        elif has_nested:
+            exit_code = nested_raw
+        elif has_direct:
+            exit_code = direct_raw
+        else:
+            exit_code = None
 
         # Duration parsing: check result_meta first, then payload
         raw_duration = result_meta.get("duration")
@@ -671,8 +712,16 @@ class NebiusSandboxAdapter:
             except (ValueError, TypeError):
                 duration = None
 
-        stdout = self._parse_stream_output(result_meta.get("stdout"))
-        stderr = self._parse_stream_output(result_meta.get("stderr"))
+        raw_stdout = result_meta.get("stdout")
+        if raw_stdout is None and top_result is not None:
+            raw_stdout = top_result.get("stdout")
+
+        raw_stderr = result_meta.get("stderr")
+        if raw_stderr is None and top_result is not None:
+            raw_stderr = top_result.get("stderr")
+
+        stdout = self._parse_stream_output(raw_stdout)
+        stderr = self._parse_stream_output(raw_stderr)
 
         result_image = (
             result_meta.get("result_image_uuid")

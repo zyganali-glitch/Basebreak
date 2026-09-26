@@ -221,6 +221,38 @@ class TestP0502ClosureGate:
         with pytest.raises(SandboxResponseFormatError, match="missing both 'value' and 'data'"):
             adapter._parse_stream_output({"encoding": "ascii", "truncated": False})
 
+    def test_gate_strict_exit_code_types_fail_closed(self) -> None:
+        bad_codes: tuple[Any, ...] = ("0", 0.0, 1.7, True, False, [], {})
+        for bad_code in bad_codes:
+
+            def transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+                return _make_transport_response(
+                    status_code=200,
+                    body={
+                        "uuid": "gate-bad-exit",
+                        "status": "SUCCESS",
+                        "metadata": {"result": {"state": {"exit_code": bad_code}}},
+                    },
+                )
+
+            adapter_inst = NebiusSandboxAdapter(
+                config=SandboxClientConfig(api_key="k", project_id="p"),
+                transport=transport,
+            )
+            with pytest.raises(SandboxResponseFormatError, match="must be a strict integer"):
+                adapter_inst.inspect_operation("gate-bad-exit")
+
+    def test_gate_strict_stream_content_types_fail_closed(self) -> None:
+        adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="k", project_id="p"))
+        bad_contents: tuple[Any, ...] = (123, 0.0, True, False, None, ["a"], {"x": 1})
+        for bad_content in bad_contents:
+            with pytest.raises(SandboxResponseFormatError):
+                adapter._parse_stream_output({"value": bad_content})
+            with pytest.raises(SandboxResponseFormatError):
+                adapter._parse_stream_output({"data": bad_content})
+        with pytest.raises(SandboxResponseFormatError):
+            adapter._parse_stream_output(456)
+
     # Gate 4: Teardown semantics
     def test_gate_teardown_semantics(self) -> None:
         cancel_called = []

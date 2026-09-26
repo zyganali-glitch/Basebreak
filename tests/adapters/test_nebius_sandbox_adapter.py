@@ -408,8 +408,133 @@ class TestNebiusSandboxAdapter:
         assert status.exit_code == 0
         assert status.stdout == "direct-stdout\n"
 
-    def test_inspect_operation_direct_and_nested_equal_accepted(self) -> None:
-        # Proves F: direct + nested equal exit codes are accepted
+    # Focused tests proving strict fail-closed exit-code and stream semantics (A through O)
+    def test_a_nested_exit_code_int_0_parses_as_0(self) -> None:
+        # A: nested exit_code int 0 parses as 0
+        fixture = {
+            "uuid": "op-a",
+            "status": "SUCCESS",
+            "metadata": {
+                "result": {
+                    "state": {"exit_code": 0},
+                    "stdout": {"value": "ok\n"},
+                    "stderr": {"value": ""},
+                }
+            },
+        }
+
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(status_code=200, body=fixture)
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="k", project_id="p"),
+            transport=fake_transport,
+        )
+        status = adapter.inspect_operation("op-a")
+        assert status.exit_code == 0
+        assert type(status.exit_code) is int
+
+    def test_b_nested_exit_code_string_fails_closed(self) -> None:
+        # B: nested exit_code string "0" fails closed
+        fixture = {
+            "uuid": "op-b",
+            "status": "SUCCESS",
+            "metadata": {
+                "result": {
+                    "state": {"exit_code": "0"},
+                    "stdout": {"value": "ok\n"},
+                    "stderr": {"value": ""},
+                }
+            },
+        }
+
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(status_code=200, body=fixture)
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="k", project_id="p"),
+            transport=fake_transport,
+        )
+        with pytest.raises(SandboxResponseFormatError, match="must be a strict integer"):
+            adapter.inspect_operation("op-b")
+
+    def test_c_nested_exit_code_float_fails_closed(self) -> None:
+        # C: nested exit_code float 0.0 fails closed
+        fixture = {
+            "uuid": "op-c",
+            "status": "SUCCESS",
+            "metadata": {
+                "result": {
+                    "state": {"exit_code": 0.0},
+                    "stdout": {"value": "ok\n"},
+                    "stderr": {"value": ""},
+                }
+            },
+        }
+
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(status_code=200, body=fixture)
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="k", project_id="p"),
+            transport=fake_transport,
+        )
+        with pytest.raises(SandboxResponseFormatError, match="must be a strict integer"):
+            adapter.inspect_operation("op-c")
+
+    def test_d_nested_exit_code_bool_fails_closed(self) -> None:
+        # D: nested exit_code bool False and True fail closed
+        for b_val in (False, True):
+            fixture = {
+                "uuid": "op-d",
+                "status": "SUCCESS",
+                "metadata": {
+                    "result": {
+                        "state": {"exit_code": b_val},
+                        "stdout": {"value": "ok\n"},
+                        "stderr": {"value": ""},
+                    }
+                },
+            }
+
+            def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+                return _make_transport_response(status_code=200, body=fixture)
+
+            adapter = NebiusSandboxAdapter(
+                config=SandboxClientConfig(api_key="k", project_id="p"),
+                transport=fake_transport,
+            )
+            with pytest.raises(SandboxResponseFormatError, match="must be a strict integer"):
+                adapter.inspect_operation("op-d")
+
+    def test_e_direct_exit_code_string_fails_closed(self) -> None:
+        # E: direct exit_code string "1" fails closed
+        bad_values: tuple[Any, ...] = ("1", 0.0, False, [], {})
+        for malformed in bad_values:
+            fixture = {
+                "uuid": "op-e",
+                "status": "SUCCESS",
+                "metadata": {
+                    "result": {
+                        "exit_code": malformed,
+                        "stdout": {"value": "ok\n"},
+                        "stderr": {"value": ""},
+                    }
+                },
+            }
+
+            def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+                return _make_transport_response(status_code=200, body=fixture)
+
+            adapter = NebiusSandboxAdapter(
+                config=SandboxClientConfig(api_key="k", project_id="p"),
+                transport=fake_transport,
+            )
+            with pytest.raises(SandboxResponseFormatError, match="must be a strict integer"):
+                adapter.inspect_operation("op-e")
+
+    def test_f_direct_and_nested_equal_real_ints_accepted(self) -> None:
+        # F: direct + nested equal real ints accepted
         fixture = {
             "uuid": "op-equal-exit",
             "status": "SUCCESS",
@@ -432,11 +557,36 @@ class TestNebiusSandboxAdapter:
         )
         status = adapter.inspect_operation("op-equal-exit")
         assert status.exit_code == 0
+        assert type(status.exit_code) is int
 
-    def test_inspect_operation_direct_and_nested_conflicting_fails_closed(self) -> None:
-        # Proves G: direct + nested conflicting exit codes raise SandboxResponseFormatError
+    def test_g_direct_valid_int_nested_malformed_string_fails_closed(self) -> None:
+        # G: direct valid int + nested malformed string fails closed
         fixture = {
             "uuid": "op-conflict-exit",
+            "status": "SUCCESS",
+            "metadata": {
+                "result": {
+                    "exit_code": 0,
+                    "state": {"exit_code": "0"},
+                    "stdout": {"value": "CONFLICT"},
+                    "stderr": {"value": ""},
+                }
+            },
+        }
+
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(status_code=200, body=fixture)
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="key", project_id="proj"),
+            transport=fake_transport,
+        )
+        with pytest.raises(SandboxResponseFormatError, match="must be a strict integer"):
+            adapter.inspect_operation("op-conflict-exit")
+
+    def test_direct_and_nested_unequal_real_ints_fails_closed(self) -> None:
+        fixture = {
+            "uuid": "op-unequal-exit",
             "status": "SUCCESS",
             "metadata": {
                 "result": {
@@ -456,22 +606,67 @@ class TestNebiusSandboxAdapter:
             transport=fake_transport,
         )
         with pytest.raises(SandboxResponseFormatError, match="Conflicting exit code fields"):
-            adapter.inspect_operation("op-conflict-exit")
+            adapter.inspect_operation("op-unequal-exit")
 
-    def test_stream_output_value_and_data_identical_accepted(self) -> None:
-        # Proves H: value/data stream fields with identical values are accepted
+    def test_h_stdout_value_empty_string_remains_exact_empty_string(self) -> None:
+        # H: stdout.value="" remains exact empty string
+        adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="k", project_id="p"))
+        assert adapter._parse_stream_output({"value": ""}) == ""
+
+    def test_i_stdout_value_none_fails_closed(self) -> None:
+        # I: stdout.value=None fails closed
+        adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="k", project_id="p"))
+        with pytest.raises(SandboxResponseFormatError, match="'value' field must be a string"):
+            adapter._parse_stream_output({"value": None})
+
+    def test_j_stdout_value_int_fails_closed(self) -> None:
+        # J: stdout.value=123 fails closed
+        adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="k", project_id="p"))
+        with pytest.raises(SandboxResponseFormatError, match="'value' field must be a string"):
+            adapter._parse_stream_output({"value": 123})
+
+    def test_k_stdout_value_dict_fails_closed(self) -> None:
+        # K: stdout.value={"x": 1} fails closed
+        adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="k", project_id="p"))
+        with pytest.raises(SandboxResponseFormatError, match="'value' field must be a string"):
+            adapter._parse_stream_output({"value": {"x": 1}})
+
+    def test_l_legacy_data_field_strict_string(self) -> None:
+        # L: legacy data field must also be strict string
+        adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="k", project_id="p"))
+        assert adapter._parse_stream_output({"data": "LEGACY_OK\n"}) == "LEGACY_OK\n"
+        with pytest.raises(SandboxResponseFormatError, match="'data' field must be a string"):
+            adapter._parse_stream_output({"data": 123})
+        with pytest.raises(SandboxResponseFormatError, match="'data' field must be a string"):
+            adapter._parse_stream_output({"data": None})
+        with pytest.raises(SandboxResponseFormatError, match="'data' field must be a string"):
+            adapter._parse_stream_output({"data": ["a", "b"]})
+
+    def test_m_value_data_identical_strings_accepted(self) -> None:
+        # M: value/data identical strings accepted
         adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="k", project_id="p"))
         parsed = adapter._parse_stream_output({"value": "MATCH\n", "data": "MATCH\n"})
         assert parsed == "MATCH\n"
 
-    def test_stream_output_value_and_data_conflicting_fails_closed(self) -> None:
-        # Proves I: value/data conflicting values fail closed
+    def test_n_value_data_where_either_side_is_non_string_fails_closed(self) -> None:
+        # N: value/data where either side is non-string fails closed
+        adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="k", project_id="p"))
+        with pytest.raises(SandboxResponseFormatError, match="'data' field must be a string"):
+            adapter._parse_stream_output({"value": "VALID", "data": 123})
+        with pytest.raises(SandboxResponseFormatError, match="'value' field must be a string"):
+            adapter._parse_stream_output({"value": 123, "data": "VALID"})
+        with pytest.raises(SandboxResponseFormatError, match="'value' field must be a string"):
+            adapter._parse_stream_output({"value": None, "data": "VALID"})
+        with pytest.raises(SandboxResponseFormatError, match="'data' field must be a string"):
+            adapter._parse_stream_output({"value": "VALID", "data": None})
+
+    def test_o_value_data_conflicting_strings_fail_closed(self) -> None:
+        # O: value/data conflicting strings fail closed
         adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="k", project_id="p"))
         with pytest.raises(SandboxResponseFormatError, match="Conflicting stream fields"):
             adapter._parse_stream_output({"value": "VAL_1", "data": "VAL_2"})
 
     def test_stream_output_malformed_mapping_fails_closed(self) -> None:
-        # Proves J: malformed stream mapping without supported content field fails closed
         adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="k", project_id="p"))
         with pytest.raises(SandboxResponseFormatError, match="missing both 'value' and 'data'"):
             adapter._parse_stream_output({"encoding": "ascii", "truncated": False})
