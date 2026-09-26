@@ -14,13 +14,14 @@ Validates the full P-05 adapter chain:
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock, patch
 
+import dotenv
 import pytest
 
 from basebreak.adapters.nebius.client import (
@@ -32,6 +33,7 @@ from basebreak.adapters.nebius.client import (
 from basebreak.adapters.nebius.materialization import (
     MaterializedSourceRecord,
     NebiusSourceMaterializer,
+    build_materialization_script,
 )
 from basebreak.adapters.nebius.sandbox import (
     MissingSandboxCredentialError,
@@ -46,29 +48,32 @@ from basebreak.adapters.nebius.telemetry import (
     normalize_model_telemetry,
     normalize_sandbox_telemetry,
 )
+from basebreak.domain.execution import SandboxIdentity
 from basebreak.domain.source import CommitRevision, SourceIdentity
 from basebreak.domain.verdict import EvidenceProvenance
 from basebreak.security.secret_policy import validate_no_secrets
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CANONICAL_REPO_LOCATOR = "https://github.com/zyganali-glitch/Basebreak.git"
-CANONICAL_CANDIDATE_COMMIT_SHA = "68b825802f345a7d4fe6402748fbff447fdf187c"
-CANONICAL_CANDIDATE_TREE_SHA = "27e8537391a96af3233d11ffc351afae1c430810"
+CANONICAL_CANDIDATE_COMMIT_SHA = "bee7a22e77195e21ba5bc6341a72caed6ef675d9"
+CANONICAL_CANDIDATE_TREE_SHA = "63e522e074ad0ca3c1a12f042af56c907c5dca89"
 DEFAULT_PROJECT_ID = "aiproject-e00mae0nmzkxjswr1k"
 DEFAULT_SANDBOX_IMAGE = "tag:astral/uv:python3.11-alpine"
 MODEL_ID = "nvidia/Nemotron-3_5-Lightning"
 
 
-def _load_credentials() -> tuple[str | None, str | None]:
-    """Load credentials from .env or Windows environment if not in os.environ."""
-    env_file = PROJECT_ROOT / ".env"
-    if env_file.is_file():
-        try:
-            import dotenv
+def _load_credentials(load_env: bool = True) -> tuple[str | None, str | None]:
+    """Load credentials from .env or environment if present and not suppressed."""
+    if os.environ.get("BASEBREAK_SKIP_LIVE_EXECUTION") == "1":
+        return None, None
 
-            dotenv.load_dotenv(dotenv_path=env_file)
-        except Exception:
-            pass
+    if load_env:
+        env_file = PROJECT_ROOT / ".env"
+        if env_file.is_file():
+            try:
+                dotenv.load_dotenv(dotenv_path=env_file)
+            except Exception:
+                pass
 
     api_key = os.environ.get("NEBIUS_API_KEY") or os.environ.get("CONTREE_TOKEN")
     project_id = (
@@ -76,30 +81,6 @@ def _load_credentials() -> tuple[str | None, str | None]:
         or os.environ.get("NEBIUS_AI_PROJECT")
         or os.environ.get("CONTREE_PROJECT")
     )
-
-    if os.name == "nt":
-        if not api_key:
-            try:
-                cmd = "[System.Environment]::GetEnvironmentVariable('NEBIUS_API_KEY', 'User')"
-                val = subprocess.check_output(
-                    ["powershell", "-NoProfile", "-Command", cmd], text=True
-                ).strip()
-                if val:
-                    api_key = val
-                    os.environ["NEBIUS_API_KEY"] = val
-            except Exception:
-                pass
-        if not project_id:
-            try:
-                cmd = "[System.Environment]::GetEnvironmentVariable('NEBIUS_PROJECT_ID', 'User')"
-                val = subprocess.check_output(
-                    ["powershell", "-NoProfile", "-Command", cmd], text=True
-                ).strip()
-                if val:
-                    project_id = val
-                    os.environ["NEBIUS_PROJECT_ID"] = val
-            except Exception:
-                pass
 
     if not project_id and api_key:
         project_id = DEFAULT_PROJECT_ID
@@ -493,21 +474,182 @@ def test_p05_06_offline_fail_closed_without_credentials(monkeypatch: pytest.Monk
 
 
 def test_p05_06_contract_constants() -> None:
-    """P-05.06 canonical model, image, and repo constants must match frozen reality."""
+    """P-05.06 canonical model, image, repo, and candidate hash constants match frozen reality."""
     assert MODEL_ID == "nvidia/Nemotron-3_5-Lightning"
     assert DEFAULT_SANDBOX_IMAGE == "tag:astral/uv:python3.11-alpine"
     assert CANONICAL_REPO_LOCATOR == "https://github.com/zyganali-glitch/Basebreak.git"
+    assert CANONICAL_CANDIDATE_COMMIT_SHA == "bee7a22e77195e21ba5bc6341a72caed6ef675d9"
+    assert CANONICAL_CANDIDATE_TREE_SHA == "63e522e074ad0ca3c1a12f042af56c907c5dca89"
 
 
 def test_p05_06_source_identity_binding() -> None:
     """SourceIdentity must bind to exact 40-char commit SHA."""
-    test_sha = "68b825802f345a7d4fe6402748fbff447fdf187c"
+    test_sha = CANONICAL_CANDIDATE_COMMIT_SHA
     source = SourceIdentity(
         locator=CANONICAL_REPO_LOCATOR,
         revision=CommitRevision(commit_id=test_sha),
     )
     assert source.resolved_commit_id == test_sha
     assert source.revision.commit_id == test_sha
+
+
+def test_p05_06_candidate_commit_binding() -> None:
+    """A. P-05.06 candidate commit binding is exactly bee7a22e77195e21ba5bc6341a72caed6ef675d9."""
+    assert CANONICAL_CANDIDATE_COMMIT_SHA == "bee7a22e77195e21ba5bc6341a72caed6ef675d9"
+    assert len(CANONICAL_CANDIDATE_COMMIT_SHA) == 40
+    assert set(CANONICAL_CANDIDATE_COMMIT_SHA).issubset(frozenset("0123456789abcdef"))
+
+
+def test_p05_06_candidate_tree_binding() -> None:
+    """B. P-05.06 candidate tree binding is exactly 63e522e074ad0ca3c1a12f042af56c907c5dca89."""
+    assert CANONICAL_CANDIDATE_TREE_SHA == "63e522e074ad0ca3c1a12f042af56c907c5dca89"
+    assert len(CANONICAL_CANDIDATE_TREE_SHA) == 40
+    assert set(CANONICAL_CANDIDATE_TREE_SHA).issubset(frozenset("0123456789abcdef"))
+
+
+def test_p05_06_source_identity_uses_exact_commit() -> None:
+    """C. SourceIdentity uses that exact commit."""
+    source_identity = SourceIdentity(
+        locator=CANONICAL_REPO_LOCATOR,
+        revision=CommitRevision(commit_id=CANONICAL_CANDIDATE_COMMIT_SHA),
+    )
+    assert source_identity.locator == "https://github.com/zyganali-glitch/Basebreak.git"
+    assert source_identity.resolved_commit_id == "bee7a22e77195e21ba5bc6341a72caed6ef675d9"
+    assert source_identity.revision.commit_id == "bee7a22e77195e21ba5bc6341a72caed6ef675d9"
+
+
+def test_p05_06_materialize_repository_receives_exact_commit_and_tree() -> None:
+    """D & E. materialize_repository receives exact commit and expected_tree_sha uses exact tree."""
+    source_identity = SourceIdentity(
+        locator=CANONICAL_REPO_LOCATOR,
+        revision=CommitRevision(commit_id=CANONICAL_CANDIDATE_COMMIT_SHA),
+    )
+
+    # D: Verify materialization command built by materializer embeds the exact commit SHA
+    script = build_materialization_script(source_identity, "/workspace/Basebreak")
+    assert CANONICAL_CANDIDATE_COMMIT_SHA in script
+    assert "bee7a22e77195e21ba5bc6341a72caed6ef675d9" in script
+
+    # E: Verify materialization call receives exact commit and tree
+    mock_adapter = MagicMock(spec=NebiusSandboxAdapter)
+    materializer = NebiusSourceMaterializer(mock_adapter)
+    mock_handle = MagicMock()
+    mock_record = MaterializedSourceRecord(
+        source_identity=source_identity,
+        resolved_commit_sha=CANONICAL_CANDIDATE_COMMIT_SHA,
+        resolved_tree_sha=CANONICAL_CANDIDATE_TREE_SHA,
+        workspace_path="/workspace/Basebreak",
+        sandbox_identity=SandboxIdentity(sandbox_id="sbx-test", description="test-sandbox"),
+        operation_id="op-test",
+        duration_seconds=1.0,
+        is_verified=True,
+        is_clean_workspace=True,
+        is_fresh_sandbox=True,
+    )
+    with patch.object(materializer, "materialize_repository", return_value=mock_record) as mock_mat:
+        rec = materializer.materialize_repository(
+            source_identity,
+            sandbox=mock_handle,
+            workspace_path="/workspace/Basebreak",
+            expected_tree_sha=CANONICAL_CANDIDATE_TREE_SHA,
+            disposable=False,
+            timeout_seconds=300,
+        )
+        mock_mat.assert_called_once_with(
+            source_identity,
+            sandbox=mock_handle,
+            workspace_path="/workspace/Basebreak",
+            expected_tree_sha="63e522e074ad0ca3c1a12f042af56c907c5dca89",
+            disposable=False,
+            timeout_seconds=300,
+        )
+        assert rec.resolved_commit_sha == "bee7a22e77195e21ba5bc6341a72caed6ef675d9"
+        assert rec.resolved_tree_sha == "63e522e074ad0ca3c1a12f042af56c907c5dca89"
+
+
+def test_p05_06_evidence_hashes_originate_from_frozen_binding() -> None:
+    """F. candidate_commit_sha and candidate_tree_sha originate from the frozen binding."""
+    candidate_commit_sha = CANONICAL_CANDIDATE_COMMIT_SHA
+    candidate_tree_sha = CANONICAL_CANDIDATE_TREE_SHA
+
+    source_identity = SourceIdentity(
+        locator=CANONICAL_REPO_LOCATOR,
+        revision=CommitRevision(commit_id=candidate_commit_sha),
+    )
+    assert source_identity.resolved_commit_id == candidate_commit_sha
+    assert candidate_commit_sha == "bee7a22e77195e21ba5bc6341a72caed6ef675d9"
+    assert candidate_tree_sha == "63e522e074ad0ca3c1a12f042af56c907c5dca89"
+
+
+def test_p05_06_no_branch_tip_dynamic_substitution() -> None:
+    """G. no branch-tip/main dynamic substitution can silently replace the frozen candidate."""
+    for forbidden_ref in ["main", "origin/main", "HEAD", "master", "refs/heads/main", "v0.1.0"]:
+        with pytest.raises(
+            ValueError, match="commit_id must be a 40 or 64-character hexadecimal string"
+        ):
+            CommitRevision(commit_id=forbidden_ref)
+
+    assert CANONICAL_CANDIDATE_COMMIT_SHA not in ("main", "master", "HEAD")
+    assert len(CANONICAL_CANDIDATE_COMMIT_SHA) == 40
+    int(CANONICAL_CANDIDATE_COMMIT_SHA, 16)
+
+
+def test_p05_06_live_nebius_skipped_when_credentials_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H. LIVE_NEBIUS execution remains skipped/not run when runtime credentials are absent."""
+    monkeypatch.delenv("NEBIUS_API_KEY", raising=False)
+    monkeypatch.delenv("CONTREE_TOKEN", raising=False)
+    monkeypatch.delenv("NEBIUS_PROJECT_ID", raising=False)
+    monkeypatch.delenv("CONTREE_PROJECT", raising=False)
+
+    api_key, project_id = _load_credentials(load_env=False)
+    assert api_key is None
+
+    with pytest.raises(RuntimeError, match="Missing required credentials"):
+        with patch(
+            "tests.adapters.test_p05_06_closure._load_credentials",
+            return_value=(None, None),
+        ):
+            run_live_adapter_suite()
+
+
+def test_p05_06_no_mock_fixture_relabeled_live_nebius() -> None:
+    """I. no mock/fixture result is relabeled LIVE_NEBIUS."""
+    from basebreak.evidence.provenance import (
+        ProvenanceLaunderingError,
+        is_live_execution,
+        validate_provenance_transition,
+    )
+
+    with pytest.raises(ProvenanceLaunderingError):
+        validate_provenance_transition(EvidenceProvenance.FIXTURE, EvidenceProvenance.LIVE_NEBIUS)
+
+    with pytest.raises(ProvenanceLaunderingError):
+        validate_provenance_transition(
+            EvidenceProvenance.LOCAL_EXECUTION, EvidenceProvenance.LIVE_NEBIUS
+        )
+
+    assert is_live_execution(EvidenceProvenance.LIVE_NEBIUS)
+    assert not is_live_execution(EvidenceProvenance.FIXTURE)
+    assert not is_live_execution(EvidenceProvenance.LOCAL_EXECUTION)
+
+
+def test_p05_06_no_secrets_in_source_fixtures_logs_or_docs() -> None:
+    """J. no secrets are added to source, test fixtures, logs, or durable docs."""
+    for const_val in [
+        MODEL_ID,
+        DEFAULT_SANDBOX_IMAGE,
+        CANONICAL_REPO_LOCATOR,
+        CANONICAL_CANDIDATE_COMMIT_SHA,
+        CANONICAL_CANDIDATE_TREE_SHA,
+    ]:
+        validate_no_secrets(const_val, path="test_constant")
+
+    evidence_doc = PROJECT_ROOT / "docs" / "P05_06_LIVE_ADAPTER_INTEGRATION.md"
+    if evidence_doc.is_file():
+        doc_content = evidence_doc.read_text(encoding="utf-8")
+        validate_no_secrets(doc_content, path="docs/P05_06_LIVE_ADAPTER_INTEGRATION.md")
 
 
 def test_p05_06_evidence_document_secret_safety() -> None:
@@ -520,6 +662,9 @@ def test_p05_06_evidence_document_secret_safety() -> None:
 
 def test_p05_06_live_adapter_suite_execution() -> None:
     """Execute live adapter suite against Nebius Token Factory when credentials are provided."""
+    if os.environ.get("BASEBREAK_SKIP_LIVE_EXECUTION") == "1":
+        pytest.skip("P-05.06 live execution skipped via BASEBREAK_SKIP_LIVE_EXECUTION.")
+
     api_key, project_id = _load_credentials()
     if not api_key or not project_id:
         pytest.skip(

@@ -54,14 +54,14 @@ Judge claim:
 - P-04 phase (Security & Untrusted-Code Policy Foundation) is independently CLOSED / PASS at SHA `5673b0ae07120151a08626161a21586b44c75bc1`.
 
 - P-05.01 (Implement bounded model client using discovered model identifiers/config) is independently VERIFIED / PASS at SHA `90e5391b9bd7a406c62b838bfa1f24e85400ad65`.
-- P-05.02 (Implement sandbox create/exec/inspect/teardown adapter) was previously independently VERIFIED / PASS at SHA `c49da8394ceac30832643f760ad303ead185c4a3`, but is now REOPENED / REPAIR REQUIRED due to current LIVE_NEBIUS provider-schema incompatibility discovered during P-05.06 execution.
+- P-05.02 (Implement sandbox create/exec/inspect/teardown adapter) is independently VERIFIED / PASS at SHA `bee7a22e77195e21ba5bc6341a72caed6ef675d9`.
 - P-05.03 (Implement repository materialization and source-hash verification adapter) is independently VERIFIED / PASS at SHA `f149afffb58b72dfeba301e59868c38eef6a7107`.
 - P-05.04 (Implement model/sandbox telemetry normalization with secret-safe logs) is independently VERIFIED / PASS at SHA `899fe27feb8ec530c226a46832d47f886cd6947d`.
 - P-05.05 (Implement retry/idempotency policy without duplicating external actions) is independently VERIFIED / PASS at SHA `ef2d55c6ed6195e291b5e3ba8fe753541e5863c4`.
-- P-05.06 (Execute live adapter integration suite) is BLOCKED_ON_P05_02_REPAIR / NOT COMPLETE (must NOT be presented as PASS).
+- P-05.06 (Execute live adapter integration suite) is BLOCKED_ON_PRE_LIVE_HARNESS_REPAIR / NOT COMPLETE (must NOT be presented as PASS; blocked on pre-live harness and clean CI repair, not on unresolved P-05.02).
 
 ## Last independently VERIFIED baseline SHA
-`ef2d55c6ed6195e291b5e3ba8fe753541e5863c4` (last independently VERIFIED pre-live baseline at P-05.05 closure; the current remote SHA must NOT be described as a fully verified P-05 phase baseline).
+`bee7a22e77195e21ba5bc6341a72caed6ef675d9` (last independently VERIFIED task SHA at P-05.02 closure; neither this commit nor the subsequent pre-live harness repair commit may be described as a verified P-05 phase baseline, as P-05 phase is NOT closed).
 
 ## Blocking live gate vs active task
 
@@ -69,16 +69,16 @@ Judge claim:
 None. P-01 live platform discovery is complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-P-05.02 surgical repair candidate (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+P-05.06 pre-live harness and clean CI surgical repair candidate (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; pre-live surgical repair only, zero live provider calls).
 
 ### Active exact task
-`P-05.02 — Implement sandbox create/exec/inspect/teardown adapter` (SURGICAL REPAIR ONLY).
-P-05.06 is BLOCKED_ON_P05_02_REPAIR / NOT COMPLETE.
+`P-05.06 — Execute live adapter integration suite` (PRE-LIVE SURGICAL REPAIR ONLY).
+P-05.06 is NOT COMPLETE. Blocked on pre-live harness and clean CI repair, not on unresolved P-05.02.
 
 ## Parallelization boundary & rules
-- **Task status:** P-05.01, P-05.03, P-05.04, and P-05.05 retain their task-level PASS status. P-05.02 is reopened for surgical repair. P-05.06 is BLOCKED_ON_P05_02_REPAIR / NOT COMPLETE.
+- **Task status:** P-05.01, P-05.02, P-05.03, P-05.04, and P-05.05 are independently VERIFIED / PASS. P-05.06 is BLOCKED_ON_PRE_LIVE_HARNESS_REPAIR / NOT COMPLETE.
 - **Provider neutrality:** All domain contracts, evidence primitives, and security primitives remain strictly provider-neutral.
-- **Phase status:** P-01 phase is CLOSED / PASS. P-04 phase is CLOSED / PASS. P-05 phase is NOT verified or closed.
+- **Phase status:** P-01 phase is CLOSED / PASS. P-04 phase is CLOSED / PASS. P-05 phase is NOT closed.
 - **Not authorized / forbidden:** P-06+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
@@ -97,6 +97,7 @@ P-05.06 is BLOCKED_ON_P05_02_REPAIR / NOT COMPLETE.
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-05.02 surgical repair completion report to Independent QA authority.
-2. Await independent QA evaluation of P-05.02 repair.
-3. Only after independent QA closes P-05.02 repair, resume P-05.06 live adapter integration suite.
+1. Submit P-05.06 pre-live harness and clean CI surgical repair completion report to Independent QA authority.
+2. Verify clean canonical GitHub Actions CI PASS on the repair commit.
+3. Await independent QA authorization before resuming P-05.06 live execution.
+4. Only after independent authorization, execute live adapter integration suite against Nebius Token Factory.
