@@ -342,8 +342,8 @@ Status: DONE (independently VERIFIED / PASS at SHA 899fe27feb8ec530c226a46832d47
 ### P-05.05 — Implement retry/idempotency policy without duplicating external actions
 Status: DONE (independently VERIFIED / PASS at SHA ef2d55c6ed6195e291b5e3ba8fe753541e5863c4)
 ### P-05.06 — Execute live adapter integration suite
-Status: DONE (executor completed; candidate for independent QA; genuine LIVE_NEBIUS execution across complete unbroken adapter chain against real Token Factory services; verified candidate commit bee7a22e77195e21ba5bc6341a72caed6ef675d9 and tree 63e522e074ad0ca3c1a12f042af56c907c5dca89 down to exact bit; test command passed with exit code 0; lifecycle observed; durable evidence committed in docs/P05_06_LIVE_ADAPTER_INTEGRATION.md; P-05 phase NOT closed; P-06+ strictly NOT AUTHORIZED / NOT_RUN)
-Phase exit: provider adapter is real, fail-closed, and replaceable from domain core. (P-05 phase NOT closed; P-06+ remain strictly NOT AUTHORIZED / NOT_RUN).
+Status: DONE (independently VERIFIED / PASS at SHA eeba36126968f34494ef1c12b1e3ddbccc18ad91; genuine LIVE_NEBIUS execution across complete unbroken adapter chain against real Token Factory services; verified candidate commit bee7a22e77195e21ba5bc6341a72caed6ef675d9 and tree 63e522e074ad0ca3c1a12f042af56c907c5dca89 down to exact bit; test command passed with exit code 0; lifecycle observed; durable evidence committed in docs/P05_06_LIVE_ADAPTER_INTEGRATION.md; P-05 phase independently CLOSED / PASS at SHA eeba36126968f34494ef1c12b1e3ddbccc18ad91)
+Phase exit: provider adapter is real, fail-closed, and replaceable from domain core. (P-05 phase independently CLOSED / PASS at SHA eeba36126968f34494ef1c12b1e3ddbccc18ad91; P-Ω broad phase-closure audit: PASS; P-06.01 through P-06.04 batch conditionally authorized).
 
 ---
 
@@ -351,6 +351,7 @@ Phase exit: provider adapter is real, fail-closed, and replaceable from domain c
 Goal: convert natural-language task into reviewable verification contract.
 
 ### P-06.01 — Define task ingestion and deterministic normalization
+Status: IN_PROGRESS (batch P-06.01 through P-06.04 conditionally authorized; P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN)
 ### P-06.02 — Use Nemotron to propose atomic acceptance requirements with citations to task text
 ### P-06.03 — Classify change semantics and uncertainty
 ### P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions

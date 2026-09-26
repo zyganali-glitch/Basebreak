@@ -18,7 +18,7 @@ Acceptance Criteria:
 - Gate 7: Secret safety: credentials and tokens are redacted in all attempt surfaces.
 - Gate 8: Operational ceilings enforced (1 <= max_attempts <= 5, bounded backoff).
 - Gate 9: Provider purity: domain, evidence, security packages never import adapters.
-- Gate 10: Zero-cost / offline invariant: P-05.06 remains NOT_RUN; no live tokens.
+- Gate 10: Anti-leakage boundary invariant: verify unapproved adapter modules do not exist.
 """
 
 from __future__ import annotations
@@ -462,9 +462,9 @@ class TestP0505ClosureGate:
                 assert "basebreak.adapters" not in text, f"Leakage found in {py_file}"
                 assert "from .adapters" not in text, f"Leakage found in {py_file}"
 
-    # Gate 10: Zero-cost / offline invariant: P-05.06 remains NOT_RUN; no live tokens
+    # Gate 10: Anti-leakage boundary invariant: verify unapproved adapter modules do not exist
     def test_gate_10_zero_cost_offline_invariant(self) -> None:
-        # P-05.06 must not be implemented or executed
+        # Verify unapproved monolithic adapter files were not introduced
         adapters_dir = (
             Path(__file__).resolve().parent.parent.parent
             / "src"

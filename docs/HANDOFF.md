@@ -59,28 +59,31 @@ Judge claim:
 - P-05.04 (Implement model/sandbox telemetry normalization with secret-safe logs) is independently VERIFIED / PASS at SHA `899fe27feb8ec530c226a46832d47f886cd6947d`.
 - P-05.05 (Implement retry/idempotency policy without duplicating external actions) is independently VERIFIED / PASS at SHA `ef2d55c6ed6195e291b5e3ba8fe753541e5863c4`.
 - P-05.06 pre-live harness/CI repair is independently VERIFIED / PASS at SHA `517ad633c5b9ade85dcc8e0e4b9d05361fe4cb15`.
-- P-05.06 (Execute live adapter integration suite) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (genuine LIVE_NEBIUS execution across complete unbroken adapter chain: real Nemotron inference, Token Factory Sandbox creation, repo materialization at exact candidate commit `bee7a22e77195e21ba5bc6341a72caed6ef675d9` and tree `63e522e074ad0ca3c1a12f042af56c907c5dca89`, bounded deterministic pytest exit code 0, telemetry normalized, handle disposed, durable evidence in `docs/P05_06_LIVE_ADAPTER_INTEGRATION.md`).
+- P-05.06 (Execute live adapter integration suite) is independently VERIFIED / PASS at SHA `eeba36126968f34494ef1c12b1e3ddbccc18ad91` (genuine LIVE_NEBIUS evidence in `docs/P05_06_LIVE_ADAPTER_INTEGRATION.md`).
+- P-05 phase (Nebius/Nemotron Adapter Layer) is independently CLOSED / PASS at SHA `eeba36126968f34494ef1c12b1e3ddbccc18ad91`.
+- P-Ω broad phase-closure audit: PASS.
 
 ## Last independently VERIFIED baseline SHA
-`bee7a22e77195e21ba5bc6341a72caed6ef675d9` (last independently VERIFIED task SHA at P-05.02 closure; harness repair at `517ad633c5b9ade85dcc8e0e4b9d05361fe4cb15` is independently PASS; neither commit constitutes a verified P-05 phase baseline as P-05 phase is NOT closed).
+`eeba36126968f34494ef1c12b1e3ddbccc18ad91` (independently VERIFIED baseline at P-05.06 / P-05 phase closure).
 
 ## Blocking live gate vs active task
 
 ### Blocking live gate
-None. P-01 live platform discovery is complete and independently CLOSED / PASS.
+None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-P-05.06 live adapter integration suite (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; genuine LIVE_NEBIUS evidence committed in `docs/P05_06_LIVE_ADAPTER_INTEGRATION.md`).
+None (P-06.01 active).
 
 ### Active exact task
-`P-05.06 — Execute live adapter integration suite` (Awaiting independent QA review).
-Adapter candidate under live verification remains `bee7a22e77195e21ba5bc6341a72caed6ef675d9`, tree remains `63e522e074ad0ca3c1a12f042af56c907c5dca89`. P-05 phase remains NOT CLOSED. P-06+ remain NOT_RUN / NOT AUTHORIZED.
+`P-06.01 — Define task ingestion and deterministic normalization`
+(Batch P-06.01 through P-06.04 conditionally authorized by Independent QA; P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN).
 
 ## Parallelization boundary & rules
-- **Task status:** P-05.01 through P-05.05 and P-05.06 pre-live harness/CI repair are independently VERIFIED / PASS. P-05.06 live execution is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- **Provider neutrality:** All domain contracts, evidence primitives, and security primitives remain strictly provider-neutral.
-- **Phase status:** P-01 phase is CLOSED / PASS. P-04 phase is CLOSED / PASS. P-05 phase remains NOT CLOSED.
-- **Not authorized / forbidden:** P-06+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-05 all tasks are independently VERIFIED / PASS.
+- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, and Contract Compiler core domain models remain strictly provider-neutral.
+- **Phase status:** P-00, P-01, P-02, P-03, P-04, P-05 phases are independently CLOSED / PASS. P-06 phase is OPEN.
+- **Authorized batch:** P-06.01, P-06.02, P-06.03, P-06.04 are sequentially and conditionally authorized under strict fail-closed batch execution law.
+- **Not authorized / forbidden:** P-06.05, P-06.06, and P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -98,6 +101,6 @@ Adapter candidate under live verification remains `bee7a22e77195e21ba5bc6341a72c
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-05.06 live adapter integration suite completion report to Independent QA authority.
-2. Await independent QA evaluation and formal decision for Task P-05.06 and Phase P-05.
-3. HARD STOP: Do NOT execute P-06+ without explicit independent authorization.
+1. Implement P-06.01: Define task ingestion and deterministic normalization.
+2. Execute focused deterministic normalization tests and provider purity tests.
+3. Commit and push P-06.01 before progressing to P-06.02.
