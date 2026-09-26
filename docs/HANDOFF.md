@@ -59,7 +59,7 @@ Judge claim:
 - P-05.04 (Implement model/sandbox telemetry normalization with secret-safe logs) is independently VERIFIED / PASS at SHA `899fe27feb8ec530c226a46832d47f886cd6947d`.
 - P-05.05 (Implement retry/idempotency policy without duplicating external actions) is independently VERIFIED / PASS at SHA `ef2d55c6ed6195e291b5e3ba8fe753541e5863c4`.
 - P-05.06 pre-live harness/CI repair is independently VERIFIED / PASS at SHA `517ad633c5b9ade85dcc8e0e4b9d05361fe4cb15`.
-- P-05.06 (Execute live adapter integration suite) is LIVE RERUN AUTHORIZED / IN_PROGRESS (adapter candidate: `bee7a22e77195e21ba5bc6341a72caed6ef675d9`, tree: `63e522e074ad0ca3c1a12f042af56c907c5dca89`).
+- P-05.06 (Execute live adapter integration suite) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (genuine LIVE_NEBIUS execution across complete unbroken adapter chain: real Nemotron inference, Token Factory Sandbox creation, repo materialization at exact candidate commit `bee7a22e77195e21ba5bc6341a72caed6ef675d9` and tree `63e522e074ad0ca3c1a12f042af56c907c5dca89`, bounded deterministic pytest exit code 0, telemetry normalized, handle disposed, durable evidence in `docs/P05_06_LIVE_ADAPTER_INTEGRATION.md`).
 
 ## Last independently VERIFIED baseline SHA
 `bee7a22e77195e21ba5bc6341a72caed6ef675d9` (last independently VERIFIED task SHA at P-05.02 closure; harness repair at `517ad633c5b9ade85dcc8e0e4b9d05361fe4cb15` is independently PASS; neither commit constitutes a verified P-05 phase baseline as P-05 phase is NOT closed).
@@ -70,14 +70,14 @@ Judge claim:
 None. P-01 live platform discovery is complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-None. P-05.06 live rerun is authorized and in progress.
+P-05.06 live adapter integration suite (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; genuine LIVE_NEBIUS evidence committed in `docs/P05_06_LIVE_ADAPTER_INTEGRATION.md`).
 
 ### Active exact task
-`P-05.06 — Execute live adapter integration suite` (LIVE RERUN AUTHORIZED / IN_PROGRESS).
+`P-05.06 — Execute live adapter integration suite` (Awaiting independent QA review).
 Adapter candidate under live verification remains `bee7a22e77195e21ba5bc6341a72caed6ef675d9`, tree remains `63e522e074ad0ca3c1a12f042af56c907c5dca89`. P-05 phase remains NOT CLOSED. P-06+ remain NOT_RUN / NOT AUTHORIZED.
 
 ## Parallelization boundary & rules
-- **Task status:** P-05.01 through P-05.05 and P-05.06 pre-live harness/CI repair are independently VERIFIED / PASS. P-05.06 live rerun is AUTHORIZED / IN_PROGRESS.
+- **Task status:** P-05.01 through P-05.05 and P-05.06 pre-live harness/CI repair are independently VERIFIED / PASS. P-05.06 live execution is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - **Provider neutrality:** All domain contracts, evidence primitives, and security primitives remain strictly provider-neutral.
 - **Phase status:** P-01 phase is CLOSED / PASS. P-04 phase is CLOSED / PASS. P-05 phase remains NOT CLOSED.
 - **Not authorized / forbidden:** P-06+ remain strictly NOT AUTHORIZED / NOT_RUN.
@@ -98,7 +98,6 @@ Adapter candidate under live verification remains `bee7a22e77195e21ba5bc6341a72c
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Verify current promotional balance / credit state satisfies `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`.
-2. Execute P-05.06 live adapter integration suite against real Nebius Token Factory services producing genuine LIVE_NEBIUS evidence.
-3. Complete local validation (pytest, ruff check, ruff format, mypy).
-4. Submit P-05.06 completion report to Independent QA authority.
+1. Submit P-05.06 live adapter integration suite completion report to Independent QA authority.
+2. Await independent QA evaluation and formal decision for Task P-05.06 and Phase P-05.
+3. HARD STOP: Do NOT execute P-06+ without explicit independent authorization.
