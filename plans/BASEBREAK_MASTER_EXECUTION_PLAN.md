@@ -336,6 +336,7 @@ Status: DONE (executor completed; candidate for independent QA; implemented Nebi
 ### P-05.02 — Implement sandbox create/exec/inspect/teardown adapter
 Status: DONE (executor completed; candidate for independent QA; implemented NebiusSandboxAdapter with create, exec, inspect, and teardown operations using proven Token Factory Sandboxes endpoints; bounded timeouts 1-600s, typed errors, secret-safe logging/repr, exactly-once transport with zero silent retry; preserves deterministic execution facts over provider prose; 35 unit and closure tests passing; implemented in src/basebreak/adapters/nebius/sandbox.py)
 ### P-05.03 — Implement repository materialization and source-hash verification adapter
+Status: DONE (executor completed; candidate for independent QA; implemented NebiusSourceMaterializer binding repository materialization into clean sandbox contexts to immutable SourceIdentity/CommitRevision; deterministic verification of git commit SHA and tree SHA with fail-closed mismatch detection; secret-safe error handling; zero verdict authority; 17 unit and closure tests passing; implemented in src/basebreak/adapters/nebius/materialization.py)
 ### P-05.04 — Implement model/sandbox telemetry normalization with secret-safe logs
 ### P-05.05 — Implement retry/idempotency policy without duplicating external actions
 ### P-05.06 — Execute live adapter integration suite

@@ -1,6 +1,7 @@
 """Nebius Token Factory adapter package.
 
-Exposes bounded model client, bounded sandbox adapter, constants, and adapter error classes.
+Exposes bounded model client, bounded sandbox adapter, materialization adapter,
+constants, and adapter error classes.
 """
 
 from .client import (
@@ -20,6 +21,17 @@ from .client import (
     TransportCallable,
     TransportResponse,
     default_urllib_transport,
+)
+from .materialization import (
+    MalformedSourceIdentityError,
+    MaterializationExecutionError,
+    MaterializedSourceRecord,
+    NebiusSourceMaterializer,
+    SourceCommitMismatchError,
+    SourceMaterializationError,
+    SourceTreeMismatchError,
+    SourceVerificationError,
+    build_materialization_script,
 )
 from .models import (
     CANDIDATE_DEEP_MODEL,
@@ -94,6 +106,9 @@ __all__ = [
     "MIN_SANDBOX_TIMEOUT_SECONDS",
     "MIN_TEMPERATURE",
     "MIN_TIMEOUT_SECONDS",
+    "MalformedSourceIdentityError",
+    "MaterializationExecutionError",
+    "MaterializedSourceRecord",
     "MissingCredentialError",
     "MissingSandboxCredentialError",
     "ModelAdapterError",
@@ -110,6 +125,7 @@ __all__ = [
     "NebiusSandboxAdapter",
     "NebiusSandboxExecutionResult",
     "NebiusSandboxHandle",
+    "NebiusSourceMaterializer",
     "OPERATIONS_PATH",
     "SandboxAdapterError",
     "SandboxClientConfig",
@@ -120,9 +136,14 @@ __all__ = [
     "SandboxResponseFormatError",
     "SandboxTimeoutError",
     "SandboxTransportError",
+    "SourceCommitMismatchError",
+    "SourceMaterializationError",
+    "SourceTreeMismatchError",
+    "SourceVerificationError",
     "TokenUsage",
     "TransportCallable",
     "TransportResponse",
     "WHOAMI_PATH",
+    "build_materialization_script",
     "default_urllib_transport",
 ]
