@@ -54,7 +54,7 @@ Judge claim:
 - P-04 phase (Security & Untrusted-Code Policy Foundation) is independently CLOSED / PASS at SHA `5673b0ae07120151a08626161a21586b44c75bc1`.
 
 - P-05.01 (Implement bounded model client using discovered model identifiers/config) is independently VERIFIED baseline entering this batch at SHA `90e5391b9bd7a406c62b838bfa1f24e85400ad65`.
-- P-05.02 (Implement sandbox create/exec/inspect/teardown adapter) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-05.02 (Implement sandbox create/exec/inspect/teardown adapter) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (surgically repaired fail-closed teardown semantics).
 - P-05.03 (Implement repository materialization and source-hash verification adapter) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-05.04 (Implement model/sandbox telemetry normalization with secret-safe logs) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-05.05 (Implement retry/idempotency policy without duplicating external actions) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.

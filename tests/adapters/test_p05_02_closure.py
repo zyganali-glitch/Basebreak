@@ -31,6 +31,7 @@ from basebreak.adapters.nebius import (
     DEFAULT_SANDBOX_IMAGE,
     MissingSandboxCredentialError,
     NebiusSandboxAdapter,
+    SandboxAdapterError,
     SandboxClientConfig,
     SandboxConfigError,
     SandboxLifecycleError,
@@ -164,8 +165,45 @@ class TestP0502ClosureGate:
         assert handle.lifecycle_state == SandboxLifecycleState.DISPOSED
         assert len(cancel_called) == 1
 
+        # Execution on disposed handle fails closed
         with pytest.raises(SandboxLifecycleError):
             adapter.execute_command(handle, "echo impossible")
+
+        # Cancellation failure fails closed without marking DISPOSED
+        def failing_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(status_code=500, body={"error": "Cancel failed"})
+
+        fail_adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="k", project_id="p"),
+            transport=failing_transport,
+        )
+        fail_handle = fail_adapter.create_sandbox()
+        fail_handle.lifecycle_state = SandboxLifecycleState.RUNNING
+        fail_handle.last_operation_id = "op-fail-cancel"
+
+        with pytest.raises(SandboxProviderError):
+            fail_adapter.teardown_sandbox(fail_handle)
+
+        assert fail_handle.lifecycle_state == SandboxLifecycleState.RUNNING
+
+        # Verification failure with verify_whoami fails closed without marking DISPOSED
+        def whoami_nonzero_transport(
+            req: urllib.request.Request, timeout: float
+        ) -> TransportResponse:
+            return _make_transport_response(
+                status_code=200,
+                body={"operations_stat": {"running_instances": 1}},
+            )
+
+        whoami_adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="k", project_id="p"),
+            transport=whoami_nonzero_transport,
+        )
+        whoami_handle = whoami_adapter.create_sandbox()
+        with pytest.raises(SandboxAdapterError, match="whoami reports 1 active running instance"):
+            whoami_adapter.teardown_sandbox(whoami_handle, verify_whoami=True)
+
+        assert whoami_handle.lifecycle_state != SandboxLifecycleState.DISPOSED
 
     # Gate 5: Timeout/error handling
     def test_gate_timeout_and_error_handling(self) -> None:

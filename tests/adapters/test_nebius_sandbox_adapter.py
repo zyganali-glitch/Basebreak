@@ -20,6 +20,7 @@ from basebreak.adapters.nebius import (
     NebiusSandboxAdapter,
     NebiusSandboxExecutionResult,
     NebiusSandboxHandle,
+    SandboxAdapterError,
     SandboxClientConfig,
     SandboxConfigError,
     SandboxLifecycleError,
@@ -332,6 +333,204 @@ class TestNebiusSandboxAdapter:
         # Must not raise
         adapter.teardown_sandbox(handle)
         assert handle.lifecycle_state == SandboxLifecycleState.DISPOSED
+
+    def test_teardown_cancellation_transport_failure_does_not_dispose(self) -> None:
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            raise urllib.error.URLError("Connection refused")
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="key", project_id="proj"),
+            transport=fake_transport,
+        )
+        handle = adapter.create_sandbox()
+        handle.lifecycle_state = SandboxLifecycleState.RUNNING
+        handle.last_operation_id = "op-fail-transport"
+
+        with pytest.raises(SandboxTransportError):
+            adapter.teardown_sandbox(handle)
+
+        assert handle.lifecycle_state == SandboxLifecycleState.RUNNING
+
+    def test_teardown_cancellation_timeout_does_not_dispose(self) -> None:
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            raise TimeoutError("Cancellation timed out")
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="key", project_id="proj"),
+            transport=fake_transport,
+        )
+        handle = adapter.create_sandbox()
+        handle.lifecycle_state = SandboxLifecycleState.RUNNING
+        handle.last_operation_id = "op-fail-timeout"
+
+        with pytest.raises(SandboxTimeoutError):
+            adapter.teardown_sandbox(handle)
+
+        assert handle.lifecycle_state == SandboxLifecycleState.RUNNING
+
+    def test_teardown_cancellation_provider_error_does_not_dispose(self) -> None:
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(
+                status_code=500,
+                body={"error": "Internal Server Error"},
+            )
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="key", project_id="proj"),
+            transport=fake_transport,
+        )
+        handle = adapter.create_sandbox()
+        handle.lifecycle_state = SandboxLifecycleState.RUNNING
+        handle.last_operation_id = "op-fail-provider"
+
+        with pytest.raises(SandboxProviderError) as exc_info:
+            adapter.teardown_sandbox(handle)
+
+        assert exc_info.value.status_code == 500
+        assert handle.lifecycle_state == SandboxLifecycleState.RUNNING
+
+    def test_teardown_cancellation_unconfirmed_status_does_not_dispose(self) -> None:
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            # 206 is non-standard for cancel confirmation
+            return _make_transport_response(status_code=206)
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="key", project_id="proj"),
+            transport=fake_transport,
+        )
+        handle = adapter.create_sandbox()
+        handle.lifecycle_state = SandboxLifecycleState.RUNNING
+        handle.last_operation_id = "op-unconfirmed"
+
+        with pytest.raises(SandboxAdapterError, match="returned unconfirmed status"):
+            adapter.teardown_sandbox(handle)
+
+        assert handle.lifecycle_state == SandboxLifecycleState.RUNNING
+
+    def test_teardown_running_without_operation_id_fails_closed(self) -> None:
+        adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="key", project_id="proj"))
+        handle = adapter.create_sandbox()
+        handle.lifecycle_state = SandboxLifecycleState.RUNNING
+        handle.last_operation_id = None
+
+        with pytest.raises(SandboxLifecycleError, match="missing operation ID"):
+            adapter.teardown_sandbox(handle)
+
+        assert handle.lifecycle_state == SandboxLifecycleState.RUNNING
+
+    def test_teardown_verify_whoami_success(self) -> None:
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(
+                status_code=200,
+                body={"operations_stat": {"running_instances": 0}},
+            )
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="key", project_id="proj"),
+            transport=fake_transport,
+        )
+        handle = adapter.create_sandbox()
+        adapter.teardown_sandbox(handle, verify_whoami=True)
+        assert handle.lifecycle_state == SandboxLifecycleState.DISPOSED
+
+    def test_teardown_verify_whoami_nonzero_running_fails_closed(self) -> None:
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(
+                status_code=200,
+                body={"operations_stat": {"running_instances": 2}},
+            )
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="key", project_id="proj"),
+            transport=fake_transport,
+        )
+        handle = adapter.create_sandbox()
+
+        with pytest.raises(SandboxAdapterError, match="whoami reports 2 active running instance"):
+            adapter.teardown_sandbox(handle, verify_whoami=True)
+
+        assert handle.lifecycle_state != SandboxLifecycleState.DISPOSED
+
+    def test_teardown_verify_whoami_malformed_fails_closed(self) -> None:
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(
+                status_code=200,
+                body={"user": "test"},  # Missing operations_stat
+            )
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="key", project_id="proj"),
+            transport=fake_transport,
+        )
+        handle = adapter.create_sandbox()
+
+        with pytest.raises(
+            SandboxResponseFormatError, match="missing or invalid 'operations_stat'"
+        ):
+            adapter.teardown_sandbox(handle, verify_whoami=True)
+
+        assert handle.lifecycle_state != SandboxLifecycleState.DISPOSED
+
+    def test_teardown_verify_whoami_transport_failure_does_not_dispose(self) -> None:
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(
+                status_code=503,
+                body={"error": "Whoami temporarily down"},
+            )
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="key", project_id="proj"),
+            transport=fake_transport,
+        )
+        handle = adapter.create_sandbox()
+
+        with pytest.raises(SandboxProviderError):
+            adapter.teardown_sandbox(handle, verify_whoami=True)
+
+        assert handle.lifecycle_state != SandboxLifecycleState.DISPOSED
+
+    def test_teardown_no_automatic_retry(self) -> None:
+        calls: list[str] = []
+
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            calls.append(req.full_url)
+            return _make_transport_response(status_code=500, body={"error": "Server error"})
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="key", project_id="proj"),
+            transport=fake_transport,
+        )
+        handle = adapter.create_sandbox()
+        handle.lifecycle_state = SandboxLifecycleState.RUNNING
+        handle.last_operation_id = "op-no-retry"
+
+        with pytest.raises(SandboxProviderError):
+            adapter.teardown_sandbox(handle)
+
+        assert len(calls) == 1
+
+    def test_teardown_secret_safety_in_cancellation_error(self) -> None:
+        secret = "sk-nebius-secret-key-abcdef987654321"
+
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(
+                status_code=500,
+                body={"error": f"Failed with auth key: {secret}"},
+            )
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="key", project_id="proj"),
+            transport=fake_transport,
+        )
+        handle = adapter.create_sandbox()
+        handle.lifecycle_state = SandboxLifecycleState.RUNNING
+        handle.last_operation_id = "op-secret"
+
+        with pytest.raises(SandboxProviderError) as exc_info:
+            adapter.teardown_sandbox(handle)
+
+        assert secret not in str(exc_info.value)
+        assert "[REDACTED" in str(exc_info.value)
 
     # 5. Timeout & error handling
     def test_timeout_bounds_enforced(self) -> None:

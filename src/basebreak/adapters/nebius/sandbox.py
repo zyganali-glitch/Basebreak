@@ -792,23 +792,47 @@ class NebiusSandboxAdapter:
         """Teardown and dispose a sandbox handle.
 
         Cancels any in-flight operation and transitions lifecycle state to DISPOSED.
+        Fails closed without marking DISPOSED if cancellation or verification fails.
         Subsequent execution commands on this handle will fail closed.
         """
         if handle.lifecycle_state == SandboxLifecycleState.DISPOSED:
             return
 
         # Cancel in-flight operation if running
-        if handle.lifecycle_state == SandboxLifecycleState.RUNNING and handle.last_operation_id:
-            try:
-                self.cancel_operation(handle.last_operation_id)
-            except Exception:
-                pass
+        if handle.lifecycle_state == SandboxLifecycleState.RUNNING:
+            if not handle.last_operation_id:
+                raise SandboxLifecycleError(
+                    f"Cannot teardown running sandbox {handle.sandbox_identity.sandbox_id}: "
+                    "missing operation ID for in-flight operation"
+                )
+            cancelled = self.cancel_operation(handle.last_operation_id)
+            if not cancelled:
+                raise SandboxAdapterError(
+                    f"Teardown failed: cancellation of operation {handle.last_operation_id} "
+                    "returned unconfirmed status"
+                )
+
+        # Optionally verify teardown via whoami introspection
+        if verify_whoami:
+            whoami_data = self.inspect_whoami()
+            if not isinstance(whoami_data, dict):
+                raise SandboxResponseFormatError(
+                    "whoami verification returned non-dictionary response"
+                )
+            ops_stat = whoami_data.get("operations_stat")
+            if not isinstance(ops_stat, dict):
+                raise SandboxResponseFormatError(
+                    "whoami verification response missing or invalid 'operations_stat'"
+                )
+            running_instances = ops_stat.get("running_instances")
+            if running_instances is None or not isinstance(running_instances, int):
+                raise SandboxResponseFormatError(
+                    "whoami verification response missing integer 'running_instances'"
+                )
+            if running_instances != 0:
+                raise SandboxAdapterError(
+                    f"Teardown verification failed: whoami reports {running_instances} "
+                    "active running instance(s)"
+                )
 
         handle.lifecycle_state = SandboxLifecycleState.DISPOSED
-
-        # Optionally inspect whoami to observe zero running instances
-        if verify_whoami:
-            try:
-                self.inspect_whoami()
-            except Exception:
-                pass
