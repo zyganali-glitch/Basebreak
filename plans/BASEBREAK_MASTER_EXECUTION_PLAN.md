@@ -342,7 +342,7 @@ Status: DONE (independently VERIFIED / PASS at SHA 899fe27feb8ec530c226a46832d47
 ### P-05.05 — Implement retry/idempotency policy without duplicating external actions
 Status: DONE (independently VERIFIED / PASS at SHA ef2d55c6ed6195e291b5e3ba8fe753541e5863c4)
 ### P-05.06 — Execute live adapter integration suite
-Status: IN_PROGRESS / PRE-LIVE HARNESS REPAIR (NOT COMPLETE; blocked on pre-live harness and clean CI repair, not on unresolved P-05.02; must NOT be presented as PASS)
+Status: IN_PROGRESS (LIVE RERUN AUTHORIZED; pre-live harness/CI repair independently PASS at SHA 517ad633c5b9ade85dcc8e0e4b9d05361fe4cb15; adapter candidate under live verification is bee7a22e77195e21ba5bc6341a72caed6ef675d9, tree 63e522e074ad0ca3c1a12f042af56c907c5dca89; P-05 phase NOT closed; P-06+ remain strictly NOT AUTHORIZED / NOT_RUN)
 Phase exit: provider adapter is real, fail-closed, and replaceable from domain core. (P-05 phase NOT closed; P-06+ remain strictly NOT AUTHORIZED / NOT_RUN).
 
 ---
