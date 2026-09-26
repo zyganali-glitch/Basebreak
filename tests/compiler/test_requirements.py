@@ -16,6 +16,7 @@ Verifies:
 from __future__ import annotations
 
 import json
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -336,3 +337,229 @@ class TestRequirementProposalP0602:
         summary = result.safe_summary()
         assert secret not in summary
         assert "RequirementProposalResult(" in summary
+
+    # 11. Malformed unquoted JSON strictly fails closed (Test Requirement C)
+    @pytest.mark.parametrize(
+        "malformed_payload",
+        [
+            '{"statement": Retry three times}',
+            '{"citation": When HTTP 503 occurs}',
+            (
+                '{"requirements": [{"statement": Retry three times, '
+                '"citation": "When HTTP 503 is returned, retry up to 3 times."}]}'
+            ),
+            '{"requirements": [{"statement": "Retry", "citation": When HTTP 503 occurs}]}',
+        ],
+    )
+    def test_malformed_unquoted_json_fails_closed(
+        self, sample_task: NormalizedTask, malformed_payload: str
+    ) -> None:
+        with pytest.raises(MalformedModelOutputError, match="not valid JSON"):
+            parse_and_validate_requirements(
+                raw_response=malformed_payload,
+                task=sample_task,
+                model_id=DEFAULT_REQUIREMENTS_MODEL,
+            )
+
+    # 12. Truncated JSON strictly fails closed (Test Requirement D)
+    @pytest.mark.parametrize(
+        "truncated_payload",
+        [
+            '{"requirements": [{"statement": "Retry up to 3 times"',
+            '{"requirements": [',
+            '{"requirements": ',
+            '{"requirements": [{"statement": "Retry", "citation": "When',
+        ],
+    )
+    def test_truncated_json_fails_closed(
+        self, sample_task: NormalizedTask, truncated_payload: str
+    ) -> None:
+        with pytest.raises(MalformedModelOutputError, match="not valid JSON"):
+            parse_and_validate_requirements(
+                raw_response=truncated_payload,
+                task=sample_task,
+                model_id=DEFAULT_REQUIREMENTS_MODEL,
+            )
+
+    # 13. Trailing structurally invalid JSON fails closed
+    @pytest.mark.parametrize(
+        "trailing_payload",
+        [
+            (
+                '{"requirements": [{"statement": "Retry up to 3 times on HTTP 503 response", '
+                '"citation": "When HTTP 503 is returned, retry up to 3 times."}]} '
+                "trailing invalid text"
+            ),
+            (
+                '{"requirements": [{"statement": "Retry up to 3 times on HTTP 503 response", '
+                '"citation": "When HTTP 503 is returned, retry up to 3 times."}]} '
+                '{"trailing": "broken"'
+            ),
+            (
+                '{"requirements": [{"statement": "Retry up to 3 times on HTTP 503 response", '
+                '"citation": "When HTTP 503 is returned, retry up to 3 times."}]} {extra}'
+            ),
+        ],
+    )
+    def test_trailing_structurally_invalid_json_fails_closed(
+        self, sample_task: NormalizedTask, trailing_payload: str
+    ) -> None:
+        with pytest.raises(MalformedModelOutputError, match="not valid JSON"):
+            parse_and_validate_requirements(
+                raw_response=trailing_payload,
+                task=sample_task,
+                model_id=DEFAULT_REQUIREMENTS_MODEL,
+            )
+
+    # 14. Wrong field types fail closed (Test Requirement F)
+    def test_wrong_top_level_type_fails_closed(self, sample_task: NormalizedTask) -> None:
+        with pytest.raises(MalformedModelOutputError, match="Expected JSON object at top level"):
+            parse_and_validate_requirements(
+                raw_response=json.dumps(["not", "an", "object"]),
+                task=sample_task,
+                model_id=DEFAULT_REQUIREMENTS_MODEL,
+            )
+
+    def test_wrong_requirements_type_fails_closed(self, sample_task: NormalizedTask) -> None:
+        with pytest.raises(MalformedModelOutputError, match="'requirements' field must be a list"):
+            parse_and_validate_requirements(
+                raw_response=json.dumps({"requirements": "not-a-list"}),
+                task=sample_task,
+                model_id=DEFAULT_REQUIREMENTS_MODEL,
+            )
+
+    def test_wrong_requirement_item_type_fails_closed(self, sample_task: NormalizedTask) -> None:
+        with pytest.raises(MalformedModelOutputError, match="must be a dict"):
+            parse_and_validate_requirements(
+                raw_response=json.dumps({"requirements": ["not-a-dict"]}),
+                task=sample_task,
+                model_id=DEFAULT_REQUIREMENTS_MODEL,
+            )
+
+    @pytest.mark.parametrize(
+        "bad_statement",
+        [123, 45.6, True, False, ["list"], {"nested": "dict"}],
+    )
+    def test_wrong_statement_type_fails_closed(
+        self, sample_task: NormalizedTask, bad_statement: Any
+    ) -> None:
+        with pytest.raises(MalformedModelOutputError, match="'statement' must be str"):
+            parse_and_validate_requirements(
+                raw_response=json.dumps(
+                    {
+                        "requirements": [
+                            {
+                                "statement": bad_statement,
+                                "citation": "When HTTP 503 is returned, retry up to 3 times.",
+                            }
+                        ]
+                    }
+                ),
+                task=sample_task,
+                model_id=DEFAULT_REQUIREMENTS_MODEL,
+            )
+
+    @pytest.mark.parametrize(
+        "bad_citation",
+        [123, 45.6, True, False, ["list"], {"nested": "dict"}],
+    )
+    def test_wrong_citation_type_fails_closed(
+        self, sample_task: NormalizedTask, bad_citation: Any
+    ) -> None:
+        with pytest.raises(MalformedModelOutputError, match="'citation' must be str"):
+            parse_and_validate_requirements(
+                raw_response=json.dumps(
+                    {
+                        "requirements": [
+                            {
+                                "statement": "Retry up to 3 times",
+                                "citation": bad_citation,
+                            }
+                        ]
+                    }
+                ),
+                task=sample_task,
+                model_id=DEFAULT_REQUIREMENTS_MODEL,
+            )
+
+    @pytest.mark.parametrize(
+        "bad_rationale",
+        [123, 45.6, True, False, ["list"], {"nested": "dict"}],
+    )
+    def test_wrong_rationale_type_fails_closed(
+        self, sample_task: NormalizedTask, bad_rationale: Any
+    ) -> None:
+        with pytest.raises(MalformedModelOutputError, match="'rationale' must be str"):
+            parse_and_validate_requirements(
+                raw_response=json.dumps(
+                    {
+                        "requirements": [
+                            {
+                                "statement": "Retry up to 3 times",
+                                "citation": "When HTTP 503 is returned, retry up to 3 times.",
+                                "rationale": bad_rationale,
+                            }
+                        ]
+                    }
+                ),
+                task=sample_task,
+                model_id=DEFAULT_REQUIREMENTS_MODEL,
+            )
+
+    # 15. Compiler production provider purity gate (Test Requirement K)
+    def test_compiler_production_provider_purity_gate(self) -> None:
+        from pathlib import Path
+
+        compiler_dir = (
+            Path(__file__).resolve().parent.parent.parent / "src" / "basebreak" / "compiler"
+        )
+        for py_file in compiler_dir.glob("**/*.py"):
+            content = py_file.read_text(encoding="utf-8")
+            assert "basebreak.adapters" not in content, f"Adapter leakage detected in {py_file}"
+            assert "from .adapters" not in content, f"Relative adapter leakage in {py_file}"
+
+    # 16. No provider-specific provenance authority in compiler core (Test Requirement L)
+    def test_no_provider_provenance_authority_in_compiler_core(self) -> None:
+        from pathlib import Path
+
+        compiler_dir = (
+            Path(__file__).resolve().parent.parent.parent / "src" / "basebreak" / "compiler"
+        )
+        for py_file in compiler_dir.glob("**/*.py"):
+            content = py_file.read_text(encoding="utf-8")
+            assert "EvidenceProvenance" not in content, (
+                f"EvidenceProvenance authority found in {py_file}"
+            )
+            assert "LIVE_NEBIUS" not in content, (
+                f"Provider-specific LIVE_NEBIUS authority found in {py_file}"
+            )
+
+    # 17. Secret-bearing malformed output does not leak secrets (Test Requirement M)
+    def test_secret_bearing_malformed_output_does_not_leak_secrets(
+        self, sample_task: NormalizedTask
+    ) -> None:
+        synthetic_secret = "sk-nebius-secret-abcdef1234567890"
+        malformed = f'{{"statement": Retry token {synthetic_secret} invalid json'
+
+        with pytest.raises(MalformedModelOutputError) as exc_info:
+            parse_and_validate_requirements(
+                raw_response=malformed,
+                task=sample_task,
+                model_id=DEFAULT_REQUIREMENTS_MODEL,
+            )
+
+        err_msg = str(exc_info.value)
+        assert synthetic_secret not in err_msg, (
+            "Secret leaked in MalformedModelOutputError message!"
+        )
+
+    # 18. Actual NebiusModelClient interface compatibility (Test Requirement N)
+    def test_nebius_model_client_interface_compatibility(self, sample_task: NormalizedTask) -> None:
+        from basebreak.adapters.nebius.client import ModelClientConfig, NebiusModelClient
+
+        cfg = ModelClientConfig(model=DEFAULT_REQUIREMENTS_MODEL)
+        # Create client without network transport (interface check only)
+        client = NebiusModelClient(config=cfg)
+        proposer = NemotronRequirementProposer(client, model_id=DEFAULT_REQUIREMENTS_MODEL)
+        assert proposer.model_client is client
+        assert proposer.model_id == DEFAULT_REQUIREMENTS_MODEL

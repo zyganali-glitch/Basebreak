@@ -62,11 +62,14 @@ Judge claim:
 - P-05.06 (Execute live adapter integration suite) is independently VERIFIED / PASS at SHA `eeba36126968f34494ef1c12b1e3ddbccc18ad91` (genuine LIVE_NEBIUS evidence in `docs/P05_06_LIVE_ADAPTER_INTEGRATION.md`).
 - P-05 phase (Nebius/Nemotron Adapter Layer) is independently CLOSED / PASS at SHA `eeba36126968f34494ef1c12b1e3ddbccc18ad91`.
 - P-Ω broad phase-closure audit: PASS.
-- P-06.01 (Define task ingestion and deterministic normalization) is EXECUTOR_COMPLETED / CANDIDATE (deterministic normalization, raw text preservation, bounded size ceiling, SHA-256 digests, secret-safe summary and repr, 16 focused tests passing in `tests/compiler/test_ingestion.py`).
-- P-06.02 (Use Nemotron to propose atomic acceptance requirements with citations to task text) is EXECUTOR_COMPLETED / CANDIDATE (proposed atomic acceptance requirements via Nemotron with strict citation span validation against normalized task text, schema enforcement, unsupported citation fail-closed logic, duplicate deduplication, 13 offline unit tests in `tests/compiler/test_requirements.py` and genuine LIVE_NEBIUS execution test in `tests/compiler/test_p06_02_live.py`, durable evidence in `docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md`).
+- P-06.01 (Define task ingestion and deterministic normalization) is independently VERIFIED / PASS at SHA `a76762c62fffba30a7b8d1ead2a130c192c8c072`.
+- P-06.02 (Use Nemotron to propose atomic acceptance requirements with citations to task text) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE after surgical repair of compiler provider purity, strict fail-closed parsing restoration, test suite hardening (tests A through N), and clean reproduction of genuine LIVE_NEBIUS proof in `docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md`.
+- P-06.03 (Classify change semantics and uncertainty) is NOT AUTHORIZED / NOT_RUN after batch-boundary restoration.
+- P-06.04 (Deterministically validate requirement IDs, scope, forbidden actions and contradictions) is NOT AUTHORIZED / NOT_RUN after batch-boundary restoration.
+- P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Last independently VERIFIED baseline SHA
-`eeba36126968f34494ef1c12b1e3ddbccc18ad91` (independently VERIFIED baseline at P-05.06 / P-05 phase closure).
+`a76762c62fffba30a7b8d1ead2a130c192c8c072` (independently VERIFIED baseline at P-06.01).
 
 ## Blocking live gate vs active task
 
@@ -74,18 +77,17 @@ Judge claim:
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-P-06.01 and P-06.02.
+P-06.02 (repaired candidate awaiting independent QA review).
 
 ### Active exact task
-`P-06.03 — Classify change semantics and uncertainty`
-(Batch P-06.01 through P-06.04 conditionally authorized by Independent QA; P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN).
+`P-06.02 — Use Nemotron to propose atomic acceptance requirements with citations to task text` (HARD STOP; batch hard-stop boundary restored; P-06.03+ remain NOT_RUN awaiting independent QA verdict on P-06.02).
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-05 all tasks are independently VERIFIED / PASS. P-06.01 and P-06.02 are EXECUTOR_COMPLETED / CANDIDATE.
-- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, and Contract Compiler core domain models remain strictly provider-neutral.
+- **Task status:** P-00 through P-05 all tasks are independently VERIFIED / PASS. P-06.01 is independently VERIFIED / PASS at SHA `a76762c62fffba30a7b8d1ead2a130c192c8c072`. P-06.02 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, and Contract Compiler core production code (`src/basebreak/compiler/*`) remain strictly provider-neutral with zero `basebreak.adapters` imports.
 - **Phase status:** P-00, P-01, P-02, P-03, P-04, P-05 phases are independently CLOSED / PASS. P-06 phase is OPEN.
-- **Authorized batch:** P-06.01, P-06.02, P-06.03, P-06.04 are sequentially and conditionally authorized under strict fail-closed batch execution law.
-- **Not authorized / forbidden:** P-06.05, P-06.06, and P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** Downstream unaccepted task commits (P-06.03 and P-06.04) mechanically reverted. P-06.03, P-06.04, P-06.05+ are NOT AUTHORIZED / NOT_RUN. Hard stop at P-06.02.
+- **Not authorized / forbidden:** P-06.03, P-06.04, P-06.05, P-06.06, and P-07+ remain strictly NOT AUTHORIZED / NOT_RUN until authorized by Independent QA.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);

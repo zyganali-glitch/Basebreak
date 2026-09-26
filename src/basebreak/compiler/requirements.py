@@ -237,20 +237,11 @@ class RequirementProposalResult:
 
 
 def _strip_markdown_code_fence(text: str) -> str:
-    """Safely extract JSON object from markdown code fences or embedded response."""
+    """Safely extract bounded JSON payload from markdown code fence if present."""
     stripped = text.strip()
-    # 1. Match code fence anywhere in text
-    fence_match = re.search(
-        r"```(?:json)?\s*\n?(\{.*?\})\s*\n?```", stripped, re.DOTALL | re.IGNORECASE
-    )
+    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", stripped, re.DOTALL | re.IGNORECASE)
     if fence_match:
         return fence_match.group(1).strip()
-
-    # 2. Match outermost JSON object { ... }
-    brace_match = re.search(r"(\{.*\})", stripped, re.DOTALL)
-    if brace_match:
-        return brace_match.group(1).strip()
-
     return stripped
 
 
@@ -288,9 +279,11 @@ def parse_and_validate_requirements(
         data = json.loads(cleaned)
     except json.JSONDecodeError as exc:
         sanitized_snippet = redact_log_text(cleaned[:200])
+        safe_exc_msg = redact_log_text(str(exc))
         raise MalformedModelOutputError(
-            f"Model output is not valid JSON: {exc}. Cleaned content: {sanitized_snippet!r}"
-        ) from exc
+            f"Model output is not valid JSON: {safe_exc_msg}. "
+            f"Cleaned content: {sanitized_snippet!r}"
+        ) from None
 
     if not isinstance(data, dict):
         raise MalformedModelOutputError(
@@ -319,23 +312,48 @@ def parse_and_validate_requirements(
                 f"Requirement item at index {idx} must be a dict, got {type(item).__name__}"
             )
 
-        statement = item.get("statement")
-        if not isinstance(statement, str) or not statement.strip():
+        if "statement" not in item:
             raise MalformedModelOutputError(
                 f"Requirement at index {idx} has missing or empty 'statement'"
             )
-        statement = statement.strip()
+        statement_raw = item["statement"]
+        if not isinstance(statement_raw, str):
+            tname = type(statement_raw).__name__
+            raise MalformedModelOutputError(
+                f"Requirement at index {idx} 'statement' must be str, got {tname}"
+            )
+        statement = statement_raw.strip()
+        if not statement:
+            raise MalformedModelOutputError(
+                f"Requirement at index {idx} has missing or empty 'statement'"
+            )
 
-        citation = item.get("citation")
-        if not isinstance(citation, str) or not citation.strip():
+        if "citation" not in item:
             raise MalformedModelOutputError(
                 f"Requirement at index {idx} has missing or empty 'citation'"
             )
-        citation = citation.strip()
+        citation_raw = item["citation"]
+        if not isinstance(citation_raw, str):
+            tname = type(citation_raw).__name__
+            raise MalformedModelOutputError(
+                f"Requirement at index {idx} 'citation' must be str, got {tname}"
+            )
+        citation = citation_raw.strip()
+        if not citation:
+            raise MalformedModelOutputError(
+                f"Requirement at index {idx} has missing or empty 'citation'"
+            )
 
-        rationale = item.get("rationale", "")
-        if not isinstance(rationale, str):
-            rationale = str(rationale)
+        if "rationale" in item:
+            rationale_val = item["rationale"]
+            if not isinstance(rationale_val, str):
+                tname = type(rationale_val).__name__
+                raise MalformedModelOutputError(
+                    f"Requirement at index {idx} 'rationale' must be str, got {tname}"
+                )
+            rationale = rationale_val.strip()
+        else:
+            rationale = ""
 
         # Enforce citation binding to normalized task text
         citation_start = normalized_task_text.find(citation)
@@ -414,30 +432,19 @@ class NemotronRequirementProposer:
 
         result = self.model_client.complete(messages)
 
-        prompt_tokens = getattr(result.usage, "prompt_tokens", 0)
-        completion_tokens = getattr(result.usage, "completion_tokens", 0)
-        total_tokens = getattr(result.usage, "total_tokens", 0)
-
-        # Normalize telemetry if possible
-        telemetry_digest: str | None = None
-        try:
-            from basebreak.adapters.nebius.telemetry import normalize_model_telemetry
-            from basebreak.domain.verdict import EvidenceProvenance
-
-            telemetry = normalize_model_telemetry(
-                result,
-                provenance=EvidenceProvenance.LIVE_NEBIUS,
-                configured_model=self.model_id,
-            )
-            telemetry_digest = telemetry.payload_digest
-        except Exception:
-            pass
+        usage = getattr(result, "usage", None)
+        prompt_tokens = getattr(usage, "prompt_tokens", 0) if usage is not None else 0
+        completion_tokens = getattr(usage, "completion_tokens", 0) if usage is not None else 0
+        total_tokens = getattr(usage, "total_tokens", 0) if usage is not None else 0
+        telemetry_digest = getattr(result, "telemetry_digest", None)
 
         raw_text = getattr(result, "content", getattr(result, "raw_text", str(result)))
+        model_id = getattr(result, "returned_model", self.model_id)
+
         return parse_and_validate_requirements(
             raw_response=raw_text,
             task=task,
-            model_id=result.returned_model,
+            model_id=model_id,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,

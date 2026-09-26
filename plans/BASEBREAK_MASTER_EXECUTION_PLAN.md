@@ -351,13 +351,17 @@ Phase exit: provider adapter is real, fail-closed, and replaceable from domain c
 Goal: convert natural-language task into reviewable verification contract.
 
 ### P-06.01 — Define task ingestion and deterministic normalization
-Status: DONE (executor completed; deterministic task ingestion and normalization with raw text preservation, NFC Unicode normalization, BOM stripping, line-ending standardization, indentation-preserving whitespace rules, bounded byte ceilings, SHA-256 digests, and secret-safe representations in src/basebreak/compiler/ingestion.py; 16 focused tests passing in tests/compiler/test_ingestion.py)
+Status: DONE (independently VERIFIED / PASS at SHA a76762c62fffba30a7b8d1ead2a130c192c8c072; deterministic task ingestion and normalization with raw text preservation, NFC Unicode normalization, BOM stripping, line-ending standardization, indentation-preserving whitespace rules, bounded byte ceilings, SHA-256 digests, and secret-safe representations in src/basebreak/compiler/ingestion.py; 16 focused tests passing in tests/compiler/test_ingestion.py)
 ### P-06.02 — Use Nemotron to propose atomic acceptance requirements with citations to task text
-Status: DONE (executor completed; proposed atomic acceptance requirements via Nemotron with strict citation span validation against normalized task text, schema enforcement, unsupported citation fail-closed logic, duplicate deduplication, 13 offline unit tests in tests/compiler/test_requirements.py and genuine LIVE_NEBIUS execution test in tests/compiler/test_p06_02_live.py, durable evidence in docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md)
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (proposed atomic acceptance requirements via Nemotron with strict citation span validation against normalized task text, schema enforcement, unsupported citation fail-closed logic, duplicate deduplication, provider purity enforced with zero adapter imports in compiler core, strict fail-closed unquoted/malformed JSON handling, comprehensive test suite A-N in tests/compiler/test_requirements.py, and genuine LIVE_NEBIUS execution test in tests/compiler/test_p06_02_live.py with durable evidence in docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md)
 ### P-06.03 — Classify change semantics and uncertainty
+Status: NOT AUTHORIZED / NOT_RUN (restored batch hard-stop boundary; downstream unaccepted commits reverted; awaiting independent QA verdict on repaired P-06.02)
 ### P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions
+Status: NOT AUTHORIZED / NOT_RUN (restored batch hard-stop boundary; downstream unaccepted commits reverted; awaiting independent QA verdict on repaired P-06.02)
 ### P-06.05 — Add human-editable contract review surface/CLI
+Status: NOT AUTHORIZED / NOT_RUN
 ### P-06.06 — Freeze contract digest before Builder execution
+Status: NOT AUTHORIZED / NOT_RUN
 Acceptance:
 - contract digest computed deterministically from normalized acceptance requirements;
 - frozen contract digest cannot be modified by Builder or Verifier;

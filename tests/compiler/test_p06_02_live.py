@@ -133,7 +133,7 @@ def run_live_requirement_proposal_proof() -> dict[str, Any]:
 
 - **Date / Time (UTC):** {start_utc} to {end_utc}
 - **Exact Active Task:** `{task_name}`
-- **Execution Status:** EXECUTOR_COMPLETED / LIVE_VERIFIED
+- **Execution Status:** EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE
 - **Evidence Provenance:** `LIVE_NEBIUS`
 - **Configured Model Identity:** `{DEFAULT_PRIMARY_MODEL}`
 - **Provider Returned Model Identity:** `{proposal_result.model_id}`
@@ -169,7 +169,7 @@ Proposed requirements successfully extracted and bound to normalized task text:
 
 - **Model Client Configuration:** `max_tokens=2048`, `temperature=0.0`, `timeout=45.0s`.
 - **Zero-Cost Policy Check:** Consumed `{proposal_result.total_tokens}` tokens
-  (negligible cost < $0.0001 from promotional credits; personal spend strictly $0.00).
+  (promotional credits used; personal spend strictly $0.00).
 - **Safety Reserve Floor:** Promotional balance verified > $5.00
   (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`).
 - **Secret Safety Check:** PASS. 0 secrets present in evidence.
