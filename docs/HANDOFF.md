@@ -53,8 +53,11 @@ Judge claim:
 - P-04.06 (Add malicious-fixture tests for exfiltration attempts, fork bombs, verifier discovery, and protected-surface mutation) is independently VERIFIED / PASS at SHA `5673b0ae07120151a08626161a21586b44c75bc1`.
 - P-04 phase (Security & Untrusted-Code Policy Foundation) is independently CLOSED / PASS at SHA `5673b0ae07120151a08626161a21586b44c75bc1`.
 
+- P-05.01 (Implement bounded model client using discovered model identifiers/config) is independently VERIFIED baseline entering this batch at SHA `90e5391b9bd7a406c62b838bfa1f24e85400ad65`.
+- P-05.02 (Implement sandbox create/exec/inspect/teardown adapter) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+
 ## Last independently VERIFIED baseline SHA
-`5673b0ae07120151a08626161a21586b44c75bc1` (P-04 phase independent closure / PASS).
+`90e5391b9bd7a406c62b838bfa1f24e85400ad65` (Entering conditional sequential batch).
 
 ## Blocking live gate vs active task
 
@@ -62,10 +65,10 @@ Judge claim:
 None. P-01 live platform discovery is complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-`P-05.01 — Implement bounded model client using discovered model identifiers/config` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+`P-05.02 — Implement sandbox create/exec/inspect/teardown adapter` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
 
 ### Active exact task
-Awaiting Independent QA evaluation of `P-05.01` (HARD STOP — P-05.02+ strictly forbidden).
+`P-05.03 — Implement repository materialization and source-hash verification adapter` (next authorized in sequential batch).
 
 ## Parallelization boundary & rules
 - **Live batch executed & closed:** With Nebius Token Factory Sandboxes beta activation confirmed live, the conditional live batch (`P-01.03` through `P-01.07`) was executed, verified, and awarded independent QA PASS, closing Phase P-01.
