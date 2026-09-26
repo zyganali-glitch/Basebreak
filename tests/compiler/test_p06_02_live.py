@@ -176,7 +176,8 @@ Proposed requirements successfully extracted and bound to normalized task text:
 """
 
     validate_no_secrets(content, path="docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md")
-    evidence_doc_path.write_text(content, encoding="utf-8")
+    if not evidence_doc_path.exists() or os.environ.get("BASEBREAK_RECORD_LIVE_PROPOSAL") == "1":
+        evidence_doc_path.write_text(content, encoding="utf-8")
 
     return evidence
 

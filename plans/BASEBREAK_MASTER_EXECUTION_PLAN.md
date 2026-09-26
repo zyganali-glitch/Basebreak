@@ -357,6 +357,7 @@ Status: DONE (executor completed; proposed atomic acceptance requirements via Ne
 ### P-06.03 — Classify change semantics and uncertainty
 Status: DONE (executor completed; deterministic heuristic and model-based change semantics classification into 6 canonical ChangeClass variants, explicit CertaintyLevel modeling [CONFIDENT, AMBIGUOUS, UNKNOWN], verbatim citation validation against normalized task text, strict schema enforcement, secret-safe representations, and provider purity; 22 unit tests passing in tests/compiler/test_change_semantics.py)
 ### P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions
+Status: DONE (executor completed; deterministic validation of requirement IDs, scope boundaries [count and statement length], forbidden action policies [prompt injection, sandbox disablement, protected surface mutation, test weakening/deletion, destructive commands, credential exfiltration], logical pairwise and change-semantics contradiction detection, and deterministic contract digest computation; 31 unit tests passing in tests/compiler/test_validation.py)
 ### P-06.05 — Add human-editable contract review surface/CLI
 ### P-06.06 — Freeze contract digest before Builder execution
 Acceptance:

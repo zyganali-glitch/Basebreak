@@ -450,10 +450,10 @@ canonical candidate repository state down to the exact bit.
 - **Token Factory Pricing Policy:** Sandboxes remain free while in beta.
 - **Model Consumed Tokens:** `{m_exec["total_tokens"]}` tokens.
 - **Promotional Balance Floor:** Pre-execution and post-execution promotional balance satisfied
-  safety threshold (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`).
 - **Target Personal Spend:** Strictly `$0.00`.
 """
-    path.write_text(content, encoding="utf-8")
+    if not path.exists() or os.environ.get("BASEBREAK_RECORD_LIVE_ADAPTER") == "1":
+        path.write_text(content, encoding="utf-8")
 
 
 def test_p05_06_offline_fail_closed_without_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
