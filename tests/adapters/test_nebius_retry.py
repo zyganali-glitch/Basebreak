@@ -40,6 +40,7 @@ from basebreak.adapters.nebius.retry import (
     is_operation_retryable,
     is_permanent_failure,
     is_transient_failure,
+    validate_operation_classification,
 )
 from basebreak.adapters.nebius.sandbox import (
     MissingSandboxCredentialError,
@@ -151,32 +152,39 @@ class TestErrorClassification:
         transient_exc = ModelProviderError(status_code=503, sanitized_message="temp down")
         perm_exc = ModelProviderError(status_code=403, sanitized_message="forbidden")
 
-        # READ_ONLY on transient -> retryable
-        can_retry, _ = is_operation_retryable(OperationEffect.READ_ONLY, transient_exc)
+        # Known READ_ONLY on transient -> retryable
+        can_retry, _ = is_operation_retryable("whoami", transient_exc)
         assert can_retry is True
 
-        # IDEMPOTENT_MUTATION on transient -> retryable
-        can_retry, _ = is_operation_retryable(OperationEffect.IDEMPOTENT_MUTATION, transient_exc)
-        assert can_retry is True
-
-        # NON_IDEMPOTENT_MUTATION on transient -> FORBIDDEN (cannot retry)
-        can_retry, rationale = is_operation_retryable(
-            OperationEffect.NON_IDEMPOTENT_MUTATION, transient_exc
+        # Matching explicit assertion READ_ONLY on transient -> retryable
+        can_retry, _ = is_operation_retryable(
+            "whoami", transient_exc, operation_effect=OperationEffect.READ_ONLY
         )
-        assert can_retry is False
-        assert "Non-idempotent operation risks duplicating" in rationale
+        assert can_retry is True
 
-        # cancel_operation specifically blocked by name regardless of asserted effect
+        # Known NON_IDEMPOTENT_MUTATION on transient -> FORBIDDEN (cannot retry)
+        can_retry, rationale = is_operation_retryable("create_instance", transient_exc)
+        assert can_retry is False
+        assert "no proven provider idempotency guarantee" in rationale
+
+        # cancel_operation specifically blocked by name
         can_retry_cancel, rationale_cancel = is_operation_retryable(
-            OperationEffect.IDEMPOTENT_MUTATION, transient_exc, operation_name="cancel_operation"
+            "cancel_operation", transient_exc
         )
         assert can_retry_cancel is False
         assert "no proven provider idempotency guarantee" in rationale_cancel
 
+        # Unknown operation on transient -> defaults to NON_IDEMPOTENT_MUTATION, cannot retry
+        can_retry_unknown, rationale_unknown = is_operation_retryable(
+            "unknown_custom_action", transient_exc
+        )
+        assert can_retry_unknown is False
+        assert "no proven provider idempotency guarantee" in rationale_unknown
+
         # Any operation on permanent failure -> cannot retry
-        can_retry, _ = is_operation_retryable(OperationEffect.READ_ONLY, perm_exc)
+        can_retry, _ = is_operation_retryable("whoami", perm_exc)
         assert can_retry is False
-        can_retry, _ = is_operation_retryable(OperationEffect.IDEMPOTENT_MUTATION, perm_exc)
+        can_retry, _ = is_operation_retryable("create_instance", perm_exc)
         assert can_retry is False
 
 
@@ -227,6 +235,27 @@ class TestOperationClassification:
             == OperationEffect.NON_IDEMPOTENT_MUTATION
         )
         assert classify_operation_effect("  WhoAmI  ") == OperationEffect.READ_ONLY
+
+    def test_validate_operation_classification_direct(self) -> None:
+        assert validate_operation_classification("whoami") == OperationEffect.READ_ONLY
+        assert (
+            validate_operation_classification("whoami", OperationEffect.READ_ONLY)
+            == OperationEffect.READ_ONLY
+        )
+        assert (
+            validate_operation_classification("create_instance")
+            == OperationEffect.NON_IDEMPOTENT_MUTATION
+        )
+        assert (
+            validate_operation_classification(
+                "create_instance", OperationEffect.NON_IDEMPOTENT_MUTATION
+            )
+            == OperationEffect.NON_IDEMPOTENT_MUTATION
+        )
+        with pytest.raises(RetryPolicyError):
+            validate_operation_classification("create_instance", OperationEffect.READ_ONLY)
+        with pytest.raises(RetryPolicyError):
+            validate_operation_classification("unknown_xyz", OperationEffect.READ_ONLY)
 
 
 class TestNebiusRetryExecutor:
@@ -872,10 +901,229 @@ class TestClassificationAuthority:
     ) -> None:
         """is_operation_retryable helper directly rejects unknown operations by name."""
         transient_exc = SandboxProviderError(status_code=503, sanitized_message="Busy")
+
+        # Unknown operation without assertion fails closed to NON_IDEMPOTENT_MUTATION
         can_retry, rationale = is_operation_retryable(
-            OperationEffect.IDEMPOTENT_MUTATION,
+            "unknown_mutating_provider_call",
             transient_exc,
-            operation_name="unknown_mutating_provider_call",
         )
         assert can_retry is False
         assert "no proven provider idempotency guarantee" in rationale
+
+        # Asserting IDEMPOTENT_MUTATION for unknown operation raises RetryPolicyError
+        with pytest.raises(
+            RetryPolicyError, match="Cannot assert IDEMPOTENT_MUTATION for unregistered operation"
+        ):
+            is_operation_retryable(
+                "unknown_mutating_provider_call",
+                transient_exc,
+                operation_effect=OperationEffect.IDEMPOTENT_MUTATION,
+            )
+
+
+class TestPublicRetryDecisionAuthority:
+    """Focused suite verifying canonical classification authority for public retry decisions."""
+
+    def test_requirement_a_public_retry_decision_requires_canonical_operation_identity(
+        self,
+    ) -> None:
+        """Requirement A: public retry decision cannot be made without canonical operation ID."""
+        transient_exc = ModelProviderError(status_code=503, sanitized_message="Overloaded")
+
+        # Calling without operation_name raises TypeError
+        with pytest.raises(TypeError):
+            is_operation_retryable(exc=transient_exc)  # type: ignore[call-arg]
+
+        # Calling with OperationEffect enum as first argument raises RetryPolicyError
+        with pytest.raises(
+            RetryPolicyError, match="operation_name must be a canonical operation name string"
+        ):
+            is_operation_retryable(
+                OperationEffect.IDEMPOTENT_MUTATION,
+                transient_exc,
+            )
+
+        # Empty operation_name raises RetryPolicyError
+        with pytest.raises(RetryPolicyError, match="operation_name cannot be empty"):
+            is_operation_retryable("", transient_exc)
+
+        with pytest.raises(RetryPolicyError, match="operation_name cannot be empty"):
+            is_operation_retryable("   ", transient_exc)
+
+    def test_requirement_b_known_read_only_transient_is_retryable(self) -> None:
+        """Requirement B: known READ_ONLY + transient 503 => retryable."""
+        transient_503 = ModelProviderError(status_code=503, sanitized_message="Unavailable")
+        transient_429 = SandboxProviderError(status_code=429, sanitized_message="Rate limit")
+
+        for op in (
+            "whoami",
+            "inspect_whoami",
+            "inspect_operation",
+            "poll_operation",
+            "list_images",
+            "inspect_image",
+        ):
+            can_retry, rationale = is_operation_retryable(op, transient_503)
+            assert can_retry is True
+            assert "Safe retryable failure" in rationale
+
+            can_retry_429, _ = is_operation_retryable(op, transient_429)
+            assert can_retry_429 is True
+
+    def test_requirement_c_known_read_only_permanent_failure_not_retryable(self) -> None:
+        """Requirement C: known READ_ONLY + permanent failure => not retryable."""
+        perm_403 = ModelProviderError(status_code=403, sanitized_message="Forbidden")
+        perm_401 = SandboxProviderError(status_code=401, sanitized_message="Unauthorized")
+        perm_config = ModelConfigError("Invalid model configuration")
+
+        for op in ("whoami", "inspect_whoami", "inspect_operation", "poll_operation"):
+            can_retry, rationale = is_operation_retryable(op, perm_403)
+            assert can_retry is False
+            assert "Permanent failure" in rationale
+
+            can_retry_401, _ = is_operation_retryable(op, perm_401)
+            assert can_retry_401 is False
+
+            can_retry_cfg, _ = is_operation_retryable(op, perm_config)
+            assert can_retry_cfg is False
+
+    def test_requirement_d_known_mutation_transient_not_retryable(self) -> None:
+        """Requirement D: known mutation + transient => not retryable."""
+        transient_exc = SandboxProviderError(status_code=503, sanitized_message="Overloaded")
+
+        for op in (
+            "cancel_operation",
+            "cancel",
+            "create_instance",
+            "chat_completion",
+            "spawn_disposable",
+            "spawn_instance",
+            "clone_repository",
+            "materialize_source",
+        ):
+            can_retry, rationale = is_operation_retryable(op, transient_exc)
+            assert can_retry is False
+            assert "no proven provider idempotency guarantee" in rationale
+
+    def test_requirement_e_unknown_operation_transient_not_retryable(self) -> None:
+        """Requirement E: unknown operation + transient => not retryable."""
+        transient_exc = SandboxProviderError(status_code=503, sanitized_message="Overloaded")
+
+        for unknown_op in ("custom_action_123", "unregistered_post_call", "deploy_cluster"):
+            can_retry, rationale = is_operation_retryable(unknown_op, transient_exc)
+            assert can_retry is False
+            assert "no proven provider idempotency guarantee" in rationale
+
+    def test_requirement_f_known_mutation_falsely_asserted_read_only_cannot_upgrade(self) -> None:
+        """Requirement F: known mutation falsely asserted READ_ONLY cannot upgrade."""
+        transient_exc = ModelProviderError(status_code=503, sanitized_message="Overloaded")
+
+        for op in ("create_instance", "cancel_operation", "chat_completion", "materialize_source"):
+            with pytest.raises(
+                RetryPolicyError, match="Operation classification mismatch for known operation"
+            ):
+                is_operation_retryable(
+                    op, transient_exc, operation_effect=OperationEffect.READ_ONLY
+                )
+
+    def test_requirement_g_unknown_operation_falsely_asserted_read_only_cannot_upgrade(
+        self,
+    ) -> None:
+        """Requirement G: unknown operation falsely asserted READ_ONLY cannot upgrade."""
+        transient_exc = SandboxProviderError(status_code=503, sanitized_message="Overloaded")
+
+        with pytest.raises(
+            RetryPolicyError, match="Cannot assert READ_ONLY for unregistered operation"
+        ):
+            is_operation_retryable(
+                "unknown_custom_op",
+                transient_exc,
+                operation_effect=OperationEffect.READ_ONLY,
+            )
+
+    def test_requirement_h_unknown_operation_falsely_asserted_idempotent_mutation_cannot_upgrade(
+        self,
+    ) -> None:
+        """Requirement H: unknown operation falsely asserted IDEMPOTENT_MUTATION cannot upgrade."""
+        transient_exc = SandboxProviderError(status_code=503, sanitized_message="Overloaded")
+
+        with pytest.raises(
+            RetryPolicyError, match="Cannot assert IDEMPOTENT_MUTATION for unregistered operation"
+        ):
+            is_operation_retryable(
+                "unknown_custom_op",
+                transient_exc,
+                operation_effect=OperationEffect.IDEMPOTENT_MUTATION,
+            )
+
+    def test_requirement_i_executor_behavior_remains_unchanged(self) -> None:
+        """Requirement I: executor behavior from the second repair remains unchanged."""
+        call_count = 0
+        executor = NebiusRetryExecutor(RetryPolicyConfig(max_attempts=3))
+
+        # 1. READ_ONLY transient succeeds on attempt 2
+        def recovering_read() -> str:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ModelProviderError(status_code=503, sanitized_message="Temp")
+            return "recovered"
+
+        res, trail = executor.execute("inspect_whoami", action=recovering_read)
+        assert res == "recovered"
+        assert trail.total_attempts == 2
+        assert trail.is_terminal_success is True
+        assert trail.operation_effect == OperationEffect.READ_ONLY
+
+        # 2. NON_IDEMPOTENT_MUTATION fails closed on transient 503 after strictly 1 attempt
+        mutate_calls = 0
+
+        def failing_mutate() -> None:
+            nonlocal mutate_calls
+            mutate_calls += 1
+            raise SandboxProviderError(status_code=503, sanitized_message="Temp")
+
+        with pytest.raises(NonRetryableOperationError) as exc_info:
+            executor.execute("create_instance", action=failing_mutate)
+
+        assert mutate_calls == 1
+        assert exc_info.value.operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+
+    def test_requirement_j_action_invocation_remains_zero_on_classification_conflicts(
+        self,
+    ) -> None:
+        """Requirement J: action invocation remains zero on classification conflicts."""
+        action_calls = 0
+
+        def action() -> None:
+            nonlocal action_calls
+            action_calls += 1
+
+        executor = NebiusRetryExecutor()
+
+        # Known operation mismatch
+        with pytest.raises(RetryPolicyError):
+            executor.execute(
+                "create_instance",
+                operation_effect=OperationEffect.READ_ONLY,
+                action=action,
+            )
+        assert action_calls == 0
+
+        # Unknown operation upgrade to READ_ONLY
+        with pytest.raises(RetryPolicyError):
+            executor.execute(
+                "unknown_op",
+                operation_effect=OperationEffect.READ_ONLY,
+                action=action,
+            )
+        assert action_calls == 0
+
+        # Unknown operation upgrade to IDEMPOTENT_MUTATION
+        with pytest.raises(RetryPolicyError):
+            executor.execute(
+                "unknown_op",
+                operation_effect=OperationEffect.IDEMPOTENT_MUTATION,
+                action=action,
+            )
+        assert action_calls == 0

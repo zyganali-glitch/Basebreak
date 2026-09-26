@@ -57,7 +57,7 @@ Judge claim:
 - P-05.02 (Implement sandbox create/exec/inspect/teardown adapter) is independently VERIFIED / PASS at SHA `c49da8394ceac30832643f760ad303ead185c4a3`.
 - P-05.03 (Implement repository materialization and source-hash verification adapter) is independently VERIFIED / PASS at SHA `f149afffb58b72dfeba301e59868c38eef6a7107`.
 - P-05.04 (Implement model/sandbox telemetry normalization with secret-safe logs) is independently VERIFIED / PASS at SHA `899fe27feb8ec530c226a46832d47f886cd6947d`.
-- P-05.05 (Implement retry/idempotency policy without duplicating external actions) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (second surgical repair: canonical operation classification made authoritative; caller assertions cannot override known operations or upgrade unknown operations; unknown operations default fail-closed to NON_IDEMPOTENT_MUTATION; AttemptRecord/RetryAuditTrail always reflect canonical effective classification; evidence wording corrected to absence of proven provider idempotency guarantee; 55 focused unit and closure tests passing).
+- P-05.05 (Implement retry/idempotency policy without duplicating external actions) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (final surgical repair: operation identity made mandatory for public retry-decision helper `is_operation_retryable`; canonical operation classification authoritative on all execution and public policy decision surfaces via shared `validate_operation_classification`; caller assertions cannot upgrade known or unknown operations; unnamed caller IDEMPOTENT_MUTATION assertions eliminated; 66 focused unit and closure tests passing).
 
 ## Last independently VERIFIED baseline SHA
 `899fe27feb8ec530c226a46832d47f886cd6947d` (P-05.04 independently VERIFIED / PASS).
@@ -68,10 +68,10 @@ Judge claim:
 None. P-01 live platform discovery is complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-- `P-05.05 — Implement retry/idempotency policy without duplicating external actions` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; second surgical repair: canonical classification authority enforced, caller bypass prevented, evidence wording corrected)
+- `P-05.05 — Implement retry/idempotency policy without duplicating external actions` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; final surgical repair: operation identity mandatory on public retry helper, shared canonical classification validation, zero caller bypass)
 
 ### Active exact task
-Awaiting independent QA review for P-05.05 surgical repair. HARD STOP: P-05.06 remains NOT_RUN / NOT AUTHORIZED.
+Awaiting independent QA review for P-05.05 final surgical repair. HARD STOP: P-05.06 remains NOT_RUN / NOT AUTHORIZED.
 
 ## Parallelization boundary & rules
 - **Sequential batch execution:** Under user batch authorization, tasks P-05.02, P-05.03, P-05.04, and P-05.05 were sequentially implemented, verified with comprehensive unit and closure test gates, and committed.

@@ -13,6 +13,7 @@ Acceptance Criteria:
 - Gate 5c: Attempting unproven mutation as IDEMPOTENT_MUTATION raises RetryPolicyError.
 - Gate 5d: Operation effect classification correctly maps mutating and read-only ops.
 - Gate 5e: Canonical classification authority enforced (zero caller bypass).
+- Gate 5f: Public retry decision helper enforces canonical classification authority.
 - Gate 6: Deterministic bounded backoff progression respecting ceilings.
 - Gate 7: Secret safety: credentials and tokens are redacted in all attempt surfaces.
 - Gate 8: Operational ceilings enforced (1 <= max_attempts <= 5, bounded backoff).
@@ -42,6 +43,8 @@ from basebreak.adapters.nebius import (
     SandboxTimeoutError,
     classify_operation_effect,
     compute_backoff_seconds,
+    is_operation_retryable,
+    validate_operation_classification,
 )
 
 
@@ -310,6 +313,81 @@ class TestP0505ClosureGate:
         assert result == "ok"
         assert call_count == 1
         assert trail.operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+
+    # Gate 5f: Public retry decision helper enforces canonical classification authority
+    def test_gate_5f_public_helper_classification_authority_enforced(self) -> None:
+        transient_exc = ModelProviderError(status_code=503, sanitized_message="Temp unavailable")
+        perm_exc = ModelProviderError(status_code=403, sanitized_message="Access forbidden")
+
+        # 1. Mandatory operation identity: calling without operation_name raises TypeError
+        with pytest.raises(TypeError):
+            is_operation_retryable(exc=transient_exc)  # type: ignore[call-arg]
+
+        # 2. Passing OperationEffect enum as operation_name raises RetryPolicyError
+        with pytest.raises(
+            RetryPolicyError, match="operation_name must be a canonical operation name string"
+        ):
+            is_operation_retryable(
+                OperationEffect.IDEMPOTENT_MUTATION,
+                transient_exc,
+            )
+
+        # 3. Known READ_ONLY + transient 503 => retryable
+        can_retry, rationale = is_operation_retryable("whoami", transient_exc)
+        assert can_retry is True
+        assert "Safe retryable failure" in rationale
+
+        # 4. Known READ_ONLY + permanent failure => not retryable
+        can_retry, rationale = is_operation_retryable("whoami", perm_exc)
+        assert can_retry is False
+        assert "Permanent failure" in rationale
+
+        # 5. Known mutation + transient => not retryable (fails closed)
+        can_retry, rationale = is_operation_retryable("create_instance", transient_exc)
+        assert can_retry is False
+        assert "no proven provider idempotency guarantee" in rationale
+
+        # 6. Unknown operation + transient => not retryable (fails closed)
+        can_retry, rationale = is_operation_retryable("unknown_operation_xyz", transient_exc)
+        assert can_retry is False
+        assert "no proven provider idempotency guarantee" in rationale
+
+        # 7. Known mutation falsely asserted READ_ONLY raises RetryPolicyError (cannot upgrade)
+        with pytest.raises(
+            RetryPolicyError, match="Operation classification mismatch for known operation"
+        ):
+            is_operation_retryable(
+                "create_instance", transient_exc, operation_effect=OperationEffect.READ_ONLY
+            )
+
+        # 8. Unknown operation falsely asserted READ_ONLY raises RetryPolicyError (cannot upgrade)
+        with pytest.raises(
+            RetryPolicyError, match="Cannot assert READ_ONLY for unregistered operation"
+        ):
+            is_operation_retryable(
+                "unknown_operation_xyz",
+                transient_exc,
+                operation_effect=OperationEffect.READ_ONLY,
+            )
+
+        # 9. Unknown operation falsely asserted IDEMPOTENT_MUTATION raises RetryPolicyError
+        with pytest.raises(
+            RetryPolicyError, match="Cannot assert IDEMPOTENT_MUTATION for unregistered operation"
+        ):
+            is_operation_retryable(
+                "unknown_operation_xyz",
+                transient_exc,
+                operation_effect=OperationEffect.IDEMPOTENT_MUTATION,
+            )
+
+        # 10. validate_operation_classification derives canonical effect and rejects mismatch
+        assert validate_operation_classification("whoami") == OperationEffect.READ_ONLY
+        assert (
+            validate_operation_classification("create_instance")
+            == OperationEffect.NON_IDEMPOTENT_MUTATION
+        )
+        with pytest.raises(RetryPolicyError):
+            validate_operation_classification("create_instance", OperationEffect.READ_ONLY)
 
     # Gate 6: Deterministic bounded backoff progression respecting ceilings
     def test_gate_6_backoff_progression_and_ceilings(self) -> None:

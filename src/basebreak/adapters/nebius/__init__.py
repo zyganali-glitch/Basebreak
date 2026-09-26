@@ -76,6 +76,7 @@ from .retry import (
     is_operation_retryable,
     is_permanent_failure,
     is_transient_failure,
+    validate_operation_classification,
 )
 from .sandbox import (
     MissingSandboxCredentialError,
@@ -226,5 +227,6 @@ __all__ = [
     "normalize_sandbox_telemetry",
     "sanitize_and_bound_text",
     "sanitize_payload",
+    "validate_operation_classification",
     "validate_workspace_path",
 ]

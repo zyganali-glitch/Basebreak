@@ -166,6 +166,68 @@ class MaxAttemptsExceededError(RetryPolicyError):
         )
 
 
+def validate_operation_classification(
+    operation_name: str,
+    asserted_effect: OperationEffect | None = None,
+) -> OperationEffect:
+    """Validate caller operation_effect assertion against canonical authority.
+
+    Derives canonical OperationEffect from proven platform evidence.
+    Ensures caller assertions cannot mismatch known operations or upgrade unknown operations.
+
+    Args:
+        operation_name: Human-readable canonical name of the operation.
+        asserted_effect: Optional caller-asserted OperationEffect.
+
+    Returns:
+        The canonical OperationEffect for the operation.
+
+    Raises:
+        RetryPolicyError: If operation_name is missing/empty or an OperationEffect instance,
+            or if asserted_effect mismatches the canonical registry for a known operation,
+            or if asserted_effect attempts to upgrade an unknown operation beyond
+            NON_IDEMPOTENT_MUTATION.
+    """
+    if not isinstance(operation_name, str) or isinstance(operation_name, OperationEffect):
+        raise RetryPolicyError(
+            f"operation_name must be a canonical operation name string, "
+            f"got {type(operation_name).__name__}"
+        )
+    clean_name = operation_name.strip().lower()
+    if not clean_name:
+        raise RetryPolicyError("operation_name cannot be empty")
+
+    canonical_effect = classify_operation_effect(clean_name)
+
+    if asserted_effect is not None:
+        if clean_name in KNOWN_OPERATION_EFFECTS:
+            expected_effect = KNOWN_OPERATION_EFFECTS[clean_name]
+            if asserted_effect != expected_effect:
+                idempotency_note = (
+                    " (operation has no proven provider idempotency guarantee)"
+                    if expected_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+                    else ""
+                )
+                raise RetryPolicyError(
+                    f"Operation classification mismatch for known operation "
+                    f"{operation_name!r}: caller asserted {asserted_effect.value}, "
+                    f"but canonical registry defines {expected_effect.value}"
+                    f"{idempotency_note}."
+                )
+        else:
+            # Unregistered/unknown operation: canonical default is NON_IDEMPOTENT_MUTATION.
+            # Caller MUST NOT upgrade an unknown operation to READ_ONLY or IDEMPOTENT_MUTATION.
+            if asserted_effect != OperationEffect.NON_IDEMPOTENT_MUTATION:
+                raise RetryPolicyError(
+                    f"Cannot assert {asserted_effect.value} for unregistered operation "
+                    f"{operation_name!r}: unregistered operations default to "
+                    f"{OperationEffect.NON_IDEMPOTENT_MUTATION.value} and cannot be upgraded "
+                    f"(operation has no proven provider idempotency guarantee)."
+                )
+
+    return canonical_effect
+
+
 # --- Configuration ---
 
 
@@ -311,34 +373,44 @@ def is_transient_failure(exc: BaseException) -> bool:
 
 
 def is_operation_retryable(
-    operation_effect: OperationEffect,
+    operation_name: str,
     exc: BaseException,
-    operation_name: str | None = None,
+    operation_effect: OperationEffect | None = None,
 ) -> tuple[bool, str]:
     """Evaluate whether an operation is eligible for retry under Basebreak law.
 
+    Operation identity is mandatory. Canonical operation classification is authoritative.
+    If operation_effect is supplied, it must match the canonical registry for known
+    operations, and cannot upgrade unknown operations.
+
+    Args:
+        operation_name: Mandatory canonical operation name.
+        exc: Exception encountered during operation execution.
+        operation_effect: Optional caller classification assertion.
+
     Returns:
         (is_retryable, rationale_string)
+
+    Raises:
+        RetryPolicyError: If operation_name is missing/invalid or an OperationEffect instance,
+            or if operation_effect conflicts with canonical authority.
     """
-    if operation_name is not None:
-        canonical_effect = classify_operation_effect(operation_name)
-        if canonical_effect == OperationEffect.NON_IDEMPOTENT_MUTATION:
-            return (
-                False,
-                f"Operation {operation_name!r} has no proven provider idempotency guarantee "
-                f"and cannot be retried ({operation_effect.value})",
-            )
+    effective_effect = validate_operation_classification(
+        operation_name=operation_name,
+        asserted_effect=operation_effect,
+    )
+
+    clean_name = operation_name.strip().lower()
+
+    if effective_effect == OperationEffect.NON_IDEMPOTENT_MUTATION:
+        return (
+            False,
+            f"Operation {clean_name!r} has no proven provider idempotency guarantee "
+            f"and cannot be retried ({effective_effect.value})",
+        )
 
     if is_permanent_failure(exc):
         return False, "Permanent failure: error is not transient"
-
-    if operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION:
-        # Core Invariant: mutating actions without idempotency keys MUST NOT retry on failure
-        return (
-            False,
-            f"Non-idempotent operation risks duplicating external action upon repeat "
-            f"({operation_effect.value})",
-        )
 
     if not is_transient_failure(exc):
         return False, f"Unknown or unclassified failure type: {type(exc).__name__}"
@@ -409,36 +481,10 @@ class NebiusRetryExecutor:
         if action is None:
             raise RetryPolicyError("action callable must be provided")
 
-        clean_name = operation_name.strip().lower()
-        canonical_effect = classify_operation_effect(operation_name)
-
-        if operation_effect is not None:
-            if clean_name in KNOWN_OPERATION_EFFECTS:
-                expected_effect = KNOWN_OPERATION_EFFECTS[clean_name]
-                if operation_effect != expected_effect:
-                    idempotency_note = (
-                        " (operation has no proven provider idempotency guarantee)"
-                        if expected_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
-                        else ""
-                    )
-                    raise RetryPolicyError(
-                        f"Operation classification mismatch for known operation "
-                        f"{operation_name!r}: caller asserted {operation_effect.value}, "
-                        f"but canonical registry defines {expected_effect.value}"
-                        f"{idempotency_note}."
-                    )
-            else:
-                # Unregistered/unknown operation: canonical default is NON_IDEMPOTENT_MUTATION.
-                # Caller MUST NOT upgrade an unknown operation to READ_ONLY or IDEMPOTENT_MUTATION.
-                if operation_effect != OperationEffect.NON_IDEMPOTENT_MUTATION:
-                    raise RetryPolicyError(
-                        f"Cannot assert {operation_effect.value} for unregistered operation "
-                        f"{operation_name!r}: unregistered operations default to "
-                        f"{OperationEffect.NON_IDEMPOTENT_MUTATION.value} and cannot be upgraded "
-                        f"(operation has no proven provider idempotency guarantee)."
-                    )
-
-        effective_effect = canonical_effect
+        effective_effect = validate_operation_classification(
+            operation_name=operation_name,
+            asserted_effect=operation_effect,
+        )
 
         attempts_list: list[AttemptRecord] = []
         max_attempts = (
@@ -483,7 +529,9 @@ class NebiusRetryExecutor:
                 code: int | None = getattr(exc, "status_code", None)
 
                 can_retry, rationale = is_operation_retryable(
-                    effective_effect, exc, operation_name=operation_name
+                    operation_name=operation_name,
+                    exc=exc,
+                    operation_effect=effective_effect,
                 )
 
                 if can_retry and attempt_idx < max_attempts:
