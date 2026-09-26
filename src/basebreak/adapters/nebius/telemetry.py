@@ -11,6 +11,7 @@ Authority:
 from __future__ import annotations
 
 import datetime
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -34,6 +35,9 @@ from .sandbox import (
 
 MAX_TELEMETRY_STRING_BYTES: int = 1024
 MAX_PAYLOAD_DIGEST_BYTES: int = 65536
+MAX_TELEMETRY_DEPTH: int = 8
+MAX_COLLECTION_ITEMS: int = 128
+MAX_TOTAL_NODES: int = 512
 
 _SENSITIVE_FIELD_NAMES: frozenset[str] = frozenset(
     {
@@ -57,53 +61,283 @@ def _is_sensitive_field(key: str) -> bool:
     return is_sensitive_key(clean)
 
 
-def sanitize_and_bound_text(
-    text: str | None,
+def _safe_object_to_str(obj: Any, max_len: int = 256) -> str:
+    """Safely extract string representation from arbitrary objects without raising."""
+    if obj is None:
+        return ""
+    if isinstance(obj, str):
+        return obj[:max_len]
+    try:
+        raw = str(obj)
+    except Exception:
+        try:
+            raw = repr(obj)
+        except Exception:
+            return f"<{type(obj).__name__}: unstringable>"
+    return raw[:max_len]
+
+
+def _safe_object_to_sanitized_text(
+    obj: Any,
     max_bytes: int = MAX_TELEMETRY_STRING_BYTES,
 ) -> str:
-    """Sanitize secrets from text and bound its byte length."""
+    """Safely convert an arbitrary object to a secret-redacted, bounded text string."""
+    if obj is None:
+        return ""
+    if isinstance(obj, str):
+        return sanitize_and_bound_text(obj, max_bytes=max_bytes)
+
+    raw: str
+    try:
+        raw = str(obj)
+    except Exception:
+        try:
+            raw = repr(obj)
+        except Exception:
+            return f"<{type(obj).__name__}: unstringable>"
+
+    return sanitize_and_bound_text(raw, max_bytes=max_bytes)
+
+
+def sanitize_and_bound_text(
+    text: Any,
+    max_bytes: int = MAX_TELEMETRY_STRING_BYTES,
+) -> str:
+    """Sanitize secrets from text and bound its byte length safely.
+
+    Guarantees:
+    - Never raises on unstringable objects or non-string inputs.
+    - All synthetic secrets are redacted before retention.
+    - Output length is strictly bounded to max_bytes (plus truncation note if truncated).
+    - Prevents ReDoS/unbounded scanning on megabyte-scale text.
+    """
     if text is None:
         return ""
-    redacted = redact_log_text(str(text))
-    encoded = redacted.encode("utf-8")
-    if len(encoded) <= max_bytes:
-        return redacted
+    if not isinstance(text, str):
+        text = _safe_object_to_str(text, max_len=max_bytes * 2)
 
-    # Truncate to max_bytes cleanly
-    truncated = encoded[:max_bytes].decode("utf-8", errors="ignore")
-    return f"{truncated}... [TRUNCATED {len(encoded) - max_bytes} B]"
+    encoded = text.encode("utf-8")
+    original_len = len(encoded)
+    if original_len <= max_bytes:
+        return redact_log_text(text)
+
+    # To prevent ReDoS / memory explosion on huge strings,
+    # slice the prefix before regex scanning, keeping enough margin to avoid clipping tokens
+    prefix_bytes = encoded[: max_bytes + 256]
+    prefix_str = prefix_bytes.decode("utf-8", errors="ignore")
+    redacted_prefix = redact_log_text(prefix_str)
+
+    redacted_bytes = redacted_prefix.encode("utf-8")
+    truncated = redacted_bytes[:max_bytes].decode("utf-8", errors="ignore")
+    excess_bytes = original_len - max_bytes
+    return f"{truncated}... [TRUNCATED {excess_bytes} B]"
 
 
-def _sanitize_dict_recursively(data: Any) -> Any:
-    """Recursively strip sensitive keys and redact sensitive string values."""
-    if isinstance(data, dict):
-        clean_dict: dict[str, Any] = {}
-        for k, v in data.items():
-            str_k = str(k)
-            if _is_sensitive_field(str_k):
-                clean_dict[str_k] = "[REDACTED_CREDENTIAL]"
-            else:
-                clean_dict[str_k] = _sanitize_dict_recursively(v)
-        return clean_dict
-    if isinstance(data, list):
-        return [_sanitize_dict_recursively(item) for item in data]
+class _SanitizationContext:
+    __slots__ = ("is_truncated", "max_bytes", "total_nodes", "visited_ids")
+
+    def __init__(self, max_bytes: int = MAX_PAYLOAD_DIGEST_BYTES) -> None:
+        self.max_bytes = max_bytes
+        self.is_truncated = False
+        self.total_nodes = 0
+        self.visited_ids: set[int] = set()
+
+    def check_node_budget(self) -> bool:
+        """Returns True if within node budget, False if budget exceeded."""
+        self.total_nodes += 1
+        if self.total_nodes > MAX_TOTAL_NODES:
+            self.is_truncated = True
+            return False
+        return True
+
+
+def _sanitize_value(
+    ctx: _SanitizationContext,
+    data: Any,
+    depth: int = 0,
+) -> Any:
+    """Recursively sanitize and bound an arbitrary data structure."""
+    if not ctx.check_node_budget():
+        return "[PAYLOAD_NODE_LIMIT_EXCEEDED]"
+
+    if depth > MAX_TELEMETRY_DEPTH:
+        ctx.is_truncated = True
+        return "[MAX_DEPTH_EXCEEDED]"
+
+    if data is None:
+        return None
+
+    if isinstance(data, bool):
+        return data
+
+    if isinstance(data, int):
+        return data
+
+    if isinstance(data, float):
+        if math.isnan(data):
+            return "NaN"
+        if math.isinf(data):
+            return "Infinity" if data > 0 else "-Infinity"
+        return data
+
     if isinstance(data, str):
+        encoded = data.encode("utf-8")
+        if len(encoded) > MAX_TELEMETRY_STRING_BYTES:
+            ctx.is_truncated = True
+            return sanitize_and_bound_text(data, max_bytes=MAX_TELEMETRY_STRING_BYTES)
         return redact_log_text(data)
-    return data
+
+    if isinstance(data, (bytes, bytearray)):
+        ctx.is_truncated = True
+        return f"<bytes: len={len(data)}>"
+
+    if isinstance(data, dict):
+        obj_id = id(data)
+        if obj_id in ctx.visited_ids:
+            ctx.is_truncated = True
+            return "[CIRCULAR_REFERENCE]"
+        ctx.visited_ids.add(obj_id)
+        try:
+            clean_dict: dict[str, Any] = {}
+            items_to_sort: list[tuple[str, Any]] = []
+            for k, v in data.items():
+                safe_k = _safe_object_to_sanitized_text(k, max_bytes=128)
+                items_to_sort.append((safe_k, v))
+            items_to_sort.sort(key=lambda x: x[0])
+
+            if len(items_to_sort) > MAX_COLLECTION_ITEMS:
+                ctx.is_truncated = True
+                omitted_count = len(items_to_sort) - MAX_COLLECTION_ITEMS
+                items_to_sort = items_to_sort[:MAX_COLLECTION_ITEMS]
+                truncated_marker = f"[{omitted_count} keys omitted]"
+            else:
+                truncated_marker = None
+
+            for safe_k, v in items_to_sort:
+                if not ctx.check_node_budget():
+                    clean_dict["[TRUNCATED_KEYS]"] = "[NODE_LIMIT_EXCEEDED]"
+                    break
+                if _is_sensitive_field(safe_k):
+                    clean_dict[safe_k] = "[REDACTED_CREDENTIAL]"
+                else:
+                    clean_dict[safe_k] = _sanitize_value(ctx, v, depth + 1)
+
+            if truncated_marker is not None:
+                clean_dict["[TRUNCATED_KEYS]"] = truncated_marker
+
+            return clean_dict
+        finally:
+            ctx.visited_ids.remove(obj_id)
+
+    if isinstance(data, (list, tuple, set, frozenset)):
+        obj_id = id(data)
+        if obj_id in ctx.visited_ids:
+            ctx.is_truncated = True
+            return "[CIRCULAR_REFERENCE]"
+        ctx.visited_ids.add(obj_id)
+        try:
+            clean_list: list[Any] = []
+            raw_items = list(data)
+            if len(raw_items) > MAX_COLLECTION_ITEMS:
+                ctx.is_truncated = True
+                omitted_count = len(raw_items) - MAX_COLLECTION_ITEMS
+                raw_items = raw_items[:MAX_COLLECTION_ITEMS]
+                marker = f"[TRUNCATED_ITEMS: {omitted_count} omitted]"
+            else:
+                marker = None
+
+            for item in raw_items:
+                if not ctx.check_node_budget():
+                    clean_list.append("[NODE_LIMIT_EXCEEDED]")
+                    break
+                clean_list.append(_sanitize_value(ctx, item, depth + 1))
+
+            if marker is not None:
+                clean_list.append(marker)
+
+            return clean_list
+        finally:
+            ctx.visited_ids.remove(obj_id)
+
+    # Fallback for custom / arbitrary object
+    ctx.is_truncated = True
+    return _safe_object_to_sanitized_text(data, max_bytes=MAX_TELEMETRY_STRING_BYTES)
 
 
-def compute_sanitized_payload_digest(raw_payload: Any) -> str:
-    """Compute content-addressed SHA-256 digest of sanitized payload."""
+@dataclass(frozen=True, slots=True)
+class SanitizedPayloadDigest:
+    """Result of computing a sanitized, bounded payload digest.
+
+    Attributes:
+        digest: 64-char lowercase hex SHA-256 digest of bounded canonical bytes (or "" if None).
+        is_truncated: True if payload was truncated during bounding or serialization.
+        byte_count: Number of bytes digested.
+    """
+
+    digest: str
+    is_truncated: bool
+    byte_count: int = 0
+
+    def __iter__(self) -> Any:
+        return iter((self.digest, self.is_truncated))
+
+    def __str__(self) -> str:
+        return self.digest
+
+    def __bool__(self) -> bool:
+        return bool(self.digest)
+
+
+def sanitize_payload(
+    raw_payload: Any,
+    max_bytes: int = MAX_PAYLOAD_DIGEST_BYTES,
+) -> tuple[Any, bool]:
+    """Recursively sanitize sensitive keys/values and bound payload structures.
+
+    Returns:
+        (sanitized_bounded_data, is_truncated)
+    """
     if raw_payload is None:
-        return ""
+        return None, False
+    ctx = _SanitizationContext(max_bytes=max_bytes)
+    sanitized = _sanitize_value(ctx, raw_payload, depth=0)
+    return sanitized, ctx.is_truncated
+
+
+def compute_sanitized_payload_digest(
+    raw_payload: Any,
+    max_bytes: int = MAX_PAYLOAD_DIGEST_BYTES,
+) -> SanitizedPayloadDigest:
+    """Compute content-addressed SHA-256 digest of sanitized, bounded payload.
+
+    Enforces MAX_PAYLOAD_DIGEST_BYTES and structural bounding (depth, collection sizes,
+    string lengths, node counts). If the payload exceeds limits or requires truncation,
+    is_truncated is set to True and the digest is computed strictly over the bounded representation.
+    """
+    if raw_payload is None:
+        return SanitizedPayloadDigest(digest="", is_truncated=False, byte_count=0)
+
+    ctx = _SanitizationContext(max_bytes=max_bytes)
+    sanitized = _sanitize_value(ctx, raw_payload, depth=0)
+    is_truncated = ctx.is_truncated
+
     try:
-        sanitized = _sanitize_dict_recursively(raw_payload)
         json_bytes = canonical_json_bytes(sanitized)
-        return compute_bytes_digest(json_bytes).value
     except Exception:
-        # Fallback to string digest if JSON serialization fails
-        clean_str = redact_log_text(str(raw_payload))
-        return compute_bytes_digest(clean_str.encode("utf-8")).value
+        fallback_str = _safe_object_to_sanitized_text(sanitized, max_bytes=max_bytes)
+        json_bytes = fallback_str.encode("utf-8")
+        is_truncated = True
+
+    if len(json_bytes) > max_bytes:
+        is_truncated = True
+        json_bytes = json_bytes[:max_bytes]
+
+    digest = compute_bytes_digest(json_bytes).value
+    return SanitizedPayloadDigest(
+        digest=digest,
+        is_truncated=is_truncated,
+        byte_count=len(json_bytes),
+    )
 
 
 # --- Telemetry Data Classes ---
@@ -125,6 +359,7 @@ class NormalizedModelTelemetry:
     provenance: EvidenceProvenance
     sanitized_error: str | None = None
     payload_digest: str = ""
+    payload_truncated: bool = False
     timestamp_utc: str = ""
     is_authoritative: bool = False
 
@@ -148,6 +383,7 @@ class NormalizedModelTelemetry:
             "provenance": self.provenance.value,
             "sanitized_error": self.sanitized_error,
             "payload_digest": self.payload_digest,
+            "payload_truncated": self.payload_truncated,
             "timestamp_utc": self.timestamp_utc,
             "is_authoritative": False,
         }
@@ -157,9 +393,10 @@ class NormalizedModelTelemetry:
         tokens_info = f"tokens={self.prompt_tokens}+{self.completion_tokens}={self.total_tokens}"
         dur_info = f"lat={self.duration_seconds:.3f}s" if self.duration_seconds else "lat=None"
         err_info = f" err={self.sanitized_error!r}" if self.sanitized_error else ""
+        trunc_info = " [PAYLOAD_TRUNCATED]" if self.payload_truncated else ""
         return (
             f"[MODEL_TELEMETRY] [{self.provenance.value}] model={self.returned_model} "
-            f"req_id={self.request_id} {tokens_info} {dur_info}{err_info}"
+            f"req_id={self.request_id} {tokens_info} {dur_info}{err_info}{trunc_info}"
         )
 
 
@@ -178,6 +415,7 @@ class NormalizedSandboxTelemetry:
     provenance: EvidenceProvenance
     sanitized_error: str | None = None
     payload_digest: str = ""
+    payload_truncated: bool = False
     timestamp_utc: str = ""
     is_authoritative: bool = False
 
@@ -200,6 +438,7 @@ class NormalizedSandboxTelemetry:
             "provenance": self.provenance.value,
             "sanitized_error": self.sanitized_error,
             "payload_digest": self.payload_digest,
+            "payload_truncated": self.payload_truncated,
             "timestamp_utc": self.timestamp_utc,
             "is_authoritative": False,
         }
@@ -210,8 +449,9 @@ class NormalizedSandboxTelemetry:
         cpu_info = f" cpu={self.cpu_duration_seconds:.3f}s" if self.cpu_duration_seconds else ""
         mem_info = f" mem={self.memory_bytes}B" if self.memory_bytes else ""
         err_info = f" err={self.sanitized_error!r}" if self.sanitized_error else ""
+        trunc_info = " [PAYLOAD_TRUNCATED]" if self.payload_truncated else ""
         meta = f"sbx={self.sandbox_id} status={self.provider_status}"
-        stats = f"{dur_info}{cpu_info}{mem_info}{err_info}"
+        stats = f"{dur_info}{cpu_info}{mem_info}{err_info}{trunc_info}"
         tag = f"[SANDBOX_TELEMETRY] [{self.provenance.value}]"
         return f"{tag} op={self.operation_id} {meta} {stats}"
 
@@ -276,7 +516,7 @@ def normalize_model_telemetry(
         raw_payload = {"error": source.sanitized_message, "status_code": source.status_code}
     elif isinstance(source, ModelAdapterError):
         sanitized_error = sanitize_and_bound_text(str(source))
-        raw_payload = {"error": str(source)}
+        raw_payload = {"error": sanitized_error}
         code = 500
     elif isinstance(source, dict):
         raw_payload = source
@@ -294,15 +534,17 @@ def normalize_model_telemetry(
             finish_reason = choices[0].get("finish_reason")
         err = source.get("error")
         if err:
-            sanitized_error = sanitize_and_bound_text(str(err))
+            sanitized_error = sanitize_and_bound_text(err)
     else:
         # Fallback for unexpected or malformed types: fail safe
-        sanitized_error = sanitize_and_bound_text(
-            f"Malformed telemetry source: {type(source).__name__}"
+        safe_type = sanitize_and_bound_text(type(source).__name__, 64)
+        sanitized_error = f"Malformed telemetry source: {safe_type}"
+        safe_source_repr = sanitize_and_bound_text(
+            _safe_object_to_str(source, max_len=256), max_bytes=256
         )
-        raw_payload = {"malformed_source": str(source)[:256]}
+        raw_payload = {"malformed_source": safe_source_repr}
 
-    payload_digest = compute_sanitized_payload_digest(raw_payload)
+    digest_info = compute_sanitized_payload_digest(raw_payload)
 
     return NormalizedModelTelemetry(
         model=sanitize_and_bound_text(model, 128),
@@ -316,7 +558,8 @@ def normalize_model_telemetry(
         status_code=int(code) if isinstance(code, int) else None,
         provenance=provenance,
         sanitized_error=sanitized_error,
-        payload_digest=payload_digest,
+        payload_digest=digest_info.digest,
+        payload_truncated=digest_info.is_truncated,
         is_authoritative=False,
     )
 
@@ -392,7 +635,7 @@ def normalize_sandbox_telemetry(
     elif isinstance(source, SandboxAdapterError):
         provider_status = "ADAPTER_ERROR"
         sanitized_error = sanitize_and_bound_text(str(source))
-        raw_payload = {"error": str(source)}
+        raw_payload = {"error": sanitized_error}
     elif isinstance(source, dict):
         raw_payload = source
         op_id = source.get("id") or source.get("operation_id")
@@ -400,16 +643,18 @@ def normalize_sandbox_telemetry(
         duration_seconds = source.get("duration") or source.get("duration_seconds")
         err = source.get("error")
         if err:
-            sanitized_error = sanitize_and_bound_text(str(err))
+            sanitized_error = sanitize_and_bound_text(err)
     else:
         # Fallback for unexpected or malformed types: fail safe
         provider_status = "MALFORMED_TELEMETRY"
-        sanitized_error = sanitize_and_bound_text(
-            f"Malformed telemetry source: {type(source).__name__}"
+        safe_type = sanitize_and_bound_text(type(source).__name__, 64)
+        sanitized_error = f"Malformed telemetry source: {safe_type}"
+        safe_source_repr = sanitize_and_bound_text(
+            _safe_object_to_str(source, max_len=256), max_bytes=256
         )
-        raw_payload = {"malformed_source": str(source)[:256]}
+        raw_payload = {"malformed_source": safe_source_repr}
 
-    payload_digest = compute_sanitized_payload_digest(raw_payload)
+    digest_info = compute_sanitized_payload_digest(raw_payload)
 
     return NormalizedSandboxTelemetry(
         operation_id=sanitize_and_bound_text(op_id, 128) if op_id else None,
@@ -422,7 +667,8 @@ def normalize_sandbox_telemetry(
         memory_bytes=int(memory_bytes) if memory_bytes is not None else None,
         provenance=provenance,
         sanitized_error=sanitized_error,
-        payload_digest=payload_digest,
+        payload_digest=digest_info.digest,
+        payload_truncated=digest_info.is_truncated,
         is_authoritative=False,
     )
 

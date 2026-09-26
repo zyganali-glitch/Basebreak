@@ -55,12 +55,12 @@ Judge claim:
 
 - P-05.01 (Implement bounded model client using discovered model identifiers/config) is independently VERIFIED baseline entering this batch at SHA `90e5391b9bd7a406c62b838bfa1f24e85400ad65`.
 - P-05.02 (Implement sandbox create/exec/inspect/teardown adapter) is independently VERIFIED / PASS at SHA `c49da8394ceac30832643f760ad303ead185c4a3`.
-- P-05.03 (Implement repository materialization and source-hash verification adapter) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (surgically repaired fail-closed clean workspace state and path validation in NebiusSourceMaterializer).
-- P-05.04 (Implement model/sandbox telemetry normalization with secret-safe logs) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-05.03 (Implement repository materialization and source-hash verification adapter) is independently VERIFIED / PASS at SHA `f149afffb58b72dfeba301e59868c38eef6a7107`.
+- P-05.04 (Implement model/sandbox telemetry normalization with secret-safe logs) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (surgically repaired payload bounding with real enforced MAX_PAYLOAD_DIGEST_BYTES, SanitizedPayloadDigest with explicit is_truncated contract, recursive depth and collection bounding, and safe handling of malformed/custom objects).
 - P-05.05 (Implement retry/idempotency policy without duplicating external actions) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 
 ## Last independently VERIFIED baseline SHA
-`c49da8394ceac30832643f760ad303ead185c4a3` (P-05.02 independently VERIFIED / PASS).
+`f149afffb58b72dfeba301e59868c38eef6a7107` (P-05.03 independently VERIFIED / PASS).
 
 ## Blocking live gate vs active task
 
@@ -68,12 +68,10 @@ Judge claim:
 None. P-01 live platform discovery is complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-- `P-05.03 — Implement repository materialization and source-hash verification adapter` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; surgically repaired clean workspace state)
-- `P-05.04 — Implement model/sandbox telemetry normalization with secret-safe logs` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE)
-- `P-05.05 — Implement retry/idempotency policy without duplicating external actions` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE)
+- `P-05.04 — Implement model/sandbox telemetry normalization with secret-safe logs` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; surgically repaired payload bounding and malformed object secret safety)
 
 ### Active exact task
-Awaiting independent QA review for Phase P-05 batch. HARD STOP: P-05.06 remains NOT_RUN / NOT AUTHORIZED.
+Awaiting independent QA review for P-05.04 surgical repair. HARD STOP: P-05.06 remains NOT_RUN / NOT AUTHORIZED.
 
 ## Parallelization boundary & rules
 - **Sequential batch execution:** Under user batch authorization, tasks P-05.02, P-05.03, P-05.04, and P-05.05 were sequentially implemented, verified with comprehensive unit and closure test gates, and committed.

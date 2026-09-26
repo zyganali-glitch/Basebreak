@@ -105,14 +105,19 @@ from .sandbox_constants import (
     WHOAMI_PATH,
 )
 from .telemetry import (
+    MAX_COLLECTION_ITEMS,
+    MAX_PAYLOAD_DIGEST_BYTES,
+    MAX_TELEMETRY_DEPTH,
     MAX_TELEMETRY_STRING_BYTES,
     NormalizedModelTelemetry,
     NormalizedSandboxTelemetry,
+    SanitizedPayloadDigest,
     compute_sanitized_payload_digest,
     format_telemetry_log,
     normalize_model_telemetry,
     normalize_sandbox_telemetry,
     sanitize_and_bound_text,
+    sanitize_payload,
 )
 
 __all__ = [
@@ -135,11 +140,14 @@ __all__ = [
     "DEFAULT_TEMPERATURE",
     "DEFAULT_TIMEOUT_SECONDS",
     "INSTANCES_PATH",
+    "MAX_COLLECTION_ITEMS",
     "MAX_MAX_TOKENS",
+    "MAX_PAYLOAD_DIGEST_BYTES",
     "MAX_POLL_INTERVAL_SECONDS",
     "MAX_PROMPT_CHARACTERS",
     "MAX_RESPONSE_CHARACTERS",
     "MAX_SANDBOX_TIMEOUT_SECONDS",
+    "MAX_TELEMETRY_DEPTH",
     "MAX_TELEMETRY_STRING_BYTES",
     "MAX_TEMPERATURE",
     "MAX_TIMEOUT_SECONDS",
@@ -192,6 +200,7 @@ __all__ = [
     "SandboxResponseFormatError",
     "SandboxTimeoutError",
     "SandboxTransportError",
+    "SanitizedPayloadDigest",
     "SourceCommitMismatchError",
     "SourceMaterializationError",
     "SourceTreeMismatchError",
@@ -211,5 +220,6 @@ __all__ = [
     "normalize_model_telemetry",
     "normalize_sandbox_telemetry",
     "sanitize_and_bound_text",
+    "sanitize_payload",
     "validate_workspace_path",
 ]

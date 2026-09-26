@@ -18,18 +18,25 @@ Acceptance Criteria:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from basebreak.adapters.nebius import (
+    MAX_COLLECTION_ITEMS,
+    MAX_PAYLOAD_DIGEST_BYTES,
+    MAX_TELEMETRY_DEPTH,
     ModelClientResult,
     NebiusSandboxExecutionResult,
     NormalizedModelTelemetry,
     NormalizedSandboxTelemetry,
+    SanitizedPayloadDigest,
     TokenUsage,
+    compute_sanitized_payload_digest,
     format_telemetry_log,
     normalize_model_telemetry,
     normalize_sandbox_telemetry,
+    sanitize_payload,
 )
 from basebreak.domain.execution import SandboxIdentity
 from basebreak.domain.verdict import EvidenceProvenance
@@ -153,3 +160,58 @@ class TestP0504ClosureGate:
         assert "RetryPolicy" not in text
         assert "ExponentialBackoff" not in text
         assert "idempotency_key" not in text
+
+    # Gate 10: Payload bounding and MAX_PAYLOAD_DIGEST_BYTES enforcement
+    def test_gate_payload_bounding_and_digest_contract(self) -> None:
+        # Small payload: not truncated, full digest
+        small = {"req_id": "req-1", "tokens": 50}
+        d_small = compute_sanitized_payload_digest(small)
+        assert isinstance(d_small, SanitizedPayloadDigest)
+        assert d_small.is_truncated is False
+        assert len(d_small.digest) == 64
+        assert d_small.byte_count <= MAX_PAYLOAD_DIGEST_BYTES
+
+        # Huge payload: bounded, explicit payload_truncated=True
+        huge = {f"field_{i}": "x" * 200 for i in range(500)}
+        d_huge = compute_sanitized_payload_digest(huge)
+        assert d_huge.is_truncated is True
+        assert len(d_huge.digest) == 64
+        assert d_huge.byte_count <= MAX_PAYLOAD_DIGEST_BYTES
+
+        tel = normalize_model_telemetry(huge, provenance=EvidenceProvenance.FIXTURE)
+        assert tel.payload_truncated is True
+        assert tel.payload_digest == d_huge.digest
+        assert tel.to_dict()["payload_truncated"] is True
+        assert "[PAYLOAD_TRUNCATED]" in tel.to_log_message()
+
+    # Gate 11: Deep structure and collection bounding
+    def test_gate_deep_structure_and_collection_bounding(self) -> None:
+        # Depth > MAX_TELEMETRY_DEPTH
+        cur: dict[str, Any] = {}
+        root = cur
+        for _ in range(MAX_TELEMETRY_DEPTH + 10):
+            nxt: dict[str, Any] = {}
+            cur["node"] = nxt
+            cur = nxt
+
+        sanitized, is_trunc = sanitize_payload(root)
+        assert is_trunc is True
+
+        # Collection > MAX_COLLECTION_ITEMS
+        big_list = list(range(MAX_COLLECTION_ITEMS + 50))
+        san_list, trunc_list = sanitize_payload(big_list)
+        assert trunc_list is True
+        assert len(san_list) == MAX_COLLECTION_ITEMS + 1  # items + marker
+
+    # Gate 12: Malformed/custom object secret safety
+    def test_gate_custom_object_secret_safety(self) -> None:
+        secret = "ghp_CUSTOMGATE99999999999999999999999"
+
+        class CustomLeaker:
+            def __str__(self) -> str:
+                return f"Bearer {secret}"
+
+        tel = normalize_model_telemetry(CustomLeaker(), provenance=EvidenceProvenance.FIXTURE)
+        assert secret not in str(tel.to_dict())
+        assert secret not in format_telemetry_log(tel)
+        assert "Malformed telemetry source" in (tel.sanitized_error or "")
