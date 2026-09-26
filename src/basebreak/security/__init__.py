@@ -1,6 +1,7 @@
 """Basebreak security and untrusted-code policy foundation primitives."""
 
 from basebreak.security.normalization import (
+    NormalizationConflictError,
     NormalizedExecutionOutcome,
     NormalizedExecutionRecord,
     ResourceFailureClass,
@@ -106,6 +107,7 @@ __all__ = [
     "MAX_SANDBOX_TIMEOUT_SECONDS",
     "MIN_SANDBOX_TIMEOUT_SECONDS",
     "NetworkPolicyError",
+    "NormalizationConflictError",
     "NormalizedExecutionOutcome",
     "NormalizedExecutionRecord",
     "PLATFORM_CAPABILITIES",

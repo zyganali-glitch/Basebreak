@@ -28,6 +28,10 @@ from basebreak.security.secret_policy import (
 )
 
 
+class NormalizationConflictError(ValueError):
+    """Raised when contradictory authoritative execution facts are supplied."""
+
+
 class NormalizedExecutionOutcome(str, Enum):
     """Authoritative normalized classification of an execution outcome."""
 
@@ -111,6 +115,23 @@ class NormalizedExecutionRecord:
                 f"is_resource_failure ({self.is_resource_failure}) does not match "
                 f"outcome ({self.outcome.value})"
             )
+
+        if self.outcome == NormalizedExecutionOutcome.RESOURCE_FAILURE:
+            if self.resource_failure_class is None:
+                raise ValueError(
+                    "RESOURCE_FAILURE outcome requires resource_failure_class to be specified"
+                )
+            if not isinstance(self.resource_failure_class, ResourceFailureClass):
+                raise TypeError(
+                    "resource_failure_class must be a ResourceFailureClass, "
+                    f"got {type(self.resource_failure_class).__name__}"
+                )
+        else:
+            if self.resource_failure_class is not None:
+                raise ValueError(
+                    f"resource_failure_class must be None when outcome is {self.outcome.value}, "
+                    f"got {self.resource_failure_class.value}"
+                )
 
         if self.outcome == NormalizedExecutionOutcome.SUCCESS and self.exit_code != 0:
             raise ValueError(f"SUCCESS outcome requires exit_code == 0, got {self.exit_code}")
@@ -229,16 +250,86 @@ def normalize_execution_result(
         except Exception:
             raw_digest = None
 
-    # 2. Reconcile domain execution result if supplied
+    # 2. Deterministic validation and reconciliation of authoritative terminal facts
+    if is_timeout and is_cancelled:
+        raise NormalizationConflictError(
+            "Contradictory execution facts: both is_timeout=True and is_cancelled=True"
+        )
+    if is_timeout and resource_failure_class is not None:
+        raise NormalizationConflictError(
+            "Contradictory execution facts: both is_timeout=True and "
+            f"resource_failure_class={resource_failure_class.value}"
+        )
+    if is_cancelled and resource_failure_class is not None:
+        raise NormalizationConflictError(
+            "Contradictory execution facts: both is_cancelled=True and "
+            f"resource_failure_class={resource_failure_class.value}"
+        )
+
     if execution_result is not None:
-        if exit_code is None:
-            exit_code = execution_result.exit_code
-        if duration_seconds is None:
-            duration_seconds = execution_result.duration_seconds
-        if execution_result.status == TerminationStatus.TIMED_OUT:
+        if execution_result.status == TerminationStatus.COMPLETED:
+            if is_timeout:
+                raise NormalizationConflictError(
+                    "Contradictory execution facts: execution_result has status COMPLETED "
+                    "but is_timeout=True was provided"
+                )
+            if is_cancelled:
+                raise NormalizationConflictError(
+                    "Contradictory execution facts: execution_result has status COMPLETED "
+                    "but is_cancelled=True was provided"
+                )
+            if resource_failure_class is not None:
+                raise NormalizationConflictError(
+                    "Contradictory execution facts: execution_result has status COMPLETED "
+                    f"but resource_failure_class={resource_failure_class.value} was provided"
+                )
+        elif execution_result.status == TerminationStatus.TIMED_OUT:
+            if is_cancelled:
+                raise NormalizationConflictError(
+                    "Contradictory execution facts: execution_result has status TIMED_OUT "
+                    "but is_cancelled=True was provided"
+                )
+            if resource_failure_class is not None:
+                raise NormalizationConflictError(
+                    "Contradictory execution facts: execution_result has status TIMED_OUT "
+                    f"but resource_failure_class={resource_failure_class.value} was provided"
+                )
             is_timeout = True
         elif execution_result.status == TerminationStatus.CANCELLED:
+            if is_timeout:
+                raise NormalizationConflictError(
+                    "Contradictory execution facts: execution_result has status CANCELLED "
+                    "but is_timeout=True was provided"
+                )
+            if resource_failure_class is not None:
+                raise NormalizationConflictError(
+                    "Contradictory execution facts: execution_result has status CANCELLED "
+                    f"but resource_failure_class={resource_failure_class.value} was provided"
+                )
             is_cancelled = True
+        elif execution_result.status == TerminationStatus.FAILED_TO_START:
+            if is_timeout:
+                raise NormalizationConflictError(
+                    "Contradictory execution facts: execution_result has status FAILED_TO_START "
+                    "but is_timeout=True was provided"
+                )
+            if is_cancelled:
+                raise NormalizationConflictError(
+                    "Contradictory execution facts: execution_result has status FAILED_TO_START "
+                    "but is_cancelled=True was provided"
+                )
+
+        if exit_code is None:
+            exit_code = execution_result.exit_code
+        elif execution_result.exit_code is not None and exit_code != execution_result.exit_code:
+            raise NormalizationConflictError(
+                f"Contradictory execution facts: execution_result "
+                f"exit_code={execution_result.exit_code} "
+                f"conflicts with explicit exit_code={exit_code}"
+            )
+
+        if duration_seconds is None:
+            duration_seconds = execution_result.duration_seconds
 
     # 3. Extract and sanitize provider error fields for evidence display only
     err_code, err_msg = _extract_provider_error(provider_error)

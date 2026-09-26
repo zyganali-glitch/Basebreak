@@ -8,7 +8,8 @@ Acceptance criteria:
 3. Resource-failure distinction without fabrication;
 4. Deterministic tests;
 5. Provider-specific facts not leaked into provider-neutral contracts;
-6. No P-05 adapter implementation.
+6. No P-05 adapter implementation;
+7. Authoritative-fact conflict detection and fail-closed resolution.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ import pytest
 import basebreak.security.normalization as norm
 from basebreak.domain.execution import ExecutionResult, TerminationStatus
 from basebreak.security.normalization import (
+    NormalizationConflictError,
     NormalizedExecutionOutcome,
     NormalizedExecutionRecord,
     ResourceFailureClass,
@@ -199,3 +201,155 @@ class TestP0405Criterion6NoP05AdapterImplementation:
         ]
         for token in forbidden:
             assert token not in source, f"Forbidden provider token '{token}' in normalization.py"
+
+
+class TestP0405Criterion7AuthoritativeFactConflictFailClosed:
+    """Criterion 7: Contradictory authoritative execution facts fail closed deterministically."""
+
+    def test_direct_terminal_facts_conflicts_rejected(self) -> None:
+        # 1. timeout + cancelled => conflict error
+        with pytest.raises(
+            NormalizationConflictError, match="both is_timeout=True and is_cancelled=True"
+        ):
+            normalize_execution_result(is_timeout=True, is_cancelled=True)
+
+        # 2. timeout + resource_failure_class => conflict error
+        with pytest.raises(
+            NormalizationConflictError, match="both is_timeout=True and resource_failure_class="
+        ):
+            normalize_execution_result(
+                is_timeout=True,
+                resource_failure_class=ResourceFailureClass.OUT_OF_MEMORY,
+            )
+
+        # 3. cancelled + resource_failure_class => conflict error
+        with pytest.raises(
+            NormalizationConflictError, match="both is_cancelled=True and resource_failure_class="
+        ):
+            normalize_execution_result(
+                is_cancelled=True,
+                resource_failure_class=ResourceFailureClass.CONCURRENCY_EXHAUSTED,
+            )
+
+    def test_domain_execution_result_reconciled_with_explicit_facts(self) -> None:
+        # 4. ExecutionResult(TIMED_OUT) + explicit cancelled => conflict
+        with pytest.raises(
+            NormalizationConflictError, match="status TIMED_OUT but is_cancelled=True"
+        ):
+            normalize_execution_result(
+                execution_result=ExecutionResult(status=TerminationStatus.TIMED_OUT),
+                is_cancelled=True,
+            )
+
+        # 5. ExecutionResult(CANCELLED) + explicit timeout => conflict
+        with pytest.raises(
+            NormalizationConflictError, match="status CANCELLED but is_timeout=True"
+        ):
+            normalize_execution_result(
+                execution_result=ExecutionResult(status=TerminationStatus.CANCELLED),
+                is_timeout=True,
+            )
+
+        # ExecutionResult(TIMED_OUT) + resource_failure_class => conflict
+        with pytest.raises(
+            NormalizationConflictError, match="status TIMED_OUT but resource_failure_class="
+        ):
+            normalize_execution_result(
+                execution_result=ExecutionResult(status=TerminationStatus.TIMED_OUT),
+                resource_failure_class=ResourceFailureClass.OUT_OF_MEMORY,
+            )
+
+        # ExecutionResult(CANCELLED) + resource_failure_class => conflict
+        with pytest.raises(
+            NormalizationConflictError, match="status CANCELLED but resource_failure_class="
+        ):
+            normalize_execution_result(
+                execution_result=ExecutionResult(status=TerminationStatus.CANCELLED),
+                resource_failure_class=ResourceFailureClass.OUT_OF_MEMORY,
+            )
+
+        # 6. ExecutionResult(COMPLETED, exit_code=0) + timeout => conflict
+        with pytest.raises(
+            NormalizationConflictError, match="status COMPLETED but is_timeout=True"
+        ):
+            normalize_execution_result(
+                execution_result=ExecutionResult(status=TerminationStatus.COMPLETED, exit_code=0),
+                is_timeout=True,
+            )
+
+        # 7. ExecutionResult(COMPLETED, exit_code=0) + cancelled => conflict
+        with pytest.raises(
+            NormalizationConflictError, match="status COMPLETED but is_cancelled=True"
+        ):
+            normalize_execution_result(
+                execution_result=ExecutionResult(status=TerminationStatus.COMPLETED, exit_code=0),
+                is_cancelled=True,
+            )
+
+        # 8. ExecutionResult(COMPLETED, exit_code=0) + resource failure => conflict
+        with pytest.raises(
+            NormalizationConflictError, match="status COMPLETED but resource_failure_class="
+        ):
+            normalize_execution_result(
+                execution_result=ExecutionResult(status=TerminationStatus.COMPLETED, exit_code=0),
+                resource_failure_class=ResourceFailureClass.OUT_OF_MEMORY,
+            )
+
+    def test_duplicate_compatible_facts_accepted(self) -> None:
+        # 9. duplicate compatible timeout facts are accepted
+        r_timeout = normalize_execution_result(
+            execution_result=ExecutionResult(status=TerminationStatus.TIMED_OUT),
+            is_timeout=True,
+        )
+        assert r_timeout.outcome == NormalizedExecutionOutcome.TIMEOUT
+        assert r_timeout.is_timeout is True
+
+        # 10. duplicate compatible cancellation facts are accepted
+        r_cancelled = normalize_execution_result(
+            execution_result=ExecutionResult(status=TerminationStatus.CANCELLED),
+            is_cancelled=True,
+        )
+        assert r_cancelled.outcome == NormalizedExecutionOutcome.CANCELLED
+        assert r_cancelled.is_cancelled is True
+
+    def test_record_post_init_resource_failure_invariants(self) -> None:
+        # 11. direct NormalizedExecutionRecord: SUCCESS + resource_failure_class => rejected
+        with pytest.raises(
+            ValueError, match="resource_failure_class must be None when outcome is SUCCESS"
+        ):
+            NormalizedExecutionRecord(
+                outcome=NormalizedExecutionOutcome.SUCCESS,
+                exit_code=0,
+                resource_failure_class=ResourceFailureClass.OUT_OF_MEMORY,
+            )
+
+        # 12. direct NormalizedExecutionRecord: TIMEOUT + resource_failure_class => rejected
+        with pytest.raises(
+            ValueError, match="resource_failure_class must be None when outcome is TIMEOUT"
+        ):
+            NormalizedExecutionRecord(
+                outcome=NormalizedExecutionOutcome.TIMEOUT,
+                is_timeout=True,
+                resource_failure_class=ResourceFailureClass.OUT_OF_MEMORY,
+            )
+
+        # 13. direct NormalizedExecutionRecord: RESOURCE_FAILURE without class => rejected
+        with pytest.raises(
+            ValueError,
+            match="RESOURCE_FAILURE outcome requires resource_failure_class to be specified",
+        ):
+            NormalizedExecutionRecord(
+                outcome=NormalizedExecutionOutcome.RESOURCE_FAILURE,
+                is_resource_failure=True,
+                resource_failure_class=None,
+            )
+
+        # 14. valid RESOURCE_FAILURE with explicit class remains accepted
+        rec = NormalizedExecutionRecord(
+            outcome=NormalizedExecutionOutcome.RESOURCE_FAILURE,
+            is_resource_failure=True,
+            resource_failure_class=ResourceFailureClass.OUT_OF_MEMORY,
+        )
+        assert rec.outcome == NormalizedExecutionOutcome.RESOURCE_FAILURE
+        assert rec.is_resource_failure is True
+        assert rec.resource_failure_class == ResourceFailureClass.OUT_OF_MEMORY
