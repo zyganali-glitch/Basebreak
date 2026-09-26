@@ -334,7 +334,7 @@ Phase exit: safe bounded execution contracts exist before autonomous building.
 ### P-05.01 — Implement bounded model client using discovered model identifiers/config
 Status: DONE (independently VERIFIED / PASS at SHA 90e5391b9bd7a406c62b838bfa1f24e85400ad65)
 ### P-05.02 — Implement sandbox create/exec/inspect/teardown adapter
-Status: DONE (independently VERIFIED / PASS at SHA c49da8394ceac30832643f760ad303ead185c4a3)
+Status: REOPENED / REPAIR REQUIRED (previously independently VERIFIED / PASS at SHA c49da8394ceac30832643f760ad303ead185c4a3; reopened due to current LIVE_NEBIUS provider-schema incompatibility discovered during P-05.06 execution; surgical repair candidate ready for independent QA)
 ### P-05.03 — Implement repository materialization and source-hash verification adapter
 Status: DONE (independently VERIFIED / PASS at SHA f149afffb58b72dfeba301e59868c38eef6a7107)
 ### P-05.04 — Implement model/sandbox telemetry normalization with secret-safe logs
@@ -342,7 +342,7 @@ Status: DONE (independently VERIFIED / PASS at SHA 899fe27feb8ec530c226a46832d47
 ### P-05.05 — Implement retry/idempotency policy without duplicating external actions
 Status: DONE (independently VERIFIED / PASS at SHA ef2d55c6ed6195e291b5e3ba8fe753541e5863c4)
 ### P-05.06 — Execute live adapter integration suite
-Status: IN_PROGRESS
+Status: BLOCKED_ON_P05_02_REPAIR / NOT COMPLETE (must NOT be presented as PASS; blocked on P-05.02 live schema repair closure)
 Phase exit: provider adapter is real, fail-closed, and replaceable from domain core.
 
 ---

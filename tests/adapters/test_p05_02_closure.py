@@ -143,6 +143,84 @@ class TestP0502ClosureGate:
         assert status.stdout == "OUT"
         assert status.stderr == "ERR"
 
+    def test_gate_live_schema_inspect_semantics(self) -> None:
+        live_fixture = {
+            "uuid": "01a0d8ca-gate-live",
+            "kind": "instance",
+            "status": "SUCCESS",
+            "duration": 0.369,
+            "metadata": {
+                "command": "echo HELLO_SANDBOX",
+                "result": {
+                    "state": {
+                        "exit_code": 0,
+                        "pid": 8,
+                        "signal": -1,
+                        "timed_out": False,
+                    },
+                    "stdout": {
+                        "value": "HELLO_SANDBOX\n",
+                        "encoding": "ascii",
+                        "truncated": False,
+                    },
+                    "stderr": {
+                        "value": "",
+                        "encoding": "ascii",
+                        "truncated": False,
+                    },
+                },
+            },
+        }
+
+        def transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(status_code=200, body=live_fixture)
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="k", project_id="p"),
+            transport=transport,
+        )
+        status = adapter.inspect_operation("01a0d8ca-gate-live")
+        assert status.status == "SUCCESS"
+        assert status.exit_code == 0
+        assert isinstance(status.exit_code, int)
+        assert status.stdout == "HELLO_SANDBOX\n"
+        assert status.stderr == ""
+        assert status.duration_seconds == 0.369
+
+    def test_gate_conflicting_exit_code_fails_closed(self) -> None:
+        fixture = {
+            "uuid": "gate-conflict-exit",
+            "status": "SUCCESS",
+            "metadata": {
+                "result": {
+                    "exit_code": 0,
+                    "state": {"exit_code": 1},
+                    "stdout": {"value": "OUT"},
+                    "stderr": {"value": ""},
+                }
+            },
+        }
+
+        def transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(status_code=200, body=fixture)
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="k", project_id="p"),
+            transport=transport,
+        )
+        with pytest.raises(SandboxResponseFormatError, match="Conflicting exit code fields"):
+            adapter.inspect_operation("gate-conflict-exit")
+
+    def test_gate_conflicting_stream_fields_fail_closed(self) -> None:
+        adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="k", project_id="p"))
+        with pytest.raises(SandboxResponseFormatError, match="Conflicting stream fields"):
+            adapter._parse_stream_output({"value": "V1", "data": "V2"})
+
+    def test_gate_malformed_stream_dictionary_fails_closed(self) -> None:
+        adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="k", project_id="p"))
+        with pytest.raises(SandboxResponseFormatError, match="missing both 'value' and 'data'"):
+            adapter._parse_stream_output({"encoding": "ascii", "truncated": False})
+
     # Gate 4: Teardown semantics
     def test_gate_teardown_semantics(self) -> None:
         cancel_called = []

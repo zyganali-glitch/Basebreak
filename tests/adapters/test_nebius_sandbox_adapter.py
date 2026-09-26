@@ -298,6 +298,348 @@ class TestNebiusSandboxAdapter:
         assert status.status == "RUNNING"
         assert status.is_terminal is False
 
+    # 3b. Live schema repair regression tests (P-05.02 surgical repair)
+    def test_inspect_operation_parses_live_schema_exact_facts(self) -> None:
+        # Proves A, B, C: nested state.exit_code=0 is int 0, stdout.value parses exact,
+        # stderr.value="" remains empty string
+        live_fixture = {
+            "uuid": "01a0d8ca-28fd-777e-9d32-0907c4cb6f28",
+            "kind": "instance",
+            "status": "SUCCESS",
+            "duration": 0.369,
+            "metadata": {
+                "command": "echo HELLO_SANDBOX",
+                "result": {
+                    "state": {
+                        "exit_code": 0,
+                        "pid": 8,
+                        "signal": -1,
+                        "timed_out": False,
+                    },
+                    "stdout": {
+                        "value": "HELLO_SANDBOX\n",
+                        "encoding": "ascii",
+                        "truncated": False,
+                    },
+                    "stderr": {
+                        "value": "",
+                        "encoding": "ascii",
+                        "truncated": False,
+                    },
+                },
+            },
+        }
+
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(status_code=200, body=live_fixture)
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="key", project_id="proj"),
+            transport=fake_transport,
+        )
+
+        status = adapter.inspect_operation("01a0d8ca-28fd-777e-9d32-0907c4cb6f28")
+        assert isinstance(status, NebiusOperationStatus)
+        assert status.status == "SUCCESS"
+        assert status.is_terminal is True
+        # A: nested state.exit_code = 0 parses exactly as integer 0
+        assert isinstance(status.exit_code, int)
+        assert status.exit_code == 0
+        # B: stdout.value parses exact stdout
+        assert status.stdout == "HELLO_SANDBOX\n"
+        # C: stderr.value="" remains exact empty string
+        assert status.stderr == ""
+        # Duration parsed from payload level
+        assert status.duration_seconds == 0.369
+
+    def test_inspect_operation_nested_nonzero_exit_code(self) -> None:
+        # Proves D: terminal SUCCESS + nested nonzero exit code preserves the nonzero code
+        fixture = {
+            "uuid": "op-nonzero-nested",
+            "status": "SUCCESS",
+            "metadata": {
+                "result": {
+                    "state": {
+                        "exit_code": 42,
+                        "pid": 12,
+                        "signal": -1,
+                        "timed_out": False,
+                    },
+                    "stdout": {"value": ""},
+                    "stderr": {"value": "error details\n"},
+                }
+            },
+        }
+
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(status_code=200, body=fixture)
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="key", project_id="proj"),
+            transport=fake_transport,
+        )
+        status = adapter.inspect_operation("op-nonzero-nested")
+        assert status.status == "SUCCESS"
+        assert status.exit_code == 42
+        assert status.stderr == "error details\n"
+
+    def test_inspect_operation_direct_legacy_exit_code_preserved(self) -> None:
+        # Proves E: direct legacy exit_code still parses if retained
+        fixture = {
+            "uuid": "op-legacy-direct",
+            "status": "SUCCESS",
+            "metadata": {
+                "result": {
+                    "exit_code": 0,
+                    "stdout": "direct-stdout\n",
+                    "stderr": "",
+                }
+            },
+        }
+
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(status_code=200, body=fixture)
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="key", project_id="proj"),
+            transport=fake_transport,
+        )
+        status = adapter.inspect_operation("op-legacy-direct")
+        assert status.exit_code == 0
+        assert status.stdout == "direct-stdout\n"
+
+    def test_inspect_operation_direct_and_nested_equal_accepted(self) -> None:
+        # Proves F: direct + nested equal exit codes are accepted
+        fixture = {
+            "uuid": "op-equal-exit",
+            "status": "SUCCESS",
+            "metadata": {
+                "result": {
+                    "exit_code": 0,
+                    "state": {"exit_code": 0},
+                    "stdout": {"value": "OK"},
+                    "stderr": {"value": ""},
+                }
+            },
+        }
+
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(status_code=200, body=fixture)
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="key", project_id="proj"),
+            transport=fake_transport,
+        )
+        status = adapter.inspect_operation("op-equal-exit")
+        assert status.exit_code == 0
+
+    def test_inspect_operation_direct_and_nested_conflicting_fails_closed(self) -> None:
+        # Proves G: direct + nested conflicting exit codes raise SandboxResponseFormatError
+        fixture = {
+            "uuid": "op-conflict-exit",
+            "status": "SUCCESS",
+            "metadata": {
+                "result": {
+                    "exit_code": 0,
+                    "state": {"exit_code": 1},
+                    "stdout": {"value": "CONFLICT"},
+                    "stderr": {"value": ""},
+                }
+            },
+        }
+
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            return _make_transport_response(status_code=200, body=fixture)
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key="key", project_id="proj"),
+            transport=fake_transport,
+        )
+        with pytest.raises(SandboxResponseFormatError, match="Conflicting exit code fields"):
+            adapter.inspect_operation("op-conflict-exit")
+
+    def test_stream_output_value_and_data_identical_accepted(self) -> None:
+        # Proves H: value/data stream fields with identical values are accepted
+        adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="k", project_id="p"))
+        parsed = adapter._parse_stream_output({"value": "MATCH\n", "data": "MATCH\n"})
+        assert parsed == "MATCH\n"
+
+    def test_stream_output_value_and_data_conflicting_fails_closed(self) -> None:
+        # Proves I: value/data conflicting values fail closed
+        adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="k", project_id="p"))
+        with pytest.raises(SandboxResponseFormatError, match="Conflicting stream fields"):
+            adapter._parse_stream_output({"value": "VAL_1", "data": "VAL_2"})
+
+    def test_stream_output_malformed_mapping_fails_closed(self) -> None:
+        # Proves J: malformed stream mapping without supported content field fails closed
+        adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="k", project_id="p"))
+        with pytest.raises(SandboxResponseFormatError, match="missing both 'value' and 'data'"):
+            adapter._parse_stream_output({"encoding": "ascii", "truncated": False})
+
+        with pytest.raises(SandboxResponseFormatError, match="Unsupported stream output type"):
+            adapter._parse_stream_output(12345)
+
+    def test_execute_command_with_live_schema_fixture(self) -> None:
+        # Proves K: execute_command() over fixture matching current live schema produces exact facts
+        live_fixture = {
+            "uuid": "01a0d8ca-exec-live",
+            "kind": "instance",
+            "status": "SUCCESS",
+            "duration": 0.369,
+            "metadata": {
+                "command": "echo HELLO_SANDBOX",
+                "result": {
+                    "state": {
+                        "exit_code": 0,
+                        "pid": 8,
+                        "signal": -1,
+                        "timed_out": False,
+                    },
+                    "stdout": {
+                        "value": "HELLO_SANDBOX\n",
+                        "encoding": "ascii",
+                        "truncated": False,
+                    },
+                    "stderr": {
+                        "value": "",
+                        "encoding": "ascii",
+                        "truncated": False,
+                    },
+                },
+            },
+        }
+
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            if "/instances" in req.full_url:
+                return _make_transport_response(
+                    status_code=201,
+                    headers={"Location": "/sandboxes/v1/operations/01a0d8ca-exec-live"},
+                )
+            return _make_transport_response(status_code=200, body=live_fixture)
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(
+                api_key="key", project_id="proj", poll_interval_seconds=0.01
+            ),
+            transport=fake_transport,
+        )
+        result = adapter.execute_command(DEFAULT_SANDBOX_IMAGE, "echo HELLO_SANDBOX")
+        assert isinstance(result, NebiusSandboxExecutionResult)
+        assert result.exit_code == 0
+        assert result.stdout == "HELLO_SANDBOX\n"
+        assert result.stderr == ""
+        assert result.duration_seconds == 0.369
+        assert result.provider_status == "SUCCESS"
+        assert result.is_completed is True
+        assert result.is_timeout is False
+        assert result.is_cancelled is False
+
+    def test_materialization_with_live_schema_fixture_succeeds(self) -> None:
+        # Proves L: materialization no longer interprets a live-shaped exit_code=0 result
+        # as exit_code=None
+        from basebreak.adapters.nebius.materialization import NebiusSourceMaterializer
+        from basebreak.domain.source import CommitRevision, SourceIdentity
+
+        target_commit = "68b825802f345a7d4fe6402748fbff447fdf187c"
+        target_tree = "27e8537391a96af3233d11ffc351afae1c430810"
+        stdout_payload = (
+            f"CLONE_START\n"
+            f"BASEBREAK_RESOLVED_COMMIT={target_commit}\n"
+            f"BASEBREAK_RESOLVED_TREE={target_tree}\n"
+            f"CLONE_SUCCESS\n"
+        )
+        live_materialization_fixture = {
+            "uuid": "01a0d8ca-mat-live",
+            "kind": "instance",
+            "status": "SUCCESS",
+            "duration": 1.2,
+            "metadata": {
+                "command": "git clone ...",
+                "result": {
+                    "state": {
+                        "exit_code": 0,
+                        "pid": 10,
+                        "signal": -1,
+                        "timed_out": False,
+                    },
+                    "stdout": {
+                        "value": stdout_payload,
+                        "encoding": "ascii",
+                        "truncated": False,
+                    },
+                    "stderr": {
+                        "value": "",
+                        "encoding": "ascii",
+                        "truncated": False,
+                    },
+                },
+            },
+        }
+
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            if "/instances" in req.full_url:
+                return _make_transport_response(
+                    status_code=201,
+                    headers={"Location": "/sandboxes/v1/operations/01a0d8ca-mat-live"},
+                )
+            return _make_transport_response(status_code=200, body=live_materialization_fixture)
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(
+                api_key="key", project_id="proj", poll_interval_seconds=0.01
+            ),
+            transport=fake_transport,
+        )
+        materializer = NebiusSourceMaterializer(adapter)
+        source = SourceIdentity(
+            locator="https://github.com/zyganali-glitch/Basebreak.git",
+            revision=CommitRevision(commit_id=target_commit),
+        )
+        record = materializer.materialize_repository(source)
+        assert record.resolved_commit_sha == target_commit
+        assert record.resolved_tree_sha == target_tree
+        assert record.source_identity == source
+
+    def test_live_schema_execution_no_automatic_retry(self) -> None:
+        # Proves M: no automatic retry is introduced
+        call_counts: dict[str, int] = {"spawn": 0, "inspect": 0}
+
+        def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            if "/instances" in req.full_url:
+                call_counts["spawn"] += 1
+                return _make_transport_response(
+                    status_code=201,
+                    headers={"Location": "/sandboxes/v1/operations/op-live-no-retry"},
+                )
+            if "/operations/" in req.full_url:
+                call_counts["inspect"] += 1
+                return _make_transport_response(
+                    status_code=200,
+                    body={
+                        "uuid": "op-live-no-retry",
+                        "status": "SUCCESS",
+                        "metadata": {
+                            "result": {
+                                "state": {"exit_code": 0},
+                                "stdout": {"value": "OK"},
+                                "stderr": {"value": ""},
+                            }
+                        },
+                    },
+                )
+            raise AssertionError(f"Unexpected: {req.full_url}")
+
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(
+                api_key="key", project_id="proj", poll_interval_seconds=0.01
+            ),
+            transport=fake_transport,
+        )
+        result = adapter.execute_command(DEFAULT_SANDBOX_IMAGE, "echo hi")
+        assert result.exit_code == 0
+        assert call_counts["spawn"] == 1
+        assert call_counts["inspect"] == 1
+
     # 4. Teardown semantics
     def test_teardown_cancels_running_operation_and_disposes(self) -> None:
         cancel_called = []
