@@ -15,6 +15,7 @@ Acceptance criteria:
 from __future__ import annotations
 
 import inspect
+from typing import Any, cast
 
 import pytest
 
@@ -482,3 +483,165 @@ class TestP0405FailedToStartNormalizationSemanticIntegrity:
         assert rec.is_cancelled is False
         assert rec.is_resource_failure is False
         assert rec.resource_failure_class is None
+
+
+class TestP0405CompletionAuthority:
+    """Acceptance criteria: Authoritative completion resolution without provider override."""
+
+    def test_domain_completed_0_with_provider_status_failed_is_success(self) -> None:
+        # 1. ExecutionResult(COMPLETED, 0) + provider_status="FAILED" => SUCCESS
+        res = ExecutionResult(status=TerminationStatus.COMPLETED, exit_code=0)
+        rec = normalize_execution_result(execution_result=res, provider_status="FAILED")
+        assert rec.outcome == NormalizedExecutionOutcome.SUCCESS
+        assert rec.exit_code == 0
+        assert rec.provider_status == "FAILED"
+
+    def test_domain_completed_2_with_provider_status_failed_is_nonzero_exit(self) -> None:
+        # 2. ExecutionResult(COMPLETED, 2) + provider_status="FAILED" => NONZERO_EXIT
+        res = ExecutionResult(status=TerminationStatus.COMPLETED, exit_code=2)
+        rec = normalize_execution_result(execution_result=res, provider_status="FAILED")
+        assert rec.outcome == NormalizedExecutionOutcome.NONZERO_EXIT
+        assert rec.exit_code == 2
+        assert rec.provider_status == "FAILED"
+
+    def test_domain_completed_0_with_provider_error_text_is_success(self) -> None:
+        # 3. ExecutionResult(COMPLETED, 0) + provider_error opaque text => SUCCESS
+        res = ExecutionResult(status=TerminationStatus.COMPLETED, exit_code=0)
+        rec = normalize_execution_result(
+            execution_result=res,
+            provider_error="opaque provider diagnostic",
+        )
+        assert rec.outcome == NormalizedExecutionOutcome.SUCCESS
+        assert rec.exit_code == 0
+        assert rec.provider_error_message == "opaque provider diagnostic"
+
+    def test_explicit_exit_code_0_with_provider_status_failed_is_success(self) -> None:
+        # 4. explicit exit_code=0 + provider_status="FAILED" => SUCCESS
+        rec = normalize_execution_result(exit_code=0, provider_status="FAILED")
+        assert rec.outcome == NormalizedExecutionOutcome.SUCCESS
+        assert rec.exit_code == 0
+        assert rec.provider_status == "FAILED"
+
+    def test_explicit_exit_code_3_with_provider_error_text_is_nonzero_exit(self) -> None:
+        # 5. explicit exit_code=3 + provider_error opaque text => NONZERO_EXIT
+        rec = normalize_execution_result(
+            exit_code=3,
+            provider_error="opaque provider diagnostic",
+        )
+        assert rec.outcome == NormalizedExecutionOutcome.NONZERO_EXIT
+        assert rec.exit_code == 3
+        assert rec.provider_error_message == "opaque provider diagnostic"
+
+    def test_provider_status_success_without_exit_code_fails_closed(self) -> None:
+        # 6. provider_status="SUCCESS" without exit_code => UNKNOWN_PROVIDER_FAILURE
+        rec = normalize_execution_result(provider_status="SUCCESS")
+        assert rec.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert rec.exit_code is None
+        assert rec.provider_status == "SUCCESS"
+
+    def test_provider_status_completed_without_exit_code_fails_closed(self) -> None:
+        # 7. provider_status="COMPLETED" without exit_code => UNKNOWN_PROVIDER_FAILURE
+        rec = normalize_execution_result(provider_status="COMPLETED")
+        assert rec.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert rec.exit_code is None
+        assert rec.provider_status == "COMPLETED"
+
+    def test_provider_error_alone_fails_closed(self) -> None:
+        # 8. provider_error alone => UNKNOWN_PROVIDER_FAILURE
+        rec = normalize_execution_result(provider_error="opaque provider diagnostic")
+        assert rec.outcome == NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE
+        assert rec.exit_code is None
+        assert rec.provider_error_message == "opaque provider diagnostic"
+
+
+class TestP0405ExitCodeTypeIntegrity:
+    """Acceptance criteria: Strict exit-code type integrity rejecting bool/str/float."""
+
+    def test_explicit_exit_code_bool_false_rejected(self) -> None:
+        # 9. explicit exit_code=False => TypeError
+        with pytest.raises(TypeError, match="exit_code must be an integer"):
+            normalize_execution_result(exit_code=cast(Any, False))
+
+    def test_explicit_exit_code_bool_true_rejected(self) -> None:
+        # 10. explicit exit_code=True => TypeError
+        with pytest.raises(TypeError, match="exit_code must be an integer"):
+            normalize_execution_result(exit_code=cast(Any, True))
+
+    def test_explicit_exit_code_str_rejected(self) -> None:
+        # 11. explicit exit_code="0" => TypeError
+        with pytest.raises(TypeError, match="exit_code must be an integer"):
+            normalize_execution_result(exit_code=cast(Any, "0"))
+
+    def test_explicit_exit_code_float_rejected(self) -> None:
+        # 12. explicit exit_code=1.0 => TypeError
+        with pytest.raises(TypeError, match="exit_code must be an integer"):
+            normalize_execution_result(exit_code=cast(Any, 1.0))
+
+    def test_execution_result_failed_to_start_bool_exit_code_rejected(self) -> None:
+        # 13. ExecutionResult(FAILED_TO_START, exit_code=False) entering normalizer => TypeError
+        res = ExecutionResult(status=TerminationStatus.FAILED_TO_START, exit_code=cast(Any, False))
+        with pytest.raises(TypeError, match="exit_code must be an integer"):
+            normalize_execution_result(execution_result=res)
+
+    def test_execution_result_failed_to_start_str_exit_code_rejected(self) -> None:
+        # 14. ExecutionResult(FAILED_TO_START, exit_code="127") entering normalizer => TypeError
+        res = ExecutionResult(status=TerminationStatus.FAILED_TO_START, exit_code=cast(Any, "127"))
+        with pytest.raises(TypeError, match="exit_code must be an integer"):
+            normalize_execution_result(execution_result=res)
+
+    def test_direct_record_failed_to_start_bool_exit_code_rejected(self) -> None:
+        # 15. direct record(outcome=FAILED_TO_START, exit_code=False) => TypeError
+        with pytest.raises(TypeError, match="exit_code must be an integer"):
+            NormalizedExecutionRecord(
+                outcome=NormalizedExecutionOutcome.FAILED_TO_START,
+                exit_code=cast(Any, False),
+            )
+
+    def test_direct_record_unknown_provider_failure_str_exit_code_rejected(self) -> None:
+        # 16. direct record(outcome=UNKNOWN_PROVIDER_FAILURE, exit_code="1") => TypeError
+        with pytest.raises(TypeError, match="exit_code must be an integer"):
+            NormalizedExecutionRecord(
+                outcome=NormalizedExecutionOutcome.UNKNOWN_PROVIDER_FAILURE,
+                exit_code=cast(Any, "1"),
+            )
+
+    def test_direct_record_success_bool_exit_code_rejected(self) -> None:
+        with pytest.raises(TypeError, match="exit_code must be an integer"):
+            NormalizedExecutionRecord(
+                outcome=NormalizedExecutionOutcome.SUCCESS,
+                exit_code=cast(Any, False),
+            )
+
+    def test_direct_record_nonzero_bool_exit_code_rejected(self) -> None:
+        with pytest.raises(TypeError, match="exit_code must be an integer"):
+            NormalizedExecutionRecord(
+                outcome=NormalizedExecutionOutcome.NONZERO_EXIT,
+                exit_code=cast(Any, True),
+            )
+
+    def test_reconciliation_rejects_bool_exit_code_against_domain_result(self) -> None:
+        res = ExecutionResult(status=TerminationStatus.COMPLETED, exit_code=0)
+        with pytest.raises(TypeError, match="exit_code must be an integer"):
+            normalize_execution_result(execution_result=res, exit_code=cast(Any, False))
+
+    def test_valid_integer_0_remains_success(self) -> None:
+        # 17. valid integer 0 remains SUCCESS
+        rec = normalize_execution_result(exit_code=0)
+        assert rec.outcome == NormalizedExecutionOutcome.SUCCESS
+        assert rec.exit_code == 0
+        assert type(rec.exit_code) is int
+
+    def test_valid_integer_nonzero_remains_nonzero_exit(self) -> None:
+        # 18. valid integer nonzero remains NONZERO_EXIT
+        rec = normalize_execution_result(exit_code=1)
+        assert rec.outcome == NormalizedExecutionOutcome.NONZERO_EXIT
+        assert rec.exit_code == 1
+        assert type(rec.exit_code) is int
+
+    def test_valid_failed_to_start_with_integer_exit_code_remains_failed_to_start(self) -> None:
+        # 19. valid FAILED_TO_START + integer exit code remains FAILED_TO_START
+        res = ExecutionResult(status=TerminationStatus.FAILED_TO_START, exit_code=127)
+        rec = normalize_execution_result(execution_result=res)
+        assert rec.outcome == NormalizedExecutionOutcome.FAILED_TO_START
+        assert rec.exit_code == 127
+        assert type(rec.exit_code) is int

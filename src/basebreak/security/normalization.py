@@ -53,6 +53,16 @@ class ResourceFailureClass(str, Enum):
     UNKNOWN_RESOURCE_FAILURE = "UNKNOWN_RESOURCE_FAILURE"
 
 
+def _validate_exit_code(exit_code: Any, *, name: str = "exit_code") -> int | None:
+    """Validate that exit_code is None or an integer that is not a bool."""
+    if exit_code is None:
+        return None
+    if isinstance(exit_code, bool) or not isinstance(exit_code, int):
+        tname = type(exit_code).__name__
+        raise TypeError(f"{name} must be an integer, got {tname}")
+    return exit_code
+
+
 @dataclass(frozen=True, slots=True)
 class NormalizedExecutionRecord:
     """Immutable, provider-neutral record of a normalized execution outcome.
@@ -96,6 +106,9 @@ class NormalizedExecutionRecord:
             raise TypeError(
                 f"outcome must be a NormalizedExecutionOutcome, got {type(self.outcome).__name__}"
             )
+
+        if self.exit_code is not None:
+            _validate_exit_code(self.exit_code, name="exit_code")
 
         # Invariant checks for outcome flags
         expected_timeout = self.outcome == NormalizedExecutionOutcome.TIMEOUT
@@ -244,6 +257,11 @@ def normalize_execution_result(
 
     Stream outputs are cryptographically digested and sanitized using P-04.02.
     """
+    # 0. Deterministic type integrity validation for exit-code facts
+    _validate_exit_code(exit_code, name="exit_code")
+    if execution_result is not None:
+        _validate_exit_code(execution_result.exit_code, name="exit_code")
+
     # 1. Digest raw provider payload if supplied (never parsed as authoritative classification)
     raw_digest: str | None = None
     if raw_payload is not None:
@@ -458,10 +476,10 @@ def normalize_execution_result(
         )
 
     # E. Check for Process Completion (SUCCESS or NONZERO_EXIT)
-    is_completed_status = (
-        provider_status in ("SUCCESS", "COMPLETED", None) and provider_error is None
-    )
-    if is_completed_status and exit_code is not None:
+    # Authoritative exit-code completion resolves deterministically provided no stronger
+    # authoritative terminal fact exists. Opaque provider_status, provider_error, and raw_payload
+    # are retained/sanitized/digested as evidence but do NOT alter this classification.
+    if exit_code is not None:
         if exit_code == 0:
             return NormalizedExecutionRecord(
                 outcome=NormalizedExecutionOutcome.SUCCESS,
@@ -472,6 +490,8 @@ def normalize_execution_result(
                 stdout_preview=stdout_preview,
                 stderr_preview=stderr_preview,
                 provider_status=provider_status,
+                provider_error_code=err_code,
+                provider_error_message=sanitized_err_msg,
                 raw_payload_digest=raw_digest,
             )
         return NormalizedExecutionRecord(
@@ -483,6 +503,8 @@ def normalize_execution_result(
             stdout_preview=stdout_preview,
             stderr_preview=stderr_preview,
             provider_status=provider_status,
+            provider_error_code=err_code,
+            provider_error_message=sanitized_err_msg,
             raw_payload_digest=raw_digest,
         )
 
