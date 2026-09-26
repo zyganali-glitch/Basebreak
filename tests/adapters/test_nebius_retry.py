@@ -575,3 +575,307 @@ class TestNebiusRetryExecutor:
             if attempt.error_message:
                 assert "secret_nebius_api_key_xyz987654321" not in attempt.error_message
                 assert "[REDACTED" in attempt.error_message
+
+
+class TestClassificationAuthority:
+    """Tests proving canonical operation classification is authoritative (P-05.05 repair)."""
+
+    def test_requirement_a_known_mutation_explicit_read_only_raises_before_action(self) -> None:
+        """Requirement A & J: known mutation + explicit READ_ONLY raises RetryPolicyError;
+        action called 0 times.
+        """
+        executor = NebiusRetryExecutor()
+        call_count = 0
+
+        def action() -> None:
+            nonlocal call_count
+            call_count += 1
+
+        for op_name in (
+            "create_instance",
+            "cancel_operation",
+            "chat_completion",
+            "materialize_source",
+        ):
+            with pytest.raises(
+                RetryPolicyError, match="Operation classification mismatch for known operation"
+            ):
+                executor.execute(
+                    operation_name=op_name,
+                    operation_effect=OperationEffect.READ_ONLY,
+                    action=action,
+                )
+            assert call_count == 0
+
+    def test_requirement_b_known_mutation_explicit_idempotent_mutation_raises_before_action(
+        self,
+    ) -> None:
+        """Requirement B & J: known mutation + explicit IDEMPOTENT_MUTATION raises
+        RetryPolicyError; action called 0 times.
+        """
+        executor = NebiusRetryExecutor()
+        call_count = 0
+
+        def action() -> None:
+            nonlocal call_count
+            call_count += 1
+
+        for op_name in (
+            "create_instance",
+            "cancel_operation",
+            "chat_completion",
+            "spawn_disposable",
+        ):
+            with pytest.raises(
+                RetryPolicyError, match="has no proven provider idempotency guarantee"
+            ):
+                executor.execute(
+                    operation_name=op_name,
+                    operation_effect=OperationEffect.IDEMPOTENT_MUTATION,
+                    action=action,
+                )
+            assert call_count == 0
+
+    def test_requirement_c_known_read_only_conflicting_classification_raises_before_action(
+        self,
+    ) -> None:
+        """Requirement C & J: known READ_ONLY + conflicting classification raises
+        RetryPolicyError; action called 0 times.
+        """
+        executor = NebiusRetryExecutor()
+        call_count = 0
+
+        def action() -> None:
+            nonlocal call_count
+            call_count += 1
+
+        for conflicting_effect in (
+            OperationEffect.NON_IDEMPOTENT_MUTATION,
+            OperationEffect.IDEMPOTENT_MUTATION,
+        ):
+            for op_name in ("whoami", "inspect_whoami", "inspect_operation", "poll_operation"):
+                with pytest.raises(
+                    RetryPolicyError, match="Operation classification mismatch for known operation"
+                ):
+                    executor.execute(
+                        operation_name=op_name,
+                        operation_effect=conflicting_effect,
+                        action=action,
+                    )
+                assert call_count == 0
+
+    def test_requirement_d_unknown_operation_explicit_read_only_raises_before_action(
+        self,
+    ) -> None:
+        """Requirement D & J: unknown operation + explicit READ_ONLY raises RetryPolicyError;
+        action called 0 times.
+        """
+        executor = NebiusRetryExecutor()
+        call_count = 0
+
+        def action() -> None:
+            nonlocal call_count
+            call_count += 1
+
+        with pytest.raises(
+            RetryPolicyError, match="Cannot assert READ_ONLY for unregistered operation"
+        ):
+            executor.execute(
+                operation_name="unknown_action_xyz",
+                operation_effect=OperationEffect.READ_ONLY,
+                action=action,
+            )
+        assert call_count == 0
+
+    def test_requirement_e_unknown_operation_explicit_idempotent_mutation_raises_before_action(
+        self,
+    ) -> None:
+        """Requirement E & J: unknown operation + explicit IDEMPOTENT_MUTATION raises
+        RetryPolicyError; action called 0 times.
+        """
+        executor = NebiusRetryExecutor()
+        call_count = 0
+
+        def action() -> None:
+            nonlocal call_count
+            call_count += 1
+
+        with pytest.raises(
+            RetryPolicyError, match="Cannot assert IDEMPOTENT_MUTATION for unregistered operation"
+        ):
+            executor.execute(
+                operation_name="unknown_mutating_provider_call",
+                operation_effect=OperationEffect.IDEMPOTENT_MUTATION,
+                action=action,
+            )
+        assert call_count == 0
+
+    def test_requirement_f_unknown_operation_no_explicit_effect_defaults_non_idempotent_mutation(
+        self,
+    ) -> None:
+        """Requirement F: unknown operation with no explicit effect defaults to
+        NON_IDEMPOTENT_MUTATION and gets exactly 1 attempt.
+        """
+        executor = NebiusRetryExecutor(RetryPolicyConfig(max_attempts=3))
+
+        # Subcase 1: Success makes exactly 1 attempt and records NON_IDEMPOTENT_MUTATION
+        call_count = 0
+
+        def success_action() -> str:
+            nonlocal call_count
+            call_count += 1
+            return "ok"
+
+        res, trail = executor.execute("unknown_op_foo", action=success_action)
+        assert res == "ok"
+        assert call_count == 1
+        assert trail.total_attempts == 1
+        assert trail.operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+        assert trail.attempts[0].operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+
+        # Subcase 2: Transient failure makes strictly 1 attempt and fails closed
+        # with NonRetryableOperationError
+        fail_count = 0
+
+        def failing_action() -> None:
+            nonlocal fail_count
+            fail_count += 1
+            raise SandboxProviderError(status_code=503, sanitized_message="Service Unavailable")
+
+        with pytest.raises(NonRetryableOperationError) as exc_info:
+            executor.execute("unknown_op_foo", action=failing_action)
+
+        assert fail_count == 1
+        assert exc_info.value.operation_name == "unknown_op_foo"
+        assert exc_info.value.operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+
+    def test_requirement_g_unknown_operation_explicit_non_idempotent_mutation_behaves_identically(
+        self,
+    ) -> None:
+        """Requirement G: unknown operation + explicit NON_IDEMPOTENT_MUTATION behaves
+        identically to default.
+        """
+        executor = NebiusRetryExecutor(RetryPolicyConfig(max_attempts=3))
+
+        call_count = 0
+
+        def success_action() -> str:
+            nonlocal call_count
+            call_count += 1
+            return "ok_explicit"
+
+        res, trail = executor.execute(
+            operation_name="unknown_op_bar",
+            operation_effect=OperationEffect.NON_IDEMPOTENT_MUTATION,
+            action=success_action,
+        )
+        assert res == "ok_explicit"
+        assert call_count == 1
+        assert trail.total_attempts == 1
+        assert trail.operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+
+        fail_count = 0
+
+        def failing_action() -> None:
+            nonlocal fail_count
+            fail_count += 1
+            raise SandboxProviderError(status_code=503, sanitized_message="Service Unavailable")
+
+        with pytest.raises(NonRetryableOperationError) as exc_info:
+            executor.execute(
+                operation_name="unknown_op_bar",
+                operation_effect=OperationEffect.NON_IDEMPOTENT_MUTATION,
+                action=failing_action,
+            )
+
+        assert fail_count == 1
+        assert exc_info.value.operation_name == "unknown_op_bar"
+        assert exc_info.value.operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+
+    def test_requirement_h_successful_known_mutation_trail_records_non_idempotent_mutation(
+        self,
+    ) -> None:
+        """Requirement H: successful known mutation trail records NON_IDEMPOTENT_MUTATION
+        regardless of caller attempts.
+        """
+        executor = NebiusRetryExecutor()
+
+        # 1. Attempting to misclassify as READ_ONLY is rejected before action
+        call_count = 0
+
+        def mutate_action() -> dict[str, str]:
+            nonlocal call_count
+            call_count += 1
+            return {"instance_id": "inst-1"}
+
+        with pytest.raises(RetryPolicyError):
+            executor.execute(
+                operation_name="create_instance",
+                operation_effect=OperationEffect.READ_ONLY,
+                action=mutate_action,
+            )
+        assert call_count == 0
+
+        # 2. Executing with default (no effect) records NON_IDEMPOTENT_MUTATION
+        res, trail_default = executor.execute(
+            operation_name="create_instance",
+            action=mutate_action,
+        )
+        assert res == {"instance_id": "inst-1"}
+        assert call_count == 1
+        assert trail_default.operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+        assert trail_default.attempts[0].operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+
+        # 3. Executing with matching explicit assertion records NON_IDEMPOTENT_MUTATION
+        res2, trail_explicit = executor.execute(
+            operation_name="create_instance",
+            operation_effect=OperationEffect.NON_IDEMPOTENT_MUTATION,
+            action=mutate_action,
+        )
+        assert res2 == {"instance_id": "inst-1"}
+        assert call_count == 2
+        assert trail_explicit.operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+        assert (
+            trail_explicit.attempts[0].operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+        )
+
+    def test_requirement_i_canonical_read_only_retries_bounded_transient_failures(self) -> None:
+        """Requirement I: canonical READ_ONLY operation still retries bounded transient failures."""
+        call_count = 0
+
+        def transient_action() -> str:
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise ModelProviderError(status_code=503, sanitized_message="Service Unavailable")
+            return "read_success"
+
+        executor = NebiusRetryExecutor(
+            RetryPolicyConfig(
+                max_attempts=3,
+                initial_backoff_seconds=0.01,
+                sleep_callable=lambda _: None,
+            )
+        )
+        res, trail = executor.execute("inspect_whoami", action=transient_action)
+        assert res == "read_success"
+        assert call_count == 3
+        assert trail.total_attempts == 3
+        assert trail.is_terminal_success is True
+        assert trail.operation_effect == OperationEffect.READ_ONLY
+        assert trail.attempts[0].status == "TRANSIENT_FAILURE"
+        assert trail.attempts[1].status == "TRANSIENT_FAILURE"
+        assert trail.attempts[2].status == "SUCCESS"
+
+    def test_is_operation_retryable_rejects_unknown_operation_even_with_asserted_idempotent(
+        self,
+    ) -> None:
+        """is_operation_retryable helper directly rejects unknown operations by name."""
+        transient_exc = SandboxProviderError(status_code=503, sanitized_message="Busy")
+        can_retry, rationale = is_operation_retryable(
+            OperationEffect.IDEMPOTENT_MUTATION,
+            transient_exc,
+            operation_name="unknown_mutating_provider_call",
+        )
+        assert can_retry is False
+        assert "no proven provider idempotency guarantee" in rationale

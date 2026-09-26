@@ -7,7 +7,8 @@ Authority:
 - Unproven provider idempotency guarantees MUST NOT be assumed.
 - Evidence Audit (P-01):
   Inspection of canonical P-01 live platform evidence and committed documentation confirms
-  that the provider supplies ZERO idempotency guarantees for mutating operations.
+  that canonical platform evidence contains no proven provider idempotency guarantee
+  for these mutating operations.
   Specifically, POST /operations/{operationId}/cancel, POST /sandboxes/v1/instances,
   and POST /v1/chat/completions have no proven provider idempotency mechanisms.
   Resource targeting (e.g. specifying an operation ID in the URL) is NOT proof of idempotency.
@@ -18,6 +19,10 @@ Authority:
   closed immediately with NonRetryableOperationError rather than repeat an external mutation.
 - Only READ_ONLY queries (e.g. whoami, inspect_whoami, inspect_operation, poll_operation,
   list_images, inspect_image) are eligible for bounded retries with deterministic backoff.
+- Canonical Authority:
+  Canonical operation classification is authoritative. Caller-supplied operation_effect is
+  strictly an assertion that must match the canonical registry for known operations, and
+  cannot upgrade unknown operations beyond NON_IDEMPOTENT_MUTATION.
 - Secret safety: credentials and bearer tokens are never exposed in attempt records or errors.
 """
 
@@ -316,11 +321,8 @@ def is_operation_retryable(
         (is_retryable, rationale_string)
     """
     if operation_name is not None:
-        clean_name = operation_name.strip().lower()
-        if (
-            clean_name in KNOWN_OPERATION_EFFECTS
-            and KNOWN_OPERATION_EFFECTS[clean_name] == OperationEffect.NON_IDEMPOTENT_MUTATION
-        ):
+        canonical_effect = classify_operation_effect(operation_name)
+        if canonical_effect == OperationEffect.NON_IDEMPOTENT_MUTATION:
             return (
                 False,
                 f"Operation {operation_name!r} has no proven provider idempotency guarantee "
@@ -399,30 +401,44 @@ class NebiusRetryExecutor:
 
         Raises:
             NonRetryableOperationError: If a non-idempotent mutation fails and cannot be retried.
-            MaxAttemptsExceededError: If retryable attempts exceed config.max_attempts.
-            RetryPolicyError: If an unproven mutating action is falsely claimed as
-                IDEMPOTENT_MUTATION.
+            RetryPolicyError: If classification assertion conflicts with canonical registry,
+                or if an unproven/unknown operation is asserted as IDEMPOTENT_MUTATION or READ_ONLY,
+                or if action callable is missing.
             Original Exception: If a permanent failure occurs.
         """
         if action is None:
             raise RetryPolicyError("action callable must be provided")
 
         clean_name = operation_name.strip().lower()
-        if operation_effect is None:
-            effective_effect = classify_operation_effect(operation_name)
-        else:
-            effective_effect = operation_effect
+        canonical_effect = classify_operation_effect(operation_name)
 
-        # Safeguard: prevent unproven mutating actions from being falsely marked IDEMPOTENT_MUTATION
-        if effective_effect == OperationEffect.IDEMPOTENT_MUTATION:
-            if (
-                clean_name in KNOWN_OPERATION_EFFECTS
-                and KNOWN_OPERATION_EFFECTS[clean_name] == OperationEffect.NON_IDEMPOTENT_MUTATION
-            ):
-                raise RetryPolicyError(
-                    f"Operation {operation_name!r} has no proven provider idempotency guarantee "
-                    f"and cannot be executed as IDEMPOTENT_MUTATION."
-                )
+        if operation_effect is not None:
+            if clean_name in KNOWN_OPERATION_EFFECTS:
+                expected_effect = KNOWN_OPERATION_EFFECTS[clean_name]
+                if operation_effect != expected_effect:
+                    idempotency_note = (
+                        " (operation has no proven provider idempotency guarantee)"
+                        if expected_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+                        else ""
+                    )
+                    raise RetryPolicyError(
+                        f"Operation classification mismatch for known operation "
+                        f"{operation_name!r}: caller asserted {operation_effect.value}, "
+                        f"but canonical registry defines {expected_effect.value}"
+                        f"{idempotency_note}."
+                    )
+            else:
+                # Unregistered/unknown operation: canonical default is NON_IDEMPOTENT_MUTATION.
+                # Caller MUST NOT upgrade an unknown operation to READ_ONLY or IDEMPOTENT_MUTATION.
+                if operation_effect != OperationEffect.NON_IDEMPOTENT_MUTATION:
+                    raise RetryPolicyError(
+                        f"Cannot assert {operation_effect.value} for unregistered operation "
+                        f"{operation_name!r}: unregistered operations default to "
+                        f"{OperationEffect.NON_IDEMPOTENT_MUTATION.value} and cannot be upgraded "
+                        f"(operation has no proven provider idempotency guarantee)."
+                    )
+
+        effective_effect = canonical_effect
 
         attempts_list: list[AttemptRecord] = []
         max_attempts = (

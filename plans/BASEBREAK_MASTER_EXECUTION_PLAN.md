@@ -340,7 +340,7 @@ Status: DONE (independently VERIFIED / PASS at SHA f149afffb58b72dfeba301e59868c
 ### P-05.04 — Implement model/sandbox telemetry normalization with secret-safe logs
 Status: DONE (independently VERIFIED / PASS at SHA 899fe27feb8ec530c226a46832d47f886cd6947d)
 ### P-05.05 — Implement retry/idempotency policy without duplicating external actions
-Status: DONE (executor completed; candidate for independent QA; surgically repaired retry policy: unproven mutating operations including cancel_operation classified as NON_IDEMPOTENT_MUTATION based on lack of provider idempotency guarantees in P-01 evidence; mutating actions execute strictly once and fail closed on transient 5xx or timeout errors; attempting to claim unproven mutations as IDEMPOTENT_MUTATION raises RetryPolicyError; comprehensive unit and closure test gates passing; implemented in src/basebreak/adapters/nebius/retry.py)
+Status: DONE (executor completed; candidate for independent QA; second surgical repair: canonical operation classification made authoritative; caller assertions cannot override known operations or upgrade unknown operations; unknown operations default fail-closed to NON_IDEMPOTENT_MUTATION; AttemptRecord/RetryAuditTrail always reflect canonical effective classification; evidence wording corrected to absence of proven provider idempotency guarantee; 55 focused unit and closure tests passing; implemented in src/basebreak/adapters/nebius/retry.py)
 ### P-05.06 — Execute live adapter integration suite
 Phase exit: provider adapter is real, fail-closed, and replaceable from domain core.
 

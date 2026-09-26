@@ -12,6 +12,7 @@ Acceptance Criteria:
 - Gate 5b: Mutating cancel_operation fails closed on timeout after strictly 1 attempt.
 - Gate 5c: Attempting unproven mutation as IDEMPOTENT_MUTATION raises RetryPolicyError.
 - Gate 5d: Operation effect classification correctly maps mutating and read-only ops.
+- Gate 5e: Canonical classification authority enforced (zero caller bypass).
 - Gate 6: Deterministic bounded backoff progression respecting ceilings.
 - Gate 7: Secret safety: credentials and tokens are redacted in all attempt surfaces.
 - Gate 8: Operational ceilings enforced (1 <= max_attempts <= 5, bounded backoff).
@@ -95,7 +96,7 @@ class TestP0505ClosureGate:
         executor = NebiusRetryExecutor(cfg)
 
         result, trail = executor.execute(
-            operation_name="inspect_status",
+            operation_name="inspect_operation",
             operation_effect=OperationEffect.READ_ONLY,
             action=read_action,
         )
@@ -125,7 +126,7 @@ class TestP0505ClosureGate:
 
         with pytest.raises(ModelProviderError) as exc_info:
             executor.execute(
-                operation_name="inspect_protected_info",
+                operation_name="inspect_whoami",
                 operation_effect=OperationEffect.READ_ONLY,
                 action=forbidden_action,
             )
@@ -246,6 +247,70 @@ class TestP0505ClosureGate:
             == OperationEffect.NON_IDEMPOTENT_MUTATION
         )
 
+    # Gate 5e: Canonical classification authority enforced: zero caller bypass
+    def test_gate_5e_classification_authority_enforced(self) -> None:
+        executor = NebiusRetryExecutor()
+        call_count = 0
+
+        def dummy_action() -> str:
+            nonlocal call_count
+            call_count += 1
+            return "ok"
+
+        # 1. Known mutation passed as READ_ONLY raises RetryPolicyError before action call
+        with pytest.raises(
+            RetryPolicyError, match="Operation classification mismatch for known operation"
+        ):
+            executor.execute(
+                operation_name="create_instance",
+                operation_effect=OperationEffect.READ_ONLY,
+                action=dummy_action,
+            )
+        assert call_count == 0
+
+        # 2. Known READ_ONLY passed as NON_IDEMPOTENT_MUTATION raises RetryPolicyError
+        with pytest.raises(
+            RetryPolicyError, match="Operation classification mismatch for known operation"
+        ):
+            executor.execute(
+                operation_name="whoami",
+                operation_effect=OperationEffect.NON_IDEMPOTENT_MUTATION,
+                action=dummy_action,
+            )
+        assert call_count == 0
+
+        # 3. Unknown operation passed as READ_ONLY raises RetryPolicyError before action call
+        with pytest.raises(
+            RetryPolicyError, match="Cannot assert READ_ONLY for unregistered operation"
+        ):
+            executor.execute(
+                operation_name="unknown_custom_op",
+                operation_effect=OperationEffect.READ_ONLY,
+                action=dummy_action,
+            )
+        assert call_count == 0
+
+        # 4. Unknown operation passed as IDEMPOTENT_MUTATION raises RetryPolicyError
+        with pytest.raises(
+            RetryPolicyError, match="Cannot assert IDEMPOTENT_MUTATION for unregistered operation"
+        ):
+            executor.execute(
+                operation_name="unknown_custom_op",
+                operation_effect=OperationEffect.IDEMPOTENT_MUTATION,
+                action=dummy_action,
+            )
+        assert call_count == 0
+
+        # 5. Unknown operation with explicit NON_IDEMPOTENT_MUTATION is accepted and executed once
+        result, trail = executor.execute(
+            operation_name="unknown_custom_op",
+            operation_effect=OperationEffect.NON_IDEMPOTENT_MUTATION,
+            action=dummy_action,
+        )
+        assert result == "ok"
+        assert call_count == 1
+        assert trail.operation_effect == OperationEffect.NON_IDEMPOTENT_MUTATION
+
     # Gate 6: Deterministic bounded backoff progression respecting ceilings
     def test_gate_6_backoff_progression_and_ceilings(self) -> None:
         cfg = RetryPolicyConfig(
@@ -277,7 +342,7 @@ class TestP0505ClosureGate:
 
         with pytest.raises(MaxAttemptsExceededError) as exc_info:
             executor.execute(
-                operation_name="query_model",
+                operation_name="inspect_operation",
                 operation_effect=OperationEffect.READ_ONLY,
                 action=leaking_action,
             )
