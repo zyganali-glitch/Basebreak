@@ -353,6 +353,7 @@ Goal: convert natural-language task into reviewable verification contract.
 ### P-06.01 — Define task ingestion and deterministic normalization
 Status: DONE (executor completed; deterministic task ingestion and normalization with raw text preservation, NFC Unicode normalization, BOM stripping, line-ending standardization, indentation-preserving whitespace rules, bounded byte ceilings, SHA-256 digests, and secret-safe representations in src/basebreak/compiler/ingestion.py; 16 focused tests passing in tests/compiler/test_ingestion.py)
 ### P-06.02 — Use Nemotron to propose atomic acceptance requirements with citations to task text
+Status: DONE (executor completed; proposed atomic acceptance requirements via Nemotron with strict citation span validation against normalized task text, schema enforcement, unsupported citation fail-closed logic, duplicate deduplication, 13 offline unit tests in tests/compiler/test_requirements.py and genuine LIVE_NEBIUS execution test in tests/compiler/test_p06_02_live.py, durable evidence in docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md)
 ### P-06.03 — Classify change semantics and uncertainty
 ### P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions
 ### P-06.05 — Add human-editable contract review surface/CLI
