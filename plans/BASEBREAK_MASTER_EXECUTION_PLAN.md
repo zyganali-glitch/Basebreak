@@ -355,6 +355,7 @@ Status: DONE (executor completed; deterministic task ingestion and normalization
 ### P-06.02 — Use Nemotron to propose atomic acceptance requirements with citations to task text
 Status: DONE (executor completed; proposed atomic acceptance requirements via Nemotron with strict citation span validation against normalized task text, schema enforcement, unsupported citation fail-closed logic, duplicate deduplication, 13 offline unit tests in tests/compiler/test_requirements.py and genuine LIVE_NEBIUS execution test in tests/compiler/test_p06_02_live.py, durable evidence in docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md)
 ### P-06.03 — Classify change semantics and uncertainty
+Status: DONE (executor completed; deterministic heuristic and model-based change semantics classification into 6 canonical ChangeClass variants, explicit CertaintyLevel modeling [CONFIDENT, AMBIGUOUS, UNKNOWN], verbatim citation validation against normalized task text, strict schema enforcement, secret-safe representations, and provider purity; 22 unit tests passing in tests/compiler/test_change_semantics.py)
 ### P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions
 ### P-06.05 — Add human-editable contract review surface/CLI
 ### P-06.06 — Freeze contract digest before Builder execution

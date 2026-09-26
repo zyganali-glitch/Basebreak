@@ -254,6 +254,21 @@ def _strip_markdown_code_fence(text: str) -> str:
     return stripped
 
 
+def _repair_unquoted_json_strings(json_str: str) -> str:
+    """Repair common model output flaw where string values after colon are not wrapped in quotes."""
+
+    def repl(m: re.Match[str]) -> str:
+        key_prefix = m.group(1)
+        val = m.group(2).strip()
+        if val in ("true", "false", "null") or re.match(r"^-?\d+(?:\.\d+)?$", val):
+            return f"{key_prefix}{val}"
+        safe_val = val.replace('"', '\\"')
+        return f'{key_prefix}"{safe_val}"'
+
+    pattern = re.compile(r'("(?:\w+)"\s*:\s*)(?!["\[{])([^,\n\}\]]+)')
+    return pattern.sub(repl, json_str)
+
+
 def parse_and_validate_requirements(
     raw_response: str,
     task: NormalizedTask,
@@ -286,11 +301,15 @@ def parse_and_validate_requirements(
 
     try:
         data = json.loads(cleaned)
-    except json.JSONDecodeError as exc:
-        sanitized_snippet = redact_log_text(cleaned[:200])
-        raise MalformedModelOutputError(
-            f"Model output is not valid JSON: {exc}. Cleaned content: {sanitized_snippet!r}"
-        ) from exc
+    except json.JSONDecodeError:
+        repaired = _repair_unquoted_json_strings(cleaned)
+        try:
+            data = json.loads(repaired)
+        except json.JSONDecodeError as exc:
+            sanitized_snippet = redact_log_text(cleaned[:200])
+            raise MalformedModelOutputError(
+                f"Model output is not valid JSON: {exc}. Cleaned content: {sanitized_snippet!r}"
+            ) from exc
 
     if not isinstance(data, dict):
         raise MalformedModelOutputError(
@@ -418,20 +437,8 @@ class NemotronRequirementProposer:
         completion_tokens = getattr(result.usage, "completion_tokens", 0)
         total_tokens = getattr(result.usage, "total_tokens", 0)
 
-        # Normalize telemetry if possible
-        telemetry_digest: str | None = None
-        try:
-            from basebreak.adapters.nebius.telemetry import normalize_model_telemetry
-            from basebreak.domain.verdict import EvidenceProvenance
-
-            telemetry = normalize_model_telemetry(
-                result,
-                provenance=EvidenceProvenance.LIVE_NEBIUS,
-                configured_model=self.model_id,
-            )
-            telemetry_digest = telemetry.payload_digest
-        except Exception:
-            pass
+        # Telemetry digest if attached by adapter/client
+        telemetry_digest = getattr(result, "telemetry_digest", None)
 
         raw_text = getattr(result, "content", getattr(result, "raw_text", str(result)))
         return parse_and_validate_requirements(
