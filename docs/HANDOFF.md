@@ -64,12 +64,12 @@ Judge claim:
 - P-Ω broad phase-closure audit: PASS.
 - P-06.01 (Define task ingestion and deterministic normalization) is independently VERIFIED / PASS at SHA `a76762c62fffba30a7b8d1ead2a130c192c8c072`.
 - P-06.02 (Use Nemotron to propose atomic acceptance requirements with citations to task text) is independently VERIFIED / PASS (live-tested source commit b2410e76028e1d3b1d97ebb087f1113f3f8097cb, tree f476f2c7407d7ec9e7ab0cb138e40bbfb0e66412; canonical evidence/governance closure at SHA c93485892e6c40cfe0f95aa82b94fc2346b70fb0; genuine LIVE_NEBIUS evidence in docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md).
-- P-06.03 (Classify change semantics and uncertainty) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE after final serialization authority-invariant repair (52 focused tests passing in tests/compiler/test_change_semantics.py including repair tests A-T; ChangeSemanticsClassification enforces authoritative fields strictly equal deterministic facts at construction and deserialization; verification_requirement canonically validated; DeterministicClassificationFact and ModelChangeProposal enforce certainty/class semantic invariants during all construction paths; ModelChangeProposal is_authoritative strictly False; zero provider-specific identifiers in compiler semantics core).
-- P-06.04 (Deterministically validate requirement IDs, scope, forbidden actions and contradictions) is NOT_RUN / NOT AUTHORIZED pending P-06.03 QA.
+- P-06.03 (Classify change semantics and uncertainty) is independently VERIFIED / PASS at SHA `6a8fe7756ed0ad3df8d7265d0702ecbc0842ecee`.
+- P-06.04 (Deterministically validate requirement IDs, scope, forbidden actions and contradictions) is active exact task (in progress).
 - P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Last independently VERIFIED baseline SHA
-`c93485892e6c40cfe0f95aa82b94fc2346b70fb0` (canonical evidence closure at P-06.02; live-tested source commit `b2410e76028e1d3b1d97ebb087f1113f3f8097cb`, tree `f476f2c7407d7ec9e7ab0cb138e40bbfb0e66412`).
+`6a8fe7756ed0ad3df8d7265d0702ecbc0842ecee` (independently VERIFIED / PASS at P-06.03).
 
 ## Blocking live gate vs active task
 
@@ -77,17 +77,17 @@ Judge claim:
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-`P-06.03 — Classify change semantics and uncertainty` (final authority-invariant repaired candidate; serialization authority invariant enforced, semantic consistency across all construction paths, 52 tests passing).
+None. P-06.03 is independently VERIFIED / PASS at SHA `6a8fe7756ed0ad3df8d7265d0702ecbc0842ecee`.
 
 ### Active exact task
-`P-06.03 — Classify change semantics and uncertainty` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; pending independent QA).
+`P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions`
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-05 all tasks are independently VERIFIED / PASS. P-06.01 and P-06.02 are independently VERIFIED / PASS. P-06.03 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE after surgical repair. P-06.04 is NOT_RUN / NOT AUTHORIZED pending P-06.03 QA.
+- **Task status:** P-00 through P-05 all tasks are independently VERIFIED / PASS. P-06.01, P-06.02, and P-06.03 are independently VERIFIED / PASS. P-06.04 is the active exact task. P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Provider neutrality:** All domain contracts, evidence primitives, security primitives, and Contract Compiler core production code (`src/basebreak/compiler/*`) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers in semantics.py.
 - **Phase status:** P-00, P-01, P-02, P-03, P-04, P-05 phases are independently CLOSED / PASS. P-06 phase is OPEN.
-- **Batch restoration & hard stop:** P-06.03 under repair; P-06.04 unaccepted commit reverted and marked NOT_RUN / NOT AUTHORIZED. Hard stop enforced. P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
-- **Not authorized / forbidden:** P-06.04 (pending P-06.03 QA), P-06.05, P-06.06, and P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** P-06.04 clean reimplementation is in progress. P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Not authorized / forbidden:** P-06.05, P-06.06, and P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -105,6 +105,6 @@ None. P-01 and P-05 live platform/adapter integrations are complete and independ
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Implement P-06.03: Classify change semantics and uncertainty.
-2. Execute focused change semantics classification and provider purity tests.
-3. Commit and push P-06.03 before progressing to P-06.04.
+1. Cleanly reimplement P-06.04: Deterministically validate requirement IDs, scope, forbidden actions and contradictions.
+2. Validate with focused and full non-live test suite, ruff, format, mypy.
+3. Enforce zero final contract digest (P-06.06 boundary) and strict deterministic non-model authority.
