@@ -357,7 +357,7 @@ Status: DONE (independently VERIFIED / PASS; live-tested source commit b2410e760
 ### P-06.03 — Classify change semantics and uncertainty
 Status: EXECUTOR_COMPLETED (classified change semantics and uncertainty under Basebreak authority model; deterministic facts govern over model proposals; explicit uncertainty CONFIDENT/AMBIGUOUS/UNKNOWN; six canonical classes from domain semantics; synchronous NemotronSemanticsClassifier matching complete(...) contract; provider purity verified; secret-safe error diagnostics; 20 tests passing in tests/compiler/test_change_semantics.py)
 ### P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions
-Status: EXECUTOR_COMPLETED (deterministically validates requirement IDs, statement/citation length bounds, exact citation presence in normalized task, forbidden action rejection including protected governance/security surfaces and test-weakening demands, pairwise logical contradictions and HTTP status code clashes, semantic contradictions against REFACTOR/PERFORMANCE laws, canonical AcceptanceRequirement conversion, and deterministic SHA-256 validation digest; 32 tests passing in tests/compiler/test_validation.py)
+Status: NOT_RUN (conditionally authorized to execute only after P-06.03 local gates pass and pushed canonical CI succeeds)
 ### P-06.05 — Add human-editable contract review surface/CLI
 Status: NOT AUTHORIZED / NOT_RUN
 ### P-06.06 — Freeze contract digest before Builder execution
