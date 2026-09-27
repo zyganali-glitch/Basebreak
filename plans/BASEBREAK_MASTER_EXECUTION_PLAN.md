@@ -353,11 +353,11 @@ Goal: convert natural-language task into reviewable verification contract.
 ### P-06.01 — Define task ingestion and deterministic normalization
 Status: DONE (independently VERIFIED / PASS at SHA a76762c62fffba30a7b8d1ead2a130c192c8c072; deterministic task ingestion and normalization with raw text preservation, NFC Unicode normalization, BOM stripping, line-ending standardization, indentation-preserving whitespace rules, bounded byte ceilings, SHA-256 digests, and secret-safe representations in src/basebreak/compiler/ingestion.py; 16 focused tests passing in tests/compiler/test_ingestion.py)
 ### P-06.02 — Use Nemotron to propose atomic acceptance requirements with citations to task text
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (proposed atomic acceptance requirements via Nemotron with strict citation span validation against normalized task text, schema enforcement, unsupported citation fail-closed logic, duplicate deduplication, provider purity enforced with zero adapter imports in compiler core, strict fail-closed unquoted/malformed JSON handling, comprehensive test suite A-N in tests/compiler/test_requirements.py, pre-live source identity capture and fail-closed tree check with tests A-G in tests/compiler/test_p06_02_live.py, and genuine LIVE_NEBIUS execution on tested commit b2410e76028e1d3b1d97ebb087f1113f3f8097cb / tree f476f2c7407d7ec9e7ab0cb138e40bbfb0e66412 with durable evidence in docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md)
+Status: DONE (independently VERIFIED / PASS; live-tested source commit b2410e76028e1d3b1d97ebb087f1113f3f8097cb, tree f476f2c7407d7ec9e7ab0cb138e40bbfb0e66412; canonical evidence/governance closure at SHA c93485892e6c40cfe0f95aa82b94fc2346b70fb0; genuine LIVE_NEBIUS execution documented in docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md)
 ### P-06.03 — Classify change semantics and uncertainty
-Status: NOT AUTHORIZED / NOT_RUN (restored batch hard-stop boundary; downstream unaccepted commits reverted; awaiting independent QA verdict on repaired P-06.02)
+Status: IN PROGRESS (authorized for execution in conditional microphase batch; active exact task)
 ### P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions
-Status: NOT AUTHORIZED / NOT_RUN (restored batch hard-stop boundary; downstream unaccepted commits reverted; awaiting independent QA verdict on repaired P-06.02)
+Status: NOT_RUN (conditionally authorized to execute only after P-06.03 local gates pass and pushed canonical CI succeeds)
 ### P-06.05 — Add human-editable contract review surface/CLI
 Status: NOT AUTHORIZED / NOT_RUN
 ### P-06.06 — Freeze contract digest before Builder execution
