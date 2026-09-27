@@ -64,8 +64,8 @@ Judge claim:
 - P-Ω broad phase-closure audit: PASS.
 - P-06.01 (Define task ingestion and deterministic normalization) is independently VERIFIED / PASS at SHA `a76762c62fffba30a7b8d1ead2a130c192c8c072`.
 - P-06.02 (Use Nemotron to propose atomic acceptance requirements with citations to task text) is independently VERIFIED / PASS (live-tested source commit b2410e76028e1d3b1d97ebb087f1113f3f8097cb, tree f476f2c7407d7ec9e7ab0cb138e40bbfb0e66412; canonical evidence/governance closure at SHA c93485892e6c40cfe0f95aa82b94fc2346b70fb0; genuine LIVE_NEBIUS evidence in docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md).
-- P-06.03 (Classify change semantics and uncertainty) is EXECUTOR_COMPLETED / LOCAL_VERIFIED with 20 focused tests passing in tests/compiler/test_change_semantics.py, strict authority model (deterministic facts override model proposals), explicit uncertainty (CONFIDENT, AMBIGUOUS, UNKNOWN), zero duplicate ChangeClass definition, provider purity across compiler core, synchronous NemotronSemanticsClassifier conforming to NebiusModelClient.complete(...), and secret-safe error handling.
-- P-06.04 (Deterministically validate requirement IDs, scope, forbidden actions and contradictions) is NOT_RUN (conditionally authorized after P-06.03 CI SUCCESS).
+- P-06.03 (Classify change semantics and uncertainty) is EXECUTOR_COMPLETED / PUSHED at SHA `ad88888765f20534252abd7c7d603cc464115d37` (CI SUCCESS on run 36307792784; 20 focused tests passing in tests/compiler/test_change_semantics.py).
+- P-06.04 (Deterministically validate requirement IDs, scope, forbidden actions and contradictions) is EXECUTOR_COMPLETED / LOCAL_VERIFIED with 32 focused tests passing in tests/compiler/test_validation.py, deterministic validation of requirement IDs/bounds/citations, fail-closed forbidden action rejection (protected governance/security surfaces, test weakening), contradiction detection (opposing directive pairs, HTTP status clashes, REFACTOR/PERFORMANCE semantic violations), canonical AcceptanceRequirement conversion, and deterministic SHA-256 validation digest computation.
 - P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Last independently VERIFIED baseline SHA
@@ -80,13 +80,13 @@ None. P-01 and P-05 live platform/adapter integrations are complete and independ
 None. P-06.02 is independently VERIFIED / PASS.
 
 ### Active exact task
-`P-06.03 — Classify change semantics and uncertainty` (EXECUTOR_COMPLETED; awaiting canonical GitHub Actions CI verification before P-06.04 conditional execution).
+`P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions` (EXECUTOR_COMPLETED; batch-end verification suite and canonical GitHub Actions CI pending; hard stop enforced after P-06.04).
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-05 all tasks are independently VERIFIED / PASS. P-06.01 and P-06.02 are independently VERIFIED / PASS. Active exact task is P-06.03. P-06.04 is conditionally authorized to execute only after P-06.03 local gates pass and pushed canonical CI succeeds.
+- **Task status:** P-00 through P-05 all tasks are independently VERIFIED / PASS. P-06.01 and P-06.02 are independently VERIFIED / PASS. Active batch P-06.03 → P-06.04 is EXECUTOR_COMPLETED. Hard stop enforced after P-06.04.
 - **Provider neutrality:** All domain contracts, evidence primitives, security primitives, and Contract Compiler core production code (`src/basebreak/compiler/*`) remain strictly provider-neutral with zero `basebreak.adapters` imports.
 - **Phase status:** P-00, P-01, P-02, P-03, P-04, P-05 phases are independently CLOSED / PASS. P-06 phase is OPEN.
-- **Batch restoration & hard stop:** P-06.03 active; P-06.04 conditionally authorized after P-06.03 CI SUCCESS. Hard stop after P-06.04. P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** P-06.03 completed and pushed (CI SUCCESS); P-06.04 completed and locally verified. Hard stop after P-06.04. P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Not authorized / forbidden:** P-06.05, P-06.06, and P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
@@ -105,6 +105,7 @@ None. P-06.02 is independently VERIFIED / PASS.
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Implement P-06.03: Classify change semantics and uncertainty.
-2. Execute focused change semantics classification and provider purity tests.
-3. Commit and push P-06.03 before progressing to P-06.04.
+1. Commit and push P-06.04.
+2. Confirm canonical GitHub Actions CI run succeeds.
+3. Run full batch-end verification test suite and type/lint checks.
+4. Issue completion report and enforce hard stop before P-06.05.
