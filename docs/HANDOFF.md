@@ -63,7 +63,7 @@ Judge claim:
 - P-05 phase (Nebius/Nemotron Adapter Layer) is independently CLOSED / PASS at SHA `eeba36126968f34494ef1c12b1e3ddbccc18ad91`.
 - P-Ω broad phase-closure audit: PASS.
 - P-06.01 (Define task ingestion and deterministic normalization) is independently VERIFIED / PASS at SHA `a76762c62fffba30a7b8d1ead2a130c192c8c072`.
-- P-06.02 (Use Nemotron to propose atomic acceptance requirements with citations to task text) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE after surgical repair of compiler provider purity, strict fail-closed parsing restoration, test suite hardening (tests A through N), and clean reproduction of genuine LIVE_NEBIUS proof in `docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md`.
+- P-06.02 (Use Nemotron to propose atomic acceptance requirements with citations to task text) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE after pre-live fail-closed clean tree enforcement, deterministic source identity capture (tested commit `b2410e76028e1d3b1d97ebb087f1113f3f8097cb`, tree `f476f2c7407d7ec9e7ab0cb138e40bbfb0e66412`), tests A-G in `tests/compiler/test_p06_02_live.py`, passing green CI (run 36300230778), truthful promotional balance wording without invented cost claims, and genuine LIVE_NEBIUS execution proof in `docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md`.
 - P-06.03 (Classify change semantics and uncertainty) is NOT AUTHORIZED / NOT_RUN after batch-boundary restoration.
 - P-06.04 (Deterministically validate requirement IDs, scope, forbidden actions and contradictions) is NOT AUTHORIZED / NOT_RUN after batch-boundary restoration.
 - P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
