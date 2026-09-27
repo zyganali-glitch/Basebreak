@@ -64,7 +64,7 @@ Judge claim:
 - P-Ω broad phase-closure audit: PASS.
 - P-06.01 (Define task ingestion and deterministic normalization) is independently VERIFIED / PASS at SHA `a76762c62fffba30a7b8d1ead2a130c192c8c072`.
 - P-06.02 (Use Nemotron to propose atomic acceptance requirements with citations to task text) is independently VERIFIED / PASS (live-tested source commit b2410e76028e1d3b1d97ebb087f1113f3f8097cb, tree f476f2c7407d7ec9e7ab0cb138e40bbfb0e66412; canonical evidence/governance closure at SHA c93485892e6c40cfe0f95aa82b94fc2346b70fb0; genuine LIVE_NEBIUS evidence in docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md).
-- P-06.03 (Classify change semantics and uncertainty) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE after surgical authority and provider-neutrality repair (32 focused tests passing in tests/compiler/test_change_semantics.py; strict model non-authority invariant where model proposals cannot mutate canonical classification fields; fail-closed exact proposal schema without defaults; strict non-coercive deserialization; zero provider-specific identifiers in compiler semantics core).
+- P-06.03 (Classify change semantics and uncertainty) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE after final serialization authority-invariant repair (52 focused tests passing in tests/compiler/test_change_semantics.py including repair tests A-T; ChangeSemanticsClassification enforces authoritative fields strictly equal deterministic facts at construction and deserialization; verification_requirement canonically validated; DeterministicClassificationFact and ModelChangeProposal enforce certainty/class semantic invariants during all construction paths; ModelChangeProposal is_authoritative strictly False; zero provider-specific identifiers in compiler semantics core).
 - P-06.04 (Deterministically validate requirement IDs, scope, forbidden actions and contradictions) is NOT_RUN / NOT AUTHORIZED pending P-06.03 QA.
 - P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
@@ -77,7 +77,7 @@ Judge claim:
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-`P-06.03 — Classify change semantics and uncertainty` (repaired candidate; provider-neutral compiler core, strict non-authority invariant, exact schema validation, fail-closed deserialization).
+`P-06.03 — Classify change semantics and uncertainty` (final authority-invariant repaired candidate; serialization authority invariant enforced, semantic consistency across all construction paths, 52 tests passing).
 
 ### Active exact task
 `P-06.03 — Classify change semantics and uncertainty` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; pending independent QA).

@@ -161,6 +161,41 @@ class ModelChangeProposal:
                 f"telemetry_digest must be str or None, got {type(self.telemetry_digest).__name__}"
             )
 
+        # Semantic invariants
+        if len(set(self.alternative_classes)) != len(self.alternative_classes):
+            raise ValueError("alternative_classes must not contain duplicate classes")
+
+        if self.proposed_class is not None and self.proposed_class in self.alternative_classes:
+            raise ValueError(
+                f"alternative_classes must not contain proposed_class ({self.proposed_class})"
+            )
+
+        if self.certainty == CertaintyLevel.CONFIDENT:
+            if self.proposed_class is None:
+                raise ValueError("proposed_class cannot be None when certainty is CONFIDENT")
+            if len(self.alternative_classes) > 0:
+                raise ValueError("alternative_classes must be empty when certainty is CONFIDENT")
+
+        elif self.certainty == CertaintyLevel.UNKNOWN:
+            if self.proposed_class is not None:
+                raise ValueError("proposed_class must be None when certainty is UNKNOWN")
+            if len(self.alternative_classes) > 0:
+                raise ValueError("alternative_classes must be empty when certainty is UNKNOWN")
+
+        elif self.certainty == CertaintyLevel.AMBIGUOUS:
+            if self.proposed_class is not None:
+                if len(self.alternative_classes) == 0:
+                    raise ValueError(
+                        "alternative_classes cannot be empty when certainty is AMBIGUOUS and "
+                        "proposed_class is present"
+                    )
+            else:
+                if len(self.alternative_classes) < 2:
+                    raise ValueError(
+                        "alternative_classes must contain at least 2 classes when "
+                        "certainty is AMBIGUOUS and proposed_class is None"
+                    )
+
     def to_dict(self) -> dict[str, Any]:
         """Deterministic dictionary serialization."""
         return {
@@ -341,6 +376,45 @@ class DeterministicClassificationFact:
             if not isinstance(ms, str):
                 raise TypeError(f"matched_signals item must be str, got {type(ms).__name__}")
 
+        # Semantic invariants
+        if len(set(self.alternative_classes)) != len(self.alternative_classes):
+            raise ValueError("alternative_classes must not contain duplicate classes")
+
+        if self.certainty == CertaintyLevel.CONFIDENT:
+            if self.inferred_class is None:
+                raise ValueError("inferred_class cannot be None when certainty is CONFIDENT")
+            if len(self.alternative_classes) > 0:
+                raise ValueError("alternative_classes must be empty when certainty is CONFIDENT")
+
+        elif self.certainty == CertaintyLevel.UNKNOWN:
+            if self.inferred_class is not None:
+                raise ValueError("inferred_class must be None when certainty is UNKNOWN")
+            if self.confidence != 0.0:
+                raise ValueError(
+                    f"confidence must be 0.0 when certainty is UNKNOWN, got {self.confidence}"
+                )
+            if len(self.alternative_classes) > 0:
+                raise ValueError("alternative_classes must be empty when certainty is UNKNOWN")
+
+        elif self.certainty == CertaintyLevel.AMBIGUOUS:
+            if self.inferred_class is not None:
+                if len(self.alternative_classes) == 0:
+                    raise ValueError(
+                        "alternative_classes must contain at least one competing class when "
+                        "certainty is AMBIGUOUS and inferred_class is present"
+                    )
+                if self.inferred_class in self.alternative_classes:
+                    raise ValueError(
+                        f"alternative_classes must not contain inferred_class "
+                        f"({self.inferred_class})"
+                    )
+            else:
+                if len(self.alternative_classes) < 2:
+                    raise ValueError(
+                        "alternative_classes must contain at least two competing classes when "
+                        "certainty is AMBIGUOUS and inferred_class is None"
+                    )
+
     def to_dict(self) -> dict[str, Any]:
         """Deterministic dictionary serialization."""
         return {
@@ -509,16 +583,48 @@ class ChangeSemanticsClassification:
                 f"model_proposal must be ModelChangeProposal or None, "
                 f"got {type(self.model_proposal).__name__}"
             )
-        if self.change_class is None and self.certainty == CertaintyLevel.CONFIDENT:
-            raise ValueError("change_class cannot be None when certainty is CONFIDENT")
-
-        # Automatically bind verification requirement if change_class is resolved
-        if self.change_class is not None and self.verification_requirement is None:
-            object.__setattr__(
-                self,
-                "verification_requirement",
-                get_verification_requirements(self.change_class),
+        # REPAIR 1: Authoritative fields MUST exactly derive from deterministic_facts
+        if self.change_class != self.deterministic_facts.inferred_class:
+            raise ValueError(
+                f"change_class ({self.change_class}) does not match "
+                f"deterministic_facts.inferred_class ({self.deterministic_facts.inferred_class})"
             )
+        if self.certainty != self.deterministic_facts.certainty:
+            raise ValueError(
+                f"certainty ({self.certainty}) does not match "
+                f"deterministic_facts.certainty ({self.deterministic_facts.certainty})"
+            )
+        if self.confidence != self.deterministic_facts.confidence:
+            raise ValueError(
+                f"confidence ({self.confidence}) does not match "
+                f"deterministic_facts.confidence ({self.deterministic_facts.confidence})"
+            )
+        if self.alternative_classes != self.deterministic_facts.alternative_classes:
+            raise ValueError(
+                f"alternative_classes ({self.alternative_classes}) does not match "
+                f"deterministic_facts.alternative_classes "
+                f"({self.deterministic_facts.alternative_classes})"
+            )
+        if self.evidence_citations != self.deterministic_facts.evidence_citations:
+            raise ValueError(
+                f"evidence_citations ({self.evidence_citations}) does not match "
+                f"deterministic_facts.evidence_citations "
+                f"({self.deterministic_facts.evidence_citations})"
+            )
+
+        # Canonical verification requirement binding and validation
+        if self.change_class is None:
+            if self.verification_requirement is not None:
+                raise ValueError("verification_requirement must be None when change_class is None")
+        else:
+            expected_req = get_verification_requirements(self.change_class)
+            if self.verification_requirement is None:
+                object.__setattr__(self, "verification_requirement", expected_req)
+            elif self.verification_requirement != expected_req:
+                raise ValueError(
+                    f"verification_requirement ({self.verification_requirement}) does not match "
+                    f"canonical requirement for {self.change_class} ({expected_req})"
+                )
 
     @property
     def is_confident(self) -> bool:
@@ -652,6 +758,43 @@ class ChangeSemanticsClassification:
                 raise TypeError("model_proposal must be a mapping or None")
             model_proposal = ModelChangeProposal.from_dict(model_prop_raw)
 
+        verification_requirement: ClassVerificationRequirement | None = None
+        if "verification_requirement" in data and data["verification_requirement"] is not None:
+            raw_vr = data["verification_requirement"]
+            if not isinstance(raw_vr, Mapping):
+                raise TypeError(
+                    f"verification_requirement must be a mapping or None, "
+                    f"got {type(raw_vr).__name__}"
+                )
+            if change_class is None:
+                raise ValueError("verification_requirement must be null when change_class is null")
+            expected_req = get_verification_requirements(change_class)
+            raw_vr_cc = raw_vr.get("change_class")
+            if not isinstance(raw_vr_cc, str) or raw_vr_cc != change_class.value:
+                raise ValueError(
+                    f"verification_requirement change_class mismatch: "
+                    f"{raw_vr_cc!r} != {change_class.value!r}"
+                )
+            for f_name in ("base_expectation", "candidate_expectation", "description"):
+                val = raw_vr.get(f_name)
+                exp_val = getattr(expected_req, f_name)
+                if not isinstance(val, str) or val != exp_val:
+                    raise ValueError(
+                        f"verification_requirement {f_name} mismatch: {val!r} != {exp_val!r}"
+                    )
+            for f_name in (
+                "requires_equivalence",
+                "requires_measured_delta",
+                "requires_regression_safety",
+            ):
+                val = raw_vr.get(f_name)
+                exp_val = getattr(expected_req, f_name)
+                if not isinstance(val, bool) or val != exp_val:
+                    raise ValueError(
+                        f"verification_requirement {f_name} mismatch: {val!r} != {exp_val!r}"
+                    )
+            verification_requirement = expected_req
+
         return cls(
             task_digest=task_digest,
             change_class=change_class,
@@ -662,6 +805,7 @@ class ChangeSemanticsClassification:
             evidence_citations=tuple(citations),
             deterministic_facts=det_facts,
             model_proposal=model_proposal,
+            verification_requirement=verification_requirement,
         )
 
 
@@ -925,8 +1069,15 @@ def parse_and_validate_semantics_proposal(
             )
         try:
             alt_class = ChangeClass(alt_item)
-            if alt_class not in alt_classes and alt_class != proposed_class:
-                alt_classes.append(alt_class)
+            if alt_class in alt_classes:
+                raise MalformedModelSemanticsError(
+                    f"Duplicate alternative change class '{alt_item}'"
+                )
+            if alt_class == proposed_class:
+                raise MalformedModelSemanticsError(
+                    f"alternative_classes must not contain proposed_class '{alt_item}'"
+                )
+            alt_classes.append(alt_class)
         except ValueError:
             raise MalformedModelSemanticsError(
                 f"Unsupported alternative change class '{alt_item}'"
@@ -976,6 +1127,22 @@ def parse_and_validate_semantics_proposal(
         if proposed_class is not None:
             raise MalformedModelSemanticsError(
                 "change_class must be null when certainty is UNKNOWN"
+            )
+        if alt_classes:
+            raise MalformedModelSemanticsError(
+                "alternative_classes must be empty when certainty is UNKNOWN"
+            )
+
+    if certainty == CertaintyLevel.AMBIGUOUS:
+        if proposed_class is not None and not alt_classes:
+            raise MalformedModelSemanticsError(
+                "alternative_classes cannot be empty when certainty is AMBIGUOUS "
+                "and change_class is present"
+            )
+        if proposed_class is None and len(alt_classes) < 2:
+            raise MalformedModelSemanticsError(
+                "alternative_classes must contain at least 2 classes when certainty is AMBIGUOUS "
+                "and change_class is null"
             )
 
     return ModelChangeProposal(

@@ -796,3 +796,661 @@ class TestChangeSemanticsP0603:
             assert rec.alternative_classes == base_reconciled.alternative_classes
             assert rec.evidence_citations == base_reconciled.evidence_citations
             assert rec.verification_requirement == base_reconciled.verification_requirement
+
+    # REPAIR A: deterministic BUG_FIX + final FEATURE fails closed
+    def test_repair_a_deterministic_bug_fix_final_feature_fails_closed(self) -> None:
+        det_fact = DeterministicClassificationFact(
+            inferred_class=ChangeClass.BUG_FIX,
+            certainty=CertaintyLevel.CONFIDENT,
+            confidence=0.8,
+            alternative_classes=(),
+            rationale="Bug fix identified",
+            evidence_citations=("Fix crash",),
+            matched_signals=("fix",),
+        )
+        with pytest.raises(ValueError, match="change_class .* does not match"):
+            ChangeSemanticsClassification(
+                task_digest="a" * 16,
+                change_class=ChangeClass.FEATURE,
+                certainty=CertaintyLevel.CONFIDENT,
+                confidence=0.8,
+                alternative_classes=(),
+                rationale="Adversarial mismatch",
+                evidence_citations=("Fix crash",),
+                deterministic_facts=det_fact,
+            )
+
+        payload = {
+            "task_digest": "a" * 16,
+            "change_class": "FEATURE",
+            "certainty": "CONFIDENT",
+            "confidence": 0.8,
+            "alternative_classes": [],
+            "rationale": "Adversarial mismatch",
+            "evidence_citations": ["Fix crash"],
+            "deterministic_facts": det_fact.to_dict(),
+        }
+        with pytest.raises(ValueError, match="change_class .* does not match"):
+            ChangeSemanticsClassification.from_dict(payload)
+
+    # REPAIR B: deterministic CONFIDENT + final AMBIGUOUS fails closed
+    def test_repair_b_deterministic_confident_final_ambiguous_fails_closed(self) -> None:
+        det_fact = DeterministicClassificationFact(
+            inferred_class=ChangeClass.BUG_FIX,
+            certainty=CertaintyLevel.CONFIDENT,
+            confidence=0.8,
+            alternative_classes=(),
+            rationale="Bug fix identified",
+            evidence_citations=("Fix crash",),
+            matched_signals=("fix",),
+        )
+        with pytest.raises(ValueError, match="certainty .* does not match"):
+            ChangeSemanticsClassification(
+                task_digest="a" * 16,
+                change_class=ChangeClass.BUG_FIX,
+                certainty=CertaintyLevel.AMBIGUOUS,
+                confidence=0.8,
+                alternative_classes=(),
+                rationale="Adversarial certainty",
+                evidence_citations=("Fix crash",),
+                deterministic_facts=det_fact,
+            )
+
+        payload = {
+            "task_digest": "a" * 16,
+            "change_class": "BUG_FIX",
+            "certainty": "AMBIGUOUS",
+            "confidence": 0.8,
+            "alternative_classes": [],
+            "rationale": "Adversarial certainty",
+            "evidence_citations": ["Fix crash"],
+            "deterministic_facts": det_fact.to_dict(),
+        }
+        with pytest.raises(ValueError, match="certainty .* does not match"):
+            ChangeSemanticsClassification.from_dict(payload)
+
+    # REPAIR C: deterministic confidence 0.8 + final confidence 0.99 fails closed
+    def test_repair_c_deterministic_confidence_08_final_confidence_099_fails_closed(self) -> None:
+        det_fact = DeterministicClassificationFact(
+            inferred_class=ChangeClass.BUG_FIX,
+            certainty=CertaintyLevel.CONFIDENT,
+            confidence=0.8,
+            alternative_classes=(),
+            rationale="Bug fix identified",
+            evidence_citations=("Fix crash",),
+            matched_signals=("fix",),
+        )
+        with pytest.raises(ValueError, match="confidence .* does not match"):
+            ChangeSemanticsClassification(
+                task_digest="a" * 16,
+                change_class=ChangeClass.BUG_FIX,
+                certainty=CertaintyLevel.CONFIDENT,
+                confidence=0.99,
+                alternative_classes=(),
+                rationale="Adversarial confidence",
+                evidence_citations=("Fix crash",),
+                deterministic_facts=det_fact,
+            )
+
+        payload = {
+            "task_digest": "a" * 16,
+            "change_class": "BUG_FIX",
+            "certainty": "CONFIDENT",
+            "confidence": 0.99,
+            "alternative_classes": [],
+            "rationale": "Adversarial confidence",
+            "evidence_citations": ["Fix crash"],
+            "deterministic_facts": det_fact.to_dict(),
+        }
+        with pytest.raises(ValueError, match="confidence .* does not match"):
+            ChangeSemanticsClassification.from_dict(payload)
+
+    # REPAIR D: deterministic citations differ from final citations -> fail closed
+    def test_repair_d_deterministic_citations_differ_from_final_citations_fails_closed(
+        self,
+    ) -> None:
+        det_fact = DeterministicClassificationFact(
+            inferred_class=ChangeClass.BUG_FIX,
+            certainty=CertaintyLevel.CONFIDENT,
+            confidence=0.8,
+            alternative_classes=(),
+            rationale="Bug fix identified",
+            evidence_citations=("Fix crash",),
+            matched_signals=("fix",),
+        )
+        with pytest.raises(ValueError, match="evidence_citations .* does not match"):
+            ChangeSemanticsClassification(
+                task_digest="a" * 16,
+                change_class=ChangeClass.BUG_FIX,
+                certainty=CertaintyLevel.CONFIDENT,
+                confidence=0.8,
+                alternative_classes=(),
+                rationale="Adversarial citations",
+                evidence_citations=("Different citation",),
+                deterministic_facts=det_fact,
+            )
+
+        payload = {
+            "task_digest": "a" * 16,
+            "change_class": "BUG_FIX",
+            "certainty": "CONFIDENT",
+            "confidence": 0.8,
+            "alternative_classes": [],
+            "rationale": "Adversarial citations",
+            "evidence_citations": ["Different citation"],
+            "deterministic_facts": det_fact.to_dict(),
+        }
+        with pytest.raises(ValueError, match="evidence_citations .* does not match"):
+            ChangeSemanticsClassification.from_dict(payload)
+
+    # REPAIR E: deterministic alternatives differ from final alternatives -> fail closed
+    def test_repair_e_deterministic_alternatives_differ_from_final_alternatives_fails_closed(
+        self,
+    ) -> None:
+        det_fact = DeterministicClassificationFact(
+            inferred_class=ChangeClass.BUG_FIX,
+            certainty=CertaintyLevel.AMBIGUOUS,
+            confidence=0.5,
+            alternative_classes=(ChangeClass.FEATURE,),
+            rationale="Ambiguous signals",
+            evidence_citations=("Fix crash",),
+            matched_signals=("fix",),
+        )
+        with pytest.raises(ValueError, match="alternative_classes .* does not match"):
+            ChangeSemanticsClassification(
+                task_digest="a" * 16,
+                change_class=ChangeClass.BUG_FIX,
+                certainty=CertaintyLevel.AMBIGUOUS,
+                confidence=0.5,
+                alternative_classes=(ChangeClass.PERFORMANCE,),
+                rationale="Adversarial alternatives",
+                evidence_citations=("Fix crash",),
+                deterministic_facts=det_fact,
+            )
+
+        payload = {
+            "task_digest": "a" * 16,
+            "change_class": "BUG_FIX",
+            "certainty": "AMBIGUOUS",
+            "confidence": 0.5,
+            "alternative_classes": ["PERFORMANCE"],
+            "rationale": "Adversarial alternatives",
+            "evidence_citations": ["Fix crash"],
+            "deterministic_facts": det_fact.to_dict(),
+        }
+        with pytest.raises(ValueError, match="alternative_classes .* does not match"):
+            ChangeSemanticsClassification.from_dict(payload)
+
+    # REPAIR F: deterministic CONFIDENT with inferred_class=None fails closed
+    def test_repair_f_deterministic_confident_with_inferred_class_none_fails_closed(
+        self,
+    ) -> None:
+        with pytest.raises(
+            ValueError, match="inferred_class cannot be None when certainty is CONFIDENT"
+        ):
+            DeterministicClassificationFact(
+                inferred_class=None,
+                certainty=CertaintyLevel.CONFIDENT,
+                confidence=0.8,
+                alternative_classes=(),
+                rationale="Impossible confident fact",
+                evidence_citations=(),
+                matched_signals=(),
+            )
+
+        with pytest.raises(
+            ValueError, match="inferred_class cannot be None when certainty is CONFIDENT"
+        ):
+            DeterministicClassificationFact.from_dict(
+                {
+                    "inferred_class": None,
+                    "certainty": "CONFIDENT",
+                    "confidence": 0.8,
+                    "rationale": "Impossible confident fact",
+                }
+            )
+
+    # REPAIR G: deterministic CONFIDENT with alternative classes fails closed
+    def test_repair_g_deterministic_confident_with_alternative_classes_fails_closed(
+        self,
+    ) -> None:
+        with pytest.raises(
+            ValueError, match="alternative_classes must be empty when certainty is CONFIDENT"
+        ):
+            DeterministicClassificationFact(
+                inferred_class=ChangeClass.BUG_FIX,
+                certainty=CertaintyLevel.CONFIDENT,
+                confidence=0.8,
+                alternative_classes=(ChangeClass.FEATURE,),
+                rationale="Impossible confident with alternatives",
+                evidence_citations=(),
+                matched_signals=(),
+            )
+
+        with pytest.raises(
+            ValueError, match="alternative_classes must be empty when certainty is CONFIDENT"
+        ):
+            DeterministicClassificationFact.from_dict(
+                {
+                    "inferred_class": "BUG_FIX",
+                    "certainty": "CONFIDENT",
+                    "confidence": 0.8,
+                    "alternative_classes": ["FEATURE"],
+                    "rationale": "Impossible confident with alternatives",
+                }
+            )
+
+    # REPAIR H: deterministic UNKNOWN with a concrete class fails closed
+    def test_repair_h_deterministic_unknown_with_concrete_class_fails_closed(self) -> None:
+        with pytest.raises(
+            ValueError, match="inferred_class must be None when certainty is UNKNOWN"
+        ):
+            DeterministicClassificationFact(
+                inferred_class=ChangeClass.BUG_FIX,
+                certainty=CertaintyLevel.UNKNOWN,
+                confidence=0.0,
+                alternative_classes=(),
+                rationale="Impossible unknown fact",
+                evidence_citations=(),
+                matched_signals=(),
+            )
+
+        with pytest.raises(
+            ValueError, match="inferred_class must be None when certainty is UNKNOWN"
+        ):
+            DeterministicClassificationFact.from_dict(
+                {
+                    "inferred_class": "BUG_FIX",
+                    "certainty": "UNKNOWN",
+                    "confidence": 0.0,
+                    "rationale": "Impossible unknown fact",
+                }
+            )
+
+    # REPAIR I: deterministic UNKNOWN with nonzero confidence fails closed
+    def test_repair_i_deterministic_unknown_with_nonzero_confidence_fails_closed(self) -> None:
+        with pytest.raises(ValueError, match="confidence must be 0.0 when certainty is UNKNOWN"):
+            DeterministicClassificationFact(
+                inferred_class=None,
+                certainty=CertaintyLevel.UNKNOWN,
+                confidence=0.5,
+                alternative_classes=(),
+                rationale="Impossible unknown confidence",
+                evidence_citations=(),
+                matched_signals=(),
+            )
+
+        with pytest.raises(ValueError, match="confidence must be 0.0 when certainty is UNKNOWN"):
+            DeterministicClassificationFact.from_dict(
+                {
+                    "inferred_class": None,
+                    "certainty": "UNKNOWN",
+                    "confidence": 0.5,
+                    "rationale": "Impossible unknown confidence",
+                }
+            )
+
+    # REPAIR J: deterministic AMBIGUOUS without competing alternative fails closed
+    def test_repair_j_deterministic_ambiguous_without_competing_alternative_fails_closed(
+        self,
+    ) -> None:
+        with pytest.raises(
+            ValueError, match="alternative_classes must contain at least one competing class"
+        ):
+            DeterministicClassificationFact(
+                inferred_class=ChangeClass.BUG_FIX,
+                certainty=CertaintyLevel.AMBIGUOUS,
+                confidence=0.5,
+                alternative_classes=(),
+                rationale="Impossible ambiguous without alternatives",
+                evidence_citations=(),
+                matched_signals=(),
+            )
+
+        with pytest.raises(
+            ValueError, match="alternative_classes must contain at least one competing class"
+        ):
+            DeterministicClassificationFact.from_dict(
+                {
+                    "inferred_class": "BUG_FIX",
+                    "certainty": "AMBIGUOUS",
+                    "confidence": 0.5,
+                    "alternative_classes": [],
+                    "rationale": "Impossible ambiguous without alternatives",
+                }
+            )
+
+    # REPAIR K: duplicate deterministic alternatives fail closed
+    def test_repair_k_duplicate_deterministic_alternatives_fail_closed(self) -> None:
+        with pytest.raises(
+            ValueError, match="alternative_classes must not contain duplicate classes"
+        ):
+            DeterministicClassificationFact(
+                inferred_class=ChangeClass.BUG_FIX,
+                certainty=CertaintyLevel.AMBIGUOUS,
+                confidence=0.5,
+                alternative_classes=(ChangeClass.FEATURE, ChangeClass.FEATURE),
+                rationale="Duplicate alternatives",
+                evidence_citations=(),
+                matched_signals=(),
+            )
+
+        with pytest.raises(
+            ValueError, match="alternative_classes must not contain duplicate classes"
+        ):
+            DeterministicClassificationFact.from_dict(
+                {
+                    "inferred_class": "BUG_FIX",
+                    "certainty": "AMBIGUOUS",
+                    "confidence": 0.5,
+                    "alternative_classes": ["FEATURE", "FEATURE"],
+                    "rationale": "Duplicate alternatives",
+                }
+            )
+
+    # REPAIR L: ModelChangeProposal CONFIDENT + proposed_class=None fails closed
+    def test_repair_l_model_change_proposal_confident_proposed_class_none_fails_closed(
+        self,
+    ) -> None:
+        with pytest.raises(
+            ValueError, match="proposed_class cannot be None when certainty is CONFIDENT"
+        ):
+            ModelChangeProposal(
+                proposed_class=None,
+                certainty=CertaintyLevel.CONFIDENT,
+                confidence=0.9,
+                alternative_classes=(),
+                rationale="Invalid confident proposal",
+                evidence_citations=(),
+                raw_response="{}",
+                model_id="test-model",
+            )
+
+        with pytest.raises(
+            ValueError, match="proposed_class cannot be None when certainty is CONFIDENT"
+        ):
+            ModelChangeProposal.from_dict(
+                {
+                    "proposed_class": None,
+                    "certainty": "CONFIDENT",
+                    "confidence": 0.9,
+                    "model_id": "test-model",
+                    "raw_response": "{}",
+                }
+            )
+
+    # REPAIR M: ModelChangeProposal CONFIDENT + alternatives fails closed
+    def test_repair_m_model_change_proposal_confident_with_alternatives_fails_closed(
+        self,
+    ) -> None:
+        with pytest.raises(
+            ValueError, match="alternative_classes must be empty when certainty is CONFIDENT"
+        ):
+            ModelChangeProposal(
+                proposed_class=ChangeClass.BUG_FIX,
+                certainty=CertaintyLevel.CONFIDENT,
+                confidence=0.9,
+                alternative_classes=(ChangeClass.FEATURE,),
+                rationale="Invalid confident proposal with alts",
+                evidence_citations=(),
+                raw_response="{}",
+                model_id="test-model",
+            )
+
+        with pytest.raises(
+            ValueError, match="alternative_classes must be empty when certainty is CONFIDENT"
+        ):
+            ModelChangeProposal.from_dict(
+                {
+                    "proposed_class": "BUG_FIX",
+                    "certainty": "CONFIDENT",
+                    "confidence": 0.9,
+                    "alternative_classes": ["FEATURE"],
+                    "model_id": "test-model",
+                    "raw_response": "{}",
+                }
+            )
+
+    # REPAIR N: ModelChangeProposal UNKNOWN + concrete proposed_class fails closed
+    def test_repair_n_model_change_proposal_unknown_with_concrete_proposed_class_fails_closed(
+        self,
+    ) -> None:
+        with pytest.raises(
+            ValueError, match="proposed_class must be None when certainty is UNKNOWN"
+        ):
+            ModelChangeProposal(
+                proposed_class=ChangeClass.BUG_FIX,
+                certainty=CertaintyLevel.UNKNOWN,
+                confidence=0.0,
+                alternative_classes=(),
+                rationale="Invalid unknown proposal",
+                evidence_citations=(),
+                raw_response="{}",
+                model_id="test-model",
+            )
+
+        with pytest.raises(
+            ValueError, match="proposed_class must be None when certainty is UNKNOWN"
+        ):
+            ModelChangeProposal.from_dict(
+                {
+                    "proposed_class": "BUG_FIX",
+                    "certainty": "UNKNOWN",
+                    "confidence": 0.0,
+                    "model_id": "test-model",
+                    "raw_response": "{}",
+                }
+            )
+
+    # REPAIR O: ModelChangeProposal alternative list containing proposed_class fails closed
+    def test_repair_o_model_change_proposal_alternatives_containing_proposed_class_fails_closed(
+        self,
+    ) -> None:
+        task = ingest_task("Fix crash on empty list in token balancer.")
+        with pytest.raises(ValueError, match="alternative_classes must not contain proposed_class"):
+            ModelChangeProposal(
+                proposed_class=ChangeClass.BUG_FIX,
+                certainty=CertaintyLevel.AMBIGUOUS,
+                confidence=0.5,
+                alternative_classes=(ChangeClass.BUG_FIX,),
+                rationale="Invalid proposal with self in alts",
+                evidence_citations=(),
+                raw_response="{}",
+                model_id="test-model",
+            )
+
+        with pytest.raises(ValueError, match="alternative_classes must not contain proposed_class"):
+            ModelChangeProposal.from_dict(
+                {
+                    "proposed_class": "BUG_FIX",
+                    "certainty": "AMBIGUOUS",
+                    "confidence": 0.5,
+                    "alternative_classes": ["BUG_FIX"],
+                    "model_id": "test-model",
+                    "raw_response": "{}",
+                }
+            )
+
+        bad_json = json.dumps(
+            {
+                "change_class": "BUG_FIX",
+                "certainty": "AMBIGUOUS",
+                "confidence": 0.5,
+                "alternative_classes": ["BUG_FIX"],
+                "rationale": "Invalid parser input",
+                "evidence_citations": ["Fix crash on empty list"],
+            }
+        )
+        with pytest.raises(
+            MalformedModelSemanticsError,
+            match="alternative_classes must not contain proposed_class",
+        ):
+            parse_and_validate_semantics_proposal(bad_json, task, "test-model")
+
+    # REPAIR P: Valid deterministic classification round-trip remains exact
+    def test_repair_p_valid_deterministic_classification_round_trip_remains_exact(
+        self,
+    ) -> None:
+        task = ingest_task("Fix crash on empty list in token balancer.")
+        classification = classify_semantics_deterministically(task)
+
+        serialized = classification.to_dict()
+        restored = ChangeSemanticsClassification.from_dict(serialized)
+
+        assert restored == classification
+        assert restored.change_class == classification.change_class
+        assert restored.certainty == classification.certainty
+        assert restored.confidence == classification.confidence
+        assert restored.alternative_classes == classification.alternative_classes
+        assert restored.evidence_citations == classification.evidence_citations
+        assert restored.verification_requirement == classification.verification_requirement
+        assert restored.deterministic_facts == classification.deterministic_facts
+
+    # REPAIR Q: Valid classification with advisory agreeing proposal round-trip remains exact
+    def test_repair_q_valid_classification_with_advisory_agreeing_proposal_round_trip(
+        self,
+    ) -> None:
+        task = ingest_task("Fix crash on empty list in token balancer.")
+        det_result = classify_semantics_deterministically(task)
+
+        agreeing_json = json.dumps(
+            {
+                "change_class": "BUG_FIX",
+                "certainty": "CONFIDENT",
+                "confidence": 0.95,
+                "alternative_classes": [],
+                "rationale": "Agrees with BUG_FIX",
+                "evidence_citations": ["Fix crash on empty list"],
+            }
+        )
+        proposal = parse_and_validate_semantics_proposal(agreeing_json, task, "agreeing-model")
+        reconciled = reconcile_semantics(task, det_result.deterministic_facts, proposal)
+
+        serialized = reconciled.to_dict()
+        restored = ChangeSemanticsClassification.from_dict(serialized)
+
+        assert restored == reconciled
+        assert restored.model_proposal == proposal
+        assert restored.model_proposal is not None
+        assert restored.model_proposal.is_authoritative is False
+        assert restored.change_class == ChangeClass.BUG_FIX
+
+    # REPAIR R: Valid classification with advisory conflicting proposal round-trip remains exact
+    # while authoritative fields remain deterministic
+    def test_repair_r_valid_classification_with_advisory_conflicting_proposal_round_trip(
+        self,
+    ) -> None:
+        task = ingest_task("Fix crash on empty list in token balancer.")
+        det_result = classify_semantics_deterministically(task)
+
+        conflicting_json = json.dumps(
+            {
+                "change_class": "FEATURE",
+                "certainty": "CONFIDENT",
+                "confidence": 0.99,
+                "alternative_classes": [],
+                "rationale": "Model claims FEATURE",
+                "evidence_citations": ["Fix crash on empty list"],
+            }
+        )
+        proposal = parse_and_validate_semantics_proposal(
+            conflicting_json, task, "conflicting-model"
+        )
+        reconciled = reconcile_semantics(task, det_result.deterministic_facts, proposal)
+
+        # Authoritative fields must remain strictly deterministic
+        assert reconciled.change_class == ChangeClass.BUG_FIX
+        assert reconciled.certainty == CertaintyLevel.CONFIDENT
+        assert reconciled.confidence == det_result.confidence
+        assert reconciled.alternative_classes == ()
+        assert reconciled.evidence_citations == det_result.evidence_citations
+
+        serialized = reconciled.to_dict()
+        restored = ChangeSemanticsClassification.from_dict(serialized)
+
+        assert restored == reconciled
+        assert restored.change_class == ChangeClass.BUG_FIX
+        assert restored.certainty == CertaintyLevel.CONFIDENT
+        assert restored.confidence == det_result.confidence
+        assert restored.model_proposal is not None
+        assert restored.model_proposal.proposed_class == ChangeClass.FEATURE
+        assert restored.model_proposal.is_authoritative is False
+
+    # REPAIR S: Changing only model proposal data never changes canonical authoritative fields
+    def test_repair_s_changing_only_model_proposal_never_changes_authoritative_fields(
+        self,
+    ) -> None:
+        task = ingest_task("Fix crash on empty list in token balancer.")
+        det_result = classify_semantics_deterministically(task)
+
+        base_reconciled = reconcile_semantics(task, det_result.deterministic_facts, None)
+
+        prop1 = parse_and_validate_semantics_proposal(
+            json.dumps(
+                {
+                    "change_class": "BUG_FIX",
+                    "certainty": "CONFIDENT",
+                    "confidence": 0.99,
+                    "alternative_classes": [],
+                    "rationale": "High confidence BUG_FIX",
+                    "evidence_citations": ["Fix crash on empty list"],
+                }
+            ),
+            task,
+            "model-1",
+        )
+        rec1 = reconcile_semantics(task, det_result.deterministic_facts, prop1)
+
+        prop2 = parse_and_validate_semantics_proposal(
+            json.dumps(
+                {
+                    "change_class": "PERFORMANCE",
+                    "certainty": "CONFIDENT",
+                    "confidence": 0.95,
+                    "alternative_classes": [],
+                    "rationale": "Claims PERFORMANCE",
+                    "evidence_citations": ["Fix crash on empty list"],
+                }
+            ),
+            task,
+            "model-2",
+        )
+        rec2 = reconcile_semantics(task, det_result.deterministic_facts, prop2)
+
+        for rec in (rec1, rec2):
+            assert rec.change_class == base_reconciled.change_class
+            assert rec.certainty == base_reconciled.certainty
+            assert rec.confidence == base_reconciled.confidence
+            assert rec.alternative_classes == base_reconciled.alternative_classes
+            assert rec.evidence_citations == base_reconciled.evidence_citations
+            assert rec.verification_requirement == base_reconciled.verification_requirement
+
+    # REPAIR T: No provider-specific identifier or model call reintroduced
+    def test_repair_t_no_provider_specific_identifier_or_model_call_reintroduced(
+        self,
+    ) -> None:
+        compiler_dir = (
+            Path(__file__).resolve().parent.parent.parent / "src" / "basebreak" / "compiler"
+        )
+        semantics_path = compiler_dir / "semantics.py"
+        content = semantics_path.read_text(encoding="utf-8").lower()
+
+        forbidden_terms = [
+            "nebius",
+            "nvidia",
+            "nemotron",
+            "token factory",
+            "live_nebius",
+            "basebreak.adapters",
+        ]
+        for term in forbidden_terms:
+            assert term not in content, f"Forbidden term '{term}' found in semantics.py"
+
+        import basebreak.compiler.semantics as comp_semantics
+
+        for attr_name in comp_semantics.__all__:
+            obj = getattr(comp_semantics, attr_name)
+            if isinstance(obj, type):
+                assert not hasattr(obj, "complete")
+                assert not hasattr(obj, "infer")
+                assert not hasattr(obj, "model_client")
