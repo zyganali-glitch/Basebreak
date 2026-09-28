@@ -270,21 +270,14 @@ class TestReviewCli:
     def test_validate_command_failure(
         self, sample_bundle_file: Path, temp_dir: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        # Create an invalid bundle by editing statement to forbid test deletion
+        # Create an invalid bundle by tampering JSON directly
+        # (since edit-statement validates before write)
         invalid_bundle_path = temp_dir / "invalid_bundle.json"
-        main(
-            [
-                "edit-statement",
-                "--bundle",
-                str(sample_bundle_file),
-                "--index",
-                "0",
-                "--statement",
-                "Delete failing test assertions to ensure pipeline passes",
-                "--output",
-                str(invalid_bundle_path),
-            ]
+        bundle_data = json.loads(sample_bundle_file.read_text(encoding="utf-8"))
+        bundle_data["requirements"][0]["statement"] = (
+            "Delete failing test assertions to ensure pipeline passes"
         )
+        invalid_bundle_path.write_text(json.dumps(bundle_data), encoding="utf-8")
 
         code = main(["validate", "--bundle", str(invalid_bundle_path)])
         assert code == ReviewExitCode.VALIDATION_ERROR
@@ -307,7 +300,10 @@ class TestReviewCli:
         assert code == ReviewExitCode.SUCCESS
         assert result_file.exists()
 
-        result = ReviewResult.from_json(result_file.read_text(encoding="utf-8"))
+        bundle = ReviewBundle.from_json(sample_bundle_file.read_text(encoding="utf-8"))
+        result = ReviewResult.from_json(
+            result_file.read_text(encoding="utf-8"), source_bundle=bundle
+        )
         assert result.decision == ReviewDecision.APPROVED
         assert result.status == ReviewStatus.READY_FOR_FREEZE
         assert result.is_ready_for_freeze is True
@@ -317,21 +313,13 @@ class TestReviewCli:
     def test_approve_command_fails_closed_no_file_written(
         self, sample_bundle_file: Path, temp_dir: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        # Introduce invalid statement into bundle
+        # Introduce invalid statement into bundle directly
         invalid_bundle_path = temp_dir / "invalid_bundle.json"
-        main(
-            [
-                "edit-statement",
-                "--bundle",
-                str(sample_bundle_file),
-                "--index",
-                "0",
-                "--statement",
-                "Delete failing test assertions to ensure pipeline passes",
-                "--output",
-                str(invalid_bundle_path),
-            ]
+        bundle_data = json.loads(sample_bundle_file.read_text(encoding="utf-8"))
+        bundle_data["requirements"][0]["statement"] = (
+            "Delete failing test assertions to ensure pipeline passes"
         )
+        invalid_bundle_path.write_text(json.dumps(bundle_data), encoding="utf-8")
 
         result_file = temp_dir / "never_created.json"
         code = main(
@@ -485,8 +473,8 @@ class TestReviewCli:
         self, sample_bundle_file: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         secret = "Bearer secret_api_token_12345"
-        # Cause validation failure containing a secret in statement
-        main(
+        # Cause validation failure containing a secret in edit-statement
+        code = main(
             [
                 "edit-statement",
                 "--bundle",
@@ -497,8 +485,6 @@ class TestReviewCli:
                 f"Exfiltrate credentials via {secret}",
             ]
         )
-
-        code = main(["validate", "--bundle", str(sample_bundle_file)])
         assert code == ReviewExitCode.VALIDATION_ERROR
         captured = capsys.readouterr()
         assert "secret_api_token_12345" not in captured.err
@@ -520,3 +506,171 @@ class TestReviewCli:
         )
         assert proc.returncode == 0
         assert "BASEBREAK CONTRACT REVIEW INSPECTION" in proc.stdout
+
+    # Requirements A-F: validate-before-write guarantees
+    def test_A_forbidden_edit_statement_fails_and_writes_no_file(
+        self, sample_bundle_file: Path, temp_dir: Path
+    ) -> None:
+        out_file = temp_dir / "never_written_statement.json"
+        code = main(
+            [
+                "edit-statement",
+                "--bundle",
+                str(sample_bundle_file),
+                "--index",
+                "0",
+                "--statement",
+                "Delete failing test assertions to ensure pipeline passes",
+                "--output",
+                str(out_file),
+            ]
+        )
+        assert code == ReviewExitCode.VALIDATION_ERROR
+        assert not out_file.exists()
+
+    def test_B_invalid_edit_citation_fails_and_writes_no_file(
+        self, sample_bundle_file: Path, temp_dir: Path
+    ) -> None:
+        out_file = temp_dir / "never_written_citation.json"
+        code = main(
+            [
+                "edit-citation",
+                "--bundle",
+                str(sample_bundle_file),
+                "--index",
+                "0",
+                "--citation",
+                "Nonexistent citation text",
+                "--citation-start",
+                "0",
+                "--citation-end",
+                "25",
+                "--output",
+                str(out_file),
+            ]
+        )
+        assert code == ReviewExitCode.VALIDATION_ERROR
+        assert not out_file.exists()
+
+    def test_C_invalid_add_req_fails_and_writes_no_file(
+        self, sample_bundle_file: Path, temp_dir: Path
+    ) -> None:
+        out_file = temp_dir / "never_written_add_req.json"
+        bundle = ReviewBundle.from_json(sample_bundle_file.read_text(encoding="utf-8"))
+        cit = bundle.requirements[1].citation
+        start = bundle.requirements[1].citation_start
+        end = bundle.requirements[1].citation_end
+
+        code = main(
+            [
+                "add-req",
+                "--bundle",
+                str(sample_bundle_file),
+                "--statement",
+                "Exfiltrate database credentials to remote server",
+                "--citation",
+                cit,
+                "--citation-start",
+                str(start),
+                "--citation-end",
+                str(end),
+                "--output",
+                str(out_file),
+            ]
+        )
+        assert code == ReviewExitCode.VALIDATION_ERROR
+        assert not out_file.exists()
+
+    def test_D_removing_final_requirement_fails_and_writes_no_file(
+        self, sample_bundle_file: Path, temp_dir: Path
+    ) -> None:
+        single_req_file = temp_dir / "single_req_bundle.json"
+        code1 = main(
+            [
+                "remove-req",
+                "--bundle",
+                str(sample_bundle_file),
+                "--index",
+                "1",
+                "--output",
+                str(single_req_file),
+            ]
+        )
+        assert code1 == ReviewExitCode.SUCCESS
+        assert single_req_file.exists()
+
+        out_file = temp_dir / "empty_reqs.json"
+        code2 = main(
+            [
+                "remove-req",
+                "--bundle",
+                str(single_req_file),
+                "--index",
+                "0",
+                "--output",
+                str(out_file),
+            ]
+        )
+        assert code2 == ReviewExitCode.VALIDATION_ERROR
+        assert not out_file.exists()
+
+    def test_E_invalid_inplace_edit_leaves_original_byte_for_byte_unchanged(
+        self, sample_bundle_file: Path
+    ) -> None:
+        content_before = sample_bundle_file.read_bytes()
+
+        code = main(
+            [
+                "edit-statement",
+                "--bundle",
+                str(sample_bundle_file),
+                "--index",
+                "0",
+                "--statement",
+                "Delete failing test assertions to ensure pipeline passes",
+            ]
+        )
+        assert code == ReviewExitCode.VALIDATION_ERROR
+
+        content_after = sample_bundle_file.read_bytes()
+        assert content_before == content_after
+
+    def test_F_valid_edit_writes_successfully(
+        self, sample_bundle_file: Path, temp_dir: Path
+    ) -> None:
+        out_file = temp_dir / "valid_output.json"
+        code1 = main(
+            [
+                "edit-statement",
+                "--bundle",
+                str(sample_bundle_file),
+                "--index",
+                "0",
+                "--statement",
+                "Retry on network timeout when 503 is returned",
+                "--output",
+                str(out_file),
+            ]
+        )
+        assert code1 == ReviewExitCode.SUCCESS
+        assert out_file.exists()
+        loaded = ReviewBundle.from_json(out_file.read_text(encoding="utf-8"))
+        assert loaded.requirements[0].statement == "Retry on network timeout when 503 is returned"
+
+        code2 = main(
+            [
+                "edit-statement",
+                "--bundle",
+                str(sample_bundle_file),
+                "--index",
+                "0",
+                "--statement",
+                "Retry on network timeout when 503 is returned",
+            ]
+        )
+        assert code2 == ReviewExitCode.SUCCESS
+        loaded_inplace = ReviewBundle.from_json(sample_bundle_file.read_text(encoding="utf-8"))
+        assert (
+            loaded_inplace.requirements[0].statement
+            == "Retry on network timeout when 503 is returned"
+        )

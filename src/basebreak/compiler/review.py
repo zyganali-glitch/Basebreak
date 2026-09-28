@@ -186,7 +186,8 @@ class ReviewBundle:
 
         unknown = data_keys - required_keys
         if unknown:
-            raise ReviewSchemaError(f"Unknown fields in ReviewBundle: {sorted(unknown)}")
+            safe_unknown = redact_log_text(str(sorted(unknown)))
+            raise ReviewSchemaError(f"Unknown fields in ReviewBundle: {safe_unknown}")
 
         raw_task = data["task"]
         if not isinstance(raw_task, Mapping):
@@ -194,7 +195,8 @@ class ReviewBundle:
         try:
             task = NormalizedTask.from_dict(raw_task)
         except Exception as e:
-            raise ReviewSchemaError(f"Failed to parse task: {e}") from e
+            safe_err = redact_log_text(str(e))
+            raise ReviewSchemaError(f"Failed to parse task: {safe_err}") from e
 
         raw_semantics = data["semantics"]
         if not isinstance(raw_semantics, Mapping):
@@ -204,13 +206,21 @@ class ReviewBundle:
         try:
             semantics = ChangeSemanticsClassification.from_dict(raw_semantics)
         except Exception as e:
-            raise ReviewSchemaError(f"Failed to parse semantics: {e}") from e
+            safe_err = redact_log_text(str(e))
+            raise ReviewSchemaError(f"Failed to parse semantics: {safe_err}") from e
 
         raw_reqs = data["requirements"]
         if not isinstance(raw_reqs, (list, tuple)):
             raise ReviewSchemaError(
                 f"requirements must be list or tuple, got {type(raw_reqs).__name__}"
             )
+
+        ALLOWED_REQ_KEYS: frozenset[str] = frozenset(
+            {"statement", "citation", "citation_start", "citation_end", "rationale"}
+        )
+        REQUIRED_REQ_KEYS: frozenset[str] = frozenset(
+            {"statement", "citation", "citation_start", "citation_end"}
+        )
 
         requirements: list[ProposedRequirement] = []
         for idx, item in enumerate(raw_reqs):
@@ -223,20 +233,37 @@ class ReviewBundle:
                     raise ReviewSchemaError(
                         f"Forbidden P-06.06 digest field '{forbidden}' in requirement {idx}"
                     )
+
+            item_keys = set(item.keys())
+            missing_req = REQUIRED_REQ_KEYS - item_keys
+            if missing_req:
+                raise ReviewSchemaError(
+                    f"Missing required fields in requirement {idx}: {sorted(missing_req)}"
+                )
+
+            unknown_req = item_keys - ALLOWED_REQ_KEYS
+            if unknown_req:
+                safe_unknown = redact_log_text(str(sorted(unknown_req)))
+                raise ReviewSchemaError(f"Unknown field(s) in requirement {idx}: {safe_unknown}")
+
             try:
-                # If a stale requirement_id is present, it is intentionally not accepted
-                # into ProposedRequirement authority; ProposedRequirement only takes statement,
-                # citation, citation_start, citation_end, rationale.
                 req = ProposedRequirement.from_dict(item)
                 requirements.append(req)
             except Exception as e:
-                raise ReviewSchemaError(f"Failed to parse requirement at index {idx}: {e}") from e
+                safe_err = redact_log_text(str(e))
+                raise ReviewSchemaError(
+                    f"Failed to parse requirement at index {idx}: {safe_err}"
+                ) from e
 
-        return cls(
-            task=task,
-            semantics=semantics,
-            requirements=tuple(requirements),
-        )
+        try:
+            return cls(
+                task=task,
+                semantics=semantics,
+                requirements=tuple(requirements),
+            )
+        except Exception as e:
+            safe_err = redact_log_text(str(e))
+            raise ReviewSchemaError(f"ReviewBundle invariant violation: {safe_err}") from e
 
     @classmethod
     def from_json(cls, json_str: str) -> ReviewBundle:
@@ -246,7 +273,8 @@ class ReviewBundle:
         try:
             data = json.loads(json_str)
         except json.JSONDecodeError as e:
-            raise ReviewSchemaError(f"Invalid JSON for ReviewBundle: {e}") from e
+            safe_err = redact_log_text(str(e))
+            raise ReviewSchemaError(f"Invalid JSON for ReviewBundle: {safe_err}") from e
         return cls.from_dict(data)
 
 
@@ -342,8 +370,25 @@ class ReviewResult:
         return json.dumps(self.to_dict(), indent=2, sort_keys=True)
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> ReviewResult:
-        """Construct from dictionary with strict schema validation."""
+    def from_dict(
+        cls,
+        data: Mapping[str, Any],
+        *,
+        source_bundle: ReviewBundle | None = None,
+    ) -> ReviewResult:
+        """Construct from dictionary with strict schema validation and trusted loading.
+
+        For APPROVED / READY_FOR_FREEZE results:
+        - source_bundle is mandatory;
+        - source_bundle is revalidated through P-06.04 authority;
+        - recomputed ValidatedContract is compared exactly against serialized contract;
+        - any mismatch fails closed;
+        - carries recomputed authoritative contract rather than blindly trusting serialized JSON.
+
+        For REJECTED results:
+        - contract must be None;
+        - if source_bundle is supplied, task_digest must match.
+        """
         if not isinstance(data, Mapping):
             raise ReviewSchemaError(f"Expected mapping for ReviewResult, got {type(data).__name__}")
 
@@ -362,7 +407,8 @@ class ReviewResult:
 
         unknown = set(data.keys()) - (required_keys | {"reviewer_note", "audit_trail"})
         if unknown:
-            raise ReviewSchemaError(f"Unknown fields in ReviewResult: {sorted(unknown)}")
+            safe_unknown = redact_log_text(str(sorted(unknown)))
+            raise ReviewSchemaError(f"Unknown fields in ReviewResult: {safe_unknown}")
 
         raw_decision = data["decision"]
         if not isinstance(raw_decision, str):
@@ -384,18 +430,6 @@ class ReviewResult:
         if not isinstance(raw_td, str):
             raise ReviewSchemaError(f"task_digest must be str, got {type(raw_td).__name__}")
 
-        raw_contract = data["contract"]
-        contract: ValidatedContract | None = None
-        if raw_contract is not None:
-            if not isinstance(raw_contract, Mapping):
-                raise ReviewSchemaError(
-                    f"contract must be mapping or None, got {type(raw_contract).__name__}"
-                )
-            try:
-                contract = ValidatedContract.from_dict(raw_contract)
-            except Exception as e:
-                raise ReviewSchemaError(f"Failed to parse contract: {e}") from e
-
         raw_note = data.get("reviewer_note", "")
         if not isinstance(raw_note, str):
             raise ReviewSchemaError(f"reviewer_note must be str, got {type(raw_note).__name__}")
@@ -411,6 +445,131 @@ class ReviewResult:
                 raise ReviewSchemaError(f"audit_trail item must be str, got {type(item).__name__}")
             audit_trail.append(item)
 
+        contract: ValidatedContract | None = None
+
+        if decision == ReviewDecision.APPROVED:
+            if status != ReviewStatus.READY_FOR_FREEZE:
+                raise ReviewSchemaError(
+                    f"status must be READY_FOR_FREEZE when decision is APPROVED, "
+                    f"got {status.value!r}"
+                )
+            if source_bundle is None:
+                raise ReviewSchemaError(
+                    "source_bundle is required to deserialize an APPROVED ReviewResult"
+                )
+            if not isinstance(source_bundle, ReviewBundle):
+                raise TypeError(
+                    f"source_bundle must be ReviewBundle, got {type(source_bundle).__name__}"
+                )
+            if raw_td != source_bundle.task.task_digest:
+                raise ReviewSchemaError(
+                    f"task_digest mismatch between ReviewResult ({raw_td}) "
+                    f"and source_bundle ({source_bundle.task.task_digest})"
+                )
+
+            raw_contract = data["contract"]
+            if raw_contract is None:
+                raise ReviewSchemaError("contract must not be None when decision is APPROVED")
+            if not isinstance(raw_contract, Mapping):
+                raise ReviewSchemaError(
+                    f"contract must be mapping, got {type(raw_contract).__name__}"
+                )
+            for forbidden in FORBIDDEN_P0606_FIELDS:
+                if forbidden in raw_contract:
+                    raise ReviewSchemaError(
+                        f"Forbidden P-06.06 digest field '{forbidden}' in contract"
+                    )
+
+            try:
+                serialized_contract = ValidatedContract.from_dict(raw_contract)
+            except Exception as e:
+                safe_err = redact_log_text(str(e))
+                raise ReviewSchemaError(f"Failed to parse serialized contract: {safe_err}") from e
+
+            # Authoritative revalidation from source_bundle
+            session = ReviewSession(source_bundle)
+            try:
+                recomputed_contract = session.revalidate()
+            except Exception as e:
+                safe_err = redact_log_text(str(e))
+                raise ReviewSchemaError(f"Revalidation of source_bundle failed: {safe_err}") from e
+
+            # Exact field-by-field verification against authoritative recomputation
+            if serialized_contract.task_digest != recomputed_contract.task_digest:
+                raise ReviewSchemaError(
+                    f"task_digest mismatch between serialized contract "
+                    f"({serialized_contract.task_digest}) "
+                    f"and recomputed contract ({recomputed_contract.task_digest})"
+                )
+            if serialized_contract.change_class != recomputed_contract.change_class:
+                raise ReviewSchemaError(
+                    f"change_class mismatch between serialized contract "
+                    f"({serialized_contract.change_class}) "
+                    f"and recomputed contract ({recomputed_contract.change_class})"
+                )
+            if serialized_contract.certainty != recomputed_contract.certainty:
+                raise ReviewSchemaError(
+                    f"certainty mismatch between serialized contract "
+                    f"({serialized_contract.certainty}) "
+                    f"and recomputed contract ({recomputed_contract.certainty})"
+                )
+            if len(serialized_contract.requirements) != len(recomputed_contract.requirements):
+                raise ReviewSchemaError(
+                    f"Requirements count mismatch: serialized "
+                    f"({len(serialized_contract.requirements)}) "
+                    f"!= recomputed ({len(recomputed_contract.requirements)})"
+                )
+            for idx, (s_req, r_req) in enumerate(
+                zip(serialized_contract.requirements, recomputed_contract.requirements)
+            ):
+                if s_req.requirement_id != r_req.requirement_id:
+                    raise ReviewSchemaError(
+                        f"Requirement ID mismatch at index {idx}: "
+                        f"{s_req.requirement_id!r} != {r_req.requirement_id!r}"
+                    )
+                if s_req.statement != r_req.statement:
+                    raise ReviewSchemaError(f"Requirement statement mismatch at index {idx}")
+                if s_req.citation != r_req.citation:
+                    raise ReviewSchemaError(f"Requirement citation mismatch at index {idx}")
+                if (
+                    s_req.citation_start != r_req.citation_start
+                    or s_req.citation_end != r_req.citation_end
+                ):
+                    raise ReviewSchemaError(f"Requirement citation span mismatch at index {idx}")
+                if s_req.rationale != r_req.rationale:
+                    raise ReviewSchemaError(f"Requirement rationale mismatch at index {idx}")
+
+            if (
+                serialized_contract.validation_rules_passed
+                != recomputed_contract.validation_rules_passed
+            ):
+                raise ReviewSchemaError(
+                    "validation_rules_passed mismatch between serialized contract "
+                    "and recomputed contract"
+                )
+
+            contract = recomputed_contract
+
+        elif decision == ReviewDecision.REJECTED:
+            if status != ReviewStatus.REJECTED:
+                raise ReviewSchemaError(
+                    f"status must be REJECTED when decision is REJECTED, got {status.value!r}"
+                )
+            raw_contract = data["contract"]
+            if raw_contract is not None:
+                raise ReviewSchemaError("contract must be None when decision is REJECTED")
+            if source_bundle is not None:
+                if not isinstance(source_bundle, ReviewBundle):
+                    raise TypeError(
+                        f"source_bundle must be ReviewBundle, got {type(source_bundle).__name__}"
+                    )
+                if source_bundle.task.task_digest != raw_td:
+                    raise ReviewSchemaError(
+                        f"task_digest mismatch between source_bundle "
+                        f"({source_bundle.task.task_digest}) and ReviewResult ({raw_td})"
+                    )
+            contract = None
+
         return cls(
             decision=decision,
             status=status,
@@ -421,15 +580,21 @@ class ReviewResult:
         )
 
     @classmethod
-    def from_json(cls, json_str: str) -> ReviewResult:
-        """Construct from JSON string with strict schema validation."""
+    def from_json(
+        cls,
+        json_str: str,
+        *,
+        source_bundle: ReviewBundle | None = None,
+    ) -> ReviewResult:
+        """Construct from JSON string with strict schema validation and trusted loading."""
         if not isinstance(json_str, str):
             raise TypeError(f"json_str must be str, got {type(json_str).__name__}")
         try:
             data = json.loads(json_str)
         except json.JSONDecodeError as e:
-            raise ReviewSchemaError(f"Invalid JSON for ReviewResult: {e}") from e
-        return cls.from_dict(data)
+            safe_err = redact_log_text(str(e))
+            raise ReviewSchemaError(f"Invalid JSON for ReviewResult: {safe_err}") from e
+        return cls.from_dict(data, source_bundle=source_bundle)
 
 
 class ReviewSession:
@@ -632,15 +797,47 @@ class ReviewSession:
         self._check_index(index)
         cur = self._requirements[index]
 
-        new_stmt = statement if statement is not None else cur.statement
-        new_rat = rationale if rationale is not None else cur.rationale
+        if statement is not None:
+            if not isinstance(statement, str):
+                raise ReviewOperationError(f"statement must be str, got {type(statement).__name__}")
+            stmt = statement.strip()
+            if not stmt:
+                raise ReviewOperationError("statement must not be empty or whitespace-only")
+            new_stmt = stmt
+        else:
+            new_stmt = cur.statement
+
+        if rationale is not None:
+            if not isinstance(rationale, str):
+                raise ReviewOperationError(f"rationale must be str, got {type(rationale).__name__}")
+            new_rat = rationale.strip()
+        else:
+            new_rat = cur.rationale
 
         if citation is not None:
             if citation_start is None or citation_end is None:
                 raise ReviewOperationError(
                     "When editing citation, citation_start and citation_end must both be provided"
                 )
-            new_cit = citation
+            if not isinstance(citation, str):
+                raise ReviewOperationError(f"citation must be str, got {type(citation).__name__}")
+            cit = citation.strip()
+            if not cit:
+                raise ReviewOperationError("citation must not be empty or whitespace-only")
+            new_cit = cit
+
+            if isinstance(citation_start, bool) or not isinstance(citation_start, int):
+                raise ReviewOperationError(
+                    f"citation_start must be int (not bool), got {type(citation_start).__name__}"
+                )
+            if isinstance(citation_end, bool) or not isinstance(citation_end, int):
+                raise ReviewOperationError(
+                    f"citation_end must be int (not bool), got {type(citation_end).__name__}"
+                )
+            if citation_start < 0 or citation_end < citation_start:
+                raise ReviewOperationError(
+                    f"Invalid citation span: [{citation_start}:{citation_end}]"
+                )
             new_start = citation_start
             new_end = citation_end
         else:
@@ -652,23 +849,12 @@ class ReviewSession:
             new_start = cur.citation_start
             new_end = cur.citation_end
 
-        if not isinstance(new_stmt, str) or not new_stmt.strip():
-            raise ReviewOperationError("statement must not be empty or whitespace-only")
-        if not isinstance(new_cit, str) or not new_cit.strip():
-            raise ReviewOperationError("citation must not be empty or whitespace-only")
-        if isinstance(new_start, bool) or not isinstance(new_start, int):
-            raise ReviewOperationError("citation_start must be int")
-        if isinstance(new_end, bool) or not isinstance(new_end, int):
-            raise ReviewOperationError("citation_end must be int")
-        if new_start < 0 or new_end < new_start:
-            raise ReviewOperationError(f"Invalid citation span: [{new_start}:{new_end}]")
-
         self._requirements[index] = ProposedRequirement(
-            statement=new_stmt.strip(),
-            citation=new_cit.strip(),
+            statement=new_stmt,
+            citation=new_cit,
             citation_start=new_start,
             citation_end=new_end,
-            rationale=new_rat.strip() if isinstance(new_rat, str) else "",
+            rationale=new_rat,
         )
         self._audit_trail.append(f"edit_requirement(index={index})")
 
@@ -845,7 +1031,29 @@ def create_review_bundle(
                 )
             )
         elif isinstance(item, Mapping):
-            proposals.append(ProposedRequirement.from_dict(item))
+            ALLOWED_REQ_KEYS = frozenset(
+                {"statement", "citation", "citation_start", "citation_end", "rationale"}
+            )
+            REQUIRED_REQ_KEYS = frozenset(
+                {"statement", "citation", "citation_start", "citation_end"}
+            )
+            item_keys = set(item.keys())
+            missing_req = REQUIRED_REQ_KEYS - item_keys
+            if missing_req:
+                raise ReviewSchemaError(
+                    f"Missing required fields in requirement {idx}: {sorted(missing_req)}"
+                )
+            unknown_req = item_keys - ALLOWED_REQ_KEYS
+            if unknown_req:
+                safe_unknown = redact_log_text(str(sorted(unknown_req)))
+                raise ReviewSchemaError(f"Unknown field(s) in requirement {idx}: {safe_unknown}")
+            try:
+                proposals.append(ProposedRequirement.from_dict(item))
+            except Exception as e:
+                safe_err = redact_log_text(str(e))
+                raise ReviewSchemaError(
+                    f"Failed to parse requirement at index {idx}: {safe_err}"
+                ) from e
         else:
             raise TypeError(
                 f"requirement at index {idx} must be ProposedRequirement, "
@@ -863,13 +1071,84 @@ def create_review_bundle_from_contract(
     task: NormalizedTask,
     semantics: ChangeSemanticsClassification,
     contract: ValidatedContract,
+    manifest: ProtectedSurfaceManifest | None = None,
 ) -> ReviewBundle:
-    """Create a ReviewBundle from an existing ValidatedContract alongside authoritative sources."""
+    """Create a ReviewBundle from an existing ValidatedContract alongside authoritative sources.
+
+    Before accepting an existing ValidatedContract as the seed for human review:
+    1. verify contract.task_digest == task.task_digest;
+    2. verify semantics.task_digest == task.task_digest;
+    3. verify contract.change_class == semantics.change_class;
+    4. verify contract.certainty == semantics.certainty;
+    5. convert contract.requirements to ProposedRequirement (discarding requirement IDs);
+    6. re-run validate_contract against canonical P-06.04 authority;
+    7. require recomputed ValidatedContract to equal the supplied contract exactly.
+
+    Any mismatch fails closed.
+    """
+    if not isinstance(task, NormalizedTask):
+        raise TypeError(f"task must be NormalizedTask, got {type(task).__name__}")
+    if not isinstance(semantics, ChangeSemanticsClassification):
+        raise TypeError(
+            f"semantics must be ChangeSemanticsClassification, got {type(semantics).__name__}"
+        )
     if not isinstance(contract, ValidatedContract):
         raise TypeError(f"contract must be ValidatedContract, got {type(contract).__name__}")
+
+    # 1. verify contract.task_digest == task.task_digest
     if contract.task_digest != task.task_digest:
         raise ValueError(
             f"contract.task_digest ({contract.task_digest}) does not match "
             f"task.task_digest ({task.task_digest})"
         )
-    return create_review_bundle(task, semantics, contract.requirements)
+
+    # 2. verify semantics.task_digest == task.task_digest
+    if semantics.task_digest != task.task_digest:
+        raise ValueError(
+            f"semantics.task_digest ({semantics.task_digest}) does not match "
+            f"task.task_digest ({task.task_digest})"
+        )
+
+    # 3. verify contract.change_class == semantics.change_class
+    if contract.change_class != semantics.change_class:
+        raise ValueError(
+            f"contract.change_class ({contract.change_class}) does not match "
+            f"semantics.change_class ({semantics.change_class})"
+        )
+
+    # 4. verify contract.certainty == semantics.certainty
+    if contract.certainty != semantics.certainty:
+        raise ValueError(
+            f"contract.certainty ({contract.certainty}) does not match "
+            f"semantics.certainty ({semantics.certainty})"
+        )
+
+    # 5. convert contract.requirements to ProposedRequirement
+    proposals = [
+        ProposedRequirement(
+            statement=req.statement,
+            citation=req.citation,
+            citation_start=req.citation_start,
+            citation_end=req.citation_end,
+            rationale=req.rationale,
+        )
+        for req in contract.requirements
+    ]
+
+    # 6. re-run validate_contract
+    active_manifest = (
+        manifest if manifest is not None else get_canonical_basebreak_protected_manifest()
+    )
+    recomputed = validate_contract(
+        task=task,
+        requirements=proposals,
+        change_class=semantics,
+        allow_derivation=True,
+        manifest=active_manifest,
+    )
+
+    # 7. require recomputed ValidatedContract to equal the supplied contract exactly
+    if recomputed != contract:
+        raise ValueError("Recomputed ValidatedContract does not equal supplied contract")
+
+    return create_review_bundle(task, semantics, proposals)

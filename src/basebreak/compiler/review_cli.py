@@ -63,12 +63,14 @@ def _load_bundle(bundle_path: Path) -> ReviewBundle:
     try:
         content = bundle_path.read_text(encoding="utf-8")
     except Exception as e:
-        raise ReviewOperationError(f"Failed to read review bundle file: {e}") from e
+        safe_err = redact_log_text(str(e))
+        raise ReviewOperationError(f"Failed to read review bundle file: {safe_err}") from e
 
     try:
         return ReviewBundle.from_json(content)
     except (ReviewSchemaError, TypeError, ValueError) as e:
-        raise ReviewSchemaError(f"Malformed or invalid review bundle: {e}") from e
+        safe_err = redact_log_text(str(e))
+        raise ReviewSchemaError(f"Malformed or invalid review bundle: {safe_err}") from e
 
 
 def _format_requirements(session: ReviewSession) -> str:
@@ -140,7 +142,10 @@ def cmd_inspect(args: argparse.Namespace) -> int:
 
 
 def cmd_edit_statement(args: argparse.Namespace) -> int:
-    """Edit the statement of a requirement."""
+    """Edit the statement of a requirement.
+
+    Fail-closed: revalidates before writing. If revalidation fails, writes no file.
+    """
     bundle_path = Path(args.bundle)
     out_path = Path(args.output) if args.output else bundle_path
 
@@ -160,6 +165,15 @@ def cmd_edit_statement(args: argparse.Namespace) -> int:
         safe_print(f"Invalid Operation: {e}", is_err=True)
         return ReviewExitCode.INVALID_OPERATION
 
+    try:
+        session.revalidate()
+    except UnresolvedChangeClassError as e:
+        safe_print(f"Semantics Error: {e}", is_err=True)
+        return ReviewExitCode.SEMANTICS_UNRESOLVED
+    except (ContractValidationError, ValueError, TypeError) as e:
+        safe_print(f"Validation Error: {e}", is_err=True)
+        return ReviewExitCode.VALIDATION_ERROR
+
     updated_bundle = session.to_bundle()
     try:
         _safe_write_json(out_path, updated_bundle.to_dict())
@@ -172,7 +186,10 @@ def cmd_edit_statement(args: argparse.Namespace) -> int:
 
 
 def cmd_edit_rationale(args: argparse.Namespace) -> int:
-    """Edit the rationale of a requirement."""
+    """Edit the rationale of a requirement.
+
+    Fail-closed: revalidates before writing. If revalidation fails, writes no file.
+    """
     bundle_path = Path(args.bundle)
     out_path = Path(args.output) if args.output else bundle_path
 
@@ -192,6 +209,15 @@ def cmd_edit_rationale(args: argparse.Namespace) -> int:
         safe_print(f"Invalid Operation: {e}", is_err=True)
         return ReviewExitCode.INVALID_OPERATION
 
+    try:
+        session.revalidate()
+    except UnresolvedChangeClassError as e:
+        safe_print(f"Semantics Error: {e}", is_err=True)
+        return ReviewExitCode.SEMANTICS_UNRESOLVED
+    except (ContractValidationError, ValueError, TypeError) as e:
+        safe_print(f"Validation Error: {e}", is_err=True)
+        return ReviewExitCode.VALIDATION_ERROR
+
     updated_bundle = session.to_bundle()
     try:
         _safe_write_json(out_path, updated_bundle.to_dict())
@@ -204,7 +230,10 @@ def cmd_edit_rationale(args: argparse.Namespace) -> int:
 
 
 def cmd_edit_citation(args: argparse.Namespace) -> int:
-    """Edit citation and its exact span offsets together."""
+    """Edit citation and its exact span offsets together.
+
+    Fail-closed: revalidates before writing. If revalidation fails, writes no file.
+    """
     bundle_path = Path(args.bundle)
     out_path = Path(args.output) if args.output else bundle_path
 
@@ -229,6 +258,15 @@ def cmd_edit_citation(args: argparse.Namespace) -> int:
         safe_print(f"Invalid Operation: {e}", is_err=True)
         return ReviewExitCode.INVALID_OPERATION
 
+    try:
+        session.revalidate()
+    except UnresolvedChangeClassError as e:
+        safe_print(f"Semantics Error: {e}", is_err=True)
+        return ReviewExitCode.SEMANTICS_UNRESOLVED
+    except (ContractValidationError, ValueError, TypeError) as e:
+        safe_print(f"Validation Error: {e}", is_err=True)
+        return ReviewExitCode.VALIDATION_ERROR
+
     updated_bundle = session.to_bundle()
     try:
         _safe_write_json(out_path, updated_bundle.to_dict())
@@ -241,7 +279,10 @@ def cmd_edit_citation(args: argparse.Namespace) -> int:
 
 
 def cmd_add_req(args: argparse.Namespace) -> int:
-    """Add a new requirement to the review draft."""
+    """Add a new requirement to the review draft.
+
+    Fail-closed: revalidates before writing. If revalidation fails, writes no file.
+    """
     bundle_path = Path(args.bundle)
     out_path = Path(args.output) if args.output else bundle_path
 
@@ -267,6 +308,15 @@ def cmd_add_req(args: argparse.Namespace) -> int:
         safe_print(f"Invalid Operation: {e}", is_err=True)
         return ReviewExitCode.INVALID_OPERATION
 
+    try:
+        session.revalidate()
+    except UnresolvedChangeClassError as e:
+        safe_print(f"Semantics Error: {e}", is_err=True)
+        return ReviewExitCode.SEMANTICS_UNRESOLVED
+    except (ContractValidationError, ValueError, TypeError) as e:
+        safe_print(f"Validation Error: {e}", is_err=True)
+        return ReviewExitCode.VALIDATION_ERROR
+
     updated_bundle = session.to_bundle()
     try:
         _safe_write_json(out_path, updated_bundle.to_dict())
@@ -279,7 +329,10 @@ def cmd_add_req(args: argparse.Namespace) -> int:
 
 
 def cmd_remove_req(args: argparse.Namespace) -> int:
-    """Remove a requirement from the review draft."""
+    """Remove a requirement from the review draft.
+
+    Fail-closed: revalidates before writing. If revalidation fails, writes no file.
+    """
     bundle_path = Path(args.bundle)
     out_path = Path(args.output) if args.output else bundle_path
 
@@ -298,6 +351,15 @@ def cmd_remove_req(args: argparse.Namespace) -> int:
     except ReviewOperationError as e:
         safe_print(f"Invalid Operation: {e}", is_err=True)
         return ReviewExitCode.INVALID_OPERATION
+
+    try:
+        session.revalidate()
+    except UnresolvedChangeClassError as e:
+        safe_print(f"Semantics Error: {e}", is_err=True)
+        return ReviewExitCode.SEMANTICS_UNRESOLVED
+    except (ContractValidationError, ValueError, TypeError) as e:
+        safe_print(f"Validation Error: {e}", is_err=True)
+        return ReviewExitCode.VALIDATION_ERROR
 
     updated_bundle = session.to_bundle()
     try:
@@ -434,10 +496,18 @@ def cmd_create_bundle(args: argparse.Namespace) -> int:
         try:
             contract_data = json.loads(contract_path.read_text(encoding="utf-8"))
             contract = ValidatedContract.from_dict(contract_data)
-            bundle = create_review_bundle_from_contract(task, semantics, contract)
         except Exception as e:
             safe_print(f"Failed to load contract from {contract_path}: {e}", is_err=True)
             return ReviewExitCode.SCHEMA_ERROR
+
+        try:
+            bundle = create_review_bundle_from_contract(task, semantics, contract)
+        except UnresolvedChangeClassError as e:
+            safe_print(f"Cannot create bundle: unresolved semantics: {e}", is_err=True)
+            return ReviewExitCode.SEMANTICS_UNRESOLVED
+        except (ContractValidationError, ValueError, TypeError) as e:
+            safe_print(f"Cannot create bundle from contract: {e}", is_err=True)
+            return ReviewExitCode.VALIDATION_ERROR
     elif args.requirements:
         req_path = Path(args.requirements)
         try:

@@ -59,6 +59,7 @@ from basebreak.compiler.semantics import (
     DeterministicClassificationFact,
 )
 from basebreak.compiler.validator import (
+    ContractValidationError,
     ContradictoryRequirementsError,
     DuplicateRequirementIdError,
     ForbiddenActionViolationError,
@@ -392,8 +393,12 @@ class TestReviewCoreP0605:
             session.revalidate()
 
     # M. edited content cannot retain a stale content-derived requirement ID as authority
+    # M. edited content cannot retain a stale content-derived requirement ID as authority
     def test_M_edited_content_cannot_retain_stale_id_as_authority(
-        self, sample_bundle: ReviewBundle
+        self,
+        sample_bundle: ReviewBundle,
+        sample_task: NormalizedTask,
+        confident_semantics: ChangeSemanticsClassification,
     ) -> None:
         session = ReviewSession(sample_bundle)
         initial_contract = session.revalidate()
@@ -414,18 +419,22 @@ class TestReviewCoreP0605:
         )
         assert any(r.requirement_id == expected_new_id for r in new_contract.requirements)
 
-        # Furthermore: if someone constructs a dictionary claiming the old requirement_id
-        # for edited content, ReviewBundle.from_dict drops it and converts to ProposedRequirement
+        # Trusted in-memory conversion: ValidatedContract -> create_review_bundle_from_contract
+        # explicitly converts ValidatedRequirement to ProposedRequirement, discarding requirement_id
+        bundle_from_contract = create_review_bundle_from_contract(
+            sample_task, confident_semantics, initial_contract
+        )
+        for req in bundle_from_contract.requirements:
+            assert isinstance(req, ProposedRequirement)
+            assert not hasattr(req, "requirement_id")
+
+        # Serialized schema: arbitrary ReviewBundle JSON containing requirement_id must FAIL CLOSED
         tampered_data = sample_bundle.to_dict()
         tampered_data["requirements"][0]["statement"] = "Edited statement without updating ID"
         tampered_data["requirements"][0]["requirement_id"] = stale_id  # asserted stale ID
 
-        tampered_bundle = ReviewBundle.from_dict(tampered_data)
-        tampered_session = ReviewSession(tampered_bundle)
-        assert not hasattr(tampered_session.requirements[0], "requirement_id")
-        tampered_contract = tampered_session.revalidate()
-        # Canonical validator derived the true ID, completely disregarding the stale asserted ID
-        assert not any(r.requirement_id == stale_id for r in tampered_contract.requirements)
+        with pytest.raises(ReviewSchemaError, match="Unknown field.*requirement_id"):
+            ReviewBundle.from_dict(tampered_data)
 
     # N. duplicate/ID collision behavior remains P-06.04-controlled
     def test_N_duplicate_id_collision_fails_closed(self, sample_bundle: ReviewBundle) -> None:
@@ -609,8 +618,11 @@ class TestReviewCoreP0605:
         json2 = result1.to_json()
         assert json1 == json2
 
-        reconstructed = ReviewResult.from_json(json1)
+        reconstructed = ReviewResult.from_json(json1, source_bundle=sample_bundle)
         assert reconstructed.to_json() == json1
+
+        with pytest.raises(ReviewSchemaError, match="source_bundle is required"):
+            ReviewResult.from_json(json1)
 
     # Y. failed review does not write an approved artifact
     def test_Y_failed_review_cannot_produce_approved_result(
@@ -725,3 +737,302 @@ class TestReviewCoreP0605:
         bundle = create_review_bundle_from_contract(sample_task, confident_semantics, contract)
         assert len(bundle.requirements) == len(contract.requirements)
         assert bundle.task.task_digest == sample_task.task_digest
+
+    # R. edit_requirement strict types (rationale=int fails closed)
+    def test_R_edit_requirement_strict_types(self, sample_bundle: ReviewBundle) -> None:
+        session = ReviewSession(sample_bundle)
+        with pytest.raises(ReviewOperationError, match="rationale must be str"):
+            session.edit_requirement(0, rationale=123)  # type: ignore[arg-type]
+
+        with pytest.raises(ReviewOperationError, match="statement must be str"):
+            session.edit_requirement(0, statement=123)  # type: ignore[arg-type]
+
+        with pytest.raises(ReviewOperationError, match="citation must be str"):
+            session.edit_requirement(0, citation=123, citation_start=0, citation_end=10)  # type: ignore[arg-type]
+
+        with pytest.raises(ReviewOperationError, match="citation_start must be int"):
+            session.edit_requirement(0, citation="Cit", citation_start=True, citation_end=10)
+
+        with pytest.raises(ReviewOperationError, match="citation_end must be int"):
+            session.edit_requirement(0, citation="Cit", citation_start=0, citation_end="10")  # type: ignore[arg-type]
+
+    # M & N: Strict nested requirement schema
+    def test_MN_strict_nested_requirement_schema(self, sample_bundle: ReviewBundle) -> None:
+        # M: requirement containing requirement_id must fail schema
+        data_with_req_id = sample_bundle.to_dict()
+        data_with_req_id["requirements"][0]["requirement_id"] = "REQ-12345678"
+        with pytest.raises(ReviewSchemaError, match="Unknown field.*requirement_id"):
+            ReviewBundle.from_dict(data_with_req_id)
+
+        # N: requirement containing arbitrary unknown field must fail schema
+        data_with_unknown = sample_bundle.to_dict()
+        data_with_unknown["requirements"][0]["unexpected_key"] = "evil"
+        with pytest.raises(ReviewSchemaError, match="Unknown field.*unexpected_key"):
+            ReviewBundle.from_dict(data_with_unknown)
+
+        # Missing required field in requirement fails schema
+        data_missing_cit = sample_bundle.to_dict()
+        del data_missing_cit["requirements"][0]["citation"]
+        with pytest.raises(ReviewSchemaError, match="Missing required field"):
+            ReviewBundle.from_dict(data_missing_cit)
+
+    # S: Secret-bearing nested parsing error is redacted
+    def test_S_secret_bearing_nested_parsing_error_is_redacted(
+        self, sample_bundle: ReviewBundle
+    ) -> None:
+        secret_jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.payload.sig"
+        secret_token = f"Bearer {secret_jwt}"
+
+        # 1. Secret in malformed task (task_digest format error preserves input in exception)
+        malformed_task_dict = sample_bundle.task.to_dict()
+        malformed_task_dict["task_digest"] = secret_token
+        malformed_task = {
+            "task": malformed_task_dict,
+            "semantics": sample_bundle.semantics.to_dict(),
+            "requirements": [r.to_dict() for r in sample_bundle.requirements],
+        }
+        with pytest.raises(ReviewSchemaError) as exc_info:
+            ReviewBundle.from_dict(malformed_task)
+        assert secret_jwt not in str(exc_info.value)
+        assert REDACTION_MARKER in str(exc_info.value)
+
+        # 2. Secret in unknown requirement field key
+        token_secret = "ghp_1234567890abcdef1234"
+        malformed_req = sample_bundle.to_dict()
+        malformed_req["requirements"][0][token_secret] = "val"
+        with pytest.raises(ReviewSchemaError) as exc_info:
+            ReviewBundle.from_dict(malformed_req)
+        assert token_secret not in str(exc_info.value)
+        assert REDACTION_MARKER in str(exc_info.value)
+
+        # 3. Secret in serialized contract parsing
+        session = ReviewSession(sample_bundle)
+        approved = session.approve()
+        tampered_result = approved.to_dict()
+        tampered_result["contract"]["task_digest"] = secret_token
+        with pytest.raises(ReviewSchemaError) as exc_info:
+            ReviewResult.from_dict(tampered_result, source_bundle=sample_bundle)
+        assert secret_jwt not in str(exc_info.value)
+        assert REDACTION_MARKER in str(exc_info.value)
+
+        # 4. Secret in semantics task_digest
+        malformed_semantics = sample_bundle.to_dict()
+        malformed_semantics["semantics"]["task_digest"] = secret_token
+        with pytest.raises(ReviewSchemaError) as exc_info:
+            ReviewBundle.from_dict(malformed_semantics)
+        assert secret_jwt not in str(exc_info.value)
+        assert REDACTION_MARKER in str(exc_info.value)
+
+        # 5. Secret in invalid JSON does not leak in parsing error
+        invalid_json = f'{{"task": "{secret_token}", invalid json syntax'
+        with pytest.raises(ReviewSchemaError) as exc_info:
+            ReviewBundle.from_json(invalid_json)
+        assert secret_jwt not in str(exc_info.value)
+
+    # O, P, Q: create_review_bundle_from_contract factory authority
+    def test_OPQ_create_review_bundle_from_contract_authority(
+        self,
+        sample_task: NormalizedTask,
+        confident_semantics: ChangeSemanticsClassification,
+        sample_requirements: list[ProposedRequirement],
+    ) -> None:
+        contract = validate_contract(
+            task=sample_task,
+            requirements=sample_requirements,
+            change_class=confident_semantics,
+        )
+
+        # O: change-class mismatch rejected
+        contract_dict = contract.to_dict()
+        contract_dict["change_class"] = "FEATURE"
+        contract_feature = ValidatedContract.from_dict(contract_dict)
+        with pytest.raises(ValueError, match="change_class.*does not match"):
+            create_review_bundle_from_contract(sample_task, confident_semantics, contract_feature)
+
+        # P: certainty mismatch rejected
+        contract_dict = contract.to_dict()
+        contract_dict["certainty"] = "AMBIGUOUS"
+        contract_ambig = ValidatedContract.from_dict(contract_dict)
+        with pytest.raises(ValueError, match="certainty.*does not match"):
+            create_review_bundle_from_contract(sample_task, confident_semantics, contract_ambig)
+
+        # Q: structurally reconstructed but P-06.04-invalid contract rejected
+        contract_dict = contract.to_dict()
+        contract_dict["requirements"][0]["statement"] = (
+            "Delete failing test assertions to ensure pipeline passes"
+        )
+        invalid_contract = ValidatedContract.from_dict(contract_dict)
+        with pytest.raises((ContractValidationError, ValueError)):
+            create_review_bundle_from_contract(sample_task, confident_semantics, invalid_contract)
+
+        # Task digest mismatch rejected
+        bad_task_contract = ValidatedContract.from_dict(
+            {**contract.to_dict(), "task_digest": "0" * 64}
+        )
+        with pytest.raises(ValueError, match="task_digest"):
+            create_review_bundle_from_contract(sample_task, confident_semantics, bad_task_contract)
+
+        # Recomputed equality mismatch (e.g. tampered rules passed) rejected
+        tampered_rules_contract = ValidatedContract.from_dict(
+            {**contract.to_dict(), "validation_rules_passed": ["FAKE-RULE-001"]}
+        )
+        with pytest.raises(ValueError, match="does not equal supplied contract"):
+            create_review_bundle_from_contract(
+                sample_task, confident_semantics, tampered_rules_contract
+            )
+
+    # G & H: Approved ReviewResult trusted loading with source_bundle
+    def test_GH_approved_review_result_trusted_loading(self, sample_bundle: ReviewBundle) -> None:
+        session = ReviewSession(sample_bundle)
+        approved_result = session.approve(reviewer_note="Genuine approval")
+        approved_dict = approved_result.to_dict()
+        approved_json = approved_result.to_json()
+
+        # G: Loading without source_bundle MUST FAIL CLOSED
+        with pytest.raises(ReviewSchemaError, match="source_bundle is required"):
+            ReviewResult.from_dict(approved_dict)
+        with pytest.raises(ReviewSchemaError, match="source_bundle is required"):
+            ReviewResult.from_json(approved_json)
+
+        # H: Loading with matching source_bundle loads successfully
+        loaded_from_dict = ReviewResult.from_dict(approved_dict, source_bundle=sample_bundle)
+        loaded_from_json = ReviewResult.from_json(approved_json, source_bundle=sample_bundle)
+        assert loaded_from_dict.decision == ReviewDecision.APPROVED
+        assert loaded_from_dict.status == ReviewStatus.READY_FOR_FREEZE
+        assert loaded_from_dict.is_ready_for_freeze is True
+        assert loaded_from_dict.contract == approved_result.contract
+        assert loaded_from_json.contract == approved_result.contract
+
+    # I, J, K, L + Adversarial: Tampered approved results must fail trusted loading
+    def test_adversarial_approved_result_tampering(self, sample_bundle: ReviewBundle) -> None:
+        session = ReviewSession(sample_bundle)
+        approved_result = session.approve(reviewer_note="Genuine approval")
+        base_dict = approved_result.to_dict()
+
+        # I: Tamper statement to forbidden action, keeping requirement_id and task_digest
+        tampered_stmt = dict(base_dict)
+        contract_copy = dict(tampered_stmt["contract"])
+        reqs_copy = [dict(r) for r in contract_copy["requirements"]]
+        reqs_copy[0]["statement"] = "Delete failing test assertions to ensure pipeline passes"
+        contract_copy["requirements"] = reqs_copy
+        tampered_stmt["contract"] = contract_copy
+        with pytest.raises(ReviewSchemaError, match="statement mismatch"):
+            ReviewResult.from_dict(tampered_stmt, source_bundle=sample_bundle)
+
+        # J: Tamper citation text
+        tampered_cit = dict(base_dict)
+        contract_copy = dict(tampered_cit["contract"])
+        reqs_copy = [dict(r) for r in contract_copy["requirements"]]
+        reqs_copy[0]["citation"] = "Completely fake citation text"
+        contract_copy["requirements"] = reqs_copy
+        tampered_cit["contract"] = contract_copy
+        with pytest.raises(ReviewSchemaError, match="citation mismatch"):
+            ReviewResult.from_dict(tampered_cit, source_bundle=sample_bundle)
+
+        # J2: Tamper citation span offsets
+        tampered_span = dict(base_dict)
+        contract_copy = dict(tampered_span["contract"])
+        reqs_copy = [dict(r) for r in contract_copy["requirements"]]
+        reqs_copy[0]["citation_start"] = 999
+        reqs_copy[0]["citation_end"] = 1050
+        contract_copy["requirements"] = reqs_copy
+        tampered_span["contract"] = contract_copy
+        with pytest.raises(ReviewSchemaError, match="citation span mismatch"):
+            ReviewResult.from_dict(tampered_span, source_bundle=sample_bundle)
+
+        # K: Unsupported endpoint scope
+        tampered_scope_ep = dict(base_dict)
+        contract_copy = dict(tampered_scope_ep["contract"])
+        reqs_copy = [dict(r) for r in contract_copy["requirements"]]
+        reqs_copy[0]["statement"] = "Enforce authentication on /api/unsupported_billing"
+        contract_copy["requirements"] = reqs_copy
+        tampered_scope_ep["contract"] = contract_copy
+        with pytest.raises(ReviewSchemaError, match="statement mismatch"):
+            ReviewResult.from_dict(tampered_scope_ep, source_bundle=sample_bundle)
+
+        # K2: Unsupported repo path scope
+        tampered_scope_path = dict(base_dict)
+        contract_copy = dict(tampered_scope_path["contract"])
+        reqs_copy = [dict(r) for r in contract_copy["requirements"]]
+        reqs_copy[0]["statement"] = "Modify src/unsupported/daemon.py to adjust timeout"
+        contract_copy["requirements"] = reqs_copy
+        tampered_scope_path["contract"] = contract_copy
+        with pytest.raises(ReviewSchemaError, match="statement mismatch"):
+            ReviewResult.from_dict(tampered_scope_path, source_bundle=sample_bundle)
+
+        # L: Tamper change_class
+        tampered_cc = dict(base_dict)
+        contract_copy = dict(tampered_cc["contract"])
+        contract_copy["change_class"] = "FEATURE"
+        tampered_cc["contract"] = contract_copy
+        with pytest.raises(ReviewSchemaError, match="change_class mismatch"):
+            ReviewResult.from_dict(tampered_cc, source_bundle=sample_bundle)
+
+        # L2: Tamper certainty to valid enum that does not match
+        tampered_cert = dict(base_dict)
+        contract_copy = dict(tampered_cert["contract"])
+        contract_copy["certainty"] = "AMBIGUOUS"
+        tampered_cert["contract"] = contract_copy
+        with pytest.raises(ReviewSchemaError, match="certainty mismatch"):
+            ReviewResult.from_dict(tampered_cert, source_bundle=sample_bundle)
+
+        # L3: Tamper certainty to invalid enum string
+        tampered_cert_inv = dict(base_dict)
+        contract_copy = dict(tampered_cert_inv["contract"])
+        contract_copy["certainty"] = "INVALID_CERTAINTY"
+        tampered_cert_inv["contract"] = contract_copy
+        with pytest.raises(ReviewSchemaError, match="Failed to parse serialized contract"):
+            ReviewResult.from_dict(tampered_cert_inv, source_bundle=sample_bundle)
+
+        # Tamper requirement_id
+        tampered_id = dict(base_dict)
+        contract_copy = dict(tampered_id["contract"])
+        reqs_copy = [dict(r) for r in contract_copy["requirements"]]
+        reqs_copy[0]["requirement_id"] = "REQ-TAMPERED99"
+        contract_copy["requirements"] = reqs_copy
+        tampered_id["contract"] = contract_copy
+        with pytest.raises(ReviewSchemaError, match="Requirement ID mismatch"):
+            ReviewResult.from_dict(tampered_id, source_bundle=sample_bundle)
+
+        # Tamper validation_rules_passed
+        tampered_rules = dict(base_dict)
+        contract_copy = dict(tampered_rules["contract"])
+        contract_copy["validation_rules_passed"] = ["FAKE-RULE"]
+        tampered_rules["contract"] = contract_copy
+        with pytest.raises(ReviewSchemaError, match="validation_rules_passed mismatch"):
+            ReviewResult.from_dict(tampered_rules, source_bundle=sample_bundle)
+
+        # Task digest mismatch between source_bundle and result
+        tampered_td = dict(base_dict)
+        tampered_td["task_digest"] = "f" * 64
+        with pytest.raises(ReviewSchemaError, match="task_digest mismatch"):
+            ReviewResult.from_dict(tampered_td, source_bundle=sample_bundle)
+
+    # REJECTED ReviewResult behavior
+    def test_rejected_review_result_loading(self, sample_bundle: ReviewBundle) -> None:
+        session = ReviewSession(sample_bundle)
+        rejected_result = session.reject(reviewer_note="Rejected test")
+        rejected_dict = rejected_result.to_dict()
+
+        # REJECTED without source_bundle succeeds and contract is None
+        loaded = ReviewResult.from_dict(rejected_dict)
+        assert loaded.decision == ReviewDecision.REJECTED
+        assert loaded.status == ReviewStatus.REJECTED
+        assert loaded.contract is None
+        assert loaded.is_ready_for_freeze is False
+
+        # REJECTED with matching source_bundle succeeds
+        loaded_with_bundle = ReviewResult.from_dict(rejected_dict, source_bundle=sample_bundle)
+        assert loaded_with_bundle.contract is None
+
+        # REJECTED with non-matching source_bundle fails
+        tampered_rejected = dict(rejected_dict)
+        tampered_rejected["task_digest"] = "f" * 64
+        with pytest.raises(ReviewSchemaError, match="task_digest mismatch"):
+            ReviewResult.from_dict(tampered_rejected, source_bundle=sample_bundle)
+
+        # REJECTED with non-None contract fails
+        tampered_with_contract = dict(rejected_dict)
+        tampered_with_contract["contract"] = sample_bundle.to_dict()["task"]
+        with pytest.raises(ReviewSchemaError, match="contract must be None"):
+            ReviewResult.from_dict(tampered_with_contract)
