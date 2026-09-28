@@ -65,7 +65,7 @@ Judge claim:
 - P-06.01 (Define task ingestion and deterministic normalization) is independently VERIFIED / PASS at SHA `a76762c62fffba30a7b8d1ead2a130c192c8c072`.
 - P-06.02 (Use Nemotron to propose atomic acceptance requirements with citations to task text) is independently VERIFIED / PASS (live-tested source commit b2410e76028e1d3b1d97ebb087f1113f3f8097cb, tree f476f2c7407d7ec9e7ab0cb138e40bbfb0e66412; canonical evidence/governance closure at SHA c93485892e6c40cfe0f95aa82b94fc2346b70fb0; genuine LIVE_NEBIUS evidence in docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md).
 - P-06.03 (Classify change semantics and uncertainty) is independently VERIFIED / PASS at SHA `6a8fe7756ed0ad3df8d7265d0702ecbc0842ecee`.
-- P-06.04 (Deterministically validate requirement IDs, scope, forbidden actions and contradictions) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-06.04 (Deterministically validate requirement IDs, scope, forbidden actions and contradictions) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (surgical policy/scope fail-closed repair completed; awaiting independent QA verification).
 - P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Last independently VERIFIED baseline SHA
@@ -77,16 +77,16 @@ Judge claim:
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-`P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+`P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; surgical policy/scope fail-closed repair).
 
 ### Active exact task
-`P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; awaiting independent QA verification).
+`P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; surgical policy/scope fail-closed repair awaiting independent QA verification).
 
 ## Parallelization boundary & rules
 - **Task status:** P-00 through P-05 all tasks are independently VERIFIED / PASS. P-06.01, P-06.02, and P-06.03 are independently VERIFIED / PASS. P-06.04 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Provider neutrality:** All domain contracts, evidence primitives, security primitives, and Contract Compiler core production code (`src/basebreak/compiler/*`) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers in semantics.py or validator.py.
 - **Phase status:** P-00, P-01, P-02, P-03, P-04, P-05 phases are independently CLOSED / PASS. P-06 phase is OPEN.
-- **Batch restoration & hard stop:** P-06.04 clean reimplementation is completed as an independent QA candidate. P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Batch restoration & hard stop:** P-06.04 surgical repair is completed as an independent QA candidate. P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 - **Not authorized / forbidden:** P-06.05, P-06.06, and P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints

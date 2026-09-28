@@ -40,6 +40,7 @@ from basebreak.compiler.requirements import ProposedRequirement
 from basebreak.compiler.semantics import CertaintyLevel, ChangeSemanticsClassification
 from basebreak.domain.semantics import ChangeClass
 from basebreak.security.protected_surfaces import (
+    PathSecurityError,
     ProtectedSurfaceManifest,
     get_canonical_basebreak_protected_manifest,
     match_protected_surface,
@@ -533,48 +534,177 @@ class ValidatedContract:
         return cls.from_dict(data)
 
 
-# --- Helper: Protective or Testing Intent Detection ---
+# --- Helper: Defensive Negative Constraint Detection (Blocker 1) ---
 
-_PROTECTIVE_PATTERNS = [
+_DEFENSIVE_NEGATIVE_CONSTRAINTS = [
     re.compile(
-        r"^(?:add\s+(?:a\s+)?test|test\s+(?:that|proving|whether)|assert\s+(?:that)?|verify\s+(?:that)?|check\s+(?:that)?)\b",
+        r"\b(?:cannot|can\s+not|must\s+not|shall\s+not|never|impossible)\b",
         re.IGNORECASE,
     ),
     re.compile(
-        r"^(?:ensure\s+(?:that\s+)?.*(?:\bnever\b|\bnot\b|\bcannot\b|\bno\b|\bblocked\b|\brejected\b|\bprevented\b|\bforbidden\b|\bdisallowed\b))",
+        r"\b(?:is|are|was|were|being)\s+(?:blocked|rejected|prevented|forbidden|disallowed|prohibited|refused)\b",
         re.IGNORECASE,
     ),
     re.compile(
-        r"^(?:prevent|detect|block|forbid|reject|disallow)\s+.*",
+        r"\b(?:redacted|stripped|masked|hidden)\s*(?:from\s+logs?)?\b",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\bproving\s+.*(?:\bis\s+rejected\b|\bfails\b|\bis\s+blocked\b|\bis\s+forbidden\b)",
+        r"\bproving\s+.*?(?:\bis\s+rejected\b|\bfails\b|\bis\s+blocked\b|\bis\s+forbidden\b|\bcannot\b)",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\bcannot\s+be\s+(?:modified|edited|deleted|bypassed|weakened|exfiltrated|accessed)\b",
+        r"\b(?:ensure|assert|verify|check)\s+.*?\b(?:fails|is\s+rejected|is\s+blocked|cannot\b)",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(?:never|not)\s+(?:printed|logged|exposed|leaked|exfiltrated|sent|modified|deleted)\b",
+        r"\b(?:never|not)\s+(?:printed|logged|exposed|leaked|exfiltrated|sent|uploaded|modified|deleted|executed|run|bypassed|allowed|permitted)\b",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\bredacted\s+(?:from\s+logs?)?\b",
+        r"\b(?:detect|catch|trap|intercept|block|prevent|forbid|reject|disallow|prohibit)\s+(?:any\s+)?(?:attempts?\s+to|executions?\s+of|mutations?\s+of|bypass\s+of)\b",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(?:blocked|prevented|rejected|forbidden|disallowed)\s+(?:from|by)?\b",
+        r"\bcannot\s+be\s+(?:modified|edited|deleted|bypassed|weakened|exfiltrated|accessed|overwritten)\b",
         re.IGNORECASE,
     ),
 ]
 
 
-def _is_protective_or_testing_statement(text: str) -> bool:
-    """Return True if text expresses protective, defensive, or verification intent."""
+def _is_defensively_constrained(text: str) -> bool:
+    """Return True if text deterministically expresses that a forbidden or dangerous action
+    must be blocked, rejected, prevented, forbidden, impossible, redacted,
+    not executed, not exposed, or otherwise negatively constrained.
+    """
     clean = text.strip()
-    return any(pattern.search(clean) is not None for pattern in _PROTECTIVE_PATTERNS)
+    return any(pattern.search(clean) is not None for pattern in _DEFENSIVE_NEGATIVE_CONSTRAINTS)
+
+
+def _is_protective_or_testing_statement(text: str) -> bool:
+    """Backward-compatible alias for _is_defensively_constrained."""
+    return _is_defensively_constrained(text)
+
+
+# --- Protected Surface Mutation & Path Extraction (Blocker 2 & 3) ---
+
+_MUTATION_VERBS = frozenset(
+    {
+        "modify",
+        "modifying",
+        "modification",
+        "edit",
+        "editing",
+        "update",
+        "updating",
+        "change",
+        "changing",
+        "delete",
+        "deleting",
+        "deletion",
+        "remove",
+        "removing",
+        "removal",
+        "overwrite",
+        "overwriting",
+        "patch",
+        "patching",
+        "mutate",
+        "mutating",
+        "mutation",
+        "rewrite",
+        "rewriting",
+        "alter",
+        "altering",
+        "truncate",
+        "truncating",
+        "wipe",
+        "wiping",
+    }
+)
+
+_CONCEPTUAL_PROTECTED_MUTATION = re.compile(
+    r"\b(?:modify|edit|update|change|delete|remove|overwrite|patch|mutate|rewrite|alter)\s+"
+    r"(?:a|an|the|any)?\s*(?:canonical\s+)?protected\s+(?:workflow|surface|file|manifest|governance|policy)\b",
+    re.IGNORECASE,
+)
+
+_REPO_PATH_CANDIDATE_PATTERN = re.compile(
+    r"\b(?:[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-/]+|[A-Za-z0-9_\-]+\.[A-Za-z0-9]+)\b"
+)
+
+
+def _extract_repo_path_candidates(text: str) -> list[str]:
+    """Extract repository path candidate strings from text.
+
+    Identifies tokens containing slashes, directory traversals ('..'),
+    standard repository directories, or file extensions.
+    """
+    candidates: list[str] = []
+    for match in _REPO_PATH_CANDIDATE_PATTERN.finditer(text):
+        token = match.group(0).strip(" \t\r\n'\"`.,;:!?)(")
+        # Skip API endpoints and URLs
+        if token.startswith("/") or "://" in token:
+            continue
+        # Skip numeric decimals like 1.0 or 3.11
+        if re.match(r"^\d+\.\d+$", token):
+            continue
+        candidates.append(token)
+    return candidates
+
+
+def _demands_mutation_of_path(statement: str, path_token: str, norm_path: str) -> bool:
+    """Return True if statement deterministically demands mutation directed at path_token."""
+    clean_stmt = statement.strip()
+    pattern = re.escape(path_token)
+    matches = list(re.finditer(pattern, clean_stmt, re.IGNORECASE))
+    if not matches and norm_path != path_token:
+        pattern = re.escape(norm_path)
+        matches = list(re.finditer(pattern, clean_stmt, re.IGNORECASE))
+
+    for m in matches:
+        start_idx = m.start()
+        end_idx = m.end()
+
+        # Check preceding text (up to 8 words)
+        preceding = clean_stmt[:start_idx].strip()
+        prec_tokens = re.findall(r"\b[a-zA-Z_\-]+\b", preceding)
+        if prec_tokens:
+            noise_words = {
+                "the",
+                "a",
+                "an",
+                "this",
+                "that",
+                "file",
+                "files",
+                "directory",
+                "path",
+                "surface",
+                "protected",
+                "canonical",
+                "in",
+                "at",
+                "to",
+            }
+            for token in reversed(prec_tokens[-6:]):
+                t_lower = token.lower()
+                if t_lower in _MUTATION_VERBS:
+                    return True
+                if t_lower not in noise_words:
+                    break
+
+        # Check following text (passive mutation: "AGENTS.md must be modified")
+        following = clean_stmt[end_idx:].strip()
+        if re.search(
+            r"^\s*(?:must\s+be|should\s+be|shall\s+be|is\s+to\s+be|is|was|to\s+be)\s*"
+            r"(?:modified|edited|updated|changed|deleted|removed|overwritten|patched|mutated|rewritten|altered|truncated)\b",
+            following,
+            re.IGNORECASE,
+        ):
+            return True
+
+    return False
 
 
 # --- Forbidden Action Validation ---
@@ -588,16 +718,10 @@ _FORBIDDEN_TEST_WEAKEN = re.compile(
     re.IGNORECASE,
 )
 
-_FORBIDDEN_PROTECTED_SURFACE = re.compile(
-    r"\b(?:modify|edit|update|change|delete|remove|overwrite|patch|mutate|re-write|rewrite)\s+.*"
-    r"(?:AGENTS\.md|BASEBREAK_MASTER_EXECUTION_PLAN\.md|SECURITY_BOUNDARY\.md|DONOR_MANIFEST\.md|"
-    r"OPERATOR_REQUIREMENTS\.md|COMPETITION_FEEDBACK_LOG\.md|src/basebreak/(?:domain|evidence|security))\b",
-    re.IGNORECASE,
-)
-
 _FORBIDDEN_SECRET_EXFIL = re.compile(
-    r"\b(?:(?:send|exfiltrate|leak|post|upload|transmit)\s+.*(?:api[_-]?key|secret|credential|token|private[_-]?key)\s+to\s+|"
-    r"(?:print|log|dump|display|output)\s+.*(?:api[_-]?key|secret|credentials?|token|private[_-]?key)\s+to\s+(?:stdout|console|log|file)|"
+    r"\b(?:(?:send|exfiltrate|leak|post|upload|transmit)\s+.*(?:api[_\-\s]?keys?|secrets?|credentials?|tokens?|private[_\-\s]?keys?)\s+to\s+|"
+    r"(?:api[_\-\s]?keys?|secrets?|credentials?|tokens?|private[_\-\s]?keys?)\s+.*?(?:are|is|get|were|being)?\s*(?:uploaded|sent|exfiltrated|leaked|posted|transmitted)\s+to\s+|"
+    r"(?:print|log|dump|display|output)\s+.*(?:api[_\-\s]?keys?|secrets?|credentials?|tokens?|private[_\-\s]?keys?)\s+to\s+(?:stdout|console|log|file)|"
     r"exfiltrate\s+(?:secrets?|credentials?|keys?|tokens?))\b",
     re.IGNORECASE,
 )
@@ -605,6 +729,8 @@ _FORBIDDEN_SECRET_EXFIL = re.compile(
 _FORBIDDEN_VERIFICATION_BYPASS = re.compile(
     r"\b(?:(?:disable|turn\s+off|bypass|skip|deactivate)\s+(?:required\s+)?(?:deterministic\s+)?verification|"
     r"(?:disable|bypass|skip)\s+security\s+(?:checks?|validation|policy)|"
+    r"security\s+(?:checks?|validation|policy)\s+(?:can\s+be|are|is|to\s+be|could\s+be)?\s*bypassed|"
+    r"(?:deterministic\s+)?verification\s+(?:can\s+be|is|are|to\s+be)?\s*(?:bypassed|disabled|skipped)|"
     r"(?:bypass|disable)\s+contract\s+validation)\b",
     re.IGNORECASE,
 )
@@ -618,55 +744,100 @@ _FORBIDDEN_DESTRUCTIVE_EXEC = re.compile(
 
 
 def _check_forbidden_actions(req: ValidatedRequirement, manifest: ProtectedSurfaceManifest) -> None:
-    """Validate a single requirement against forbidden action rules."""
-    statement = req.statement
+    """Validate a single requirement against forbidden action rules.
 
-    # If the statement is framed defensively or as a test/protection, it does NOT violate policy
-    if _is_protective_or_testing_statement(statement):
-        return
+    Rules:
+    FORBIDDEN-001: Test weakening / deletion
+    FORBIDDEN-002: Protected surface mutation (canonical manifest authority)
+    FORBIDDEN-003: Credential / secret exfiltration
+    FORBIDDEN-004: Verification / security check bypass
+    FORBIDDEN-005: Destructive command execution
+    """
+    statement = req.statement
 
     # Check rule 1: Test weakening
     if _FORBIDDEN_TEST_WEAKEN.search(statement):
-        raise ForbiddenActionViolationError(
-            rule_id="FORBIDDEN-001",
-            requirement_id=req.requirement_id,
-            detail=f"Requirement demands weakening or deleting tests to pass: {statement}",
-        )
+        if not _is_defensively_constrained(statement):
+            raise ForbiddenActionViolationError(
+                rule_id="FORBIDDEN-001",
+                requirement_id=req.requirement_id,
+                detail=f"Requirement demands weakening or deleting tests to pass: {statement}",
+            )
 
     # Check rule 2: Protected surface mutation
-    if _FORBIDDEN_PROTECTED_SURFACE.search(statement):
-        raise ForbiddenActionViolationError(
-            rule_id="FORBIDDEN-002",
-            requirement_id=req.requirement_id,
-            detail=f"Requirement demands mutation of protected repository surfaces: {statement}",
-        )
+    # A. Conceptual protected surface mutation
+    if _CONCEPTUAL_PROTECTED_MUTATION.search(statement):
+        if not _is_defensively_constrained(statement):
+            raise ForbiddenActionViolationError(
+                rule_id="FORBIDDEN-002",
+                requirement_id=req.requirement_id,
+                detail=f"Requirement demands mutation of canonical protected surface: {statement}",
+            )
+
+    # B. Canonical manifest authority check
+    candidates = _extract_repo_path_candidates(statement)
+    for cand in candidates:
+        clean_cand = cand.strip(" \t\r\n'\"`.,;:!?)(")
+        if not clean_cand:
+            continue
+        try:
+            norm_path = normalize_repo_path(clean_cand)
+            match = match_protected_surface(norm_path, manifest)
+            if match is not None:
+                # Fact A: path is protected by manifest.
+                # Fact B: Does the requirement demand mutation of this path?
+                if _demands_mutation_of_path(statement, clean_cand, norm_path):
+                    if not _is_defensively_constrained(statement):
+                        raise ForbiddenActionViolationError(
+                            rule_id="FORBIDDEN-002",
+                            requirement_id=req.requirement_id,
+                            detail=(
+                                f"Requirement demands mutation of protected repository surface "
+                                f"'{norm_path}': {statement}"
+                            ),
+                        )
+        except PathSecurityError:
+            # Traversal or invalid path candidate
+            if _demands_mutation_of_path(statement, clean_cand, clean_cand):
+                if not _is_defensively_constrained(statement):
+                    raise ForbiddenActionViolationError(
+                        rule_id="FORBIDDEN-002",
+                        requirement_id=req.requirement_id,
+                        detail=(
+                            f"Requirement demands mutation of unsafe or traversal repository path "
+                            f"'{clean_cand}': {statement}"
+                        ),
+                    )
 
     # Check rule 3: Credential / secret exfiltration
     if _FORBIDDEN_SECRET_EXFIL.search(statement):
-        raise ForbiddenActionViolationError(
-            rule_id="FORBIDDEN-003",
-            requirement_id=req.requirement_id,
-            detail=f"Requirement demands credential or secret exfiltration: {statement}",
-        )
+        if not _is_defensively_constrained(statement):
+            raise ForbiddenActionViolationError(
+                rule_id="FORBIDDEN-003",
+                requirement_id=req.requirement_id,
+                detail=f"Requirement demands credential or secret exfiltration: {statement}",
+            )
 
     # Check rule 4: Disabling deterministic verification
     if _FORBIDDEN_VERIFICATION_BYPASS.search(statement):
-        raise ForbiddenActionViolationError(
-            rule_id="FORBIDDEN-004",
-            requirement_id=req.requirement_id,
-            detail=(
-                "Requirement demands bypassing or disabling deterministic verification: "
-                f"{statement}"
-            ),
-        )
+        if not _is_defensively_constrained(statement):
+            raise ForbiddenActionViolationError(
+                rule_id="FORBIDDEN-004",
+                requirement_id=req.requirement_id,
+                detail=(
+                    "Requirement demands bypassing or disabling deterministic verification: "
+                    f"{statement}"
+                ),
+            )
 
     # Check rule 5: Destructive command execution
     if _FORBIDDEN_DESTRUCTIVE_EXEC.search(statement):
-        raise ForbiddenActionViolationError(
-            rule_id="FORBIDDEN-005",
-            requirement_id=req.requirement_id,
-            detail=f"Requirement demands destructive execution: {statement}",
-        )
+        if not _is_defensively_constrained(statement):
+            raise ForbiddenActionViolationError(
+                rule_id="FORBIDDEN-005",
+                requirement_id=req.requirement_id,
+                detail=f"Requirement demands destructive execution: {statement}",
+            )
 
 
 # --- Contradiction Detection ---
@@ -893,7 +1064,7 @@ def _check_contradictions(
     # 2. Contradiction against ChangeClass causal verification laws
     if change_class == ChangeClass.REFACTOR:
         for req in requirements:
-            if not _is_protective_or_testing_statement(req.statement):
+            if not _is_defensively_constrained(req.statement):
                 if _REFACTOR_BEHAVIOR_CHANGE.search(req.statement):
                     raise ContradictoryRequirementsError(
                         rule_id="CONTRADICTION-REFACTOR-BEHAVIOR",
@@ -907,7 +1078,7 @@ def _check_contradictions(
 
     elif change_class == ChangeClass.PERFORMANCE:
         for req in requirements:
-            if not _is_protective_or_testing_statement(req.statement):
+            if not _is_defensively_constrained(req.statement):
                 if _PERFORMANCE_OUTPUT_CHANGE.search(req.statement):
                     raise ContradictoryRequirementsError(
                         rule_id="CONTRADICTION-PERFORMANCE-OUTPUT",
@@ -922,13 +1093,66 @@ def _check_contradictions(
 
 # --- Scope Validation ---
 
+# Explicit Scope Syntax Patterns (Blocker 4)
+# 1. API / endpoint path syntax: e.g. /api/catalog, /api/admin, /v1/checkout, /health
+_API_ENDPOINT_PATTERN = re.compile(
+    r"(?<![a-zA-Z0-9_\-\.])/(?:[a-zA-Z0-9_\-]+(?:/[a-zA-Z0-9_\-]+)*)"
+)
+
+# 2. Repository path token syntax: e.g. src/..., docs/..., AGENTS.md, foo/../../ci.yml
+_REPO_PATH_TOKEN_PATTERN = re.compile(
+    r"\b(?:(?:src|docs|plans|tests|\.github)/[a-zA-Z0-9_.\-/]+|"
+    r"[a-zA-Z0-9_.\-]+/[a-zA-Z0-9_.\-/]+\.[a-zA-Z0-9]+|"
+    r"[a-zA-Z0-9_\-]+\.(?:md|py|toml|json|ya?ml|txt|sh|rs|ts|js))\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_explicit_scopes(text: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    r"""Extract deterministically identifiable explicit scopes from text.
+
+    Supported explicit scope syntaxes:
+    1. API / endpoint paths: e.g. /api/catalog, /api/admin, /v1/users, /health
+       Syntax: /(?:[a-zA-Z0-9_\-]+(?:/[a-zA-Z0-9_\-]+)*)
+    2. Repository-relative paths: e.g. src/..., docs/..., AGENTS.md, tests/...
+       Syntax: Paths rooted at standard repository directories or files with extensions.
+    """
+    clean = text.strip()
+    endpoints: list[str] = []
+    for m in _API_ENDPOINT_PATTERN.finditer(clean):
+        ep = m.group(0).rstrip(".,;:!?)(")
+        # Ignore bare root slash or malformed
+        if len(ep) > 1 and not ep.endswith("/"):
+            endpoints.append(ep)
+
+    repo_paths: list[str] = []
+    for m in _REPO_PATH_TOKEN_PATTERN.finditer(clean):
+        rp = m.group(0).rstrip(".,;:!?)(")
+        if rp and not rp.startswith("/"):
+            repo_paths.append(rp)
+
+    return tuple(endpoints), tuple(repo_paths)
+
 
 def _validate_scope(
     req: ValidatedRequirement,
     task: NormalizedTask,
     manifest: ProtectedSurfaceManifest,
 ) -> None:
-    """Validate requirement scope deterministically against task text and protected surfaces."""
+    """Validate requirement scope deterministically against task text and protected surfaces.
+
+    Deterministic Scope Rules:
+    1. Exact citation span and content support in normalized task text.
+    2. Explicit scope consistency (Blocker 4): If citation explicitly scopes the
+       requirement to an explicit target (e.g. /api/catalog) and the statement introduces
+       or substitutes a conflicting explicit target (e.g. /api/admin), fail closed with
+       UnsupportedScopeError.
+    3. Path security fail-closed (Blocker 3): If any repository path candidate is unsafe
+       or attempts directory traversal, fail closed with UnsupportedScopeError without
+       swallowing.
+    4. Protected surface modification boundary (Blocker 2): Reject any requirement
+       demanding mutation of protected surfaces.
+    """
     # 1. Exact citation span and content support in normalized task text
     if not (0 <= req.citation_start <= req.citation_end <= len(task.normalized_text)):
         raise InvalidCitationError(
@@ -942,26 +1166,55 @@ def _validate_scope(
             f"expected {req.citation!r}, got {slice_text!r}"
         )
 
-    # 2. Check for explicit path mentions in statement to ensure no protected surfaces are targeted
-    # Look for file-path-like tokens (e.g. src/..., docs/..., AGENTS.md)
-    path_tokens = re.findall(
-        r"\b(?:[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-/]+|AGENTS\.md)\b", req.statement
-    )
-    for token in path_tokens:
+    # 2. Explicit scope extraction and alignment (Blocker 4)
+    stmt_endpoints, stmt_repo_paths = _extract_explicit_scopes(req.statement)
+    cit_endpoints, cit_repo_paths = _extract_explicit_scopes(req.citation)
+    task_endpoints, _ = _extract_explicit_scopes(task.normalized_text)
+
+    # Endpoint scope validation:
+    if stmt_endpoints:
+        for ep in stmt_endpoints:
+            # If citation has explicit endpoint scopes, statement must match one of them
+            if cit_endpoints and ep not in cit_endpoints:
+                raise UnsupportedScopeError(
+                    f"Requirement {req.requirement_id!r} introduces explicit endpoint scope "
+                    f"{ep!r} which conflicts with citation scope {cit_endpoints!r}"
+                )
+            # Statement endpoint must be supported in task text
+            if ep not in task_endpoints and ep not in task.normalized_text:
+                raise UnsupportedScopeError(
+                    f"Requirement {req.requirement_id!r} introduces explicit endpoint scope "
+                    f"{ep!r} not supported by task text"
+                )
+
+    # Repository path scope validation:
+    all_path_candidates = _extract_repo_path_candidates(req.statement)
+    for token in all_path_candidates:
+        clean_token = token.strip(" \t\r\n'\"`.,;:!?)(")
+        if not clean_token:
+            continue
         try:
-            norm_path = normalize_repo_path(token)
-            match = match_protected_surface(norm_path, manifest)
-            if match is not None:
-                # If path is protected, check if requirement demands modifying it
-                if not _is_protective_or_testing_statement(req.statement):
-                    raise UnsupportedScopeError(
-                        f"Requirement {req.requirement_id!r} introduces protected surface "
-                        f"'{norm_path}' into modification scope"
+            norm_path = normalize_repo_path(clean_token)
+        except PathSecurityError as exc:
+            # Blocker 3: FAIL CLOSED. Never swallow PathSecurityError!
+            raise UnsupportedScopeError(
+                f"Requirement {req.requirement_id!r} contains unsafe or traversal repository "
+                f"path candidate: {redact_log_text(str(exc))}"
+            ) from None
+
+        # Check if normalized path is protected (Blocker 2)
+        match = match_protected_surface(norm_path, manifest)
+        if match is not None:
+            if not _is_defensively_constrained(req.statement):
+                if _demands_mutation_of_path(req.statement, clean_token, norm_path):
+                    raise ForbiddenActionViolationError(
+                        rule_id="FORBIDDEN-002",
+                        requirement_id=req.requirement_id,
+                        detail=(
+                            f"Requirement {req.requirement_id!r} demands mutation of protected "
+                            f"surface '{norm_path}': {req.statement}"
+                        ),
                     )
-        except Exception as exc:
-            # If token cannot be normalized as repo path, it's not a repo path; ignore
-            if isinstance(exc, UnsupportedScopeError):
-                raise
 
 
 # --- Main Validation Function ---
@@ -1014,13 +1267,18 @@ def validate_contract(
     resolved_certainty: CertaintyLevel | None = None
 
     if isinstance(change_class, ChangeSemanticsClassification):
-        # Do NOT guess or promote AMBIGUOUS/UNKNOWN to concrete authoritative class
+        # Blocker 5: AMBIGUOUS and UNKNOWN must fail closed!
         if change_class.certainty in (CertaintyLevel.AMBIGUOUS, CertaintyLevel.UNKNOWN):
-            resolved_class = None
-            resolved_certainty = change_class.certainty
-        else:
-            resolved_class = change_class.change_class
-            resolved_certainty = change_class.certainty
+            raise UnresolvedChangeClassError(
+                f"Change semantics classification certainty is {change_class.certainty.value!r}; "
+                "cannot validate contract with unresolved change semantics"
+            )
+        if change_class.change_class is None:
+            raise UnresolvedChangeClassError(
+                "Change semantics classification lacks authoritative change_class"
+            )
+        resolved_class = change_class.change_class
+        resolved_certainty = change_class.certainty
     elif isinstance(change_class, ChangeClass):
         resolved_class = change_class
         resolved_certainty = CertaintyLevel.CONFIDENT
@@ -1031,6 +1289,9 @@ def validate_contract(
         except ValueError:
             raise ValueError(f"Invalid ChangeClass string: {change_class!r}") from None
     elif change_class is None:
+        # Component-level class-neutral validation mode.
+        # NOTE: change_class=None does NOT represent a resolved P-06 verification contract
+        # and must not be used to bypass P-06.03 semantics resolution.
         resolved_class = None
         resolved_certainty = None
     else:
