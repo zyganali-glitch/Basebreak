@@ -65,11 +65,12 @@ Judge claim:
 - P-06.01 (Define task ingestion and deterministic normalization) is independently VERIFIED / PASS at SHA `a76762c62fffba30a7b8d1ead2a130c192c8c072`.
 - P-06.02 (Use Nemotron to propose atomic acceptance requirements with citations to task text) is independently VERIFIED / PASS (live-tested source commit b2410e76028e1d3b1d97ebb087f1113f3f8097cb, tree f476f2c7407d7ec9e7ab0cb138e40bbfb0e66412; canonical evidence/governance closure at SHA c93485892e6c40cfe0f95aa82b94fc2346b70fb0; genuine LIVE_NEBIUS evidence in docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md).
 - P-06.03 (Classify change semantics and uncertainty) is independently VERIFIED / PASS at SHA `6a8fe7756ed0ad3df8d7265d0702ecbc0842ecee`.
-- P-06.04 (Deterministically validate requirement IDs, scope, forbidden actions and contradictions) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (final negation-binding and repo-path scope repair completed; awaiting independent QA verification).
-- P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- P-06.04 (Deterministically validate requirement IDs, scope, forbidden actions and contradictions) is independently VERIFIED / PASS at SHA `16bc6323a99f971d1cf4e90aedd4b828e240bd5a`.
+- P-06.05 (Add human-editable contract review surface/CLI) is ACTIVE.
+- P-06.06 and P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Last independently VERIFIED baseline SHA
-`6a8fe7756ed0ad3df8d7265d0702ecbc0842ecee` (independently VERIFIED / PASS at P-06.03).
+`16bc6323a99f971d1cf4e90aedd4b828e240bd5a` (independently VERIFIED / PASS at P-06.04).
 
 ## Blocking live gate vs active task
 
@@ -77,17 +78,17 @@ Judge claim:
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-`P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; final negation-binding and repo-path scope repair).
+None. P-06.04 is independently VERIFIED / PASS at SHA `16bc6323a99f971d1cf4e90aedd4b828e240bd5a`.
 
 ### Active exact task
-`P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; final negation-binding and repo-path scope repair awaiting independent QA verification).
+`P-06.05 — Add human-editable contract review surface/CLI` (ACTIVE).
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-05 all tasks are independently VERIFIED / PASS. P-06.01, P-06.02, and P-06.03 are independently VERIFIED / PASS. P-06.04 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
-- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, and Contract Compiler core production code (`src/basebreak/compiler/*`) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers in semantics.py or validator.py.
+- **Task status:** P-00 through P-05 all tasks are independently VERIFIED / PASS. P-06.01 through P-06.04 are independently VERIFIED / PASS. P-06.05 is ACTIVE. P-06.06 and P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, and Contract Compiler core production code (`src/basebreak/compiler/*`) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers in semantics.py, validator.py, review.py, or review_cli.py.
 - **Phase status:** P-00, P-01, P-02, P-03, P-04, P-05 phases are independently CLOSED / PASS. P-06 phase is OPEN.
-- **Batch restoration & hard stop:** P-06.04 surgical repair is completed as an independent QA candidate. P-06.05+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
-- **Not authorized / forbidden:** P-06.05, P-06.06, and P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** P-06.05 is active. P-06.06 and P-07+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-06.05.
+- **Not authorized / forbidden:** P-06.06 and P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -105,6 +106,6 @@ None. P-01 and P-05 live platform/adapter integrations are complete and independ
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-06.04 for independent QA verification.
-2. Maintain hard stop at P-06.04; do not pre-implement or execute P-06.05, P-06.06, or P-07+.
-3. Await independent QA evaluation.
+1. Implement P-06.05 (Add human-editable contract review surface/CLI).
+2. Maintain hard stop at P-06.05; do not pre-implement or execute P-06.06 or P-07+.
+3. Submit P-06.05 for independent QA evaluation upon completion.

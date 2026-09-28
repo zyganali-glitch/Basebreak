@@ -357,9 +357,9 @@ Status: DONE (independently VERIFIED / PASS; live-tested source commit b2410e760
 ### P-06.03 — Classify change semantics and uncertainty
 Status: DONE (independently VERIFIED / PASS at SHA 6a8fe7756ed0ad3df8d7265d0702ecbc0842ecee; final serialization authority-invariant repair complete; ChangeSemanticsClassification enforces authoritative fields strictly equal deterministic facts at construction and deserialization; verification_requirement canonically validated; DeterministicClassificationFact and ModelChangeProposal enforce certainty/class semantic invariants during all construction paths; ModelChangeProposal is_authoritative strictly False; provider-neutral compiler core with zero provider identifiers or model client calls; 52 tests passing in tests/compiler/test_change_semantics.py)
 ### P-06.04 — Deterministically validate requirement IDs, scope, forbidden actions and contradictions
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (final negation-binding and repo-path scope repair in src/basebreak/compiler/validator.py; global defensive negative-word boolean replaced with bounded rule-specific defensive binding for FORBIDDEN-001 through FORBIDDEN-005; inverted prohibition patterns e.g. never block, must not prevent, never forbid invalidate defensive classification; explicit repository-path scope consistency enforced against citation repo paths or task text with canonical normalize_repo_path; unsafe/traversal paths fail closed; canonical ChangeClass values affirmed as BUG_FIX, FEATURE, SECURITY_FIX, REFACTOR, PERFORMANCE, DEP_API_CHANGE without modifying domain enum; absolute P-06.06 boundary preserved with zero contract/frozen/validation digest fields; zero model calls, zero provider/adapters imports, zero sandbox calls; 40 focused tests in tests/compiler/test_validation.py passing; 157 compiler tests passing; 1450 non-live tests passing; ruff check, ruff format --check, and mypy all passing clean; awaiting independent QA verification)
+Status: DONE (independently VERIFIED / PASS at SHA 16bc6323a99f971d1cf4e90aedd4b828e240bd5a)
 ### P-06.05 — Add human-editable contract review surface/CLI
-Status: NOT AUTHORIZED / NOT_RUN
+Status: IN PROGRESS
 ### P-06.06 — Freeze contract digest before Builder execution
 Status: NOT AUTHORIZED / NOT_RUN
 Acceptance:
