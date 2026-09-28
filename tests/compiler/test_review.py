@@ -35,6 +35,7 @@ AC. P-06.07/P-07 symbols are not introduced.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import inspect
 
 import pytest
@@ -1036,3 +1037,234 @@ class TestReviewCoreP0605:
         tampered_with_contract["contract"] = sample_bundle.to_dict()["task"]
         with pytest.raises(ReviewSchemaError, match="contract must be None"):
             ReviewResult.from_dict(tampered_with_contract)
+
+    # Direct constructor adversarial test: prove bypass is impossible
+    def test_direct_constructor_adversarial_tampering(self, sample_bundle: ReviewBundle) -> None:
+        """Adversarial test: direct ReviewResult construction must not bypass P-06.04 authority.
+
+        1. obtain a valid approved contract;
+        2. convert it to dict;
+        3. tamper a requirement statement to:
+           "Delete failing test assertions to ensure pipeline passes";
+        4. reconstruct a structurally valid ValidatedContract using ValidatedContract.from_dict();
+        5. attempt direct ReviewResult construction:
+           WITHOUT source_bundle -> MUST FAIL CLOSED;
+           WITH source_bundle -> MUST FAIL CLOSED because recomputed P-06.04 contract differs.
+        """
+        session = ReviewSession(sample_bundle)
+        approved_result = session.approve(reviewer_note="Genuine initial approval")
+        assert approved_result.contract is not None
+        contract_dict = approved_result.contract.to_dict()
+
+        # Tamper requirement statement to forbidden action
+        contract_dict["requirements"][0]["statement"] = (
+            "Delete failing test assertions to ensure pipeline passes"
+        )
+        tampered_contract = ValidatedContract.from_dict(contract_dict)
+
+        # 5a. Direct construction WITHOUT source_bundle -> MUST FAIL CLOSED
+        with pytest.raises(ReviewSchemaError, match="source_bundle is required"):
+            ReviewResult(
+                decision=ReviewDecision.APPROVED,
+                status=ReviewStatus.READY_FOR_FREEZE,
+                task_digest=sample_bundle.task.task_digest,
+                contract=tampered_contract,
+            )
+
+        # 5b. Direct construction WITH source_bundle -> MUST FAIL CLOSED
+        with pytest.raises(ReviewSchemaError, match="statement mismatch"):
+            ReviewResult(
+                decision=ReviewDecision.APPROVED,
+                status=ReviewStatus.READY_FOR_FREEZE,
+                task_digest=sample_bundle.task.task_digest,
+                contract=tampered_contract,
+                source_bundle=sample_bundle,
+            )
+
+    # Required Tests A-F: Direct constructor fail-closed invariants
+    def test_direct_constructor_authority_invariants(
+        self,
+        sample_bundle: ReviewBundle,
+        sample_task: NormalizedTask,
+        confident_semantics: ChangeSemanticsClassification,
+    ) -> None:
+        """Prove direct constructor enforces identical P-06.04 authority checks A through F."""
+        session = ReviewSession(sample_bundle)
+        valid_contract = session.revalidate()
+        base_dict = valid_contract.to_dict()
+
+        # A. Direct APPROVED without source_bundle fails closed
+        with pytest.raises(ReviewSchemaError, match="source_bundle is required"):
+            ReviewResult(
+                decision=ReviewDecision.APPROVED,
+                status=ReviewStatus.READY_FOR_FREEZE,
+                task_digest=sample_bundle.task.task_digest,
+                contract=valid_contract,
+            )
+
+        # B. Direct APPROVED with wrong source_bundle fails closed
+        other_task = ingest_task("Other task text for mismatch test\nRequirements:\n1. Other req.")
+        other_semantics = dataclasses.replace(
+            confident_semantics, task_digest=other_task.task_digest
+        )
+        wrong_bundle = ReviewBundle(
+            task=other_task,
+            semantics=other_semantics,
+            requirements=sample_bundle.requirements,
+        )
+        with pytest.raises(ReviewSchemaError, match="task_digest mismatch"):
+            ReviewResult(
+                decision=ReviewDecision.APPROVED,
+                status=ReviewStatus.READY_FOR_FREEZE,
+                task_digest=sample_bundle.task.task_digest,
+                contract=valid_contract,
+                source_bundle=wrong_bundle,
+            )
+
+        # C. Direct APPROVED with tampered statement contract fails closed
+        c_dict = dict(base_dict)
+        reqs = [dict(r) for r in c_dict["requirements"]]
+        reqs[0]["statement"] = "Tampered statement directly passed"
+        c_dict["requirements"] = reqs
+        tampered_stmt = ValidatedContract.from_dict(c_dict)
+        with pytest.raises(ReviewSchemaError, match="statement mismatch"):
+            ReviewResult(
+                decision=ReviewDecision.APPROVED,
+                status=ReviewStatus.READY_FOR_FREEZE,
+                task_digest=sample_bundle.task.task_digest,
+                contract=tampered_stmt,
+                source_bundle=sample_bundle,
+            )
+
+        # D. Direct APPROVED with tampered citation fails closed
+        c_dict = dict(base_dict)
+        reqs = [dict(r) for r in c_dict["requirements"]]
+        reqs[0]["citation"] = "Tampered citation text"
+        c_dict["requirements"] = reqs
+        tampered_cit = ValidatedContract.from_dict(c_dict)
+        with pytest.raises(ReviewSchemaError, match="citation mismatch"):
+            ReviewResult(
+                decision=ReviewDecision.APPROVED,
+                status=ReviewStatus.READY_FOR_FREEZE,
+                task_digest=sample_bundle.task.task_digest,
+                contract=tampered_cit,
+                source_bundle=sample_bundle,
+            )
+
+        # E. Direct APPROVED with stale/tampered requirement ID fails closed
+        c_dict = dict(base_dict)
+        reqs = [dict(r) for r in c_dict["requirements"]]
+        reqs[0]["requirement_id"] = "REQ-STALE001"
+        c_dict["requirements"] = reqs
+        tampered_id = ValidatedContract.from_dict(c_dict)
+        with pytest.raises(ReviewSchemaError, match="Requirement ID mismatch"):
+            ReviewResult(
+                decision=ReviewDecision.APPROVED,
+                status=ReviewStatus.READY_FOR_FREEZE,
+                task_digest=sample_bundle.task.task_digest,
+                contract=tampered_id,
+                source_bundle=sample_bundle,
+            )
+
+        # F. Direct APPROVED with tampered change_class fails closed
+        c_dict = dict(base_dict)
+        c_dict["change_class"] = "FEATURE"
+        tampered_cc = ValidatedContract.from_dict(c_dict)
+        with pytest.raises(ReviewSchemaError, match="change_class mismatch"):
+            ReviewResult(
+                decision=ReviewDecision.APPROVED,
+                status=ReviewStatus.READY_FOR_FREEZE,
+                task_digest=sample_bundle.task.task_digest,
+                contract=tampered_cc,
+                source_bundle=sample_bundle,
+            )
+
+    # Required Tests G, H, I, J, K, L, M, N, O, P
+    def test_direct_constructor_authority_success_and_safety(
+        self,
+        sample_bundle: ReviewBundle,
+    ) -> None:
+        """Prove genuine construction, serialization exclusion, and status safety (G-P)."""
+        session = ReviewSession(sample_bundle)
+
+        # G: Genuine ReviewSession(bundle).approve() succeeds and returns READY_FOR_FREEZE
+        approved = session.approve(reviewer_note="Genuine session approval")
+        assert approved.decision == ReviewDecision.APPROVED
+        assert approved.status == ReviewStatus.READY_FOR_FREEZE
+        assert approved.is_ready_for_freeze is True
+        assert approved.contract is not None
+
+        # H: Genuine direct construction with exact contract and bundle succeeds
+        recomputed = session.revalidate()
+        direct_result = ReviewResult(
+            decision=ReviewDecision.APPROVED,
+            status=ReviewStatus.READY_FOR_FREEZE,
+            task_digest=sample_bundle.task.task_digest,
+            contract=recomputed,
+            reviewer_note="Direct constructor note",
+            audit_trail=("test_action",),
+            source_bundle=sample_bundle,
+        )
+        assert direct_result.decision == ReviewDecision.APPROVED
+        assert direct_result.status == ReviewStatus.READY_FOR_FREEZE
+        assert direct_result.is_ready_for_freeze is True
+        assert direct_result.contract == recomputed
+        assert direct_result.reviewer_note == "Direct constructor note"
+        assert direct_result.audit_trail == ("test_action",)
+
+        # L: REJECTED construction safety: cannot become ready-for-freeze
+        rejected_result = ReviewResult(
+            decision=ReviewDecision.REJECTED,
+            status=ReviewStatus.REJECTED,
+            task_digest=sample_bundle.task.task_digest,
+            contract=None,
+            source_bundle=sample_bundle,
+        )
+        assert rejected_result.decision == ReviewDecision.REJECTED
+        assert rejected_result.status == ReviewStatus.REJECTED
+        assert rejected_result.contract is None
+        assert rejected_result.is_ready_for_freeze is False
+
+        # Attempt REJECTED with READY_FOR_FREEZE -> fails closed
+        with pytest.raises(ReviewSchemaError, match="status must be REJECTED"):
+            ReviewResult(
+                decision=ReviewDecision.REJECTED,
+                status=ReviewStatus.READY_FOR_FREEZE,
+                task_digest=sample_bundle.task.task_digest,
+                contract=None,
+            )
+
+        # Attempt REJECTED with a contract -> fails closed
+        with pytest.raises(ReviewSchemaError, match="contract must be None"):
+            ReviewResult(
+                decision=ReviewDecision.REJECTED,
+                status=ReviewStatus.REJECTED,
+                task_digest=sample_bundle.task.task_digest,
+                contract=recomputed,
+            )
+
+        # M: source_bundle is NOT included in to_dict() or to_json()
+        result_dict = direct_result.to_dict()
+        assert "source_bundle" not in result_dict
+        result_json = direct_result.to_json()
+        assert "source_bundle" not in result_json
+
+        # N & O: No P-06.06 identity/digest or contract/frozen/validation digest introduced
+        forbidden_keys = {
+            "contract_digest",
+            "validation_digest",
+            "frozen_digest",
+            "builder_digest",
+            "evidence_root_digest",
+        }
+        for k in forbidden_keys:
+            assert k not in result_dict
+            assert k not in result_json
+
+        # Check dataclass fields
+        from dataclasses import fields
+
+        field_names = {f.name for f in fields(direct_result)}
+        assert "source_bundle" not in field_names
+        for k in forbidden_keys:
+            assert k not in field_names

@@ -66,7 +66,7 @@ Judge claim:
 - P-06.02 (Use Nemotron to propose atomic acceptance requirements with citations to task text) is independently VERIFIED / PASS (live-tested source commit b2410e76028e1d3b1d97ebb087f1113f3f8097cb, tree f476f2c7407d7ec9e7ab0cb138e40bbfb0e66412; canonical evidence/governance closure at SHA c93485892e6c40cfe0f95aa82b94fc2346b70fb0; genuine LIVE_NEBIUS evidence in docs/P06_02_LIVE_REQUIREMENT_PROPOSAL.md).
 - P-06.03 (Classify change semantics and uncertainty) is independently VERIFIED / PASS at SHA `6a8fe7756ed0ad3df8d7265d0702ecbc0842ecee`.
 - P-06.04 (Deterministically validate requirement IDs, scope, forbidden actions and contradictions) is independently VERIFIED / PASS at SHA `16bc6323a99f971d1cf4e90aedd4b828e240bd5a`.
-- P-06.05 (Add human-editable contract review surface/CLI) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-06.05 (Add human-editable contract review surface/CLI) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (repaired constructor-level authority invariant in ReviewResult.__post_init__ requiring authoritative ReviewBundle revalidation for all APPROVED / READY_FOR_FREEZE results; direct constructor fails closed on tampered contract or missing source_bundle; unified authority path for ReviewSession.approve and ReviewResult.from_dict/from_json; source_bundle is non-serialized InitVar excluded from to_dict/to_json; all 65 review and CLI tests passing; 1515 full non-live tests passing).
 - P-06.06 and P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Last independently VERIFIED baseline SHA

@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass
 from enum import Enum
 from typing import Any
 
@@ -297,8 +297,9 @@ class ReviewResult:
     contract: ValidatedContract | None
     reviewer_note: str = ""
     audit_trail: tuple[str, ...] = ()
+    source_bundle: InitVar[ReviewBundle | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, source_bundle: ReviewBundle | None = None) -> None:
         if not isinstance(self.decision, ReviewDecision):
             raise TypeError(f"decision must be ReviewDecision, got {type(self.decision).__name__}")
         if not isinstance(self.status, ReviewStatus):
@@ -322,28 +323,125 @@ class ReviewResult:
 
         if self.decision == ReviewDecision.APPROVED:
             if self.status != ReviewStatus.READY_FOR_FREEZE:
-                raise ValueError(
-                    f"status must be READY_FOR_FREEZE when decision is APPROVED, got {self.status}"
+                cur_status = (
+                    self.status.value
+                    if isinstance(self.status, ReviewStatus)
+                    else repr(self.status)
                 )
+                raise ReviewSchemaError(
+                    f"status must be READY_FOR_FREEZE when decision is APPROVED, got {cur_status}"
+                )
+            if source_bundle is None:
+                raise ReviewSchemaError(
+                    "source_bundle is required to construct an APPROVED ReviewResult"
+                )
+            if not isinstance(source_bundle, ReviewBundle):
+                raise TypeError(
+                    f"source_bundle must be ReviewBundle, got {type(source_bundle).__name__}"
+                )
+            if source_bundle.task.task_digest != self.task_digest:
+                raise ReviewSchemaError(
+                    f"task_digest mismatch between ReviewResult ({self.task_digest}) "
+                    f"and source_bundle ({source_bundle.task.task_digest})"
+                )
+
             if self.contract is None:
-                raise ValueError("contract must not be None when decision is APPROVED")
+                raise ReviewSchemaError("contract must not be None when decision is APPROVED")
             if not isinstance(self.contract, ValidatedContract):
                 raise TypeError(
                     f"contract must be ValidatedContract, got {type(self.contract).__name__}"
                 )
-            if self.contract.task_digest != self.task_digest:
-                raise ValueError(
-                    f"contract.task_digest ({self.contract.task_digest}) does not match "
-                    f"task_digest ({self.task_digest})"
+
+            # Authoritative revalidation from source_bundle
+            session = ReviewSession(source_bundle)
+            try:
+                recomputed_contract = session.revalidate()
+            except Exception as e:
+                safe_err = redact_log_text(str(e))
+                raise ReviewSchemaError(f"Revalidation of source_bundle failed: {safe_err}") from e
+
+            # Exact field-by-field verification against authoritative recomputation
+            if self.contract.task_digest != recomputed_contract.task_digest:
+                raise ReviewSchemaError(
+                    f"task_digest mismatch between supplied contract "
+                    f"({self.contract.task_digest}) "
+                    f"and recomputed contract ({recomputed_contract.task_digest})"
                 )
+            if self.contract.change_class != recomputed_contract.change_class:
+                raise ReviewSchemaError(
+                    f"change_class mismatch between supplied contract "
+                    f"({self.contract.change_class}) "
+                    f"and recomputed contract ({recomputed_contract.change_class})"
+                )
+            if self.contract.certainty != recomputed_contract.certainty:
+                raise ReviewSchemaError(
+                    f"certainty mismatch between supplied contract "
+                    f"({self.contract.certainty}) "
+                    f"and recomputed contract ({recomputed_contract.certainty})"
+                )
+            if len(self.contract.requirements) != len(recomputed_contract.requirements):
+                raise ReviewSchemaError(
+                    f"Requirements count mismatch: supplied "
+                    f"({len(self.contract.requirements)}) "
+                    f"!= recomputed ({len(recomputed_contract.requirements)})"
+                )
+            for idx, (s_req, r_req) in enumerate(
+                zip(self.contract.requirements, recomputed_contract.requirements)
+            ):
+                if s_req.requirement_id != r_req.requirement_id:
+                    raise ReviewSchemaError(
+                        f"Requirement ID mismatch at index {idx}: "
+                        f"{s_req.requirement_id!r} != {r_req.requirement_id!r}"
+                    )
+                if s_req.statement != r_req.statement:
+                    raise ReviewSchemaError(f"Requirement statement mismatch at index {idx}")
+                if s_req.citation != r_req.citation:
+                    raise ReviewSchemaError(f"Requirement citation mismatch at index {idx}")
+                if (
+                    s_req.citation_start != r_req.citation_start
+                    or s_req.citation_end != r_req.citation_end
+                ):
+                    raise ReviewSchemaError(f"Requirement citation span mismatch at index {idx}")
+                if s_req.rationale != r_req.rationale:
+                    raise ReviewSchemaError(f"Requirement rationale mismatch at index {idx}")
+
+            if self.contract.validation_rules_passed != recomputed_contract.validation_rules_passed:
+                raise ReviewSchemaError(
+                    "validation_rules_passed mismatch between supplied contract "
+                    "and recomputed contract"
+                )
+
+            if self.contract != recomputed_contract:
+                raise ReviewSchemaError(
+                    "Supplied contract does not match authoritative recomputed contract"
+                )
+
+            object.__setattr__(self, "contract", recomputed_contract)
 
         elif self.decision == ReviewDecision.REJECTED:
             if self.status != ReviewStatus.REJECTED:
-                raise ValueError(
-                    f"status must be REJECTED when decision is REJECTED, got {self.status}"
+                cur_status = (
+                    self.status.value
+                    if isinstance(self.status, ReviewStatus)
+                    else repr(self.status)
+                )
+                raise ReviewSchemaError(
+                    f"status must be REJECTED when decision is REJECTED, got {cur_status}"
                 )
             if self.contract is not None:
-                raise ValueError("contract must be None when decision is REJECTED")
+                raise ReviewSchemaError("contract must be None when decision is REJECTED")
+            if source_bundle is not None:
+                if not isinstance(source_bundle, ReviewBundle):
+                    raise TypeError(
+                        f"source_bundle must be ReviewBundle, got {type(source_bundle).__name__}"
+                    )
+                if source_bundle.task.task_digest != self.task_digest:
+                    raise ReviewSchemaError(
+                        f"task_digest mismatch between source_bundle "
+                        f"({source_bundle.task.task_digest}) and ReviewResult ({self.task_digest})"
+                    )
+        else:
+            raise ReviewSchemaError(f"Unsupported decision: {self.decision!r}")
 
     @property
     def is_ready_for_freeze(self) -> bool:
@@ -448,25 +546,6 @@ class ReviewResult:
         contract: ValidatedContract | None = None
 
         if decision == ReviewDecision.APPROVED:
-            if status != ReviewStatus.READY_FOR_FREEZE:
-                raise ReviewSchemaError(
-                    f"status must be READY_FOR_FREEZE when decision is APPROVED, "
-                    f"got {status.value!r}"
-                )
-            if source_bundle is None:
-                raise ReviewSchemaError(
-                    "source_bundle is required to deserialize an APPROVED ReviewResult"
-                )
-            if not isinstance(source_bundle, ReviewBundle):
-                raise TypeError(
-                    f"source_bundle must be ReviewBundle, got {type(source_bundle).__name__}"
-                )
-            if raw_td != source_bundle.task.task_digest:
-                raise ReviewSchemaError(
-                    f"task_digest mismatch between ReviewResult ({raw_td}) "
-                    f"and source_bundle ({source_bundle.task.task_digest})"
-                )
-
             raw_contract = data["contract"]
             if raw_contract is None:
                 raise ReviewSchemaError("contract must not be None when decision is APPROVED")
@@ -481,94 +560,15 @@ class ReviewResult:
                     )
 
             try:
-                serialized_contract = ValidatedContract.from_dict(raw_contract)
+                contract = ValidatedContract.from_dict(raw_contract)
             except Exception as e:
                 safe_err = redact_log_text(str(e))
                 raise ReviewSchemaError(f"Failed to parse serialized contract: {safe_err}") from e
 
-            # Authoritative revalidation from source_bundle
-            session = ReviewSession(source_bundle)
-            try:
-                recomputed_contract = session.revalidate()
-            except Exception as e:
-                safe_err = redact_log_text(str(e))
-                raise ReviewSchemaError(f"Revalidation of source_bundle failed: {safe_err}") from e
-
-            # Exact field-by-field verification against authoritative recomputation
-            if serialized_contract.task_digest != recomputed_contract.task_digest:
-                raise ReviewSchemaError(
-                    f"task_digest mismatch between serialized contract "
-                    f"({serialized_contract.task_digest}) "
-                    f"and recomputed contract ({recomputed_contract.task_digest})"
-                )
-            if serialized_contract.change_class != recomputed_contract.change_class:
-                raise ReviewSchemaError(
-                    f"change_class mismatch between serialized contract "
-                    f"({serialized_contract.change_class}) "
-                    f"and recomputed contract ({recomputed_contract.change_class})"
-                )
-            if serialized_contract.certainty != recomputed_contract.certainty:
-                raise ReviewSchemaError(
-                    f"certainty mismatch between serialized contract "
-                    f"({serialized_contract.certainty}) "
-                    f"and recomputed contract ({recomputed_contract.certainty})"
-                )
-            if len(serialized_contract.requirements) != len(recomputed_contract.requirements):
-                raise ReviewSchemaError(
-                    f"Requirements count mismatch: serialized "
-                    f"({len(serialized_contract.requirements)}) "
-                    f"!= recomputed ({len(recomputed_contract.requirements)})"
-                )
-            for idx, (s_req, r_req) in enumerate(
-                zip(serialized_contract.requirements, recomputed_contract.requirements)
-            ):
-                if s_req.requirement_id != r_req.requirement_id:
-                    raise ReviewSchemaError(
-                        f"Requirement ID mismatch at index {idx}: "
-                        f"{s_req.requirement_id!r} != {r_req.requirement_id!r}"
-                    )
-                if s_req.statement != r_req.statement:
-                    raise ReviewSchemaError(f"Requirement statement mismatch at index {idx}")
-                if s_req.citation != r_req.citation:
-                    raise ReviewSchemaError(f"Requirement citation mismatch at index {idx}")
-                if (
-                    s_req.citation_start != r_req.citation_start
-                    or s_req.citation_end != r_req.citation_end
-                ):
-                    raise ReviewSchemaError(f"Requirement citation span mismatch at index {idx}")
-                if s_req.rationale != r_req.rationale:
-                    raise ReviewSchemaError(f"Requirement rationale mismatch at index {idx}")
-
-            if (
-                serialized_contract.validation_rules_passed
-                != recomputed_contract.validation_rules_passed
-            ):
-                raise ReviewSchemaError(
-                    "validation_rules_passed mismatch between serialized contract "
-                    "and recomputed contract"
-                )
-
-            contract = recomputed_contract
-
         elif decision == ReviewDecision.REJECTED:
-            if status != ReviewStatus.REJECTED:
-                raise ReviewSchemaError(
-                    f"status must be REJECTED when decision is REJECTED, got {status.value!r}"
-                )
             raw_contract = data["contract"]
             if raw_contract is not None:
                 raise ReviewSchemaError("contract must be None when decision is REJECTED")
-            if source_bundle is not None:
-                if not isinstance(source_bundle, ReviewBundle):
-                    raise TypeError(
-                        f"source_bundle must be ReviewBundle, got {type(source_bundle).__name__}"
-                    )
-                if source_bundle.task.task_digest != raw_td:
-                    raise ReviewSchemaError(
-                        f"task_digest mismatch between source_bundle "
-                        f"({source_bundle.task.task_digest}) and ReviewResult ({raw_td})"
-                    )
-            contract = None
 
         return cls(
             decision=decision,
@@ -577,6 +577,7 @@ class ReviewResult:
             contract=contract,
             reviewer_note=raw_note,
             audit_trail=tuple(audit_trail),
+            source_bundle=source_bundle,
         )
 
     @classmethod
@@ -980,6 +981,7 @@ class ReviewSession:
             contract=validated_contract,
             reviewer_note=reviewer_note,
             audit_trail=tuple(self._audit_trail),
+            source_bundle=self.to_bundle(),
         )
 
     def reject(self, reviewer_note: str = "") -> ReviewResult:
@@ -998,6 +1000,7 @@ class ReviewSession:
             contract=None,
             reviewer_note=reviewer_note,
             audit_trail=tuple(self._audit_trail),
+            source_bundle=self.to_bundle(),
         )
 
 
