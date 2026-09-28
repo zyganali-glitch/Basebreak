@@ -534,42 +534,127 @@ class ValidatedContract:
         return cls.from_dict(data)
 
 
-# --- Helper: Defensive Negative Constraint Detection (Blocker 1) ---
+# --- Defensive Negative Constraint & Negation-Binding Detection (Blocker 1) ---
 
-_DEFENSIVE_NEGATIVE_CONSTRAINTS = [
-    re.compile(
-        r"\b(?:cannot|can\s+not|must\s+not|shall\s+not|never|impossible)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:is|are|was|were|being)\s+(?:blocked|rejected|prevented|forbidden|disallowed|prohibited|refused)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:redacted|stripped|masked|hidden)\s*(?:from\s+logs?)?\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\bproving\s+.*?(?:\bis\s+rejected\b|\bfails\b|\bis\s+blocked\b|\bis\s+forbidden\b|\bcannot\b)",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:ensure|assert|verify|check)\s+.*?\b(?:fails|is\s+rejected|is\s+blocked|cannot\b)",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:never|not)\s+(?:printed|logged|exposed|leaked|exfiltrated|sent|uploaded|modified|deleted|executed|run|bypassed|allowed|permitted)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:detect|catch|trap|intercept|block|prevent|forbid|reject|disallow|prohibit)\s+(?:any\s+)?(?:attempts?\s+to|executions?\s+of|mutations?\s+of|bypass\s+of)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\bcannot\s+be\s+(?:modified|edited|deleted|bypassed|weakened|exfiltrated|accessed|overwritten)\b",
-        re.IGNORECASE,
-    ),
-]
+# Inverted defensive patterns: negation of defensive verbs (e.g., "never block", "must not prevent")
+# means the dangerous action is permitted or demanded, NOT prohibited.
+_INVERTED_DEFENSIVE_PATTERN = re.compile(
+    r"\b(?:never|must\s+not|shall\s+not|cannot|can\s+not|do\s+not|don't|should\s+not|not)\s+"
+    r"(?:block|prevent|forbid|reject|disallow|prohibit|stop|refuse)\b",
+    re.IGNORECASE,
+)
+
+# Rule 1: Test weakening defensive patterns
+_DEFENSIVE_TEST_WEAKEN_PATTERN = re.compile(
+    r"\b(?:never|do\s+not|don't|must\s+not|shall\s+not|cannot|can\s+not)\s+"
+    r"(?:delete|remove|weaken|relax|disable|bypass|ignore|drop|strip)\s+(?:failing\s+)?(?:tests?|assertions?)\b|"
+    r"\b(?:tests?|assertions?|failing\s+tests?)\s+(?:must\s+not|shall\s+not|cannot|can\s+not|are\s+not\s+to|must\s+never)\s+be\s+(?:deleted|removed|weakened|relaxed|disabled|bypassed|ignored)\b|"
+    r"\b(?:deleting|removing|weakening|relaxing|disabling|bypassing|ignoring)\s+(?:failing\s+)?(?:tests?|assertions?)\s+(?:must\s+not\s+be\s+allowed|is\s+(?:forbidden|prohibited|blocked|rejected|disallowed|prevented|not\s+allowed|refused)|cannot\s+be\s+allowed)\b|"
+    r"\b(?:prevent|block|forbid|prohibit|disallow|reject|detect|catch|trap)\s+(?:any\s+)?(?:attempts?\s+to\s+)?(?:deleting|weakening|removing|bypassing|disabling)\s+(?:failing\s+)?(?:tests?|assertions?)\b|"
+    r"\b(?:ensure|assert|verify|check|test)\s+that\s+(?:failing\s+)?(?:tests?|assertions?)\s+(?:are\s+not|cannot\s+be|must\s+not\s+be)\s+(?:deleted|weakened|removed|bypassed)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_defensive_test_weaken(text: str) -> bool:
+    """Return True if text deterministically negates or prohibits test weakening."""
+    if _INVERTED_DEFENSIVE_PATTERN.search(text):
+        return False
+    return bool(_DEFENSIVE_TEST_WEAKEN_PATTERN.search(text))
+
+
+# Rule 2: Protected surface mutation defensive patterns
+_DEFENSIVE_PROTECTED_MUTATION_PATTERN = re.compile(
+    r"\b(?:modification|mutation|editing|changing|deletion|overwriting|removal)\s+of\s+.*?\b(?:is|must\s+be|shall\s+be|to\s+be)?\s*(?:rejected|blocked|forbidden|prohibited|disallowed|prevented|refused|not\s+allowed)\b|"
+    r"\b(?:never|do\s+not|don't|must\s+not|shall\s+not|cannot|can\s+not)\s+(?:modify|edit|mutate|change|delete|remove|overwrite|patch|alter)\b|"
+    r"\b(?:cannot|can\s+not|must\s+not|shall\s+not|must\s+never|shall\s+never|is\s+never)\s+be\s+(?:modified|edited|mutated|changed|deleted|removed|overwritten|patched|altered)\b|"
+    r"\b(?:is|are)\s+not\s+(?:to\s+be\s+)?(?:modified|edited|mutated|changed|deleted|removed|overwritten|patched|altered)\b|"
+    r"\b(?:protected\s+(?:files?|surfaces?|manifests?|workflows?))\s+(?:cannot|must\s+not|shall\s+not|must\s+never)\s+be\s+(?:modified|edited|deleted|overwritten)\b|"
+    r"\b(?:test|ensure|verify|assert|check)\s+that\s+.*?\b(?:cannot\s+be\s+modified|is\s+rejected|is\s+blocked|is\s+forbidden|cannot\s+be\s+changed)\b|"
+    r"\b(?:block|prevent|forbid|prohibit|disallow|reject|intercept)\s+(?:any\s+)?(?:mutation|modification|changes?|edits?|deletion|overwriting)\s+(?:of|to)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_defensive_protected_mutation(text: str) -> bool:
+    """Return True if text deterministically negates or prohibits protected surface mutation."""
+    if _INVERTED_DEFENSIVE_PATTERN.search(text):
+        return False
+    return bool(_DEFENSIVE_PROTECTED_MUTATION_PATTERN.search(text))
+
+
+# Rule 3: Secret exfiltration defensive patterns
+_DEFENSIVE_SECRET_EXFIL_PATTERN = re.compile(
+    r"\b(?:uploading|sending|leaking|exfiltrating|posting|transmitting)\s+.*?(?:api[_\-\s]?keys?|secrets?|credentials?|tokens?|private[_\-\s]?keys?).*?\b(?:must\s+be|is|are|shall\s+be)?\s*(?:blocked|rejected|prevented|forbidden|prohibited|disallowed|refused|not\s+allowed)\b|"
+    r"\b(?:api[_\-\s]?keys?|secrets?|credentials?|tokens?|private[_\-\s]?keys?).*?\b(?:must\s+never|shall\s+never|cannot|can\s+not|must\s+not|shall\s+not|are\s+never|is\s+never)\s+be\s+(?:uploaded|sent|exfiltrated|leaked|posted|transmitted|printed|logged|exposed)\b|"
+    r"\b(?:api[_\-\s]?keys?|secrets?|credentials?|tokens?|private[_\-\s]?keys?).*?\b(?:are|is|must\s+be|shall\s+be)\s+(?:redacted|stripped|masked|hidden)\b|"
+    r"\b(?:never|do\s+not|don't|must\s+not|shall\s+not|cannot|can\s+not)\s+(?:upload|send|exfiltrate|leak|post|transmit|print|log|expose)\s+.*?(?:api[_\-\s]?keys?|secrets?|credentials?|tokens?|private[_\-\s]?keys?)\b|"
+    r"\b(?:ensure|verify|assert|check|test)\s+that\s+.*?(?:api[_\-\s]?keys?|secrets?|credentials?|tokens?).*?\b(?:are\s+(?:never|not)|cannot\s+be|are\s+redacted|are\s+masked)\b|"
+    r"\b(?:ensure|verify|assert|check)\s+secrets\s+are\s+never\s+printed\s+to\s+logs\b|"
+    r"\b(?:block|prevent|forbid|prohibit|disallow|reject|intercept|detect)\s+(?:any\s+)?(?:attempts?\s+to\s+)?(?:upload|send|exfiltrate|leak|post|transmit)\s+.*?(?:api[_\-\s]?keys?|secrets?|credentials?|tokens?)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_defensive_secret_exfil(text: str) -> bool:
+    """Return True if text deterministically negates or prohibits credential/secret exfiltration."""
+    if _INVERTED_DEFENSIVE_PATTERN.search(text):
+        return False
+    return bool(_DEFENSIVE_SECRET_EXFIL_PATTERN.search(text))
+
+
+# Rule 4: Verification bypass defensive patterns
+_DEFENSIVE_VERIFICATION_BYPASS_PATTERN = re.compile(
+    r"\b(?:security\s+(?:checks?|validation|policy)|deterministic\s+verification|contract\s+validation|verification)\s+(?:cannot|can\s+not|must\s+not|shall\s+not)\s+be\s+(?:bypassed|disabled|skipped|turned\s+off|deactivated)\b|"
+    r"\b(?:bypassing|disabling|skipping)\s+(?:security\s+(?:checks?|validation|policy)|verification)\s+(?:is|must\s+be|shall\s+be)?\s*(?:forbidden|prohibited|blocked|rejected|disallowed|prevented|refused|not\s+allowed)\b|"
+    r"\b(?:never|do\s+not|don't|must\s+not|shall\s+not|cannot|can\s+not)\s+(?:bypass|disable|skip|deactivate|turn\s+off)\s+(?:security\s+(?:checks?|validation|policy)|deterministic\s+verification|verification)\b|"
+    r"\b(?:detect|catch|trap|prevent|block|forbid|prohibit|disallow)\s+(?:any\s+)?(?:attempts?\s+to\s+)?(?:bypass|disable|skip|deactivate)\s+(?:security\s+(?:checks?|validation|policy)|verification)\b|"
+    r"\b(?:assert|ensure|verify|check|test)\s+that\s+(?:security\s+(?:checks?|validation|policy)|verification)\s+(?:cannot\s+be|must\s+not\s+be|is\s+not)\s+(?:bypassed|disabled|skipped)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_defensive_verification_bypass(text: str) -> bool:
+    """Return True if text deterministically negates or prohibits
+    verification or security check bypass.
+    """
+    if _INVERTED_DEFENSIVE_PATTERN.search(text):
+        return False
+    return bool(_DEFENSIVE_VERIFICATION_BYPASS_PATTERN.search(text))
+
+
+# Rule 5: Destructive command execution defensive patterns
+_DEFENSIVE_DESTRUCTIVE_EXEC_PATTERN = re.compile(
+    r"\brm\s+-rf\s+[/~]\s+(?:must\s+never|shall\s+never|cannot|can\s+not|must\s+not|shall\s+not|is\s+never)\s+be\s+(?:executed|run|called)\b|"
+    r"\b(?:execution|running)\s+of\s+rm\s+-rf\s+[/~]\s+(?:is|must\s+be|shall\s+be)?\s*(?:blocked|rejected|forbidden|prohibited|disallowed|prevented|refused|not\s+allowed)\b|"
+    r"\b(?:never|do\s+not|don't|must\s+not|shall\s+not|cannot|can\s+not)\s+(?:run|execute|call)\s+rm\s+-rf\s+[/~]\b|"
+    r"\b(?:test|prove|proving|ensure|assert|verify|check)\s+(?:that\s+)?rm\s+-rf\s+[/~]\s+(?:is\s+(?:rejected|blocked|forbidden|prevented|refused)|fails|cannot\s+be\s+run|cannot\s+be\s+executed)\b|"
+    r"\b(?:prevent|block|forbid|prohibit|disallow|reject|intercept|detect)\s+(?:any\s+)?(?:executions?\s+of|running\s+of|attempts?\s+to\s+run)\s+rm\s+-rf\s+[/~]\b",
+    re.IGNORECASE,
+)
+
+
+def _is_defensive_destructive_exec(text: str) -> bool:
+    """Return True if text deterministically negates or prohibits destructive execution."""
+    if _INVERTED_DEFENSIVE_PATTERN.search(text):
+        return False
+    return bool(_DEFENSIVE_DESTRUCTIVE_EXEC_PATTERN.search(text))
+
+
+# General behavior preservation patterns (for REFACTOR / PERFORMANCE contradictions)
+_DEFENSIVE_BEHAVIOR_PRESERVATION_PATTERN = re.compile(
+    r"\b(?:never|do\s+not|don't|must\s+not|shall\s+not|cannot|can\s+not)\s+"
+    r"(?:change|modify|alter|break|introduce)\b|"
+    r"\b(?:ensure|assert|verify|check)\s+that\s+.*?\b(?:is\s+not\s+(?:changed|altered|broken)|remains\s+unchanged)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_defensive_behavior_preservation(text: str) -> bool:
+    """Return True if text deterministically expresses preservation of existing behavior."""
+    if _INVERTED_DEFENSIVE_PATTERN.search(text):
+        return False
+    return bool(_DEFENSIVE_BEHAVIOR_PRESERVATION_PATTERN.search(text))
 
 
 def _is_defensively_constrained(text: str) -> bool:
@@ -577,8 +662,16 @@ def _is_defensively_constrained(text: str) -> bool:
     must be blocked, rejected, prevented, forbidden, impossible, redacted,
     not executed, not exposed, or otherwise negatively constrained.
     """
-    clean = text.strip()
-    return any(pattern.search(clean) is not None for pattern in _DEFENSIVE_NEGATIVE_CONSTRAINTS)
+    if _INVERTED_DEFENSIVE_PATTERN.search(text):
+        return False
+    return (
+        _is_defensive_test_weaken(text)
+        or _is_defensive_protected_mutation(text)
+        or _is_defensive_secret_exfil(text)
+        or _is_defensive_verification_bypass(text)
+        or _is_defensive_destructive_exec(text)
+        or _is_defensive_behavior_preservation(text)
+    )
 
 
 def _is_protective_or_testing_statement(text: str) -> bool:
@@ -630,7 +723,7 @@ _CONCEPTUAL_PROTECTED_MUTATION = re.compile(
 )
 
 _REPO_PATH_CANDIDATE_PATTERN = re.compile(
-    r"\b(?:[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-/]+|[A-Za-z0-9_\-]+\.[A-Za-z0-9]+)\b"
+    r"(?:(?<=\s)|^|['\"`(\[])(?:(?:\.\./)+[A-Za-z0-9_.\-/]+|[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-/]+|[A-Za-z0-9_\-]+\.[A-Za-z0-9]+)\b"
 )
 
 
@@ -710,8 +803,8 @@ def _demands_mutation_of_path(statement: str, path_token: str, norm_path: str) -
 # --- Forbidden Action Validation ---
 
 _FORBIDDEN_TEST_WEAKEN = re.compile(
-    r"\b(?:(?:delete|remove|drop|strip|comment\s+out)\s+(?:failing\s+)?tests?\s+(?:to\s+(?:make|get|obtain)\s+green|so\s+tests?\s+pass)|"
-    r"(?:weaken|relax|disable|bypass|ignore)\s+(?:test\s+assertions?|assertions?|tests?)\s+(?:to\s+(?:pass|get\s+green)|so\s+tests?\s+pass)|"
+    r"\b(?:(?:delete|deleting|remove|removing|drop|dropping|strip|stripping|commenting\s+out|comment\s+out)\s+(?:failing\s+)?(?:tests?|assertions?)|"
+    r"(?:weaken|weakening|relax|relaxing|disable|disabling|bypass|bypassing|ignore|ignoring)\s+(?:failing\s+)?(?:test\s+assertions?|assertions?|tests?)|"
     r"(?:make|get)\s+tests?\s+green\s+by\s+(?:removing|deleting|weakening|disabling)|"
     r"bypass\s+test\s+failures|"
     r"ignore\s+(?:failing\s+tests?|test\s+failures))\b",
@@ -719,7 +812,7 @@ _FORBIDDEN_TEST_WEAKEN = re.compile(
 )
 
 _FORBIDDEN_SECRET_EXFIL = re.compile(
-    r"\b(?:(?:send|exfiltrate|leak|post|upload|transmit)\s+.*(?:api[_\-\s]?keys?|secrets?|credentials?|tokens?|private[_\-\s]?keys?)\s+to\s+|"
+    r"\b(?:(?:send|sending|exfiltrate|exfiltrating|leak|leaking|post|posting|upload|uploading|transmit|transmitting)\s+.*?(?:api[_\-\s]?keys?|secrets?|credentials?|tokens?|private[_\-\s]?keys?)\s+to\s+|"
     r"(?:api[_\-\s]?keys?|secrets?|credentials?|tokens?|private[_\-\s]?keys?)\s+.*?(?:are|is|get|were|being)?\s*(?:uploaded|sent|exfiltrated|leaked|posted|transmitted)\s+to\s+|"
     r"(?:print|log|dump|display|output)\s+.*(?:api[_\-\s]?keys?|secrets?|credentials?|tokens?|private[_\-\s]?keys?)\s+to\s+(?:stdout|console|log|file)|"
     r"exfiltrate\s+(?:secrets?|credentials?|keys?|tokens?))\b",
@@ -727,18 +820,18 @@ _FORBIDDEN_SECRET_EXFIL = re.compile(
 )
 
 _FORBIDDEN_VERIFICATION_BYPASS = re.compile(
-    r"\b(?:(?:disable|turn\s+off|bypass|skip|deactivate)\s+(?:required\s+)?(?:deterministic\s+)?verification|"
-    r"(?:disable|bypass|skip)\s+security\s+(?:checks?|validation|policy)|"
+    r"\b(?:(?:disable|disabling|turn\s+off|turning\s+off|bypass|bypassing|skip|skipping|deactivate|deactivating)\s+(?:required\s+)?(?:deterministic\s+)?verification|"
+    r"(?:disable|disabling|bypass|bypassing|skip|skipping)\s+security\s+(?:checks?|validation|policy)|"
     r"security\s+(?:checks?|validation|policy)\s+(?:can\s+be|are|is|to\s+be|could\s+be)?\s*bypassed|"
     r"(?:deterministic\s+)?verification\s+(?:can\s+be|is|are|to\s+be)?\s*(?:bypassed|disabled|skipped)|"
-    r"(?:bypass|disable)\s+contract\s+validation)\b",
+    r"(?:bypass|bypassing|disable|disabling)\s+contract\s+validation)\b",
     re.IGNORECASE,
 )
 
 _FORBIDDEN_DESTRUCTIVE_EXEC = re.compile(
-    r"\b(?:(?:run|execute|call)\s+rm\s+-rf\s+[/~]|"
+    r"\b(?:(?:run|running|execute|execution\s+of|executing|call|calling)\s+rm\s+-rf\s+[/~]|"
     r"(?:wipe|format|destroy)\s+(?:disk|filesystem|root|database)|"
-    r"rm\s+-rf\s+/(?:\s|$))\b",
+    r"rm\s+-rf\s+[/~])",
     re.IGNORECASE,
 )
 
@@ -757,7 +850,7 @@ def _check_forbidden_actions(req: ValidatedRequirement, manifest: ProtectedSurfa
 
     # Check rule 1: Test weakening
     if _FORBIDDEN_TEST_WEAKEN.search(statement):
-        if not _is_defensively_constrained(statement):
+        if not _is_defensive_test_weaken(statement):
             raise ForbiddenActionViolationError(
                 rule_id="FORBIDDEN-001",
                 requirement_id=req.requirement_id,
@@ -767,7 +860,7 @@ def _check_forbidden_actions(req: ValidatedRequirement, manifest: ProtectedSurfa
     # Check rule 2: Protected surface mutation
     # A. Conceptual protected surface mutation
     if _CONCEPTUAL_PROTECTED_MUTATION.search(statement):
-        if not _is_defensively_constrained(statement):
+        if not _is_defensive_protected_mutation(statement):
             raise ForbiddenActionViolationError(
                 rule_id="FORBIDDEN-002",
                 requirement_id=req.requirement_id,
@@ -787,7 +880,7 @@ def _check_forbidden_actions(req: ValidatedRequirement, manifest: ProtectedSurfa
                 # Fact A: path is protected by manifest.
                 # Fact B: Does the requirement demand mutation of this path?
                 if _demands_mutation_of_path(statement, clean_cand, norm_path):
-                    if not _is_defensively_constrained(statement):
+                    if not _is_defensive_protected_mutation(statement):
                         raise ForbiddenActionViolationError(
                             rule_id="FORBIDDEN-002",
                             requirement_id=req.requirement_id,
@@ -799,7 +892,7 @@ def _check_forbidden_actions(req: ValidatedRequirement, manifest: ProtectedSurfa
         except PathSecurityError:
             # Traversal or invalid path candidate
             if _demands_mutation_of_path(statement, clean_cand, clean_cand):
-                if not _is_defensively_constrained(statement):
+                if not _is_defensive_protected_mutation(statement):
                     raise ForbiddenActionViolationError(
                         rule_id="FORBIDDEN-002",
                         requirement_id=req.requirement_id,
@@ -811,7 +904,7 @@ def _check_forbidden_actions(req: ValidatedRequirement, manifest: ProtectedSurfa
 
     # Check rule 3: Credential / secret exfiltration
     if _FORBIDDEN_SECRET_EXFIL.search(statement):
-        if not _is_defensively_constrained(statement):
+        if not _is_defensive_secret_exfil(statement):
             raise ForbiddenActionViolationError(
                 rule_id="FORBIDDEN-003",
                 requirement_id=req.requirement_id,
@@ -820,7 +913,7 @@ def _check_forbidden_actions(req: ValidatedRequirement, manifest: ProtectedSurfa
 
     # Check rule 4: Disabling deterministic verification
     if _FORBIDDEN_VERIFICATION_BYPASS.search(statement):
-        if not _is_defensively_constrained(statement):
+        if not _is_defensive_verification_bypass(statement):
             raise ForbiddenActionViolationError(
                 rule_id="FORBIDDEN-004",
                 requirement_id=req.requirement_id,
@@ -832,7 +925,7 @@ def _check_forbidden_actions(req: ValidatedRequirement, manifest: ProtectedSurfa
 
     # Check rule 5: Destructive command execution
     if _FORBIDDEN_DESTRUCTIVE_EXEC.search(statement):
-        if not _is_defensively_constrained(statement):
+        if not _is_defensive_destructive_exec(statement):
             raise ForbiddenActionViolationError(
                 rule_id="FORBIDDEN-005",
                 requirement_id=req.requirement_id,
@@ -1064,7 +1157,7 @@ def _check_contradictions(
     # 2. Contradiction against ChangeClass causal verification laws
     if change_class == ChangeClass.REFACTOR:
         for req in requirements:
-            if not _is_defensively_constrained(req.statement):
+            if not _is_defensive_behavior_preservation(req.statement):
                 if _REFACTOR_BEHAVIOR_CHANGE.search(req.statement):
                     raise ContradictoryRequirementsError(
                         rule_id="CONTRADICTION-REFACTOR-BEHAVIOR",
@@ -1078,7 +1171,7 @@ def _check_contradictions(
 
     elif change_class == ChangeClass.PERFORMANCE:
         for req in requirements:
-            if not _is_defensively_constrained(req.statement):
+            if not _is_defensive_behavior_preservation(req.statement):
                 if _PERFORMANCE_OUTPUT_CHANGE.search(req.statement):
                     raise ContradictoryRequirementsError(
                         rule_id="CONTRADICTION-PERFORMANCE-OUTPUT",
@@ -1101,9 +1194,10 @@ _API_ENDPOINT_PATTERN = re.compile(
 
 # 2. Repository path token syntax: e.g. src/..., docs/..., AGENTS.md, foo/../../ci.yml
 _REPO_PATH_TOKEN_PATTERN = re.compile(
-    r"\b(?:(?:src|docs|plans|tests|\.github)/[a-zA-Z0-9_.\-/]+|"
+    r"(?:(?<=\s)|^|['\"`(\[])(?:(?:\.\./)+[a-zA-Z0-9_.\-/]+|(?:src|docs|plans|tests|\.github)/[a-zA-Z0-9_.\-/]+|"
     r"[a-zA-Z0-9_.\-]+/[a-zA-Z0-9_.\-/]+\.[a-zA-Z0-9]+|"
-    r"[a-zA-Z0-9_\-]+\.(?:md|py|toml|json|ya?ml|txt|sh|rs|ts|js))\b",
+    r"[a-zA-Z0-9_\-]+\.(?:md|py|toml|json|ya?ml|txt|sh|rs|ts|js|go|c|h|cpp)|"
+    r"Makefile|Dockerfile)\b",
     re.IGNORECASE,
 )
 
@@ -1143,14 +1237,18 @@ def _validate_scope(
 
     Deterministic Scope Rules:
     1. Exact citation span and content support in normalized task text.
-    2. Explicit scope consistency (Blocker 4): If citation explicitly scopes the
+    2. Explicit endpoint scope consistency: If citation explicitly scopes the
        requirement to an explicit target (e.g. /api/catalog) and the statement introduces
        or substitutes a conflicting explicit target (e.g. /api/admin), fail closed with
        UnsupportedScopeError.
-    3. Path security fail-closed (Blocker 3): If any repository path candidate is unsafe
+    3. Explicit repository path scope consistency (Blocker 2): If citation contains one
+       or more explicit repo-path scopes, every explicit repo path introduced by the
+       requirement statement must be supported by that citation. If citation lacks repo
+       paths, any statement repo path must be supported somewhere in normalized task text.
+    4. Path security fail-closed: If any repository path candidate is unsafe
        or attempts directory traversal, fail closed with UnsupportedScopeError without
        swallowing.
-    4. Protected surface modification boundary (Blocker 2): Reject any requirement
+    5. Protected surface modification boundary: Reject any requirement
        demanding mutation of protected surfaces.
     """
     # 1. Exact citation span and content support in normalized task text
@@ -1166,10 +1264,10 @@ def _validate_scope(
             f"expected {req.citation!r}, got {slice_text!r}"
         )
 
-    # 2. Explicit scope extraction and alignment (Blocker 4)
+    # 2. Explicit scope extraction and alignment
     stmt_endpoints, stmt_repo_paths = _extract_explicit_scopes(req.statement)
     cit_endpoints, cit_repo_paths = _extract_explicit_scopes(req.citation)
-    task_endpoints, _ = _extract_explicit_scopes(task.normalized_text)
+    task_endpoints, task_repo_paths = _extract_explicit_scopes(task.normalized_text)
 
     # Endpoint scope validation:
     if stmt_endpoints:
@@ -1188,6 +1286,7 @@ def _validate_scope(
                 )
 
     # Repository path scope validation:
+    # A. Unsafe / traversal candidate check across statement candidates
     all_path_candidates = _extract_repo_path_candidates(req.statement)
     for token in all_path_candidates:
         clean_token = token.strip(" \t\r\n'\"`.,;:!?)(")
@@ -1202,10 +1301,10 @@ def _validate_scope(
                 f"path candidate: {redact_log_text(str(exc))}"
             ) from None
 
-        # Check if normalized path is protected (Blocker 2)
+        # Check if normalized path is protected
         match = match_protected_surface(norm_path, manifest)
         if match is not None:
-            if not _is_defensively_constrained(req.statement):
+            if not _is_defensive_protected_mutation(req.statement):
                 if _demands_mutation_of_path(req.statement, clean_token, norm_path):
                     raise ForbiddenActionViolationError(
                         rule_id="FORBIDDEN-002",
@@ -1214,6 +1313,57 @@ def _validate_scope(
                             f"Requirement {req.requirement_id!r} demands mutation of protected "
                             f"surface '{norm_path}': {req.statement}"
                         ),
+                    )
+
+    # B. Explicit repository path scope alignment (Blocker 2)
+    norm_cit_repo_paths: set[str] = set()
+    for rp in cit_repo_paths:
+        try:
+            norm_cit_repo_paths.add(normalize_repo_path(rp))
+        except PathSecurityError as exc:
+            raise UnsupportedScopeError(
+                f"Citation contains unsafe or traversal repository path candidate: "
+                f"{redact_log_text(str(exc))}"
+            ) from None
+
+    norm_task_repo_paths: set[str] = set()
+    for rp in task_repo_paths:
+        try:
+            norm_task_repo_paths.add(normalize_repo_path(rp))
+        except PathSecurityError:
+            pass
+
+    if stmt_repo_paths:
+        for rp in stmt_repo_paths:
+            try:
+                norm_rp = normalize_repo_path(rp)
+            except PathSecurityError as exc:
+                raise UnsupportedScopeError(
+                    f"Requirement {req.requirement_id!r} contains unsafe or traversal repository "
+                    f"path candidate: {redact_log_text(str(exc))}"
+                ) from None
+
+            if norm_cit_repo_paths:
+                # If citation contains one or more explicit repo-path scopes, every explicit
+                # repo path introduced by requirement statement must be in that citation.
+                if norm_rp not in norm_cit_repo_paths:
+                    raise UnsupportedScopeError(
+                        f"Requirement {req.requirement_id!r} introduces explicit repository "
+                        f"path scope {norm_rp!r} which conflicts with citation scope "
+                        f"{sorted(norm_cit_repo_paths)!r}"
+                    )
+            else:
+                # Citation itself has no repo-path token:
+                # Require any statement repo path not present in citation to at least be
+                # explicitly supported somewhere in normalized task text.
+                if (
+                    norm_rp not in norm_task_repo_paths
+                    and rp not in task.normalized_text
+                    and norm_rp not in task.normalized_text
+                ):
+                    raise UnsupportedScopeError(
+                        f"Requirement {req.requirement_id!r} introduces explicit repository "
+                        f"path scope {norm_rp!r} not supported by task text"
                     )
 
 
