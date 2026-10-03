@@ -818,15 +818,21 @@ class NebiusSandboxAdapter:
                 f"and {MAX_SANDBOX_TIMEOUT_SECONDS}, got {effective_timeout}"
             )
 
-        # Normalize and validate command string
-        cmd_str = self._normalize_command_string(command)
-
         # Handle working directory and env from ExecutionCommand if present
         if isinstance(command, ExecutionCommand):
             if working_dir is None and command.cwd:
                 working_dir = command.cwd
             if env is None and command.env:
                 env = dict(command.env)
+
+        # Normalize and validate command string
+        cmd_str = self._normalize_command_string(command)
+        if (
+            working_dir
+            and not cmd_str.startswith(f"cd {shlex.quote(working_dir)} &&")
+            and not cmd_str.startswith(f"cd {working_dir} &&")
+        ):
+            cmd_str = f"cd {shlex.quote(working_dir)} && {cmd_str}"
 
         # Validate environment against secret leakage
         env_dict: dict[str, str] = {}
