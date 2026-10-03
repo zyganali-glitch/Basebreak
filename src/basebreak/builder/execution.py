@@ -24,7 +24,7 @@ import shlex
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from basebreak.builder.context import BuilderContextEnvelope
 from basebreak.builder.loop import (
@@ -131,6 +131,30 @@ class CredentialLeakageError(CandidateExecutionError):
 
 class WorkspaceExecutionError(CandidateExecutionError):
     """Raised when a sandbox execution fails, exits non-zero, or errors."""
+
+
+class MaterializedSourceVerificationError(CandidateExecutionError):
+    """Base exception for materialized source workspace verification failures."""
+
+
+class MissingAuthoritativeEnvelopeError(CandidateExecutionError):
+    """Raised when execution is attempted without an authoritative BuilderContextEnvelope."""
+
+
+class UnmaterializedWorkspaceError(MaterializedSourceVerificationError):
+    """Raised when workspace has not been materialized from authoritative source."""
+
+
+class MaterializedSourceMismatchError(MaterializedSourceVerificationError):
+    """Base exception when materialized workspace does not match authoritative envelope."""
+
+
+class SourceCommitMismatchError(MaterializedSourceMismatchError):
+    """Raised when materialized source commit does not match authoritative envelope commit."""
+
+
+class SandboxIdentityMismatchError(MaterializedSourceMismatchError):
+    """Raised when materialized workspace sandbox identity does not match execution sandbox."""
 
 
 # --- Data Records ---
@@ -298,6 +322,77 @@ class CommandExecutionRecord:
             sandbox_identity=SandboxIdentity(sandbox_id=str(data.get("sandbox_id", ""))),
             is_authoritative=False,
         )
+
+
+@runtime_checkable
+class MaterializedSourceBinding(Protocol):
+    """Protocol for verified repository source materialization in a sandbox workspace.
+
+    Satisfied by canonical MaterializedSourceRecord from P-05 and VerifiedMaterializedSource.
+    """
+
+    @property
+    def source_identity(self) -> SourceIdentity: ...
+
+    @property
+    def resolved_commit_sha(self) -> str: ...
+
+    @property
+    def workspace_path(self) -> str: ...
+
+    @property
+    def sandbox_identity(self) -> SandboxIdentity: ...
+
+    @property
+    def is_verified(self) -> bool: ...
+
+
+@runtime_checkable
+class SourceMaterializerProtocol(Protocol):
+    """Protocol for repository source materializer.
+
+    Satisfied by canonical NebiusSourceMaterializer from P-05.
+    """
+
+    def materialize_repository(
+        self,
+        source_identity: SourceIdentity,
+        *,
+        sandbox: Any = None,
+        workspace_path: str = "/workspace/repo",
+        timeout_seconds: int = 120,
+        **kwargs: Any,
+    ) -> Any: ...
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedMaterializedSource:
+    """Deterministic, immutable record proving verified source materialization in a sandbox.
+
+    Implements MaterializedSourceBinding protocol without provider-specific dependencies.
+    Compatible with canonical P-05 MaterializedSourceRecord.
+    """
+
+    source_identity: SourceIdentity
+    resolved_commit_sha: str
+    workspace_path: str
+    sandbox_identity: SandboxIdentity
+    is_verified: bool = True
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source_identity, SourceIdentity):
+            raise TypeError(
+                f"source_identity must be SourceIdentity, got {type(self.source_identity).__name__}"
+            )
+        if not isinstance(self.resolved_commit_sha, str) or not self.resolved_commit_sha.strip():
+            raise ValueError("resolved_commit_sha must be a non-empty string")
+        if not isinstance(self.workspace_path, str) or not self.workspace_path.strip():
+            raise ValueError("workspace_path must be a non-empty string")
+        if not isinstance(self.sandbox_identity, SandboxIdentity):
+            sid_name = type(self.sandbox_identity).__name__
+            raise TypeError(f"sandbox_identity must be SandboxIdentity, got {sid_name}")
+        if not isinstance(self.is_verified, bool):
+            raise TypeError("is_verified must be a boolean")
 
 
 @dataclass(frozen=True, slots=True)
@@ -521,6 +616,91 @@ def validate_workspace_path(workspace_path: str) -> str:
     if any(p == ".." or p == "." for p in parts):
         raise PathTraversalError("workspace_path cannot contain '.' or '..' segments")
     return "/" + "/".join(parts)
+
+
+def validate_materialized_workspace(
+    materialized_source: Any,
+    envelope: BuilderContextEnvelope,
+    expected_workspace_path: str,
+    expected_sandbox_identity: SandboxIdentity,
+) -> None:
+    """Validate that candidate workspace is deterministically materialized from envelope source.
+
+    Proves:
+    1. Materialization verification succeeded (is_verified is True);
+    2. Materialized commit matches envelope.source_identity.resolved_commit_id;
+    3. Materialized source locator matches envelope.source_identity.locator;
+    4. Materialized workspace path matches expected candidate workspace path;
+    5. Materialized sandbox identity matches expected sandbox identity.
+
+    Fails closed if any invariant is violated or if materialized_source is malformed.
+    """
+    if materialized_source is None:
+        raise UnmaterializedWorkspaceError(
+            "Candidate workspace has not been materialized from authoritative source"
+        )
+
+    # 1. Verification status
+    is_verified = getattr(materialized_source, "is_verified", None)
+    if is_verified is not True:
+        raise MaterializedSourceVerificationError(
+            f"Materialized workspace verification did not succeed (is_verified={is_verified!r})"
+        )
+
+    # 2. Resolved commit match
+    actual_commit = getattr(materialized_source, "resolved_commit_sha", None)
+    if not isinstance(actual_commit, str) or not actual_commit.strip():
+        raise MaterializedSourceVerificationError(
+            "Materialized source record missing resolved_commit_sha"
+        )
+    expected_commit = envelope.source_identity.resolved_commit_id
+    if actual_commit.strip().lower() != expected_commit.strip().lower():
+        raise SourceCommitMismatchError(
+            f"Materialized workspace source commit {actual_commit!r} does not match "
+            f"authoritative envelope commit {expected_commit!r}"
+        )
+
+    # 3. Source locator match
+    mat_source_id = getattr(materialized_source, "source_identity", None)
+    mat_locator = (
+        getattr(mat_source_id, "locator", None)
+        if mat_source_id is not None
+        else getattr(materialized_source, "source_locator", None)
+    )
+    if not isinstance(mat_locator, str) or not mat_locator.strip():
+        raise MaterializedSourceVerificationError(
+            "Materialized source record missing valid source_identity or locator"
+        )
+    expected_locator = envelope.source_identity.locator
+    if mat_locator.strip() != expected_locator.strip():
+        raise MaterializedSourceMismatchError(
+            f"Materialized workspace source locator {mat_locator!r} does not match "
+            f"authoritative envelope locator {expected_locator!r}"
+        )
+
+    # 4. Workspace path match
+    actual_ws = getattr(materialized_source, "workspace_path", None)
+    if not isinstance(actual_ws, str) or not actual_ws.strip():
+        raise MaterializedSourceVerificationError(
+            "Materialized source record missing valid workspace_path"
+        )
+    if actual_ws.strip().rstrip("/") != expected_workspace_path.strip().rstrip("/"):
+        raise MaterializedSourceMismatchError(
+            f"Materialized workspace path {actual_ws!r} does not match "
+            f"candidate execution workspace path {expected_workspace_path!r}"
+        )
+
+    # 5. Sandbox identity match
+    actual_sbx_id = getattr(materialized_source, "sandbox_identity", None)
+    if actual_sbx_id is None or not isinstance(actual_sbx_id, SandboxIdentity):
+        raise MaterializedSourceVerificationError(
+            "Materialized source record missing valid SandboxIdentity"
+        )
+    if actual_sbx_id != expected_sandbox_identity:
+        raise SandboxIdentityMismatchError(
+            f"Materialized workspace sandbox identity {actual_sbx_id!r} does not match "
+            f"candidate execution sandbox identity {expected_sandbox_identity!r}"
+        )
 
 
 def compute_proposal_digest(proposal: BuilderProposal) -> str:
@@ -806,7 +986,10 @@ class CandidateWorkspaceExecutor:
 
     Enforces:
     - Rejection of host execution fallback: sandbox_adapter is mandatory.
-    - Validation of BuilderProposal and authoritative context bindings.
+    - Authoritative context binding: requires genuine BuilderContextEnvelope.
+    - Bare contract/context/source digest authority paths are strictly forbidden.
+    - Verified source materialization: proves workspace matches envelope source before mutation.
+    - Deterministic sandbox identity: fails closed on missing/unidentified sandboxes.
     - Application of proposed mutations (CREATE, MODIFY, DELETE) through POSIX shell primitives.
     - Bounded execution of proposed commands inside disposable candidate sandbox.
     - Fail-closed recording of all deterministic execution facts.
@@ -817,6 +1000,7 @@ class CandidateWorkspaceExecutor:
         self,
         sandbox_adapter: Any,
         *,
+        source_materializer: Any | None = None,
         config: CandidateExecutionConfig | None = None,
     ) -> None:
         if sandbox_adapter is None:
@@ -824,6 +1008,7 @@ class CandidateWorkspaceExecutor:
                 "sandbox_adapter is required; host execution fallback is strictly prohibited"
             )
         self.sandbox_adapter = sandbox_adapter
+        self.source_materializer = source_materializer
         self.config = config or CandidateExecutionConfig()
 
     def execute(
@@ -831,46 +1016,45 @@ class CandidateWorkspaceExecutor:
         proposal: BuilderProposal,
         *,
         envelope: BuilderContextEnvelope | None = None,
-        frozen_contract_digest: str | None = None,
-        context_digest: str | None = None,
-        source_identity: SourceIdentity | None = None,
+        materialized_source: Any | None = None,
+        source_materializer: Any | None = None,
         sandbox_handle: Any | None = None,
         provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
+        **kwargs: Any,
     ) -> CandidateExecutionResult:
         """Execute validated Builder proposal inside candidate sandbox.
 
         Steps:
-        1. Resolve and validate authoritative context bindings.
+        1. Resolve and validate authoritative BuilderContextEnvelope (fail closed on bare digests).
         2. Validate proposal actions and commands against bounds and security invariants.
         3. Acquire sandbox handle (use provided or create disposable).
-        4. Execute file mutations inside the candidate workspace.
-        5. Execute proposed commands inside the candidate workspace.
-        6. Clean up sandbox if configured.
-        7. Return deterministic CandidateExecutionResult.
+        4. Validate deterministic SandboxIdentity on handle (fail closed if missing/empty).
+        5. Verify that sandbox candidate workspace is materialized from envelope source.
+        6. Execute file mutations inside the candidate workspace.
+        7. Execute proposed commands inside the candidate workspace.
+        8. Clean up sandbox if configured.
+        9. Return deterministic CandidateExecutionResult.
         """
-        # Step 1: Authoritative Context Binding Resolution
-        resolved_contract_digest: str
-        resolved_context_digest: str
-        resolved_source_id: SourceIdentity
-
-        if envelope is not None:
-            if not isinstance(envelope, BuilderContextEnvelope):
-                raise TypeError(
-                    f"envelope must be BuilderContextEnvelope, got {type(envelope).__name__}"
+        # Step 1: Reject bare digest inputs and enforce authoritative envelope
+        if kwargs:
+            forbidden_keys = {"frozen_contract_digest", "context_digest", "source_identity"}
+            intersect = set(kwargs.keys()) & forbidden_keys
+            if intersect:
+                raise MissingAuthoritativeEnvelopeError(
+                    f"Bare digest inputs {sorted(intersect)} are strictly forbidden; "
+                    "execution requires an authoritative BuilderContextEnvelope"
                 )
-            resolved_contract_digest = envelope.frozen_contract.contract_digest
-            resolved_context_digest = envelope.context_digest
-            resolved_source_id = envelope.source_identity
-        else:
-            if not frozen_contract_digest or not isinstance(frozen_contract_digest, str):
-                raise ValueError("frozen_contract_digest is required when envelope is omitted")
-            if not context_digest or not isinstance(context_digest, str):
-                raise ValueError("context_digest is required when envelope is omitted")
-            if source_identity is None or not isinstance(source_identity, SourceIdentity):
-                raise TypeError("source_identity is required when envelope is omitted")
-            resolved_contract_digest = frozen_contract_digest
-            resolved_context_digest = context_digest
-            resolved_source_id = source_identity
+            raise TypeError(f"Unexpected keyword arguments: {sorted(kwargs.keys())}")
+
+        if envelope is None or not isinstance(envelope, BuilderContextEnvelope):
+            raise MissingAuthoritativeEnvelopeError(
+                "envelope must be an authoritative BuilderContextEnvelope; "
+                "execution cannot proceed without authoritative context"
+            )
+
+        resolved_contract_digest = envelope.frozen_contract.contract_digest
+        resolved_context_digest = envelope.context_digest
+        resolved_source_id = envelope.source_identity
 
         # Step 2: Validate Proposal & Commands
         normalized_actions, validated_commands = validate_candidate_proposal(proposal, self.config)
@@ -896,16 +1080,52 @@ class CandidateWorkspaceExecutor:
                     f"Failed to create disposable candidate sandbox: {exc}"
                 ) from exc
 
-        # Extract sandbox identity
-        sbx_identity = getattr(
-            handle, "sandbox_identity", SandboxIdentity(sandbox_id="sbx-unidentified")
-        )
-
-        mutation_records: list[FileMutationRecord] = []
-        command_records: list[CommandExecutionRecord] = []
-
         try:
-            # Step 4: Execute File Mutations
+            # Step 4: Extract and Validate Sandbox Identity - FAIL CLOSED if missing or invalid
+            sbx_identity = getattr(handle, "sandbox_identity", None)
+            if sbx_identity is None or not isinstance(sbx_identity, SandboxIdentity):
+                raise WorkspaceExecutionError(
+                    "Sandbox handle lacks a deterministic SandboxIdentity; "
+                    "unidentified sandboxes are strictly prohibited"
+                )
+            if not sbx_identity.sandbox_id or not sbx_identity.sandbox_id.strip():
+                raise WorkspaceExecutionError(
+                    "Sandbox handle contains an empty or whitespace sandbox_id; "
+                    "unidentified sandboxes are strictly prohibited"
+                )
+
+            # Step 5: Verify Source-Materialized Workspace
+            active_mat_source = materialized_source
+            active_materializer = source_materializer or self.source_materializer
+
+            if active_mat_source is None:
+                if active_materializer is not None:
+                    try:
+                        active_mat_source = active_materializer.materialize_repository(
+                            resolved_source_id,
+                            sandbox=handle,
+                            workspace_path=clean_workspace,
+                            timeout_seconds=self.config.per_command_timeout_seconds,
+                        )
+                    except Exception as exc:
+                        raise WorkspaceExecutionError(
+                            f"Failed to materialize authoritative repository in sandbox: {exc}"
+                        ) from exc
+                else:
+                    raise UnmaterializedWorkspaceError(
+                        "Cannot execute candidate in unmaterialized workspace: "
+                        "verified materialized_source or source_materializer is required"
+                    )
+
+            validate_materialized_workspace(
+                active_mat_source,
+                envelope=envelope,
+                expected_workspace_path=clean_workspace,
+                expected_sandbox_identity=sbx_identity,
+            )
+
+            # Step 6: Execute File Mutations
+            mutation_records: list[FileMutationRecord] = []
             for norm_path, action in normalized_actions.items():
                 scripts = build_file_mutation_scripts(norm_path, action, clean_workspace)
                 last_result: Any = None
@@ -984,7 +1204,8 @@ class CandidateWorkspaceExecutor:
                         raise MissingTargetError(err_msg)
                     raise WorkspaceExecutionError(err_msg)
 
-            # Step 5: Execute Proposed Commands
+            # Step 7: Execute Proposed Commands
+            command_records: list[CommandExecutionRecord] = []
             for cmd_str in validated_commands:
                 try:
                     cmd_res = self.sandbox_adapter.execute_command(
