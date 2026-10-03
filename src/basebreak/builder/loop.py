@@ -554,6 +554,9 @@ def _extract_json_payload(raw_text: str) -> str:
     # Strip thinking tags if emitted by reasoning models
     trimmed = re.sub(r"<think>.*?</think>", "", trimmed, flags=re.DOTALL).strip()
 
+    # Normalize redundant unescaped opening quotes emitted by LLMs (e.g. """"\"\"\" -> "\"\"\")
+    trimmed = re.sub(r'("(?:\w+)"\s*:\s*)"{2,}', r'\1"', trimmed)
+
     # Case 1: Search fenced code blocks (```json ... ``` or ``` ... ```)
     fence_blocks: list[str] = re.findall(
         r"```(?:json)?\s*\n?(.*?)\n?```", trimmed, re.DOTALL | re.IGNORECASE
