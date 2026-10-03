@@ -46,6 +46,13 @@ from basebreak.builder.context import (
     compute_context_digest,
     get_builder_protected_manifest,
 )
+from basebreak.builder.enforcement import (
+    CandidateEnforcementError,
+    CandidateSecurityEnforcementResult,
+    CandidateSecurityEnforcer,
+    PostExecutionSecurityViolation,
+    PreflightSecurityViolation,
+)
 from basebreak.builder.execution import (
     DEFAULT_MAX_COMMAND_LENGTH_BYTES,
     DEFAULT_MAX_COMMANDS,
@@ -153,11 +160,14 @@ __all__ = [
     "BuilderProposal",
     "BuilderTimeoutError",
     "CandidateCaptureError",
+    "CandidateEnforcementError",
     "CandidateExecutionConfig",
     "CandidateExecutionConfigError",
     "CandidateExecutionError",
     "CandidateExecutionResult",
     "CandidateExecutionTimeoutError",
+    "CandidateSecurityEnforcementResult",
+    "CandidateSecurityEnforcer",
     "CandidateSnapshot",
     "CandidateWorkspaceExecutor",
     "CommandBoundingError",
@@ -180,6 +190,8 @@ __all__ = [
     "MissingAuthoritativeEnvelopeError",
     "MissingTargetError",
     "PathTraversalContextError",
+    "PostExecutionSecurityViolation",
+    "PreflightSecurityViolation",
     "ProposedCommand",
     "ProposedFileAction",
     "ProtectedSurfaceContextError",

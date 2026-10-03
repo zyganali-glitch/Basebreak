@@ -41,14 +41,23 @@ from basebreak.domain.source import CommitRevision, SourceIdentity
 from basebreak.domain.verdict import EvidenceProvenance
 from basebreak.evidence.artifact import compute_bytes_digest
 from basebreak.security.protected_surfaces import (
+    FileChange,
+    FileChangeKind,
     InvalidPathError,
     PathSecurityError,
     PathTraversalError,
+    ProtectedSurfaceManifest,
+    ProtectedSurfaceViolation,
+    check_change,
+    get_canonical_basebreak_protected_manifest,
     normalize_repo_path,
+    validate_path,
 )
 from basebreak.security.sandbox_policy import (
     MAX_SANDBOX_TIMEOUT_SECONDS,
     MIN_SANDBOX_TIMEOUT_SECONDS,
+    ProcessPolicyError,
+    validate_command_string,
 )
 from basebreak.security.secret_policy import (
     contains_secret,
@@ -379,6 +388,8 @@ class CandidateExecutionConfig:
     fail_fast: bool = True
     teardown_on_failure: bool = True
     teardown_on_completion: bool = False
+    enforce_protected_surfaces: bool = True
+    protected_manifest: ProtectedSurfaceManifest | None = None
 
     def __post_init__(self) -> None:
         if self.max_file_actions < 1 or self.max_file_actions > 200:
@@ -411,6 +422,13 @@ class CandidateExecutionConfig:
             raise CandidateExecutionConfigError("workspace_path must not be empty")
         if not self.sandbox_image or not self.sandbox_image.strip():
             raise CandidateExecutionConfigError("sandbox_image must not be empty")
+        if self.protected_manifest is not None and not isinstance(
+            self.protected_manifest, ProtectedSurfaceManifest
+        ):
+            raise CandidateExecutionConfigError(
+                f"protected_manifest must be ProtectedSurfaceManifest, "
+                f"got {type(self.protected_manifest).__name__}"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -719,6 +737,7 @@ def compute_proposal_digest(proposal: BuilderProposal) -> str:
 def validate_candidate_proposal(
     proposal: BuilderProposal,
     config: CandidateExecutionConfig,
+    protected_manifest: ProtectedSurfaceManifest | None = None,
 ) -> tuple[dict[str, ProposedFileAction], tuple[str, ...]]:
     """Validate Builder proposal against structural, bounding, and security invariants.
 
@@ -729,13 +748,15 @@ def validate_candidate_proposal(
     Fails closed if:
     - proposal is not BuilderProposal or is_authoritative is True;
     - file action count exceeds max_file_actions;
+    - path touches or targets a canonical protected surface;
     - path traversal, root escape, drive letters, or malformed paths detected;
     - duplicate/conflicting actions for the same normalized path detected;
     - file content exceeds max_file_bytes;
     - secret detected in any file content, rationale, or command;
     - command count exceeds max_commands;
     - command exceeds max_command_length_bytes or contains null bytes;
-    - forbidden shell recursion, fork bomb, or daemon pattern detected.
+    - forbidden shell recursion, fork bomb, or daemon pattern detected;
+    - command violates canonical sandbox process policy.
     """
     if not isinstance(proposal, BuilderProposal):
         raise TypeError(f"proposal must be BuilderProposal, got {type(proposal).__name__}")
@@ -743,6 +764,20 @@ def validate_candidate_proposal(
         raise InvalidProposedMutationError(
             "BuilderProposal is_authoritative must be strictly False"
         )
+
+    manifest = (
+        protected_manifest
+        if protected_manifest is not None
+        else (
+            config.protected_manifest
+            if config.protected_manifest is not None
+            else (
+                get_canonical_basebreak_protected_manifest()
+                if config.enforce_protected_surfaces
+                else None
+            )
+        )
+    )
 
     # 1. Validate File Actions
     if len(proposal.proposed_file_actions) > config.max_file_actions:
@@ -763,13 +798,40 @@ def validate_candidate_proposal(
                 f"action at index {idx} is_authoritative must be strictly False"
             )
 
-        # Normalize path and check for traversal / root escape
+        # Map action type to canonical FileChangeKind
+        kind: FileChangeKind
+        if action.action == FileActionType.CREATE:
+            kind = FileChangeKind.ADD
+        elif action.action == FileActionType.MODIFY:
+            kind = FileChangeKind.MODIFY
+        elif action.action == FileActionType.DELETE:
+            kind = FileChangeKind.DELETE
+        else:
+            raise InvalidProposedMutationError(f"Unsupported action type: {action.action}")
+
+        # Normalize path and check for traversal / root escape / protected surfaces
         try:
-            norm_path = normalize_repo_path(action.path)
+            if manifest is not None:
+                norm_path = validate_path(action.path, manifest)
+            else:
+                norm_path = normalize_repo_path(action.path)
+        except ProtectedSurfaceViolation:
+            raise
         except (PathTraversalError, InvalidPathError, PathSecurityError) as exc:
             raise InvalidProposedMutationError(
                 f"Invalid or unsafe path in action at index {idx} ({action.path!r}): {exc}"
             ) from exc
+
+        # Validate FileChange representation against manifest
+        if manifest is not None:
+            change = FileChange(path=norm_path, kind=kind)
+            findings = check_change(change, manifest)
+            if findings:
+                first = findings[0]
+                raise ProtectedSurfaceViolation(
+                    f"Proposed file action targets protected surface: {first.message}",
+                    findings=tuple(findings),
+                )
 
         # Check for duplicate/conflicting mutations targeting the same path
         if norm_path in normalized_actions:
@@ -832,6 +894,18 @@ def validate_candidate_proposal(
                 f"Command at index {idx} exceeds length limit: {len(cmd_bytes)} bytes "
                 f"(max {config.max_command_length_bytes})"
             )
+
+        # Canonical P-04 sandbox policy validation (null byte, length, secret-shaped values)
+        try:
+            validate_command_string(cmd_str)
+        except ProcessPolicyError as exc:
+            if "secret-shaped" in str(exc).lower():
+                raise CredentialLeakageError(
+                    f"Secret-shaped value detected in command at index {idx}: {exc}"
+                ) from exc
+            raise CommandBoundingError(
+                f"Command at index {idx} violates sandbox process policy: {exc}"
+            ) from exc
 
         # Check for forbidden recursion, fork bombs, and persistent daemons
         if _FORK_BOMB_PATTERN.search(cmd_str):

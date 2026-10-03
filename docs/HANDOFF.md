@@ -73,11 +73,12 @@ Judge claim:
 - P-07.01 (Define Builder context allowlist and model input minimization) is independently VERIFIED / PASS at SHA `4cccc112bf4a50448eb81e91cb4902fa3344798f`.
 - P-07.02 (Implement Nemotron Builder plan/code loop in real sandbox) is independently VERIFIED / PASS at SHA `8419f86c954313d49d9445a0ef4274fb94bfa0ce`.
 - P-07.03 (Implement bounded file editing and command execution) is independently VERIFIED / PASS at SHA `b5a40a589ca4c82255880237abb87f0a52a80a40`.
-- P-07.04 (Capture candidate diff/tree hash and Builder-authored tests) is REPAIRED / EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (surgically repaired: cryptographic patch_text/patch_digest SHA-256 binding in CandidateSnapshot; fail-closed rejection of BuilderProposal substitution for actual candidate state; deterministic sandbox identity, exact workspace path, and git rev-parse HEAD commit hash binding to source identity; fail-closed rejection of non-reproducible binary diffs; identify_builder_authored_tests classification originating strictly from Builder-modified test files; enforced canonicality, sorted ordering, and mutual disjointness for changed file sets; 33 unit tests passing in tests/builder/test_candidate_capture.py).
-- P-07.05+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
+- P-07.04 (Capture candidate diff/tree hash and Builder-authored tests) is independently VERIFIED / PASS at SHA `49eb9c8c2d03d47d32a6602bbb317b7e97125304`.
+- P-07.05 (Enforce protected surfaces and forbidden action policy) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented pre-execution file-action/command policy enforcement and post-execution actual diff validation against canonical P-04 protected-surface manifest; fail-closed teardown on violation with zero accepted candidate; 22 focused tests passing in tests/builder/test_candidate_enforcement.py).
+- P-07.06+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
-`b5a40a589ca4c82255880237abb87f0a52a80a40` (independently VERIFIED / PASS at P-07.03).
+`49eb9c8c2d03d47d32a6602bbb317b7e97125304` (independently VERIFIED / PASS at P-07.04).
 
 ## Blocking live gate vs active task
 
@@ -85,17 +86,17 @@ Judge claim:
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-`P-07.04 — Capture candidate diff/tree hash and Builder-authored tests (SURGICAL REPAIR)` (cryptographic patch binding, actual post-execution state enforcement, sandbox/workspace/base commit binding, reproducible binary diff policy, builder-authored test classification repair; 33 unit tests in `tests/builder/test_candidate_capture.py`).
+`P-07.05 — Enforce protected surfaces and forbidden action policy` (pre-execution file-action conversion and check against canonical manifest, pre-dispatch command bounding/process/secret policy, same-sandbox execution and actual diff capture, post-execution protected surface validation, fail-closed teardown, non-authoritative security result contract; 22 unit tests in `tests/builder/test_candidate_enforcement.py`).
 
 ### Active exact task
-P-07.04 repair / independent QA candidate. HARD STOP after P-07.04. P-07.05+ are strictly NOT AUTHORIZED / NOT_RUN. Awaiting independent QA verification of P-07.04.
+P-07.05 completed / independent QA candidate. HARD STOP after P-07.05. P-07.06+ are strictly NOT AUTHORIZED / NOT_RUN. Awaiting independent QA verification of P-07.05.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-06 all tasks and phases are independently VERIFIED / PASS. P-07.01, P-07.02, and P-07.03 are independently VERIFIED / PASS. P-07.04 is REPAIRED / EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-07.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
-- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, and Builder primitives (`src/basebreak/builder/context.py`, `execution.py`, `capture.py`) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
+- **Task status:** P-00 through P-06 all tasks and phases are independently VERIFIED / PASS. P-07.01 through P-07.04 are independently VERIFIED / PASS. P-07.05 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-07.06+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, and Builder primitives (`src/basebreak/builder/context.py`, `execution.py`, `capture.py`, `enforcement.py`) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
 - **Phase status:** P-00, P-01, P-02, P-03, P-04, P-05, P-06 phases are independently CLOSED / PASS. P-07 phase remains OPEN.
-- **Batch restoration & hard stop:** P-07.04 completed as repair executor candidate. P-07.05+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
-- **Not authorized / forbidden:** P-07.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** P-07.05 completed as executor candidate. P-07.06+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Not authorized / forbidden:** P-07.06+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -113,6 +114,6 @@ P-07.04 repair / independent QA candidate. HARD STOP after P-07.04. P-07.05+ are
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-07.04 surgical repair for independent QA verification.
-2. Maintain hard stop after P-07.04; do not activate or implement P-07.05+.
+1. Submit P-07.05 for independent QA verification.
+2. Maintain hard stop after P-07.05; do not activate or implement P-07.06+.
 3. Await independent QA evaluation.
