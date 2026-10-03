@@ -68,12 +68,13 @@ Judge claim:
 - P-06.04 (Deterministically validate requirement IDs, scope, forbidden actions and contradictions) is independently VERIFIED / PASS at SHA `16bc6323a99f971d1cf4e90aedd4b828e240bd5a`.
 - P-06.05 (Add human-editable contract review surface/CLI) is independently VERIFIED / PASS at SHA `763d12efb75c4c7a3d8df78d73737bf0bde9cb3e`.
 - P-06.06 (Freeze contract digest before Builder execution) is independently VERIFIED / PASS at SHA `4588b7efdd331725364be59a9484a68c39f30d86`.
-- P-Ω P-06 phase-closure critical security-truth reconciliation is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-06 phase remains: OPEN pending independent P-Ω phase-closure QA.
-- P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- P-Ω P-06 phase-closure critical security-truth reconciliation is independently VERIFIED / PASS at SHA `8b6ba8a3003d24a7ed43e455352ea34f45770f71`.
+- P-06 phase (Contract Compiler) is independently CLOSED / PASS.
+- P-07.01 (Define Builder context allowlist and model input minimization) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-07.02+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Last independently VERIFIED baseline SHA
-`4588b7efdd331725364be59a9484a68c39f30d86` (independently VERIFIED / PASS at P-06.06).
+`8b6ba8a3003d24a7ed43e455352ea34f45770f71` (independently VERIFIED / PASS at P-Ω P-06 phase-closure).
 
 ## Blocking live gate vs active task
 
@@ -81,17 +82,17 @@ Judge claim:
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-`P-Ω P-06 phase-closure critical security-truth reconciliation` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+`P-07.01 — Define Builder context allowlist and model input minimization` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
 
 ### Active exact task
-`P-Ω P-06 phase-closure critical security-truth reconciliation` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; awaiting independent QA verification).
+`P-07.01 — Define Builder context allowlist and model input minimization` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; awaiting independent QA verification).
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-05 all tasks are independently VERIFIED / PASS. P-06.01 through P-06.06 are independently VERIFIED / PASS. P-Ω P-06 phase-closure security-truth reconciliation is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
-- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, and Contract Compiler core production code (`src/basebreak/compiler/*`) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers in semantics.py, validator.py, review.py, review_cli.py, or freeze.py.
-- **Phase status:** P-00, P-01, P-02, P-03, P-04, P-05 phases are independently CLOSED / PASS. P-06 phase remains OPEN pending P-Ω independent QA closure.
-- **Batch restoration & hard stop:** P-Ω P-06 phase-closure reconciliation is completed as an independent QA candidate. P-07+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
-- **Not authorized / forbidden:** P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-06 all tasks and phases are independently VERIFIED / PASS. P-07.01 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-07.02+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, and Builder context primitives (`src/basebreak/builder/context.py`) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
+- **Phase status:** P-00, P-01, P-02, P-03, P-04, P-05, P-06 phases are independently CLOSED / PASS. P-07 phase remains OPEN.
+- **Batch restoration & hard stop:** P-07.01 is completed as an independent QA candidate. P-07.02+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Not authorized / forbidden:** P-07.02+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -109,6 +110,6 @@ None. P-01 and P-05 live platform/adapter integrations are complete and independ
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-Ω P-06 phase-closure critical security-truth reconciliation for independent QA verification.
-2. Maintain hard stop at P-Ω closure; do not activate or implement P-07+.
+1. Submit P-07.01 for independent QA verification.
+2. Maintain hard stop at P-07.01; do not activate or implement P-07.02+.
 3. Await independent QA evaluation.

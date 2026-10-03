@@ -1,0 +1,63 @@
+"""Basebreak Builder Runtime package.
+
+P-07: Builder Runtime components for autonomous candidate synthesis,
+context allowlisting, model input minimization, and sandbox-isolated execution.
+"""
+
+from __future__ import annotations
+
+from basebreak.builder.context import (
+    BUILDER_CONTEXT_SCHEMA_VERSION,
+    DEFAULT_BUILDER_SYSTEM_INSTRUCTIONS,
+    DEFAULT_MAX_ADMITTED_FILES,
+    DEFAULT_MAX_FILE_BYTES,
+    DEFAULT_MAX_TOTAL_CONTEXT_BYTES,
+    DEFAULT_VERIFIER_PROTECTED_PREFIXES,
+    UNTRUSTED_FILE_FENCE_END,
+    UNTRUSTED_FILE_FENCE_START,
+    AdmittedRepoFile,
+    BuilderContextAllowlist,
+    BuilderContextAllowlistError,
+    BuilderContextEnvelope,
+    BuilderContextEnvelopeError,
+    BuilderContextError,
+    ContextMinimizationError,
+    ForbiddenContextError,
+    PathTraversalContextError,
+    ProtectedSurfaceContextError,
+    SecretContextError,
+    VerifierAssetContextError,
+    assemble_builder_context,
+    build_canonical_context_identity_payload,
+    canonical_context_bytes,
+    compute_context_digest,
+    get_builder_protected_manifest,
+)
+
+__all__ = [
+    "BUILDER_CONTEXT_SCHEMA_VERSION",
+    "DEFAULT_BUILDER_SYSTEM_INSTRUCTIONS",
+    "DEFAULT_MAX_ADMITTED_FILES",
+    "DEFAULT_MAX_FILE_BYTES",
+    "DEFAULT_MAX_TOTAL_CONTEXT_BYTES",
+    "DEFAULT_VERIFIER_PROTECTED_PREFIXES",
+    "UNTRUSTED_FILE_FENCE_END",
+    "UNTRUSTED_FILE_FENCE_START",
+    "AdmittedRepoFile",
+    "BuilderContextAllowlist",
+    "BuilderContextAllowlistError",
+    "BuilderContextEnvelope",
+    "BuilderContextEnvelopeError",
+    "BuilderContextError",
+    "ContextMinimizationError",
+    "ForbiddenContextError",
+    "PathTraversalContextError",
+    "ProtectedSurfaceContextError",
+    "SecretContextError",
+    "VerifierAssetContextError",
+    "assemble_builder_context",
+    "build_canonical_context_identity_payload",
+    "canonical_context_bytes",
+    "compute_context_digest",
+    "get_builder_protected_manifest",
+]

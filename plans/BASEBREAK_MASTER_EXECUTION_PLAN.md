@@ -372,6 +372,14 @@ Phase exit: Builder cannot silently rewrite the task it will later “prove”. 
 
 # P-07 — Builder Runtime v1
 ### P-07.01 — Define Builder context allowlist and model input minimization
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented deterministic Builder context allowlist, model-input minimization, and context envelope in src/basebreak/builder/context.py; deny-by-default repository selection, byte/file bounds, prompt fence delimiters, protected surface / verifier asset / secret / traversal rejection, and cryptographic context_digest binding; 53 focused tests in tests/builder/test_context.py passing; 1601 full non-live tests passing; ruff check, ruff format --check, and mypy passing clean)
+Acceptance:
+- Builder input envelope distinguishes trusted contract/control instructions from untrusted repository context;
+- explicit deny-by-default allowlist bounds repository files entering context;
+- model-input minimization bounds single-file and total byte sizes;
+- deterministic provenance, canonical path ordering, and cryptographic context digest;
+- fail-closed rejection of protected governance surfaces, verifier-only / witness assets, secrets, and path traversal;
+- untrusted repository text remains unprivileged data with zero governance authority.
 ### P-07.02 — Implement Nemotron Builder plan/code loop in real sandbox
 ### P-07.03 — Implement bounded file editing and command execution
 ### P-07.04 — Capture candidate diff/tree hash and Builder-authored tests
