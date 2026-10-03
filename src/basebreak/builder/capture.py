@@ -644,7 +644,26 @@ def capture_candidate_from_files(
     provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
     candidate_id: str | None = None,
 ) -> CandidateSnapshot:
-    """Capture candidate snapshot deterministically from base and candidate file mappings."""
+    """Capture candidate snapshot deterministically from base and candidate file mappings.
+
+    In-memory file mappings represent deterministic non-live helper evidence only.
+    Permits only non-live provenance (LOCAL_EXECUTION or FIXTURE).
+    Fails closed if LIVE_NEBIUS or RECORDED_LIVE provenance is supplied.
+    """
+    if not isinstance(provenance, EvidenceProvenance):
+        raise TypeError(f"provenance must be EvidenceProvenance, got {type(provenance).__name__}")
+    if provenance in (EvidenceProvenance.LIVE_NEBIUS, EvidenceProvenance.RECORDED_LIVE):
+        raise MalformedCandidateEvidenceError(
+            f"In-memory file mapping capture cannot be assigned live provenance "
+            f"{provenance.value!r}; live candidate state must be captured from sandbox"
+        )
+    if provenance not in (EvidenceProvenance.LOCAL_EXECUTION, EvidenceProvenance.FIXTURE):
+        raise MalformedCandidateEvidenceError(
+            f"Unsupported provenance {provenance.value!r} for in-memory file mapping capture; "
+            f"must be {EvidenceProvenance.LOCAL_EXECUTION.value} or "
+            f"{EvidenceProvenance.FIXTURE.value}"
+        )
+
     norm_base = {normalize_repo_path(p): v for p, v in base_files.items()}
     norm_cand = {normalize_repo_path(p): v for p, v in candidate_files.items()}
 
@@ -701,12 +720,25 @@ def capture_candidate_from_execution(
     """Capture candidate snapshot deterministically from execution result and base files.
 
     Enforces actual-state candidate identity:
+    - In-memory file mapping capture fails closed if execution_result has live provenance
+      (LIVE_NEBIUS or RECORDED_LIVE); live candidate state must be captured directly from
+      sandbox via capture_candidate_from_sandbox.
     - Deriving candidate identity from BuilderProposal is strictly forbidden and fails closed.
     - Actual candidate state must be provided via candidate_files mapping or direct sandbox capture.
     """
     if not isinstance(execution_result, CandidateExecutionResult):
         r_type = type(execution_result).__name__
         raise TypeError(f"execution_result must be CandidateExecutionResult, got {r_type}")
+
+    if execution_result.provenance in (
+        EvidenceProvenance.LIVE_NEBIUS,
+        EvidenceProvenance.RECORDED_LIVE,
+    ):
+        raise MalformedCandidateEvidenceError(
+            f"Cannot capture candidate from in-memory file mapping for live execution provenance "
+            f"{execution_result.provenance.value!r}; live candidate state must be captured "
+            "directly from sandbox via capture_candidate_from_sandbox"
+        )
 
     if proposal is not None:
         raise MalformedCandidateEvidenceError(
@@ -741,6 +773,69 @@ def capture_candidate_from_execution(
     )
 
 
+def parse_git_name_status(
+    status_output: str,
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """Parse git diff --name-status output into added, modified, deleted file tuples.
+
+    Enforces deterministic sorting, normalization, and mutual disjointness.
+    Renames/copies are represented deterministically: old path = deleted, new path = added.
+    """
+    added_set: set[str] = set()
+    modified_set: set[str] = set()
+    deleted_set: set[str] = set()
+
+    for line in status_output.splitlines():
+        trimmed = line.strip()
+        if not trimmed:
+            continue
+        parts = trimmed.split("\t") if "\t" in trimmed else trimmed.split(maxsplit=2)
+        status_code = parts[0].strip()
+        if len(parts) < 2:
+            raise MalformedCandidateEvidenceError(f"Malformed git name-status line: {line!r}")
+        path = parts[1].strip()
+        if not path:
+            raise MalformedCandidateEvidenceError(f"Empty path in git name-status line: {line!r}")
+
+        if status_code.startswith("A") or status_code == "??":
+            added_set.add(normalize_repo_path(path))
+        elif status_code.startswith("M"):
+            modified_set.add(normalize_repo_path(path))
+        elif status_code.startswith("D"):
+            deleted_set.add(normalize_repo_path(path))
+        elif status_code.startswith("R"):
+            # Rename: old path = deleted, new path = added
+            deleted_set.add(normalize_repo_path(path))
+            if len(parts) >= 3 and parts[2].strip():
+                added_set.add(normalize_repo_path(parts[2].strip()))
+            else:
+                raise MalformedCandidateEvidenceError(
+                    f"Git rename status line missing target path: {line!r}"
+                )
+        elif status_code.startswith("C"):
+            # Copy: target path = added
+            if len(parts) >= 3 and parts[2].strip():
+                added_set.add(normalize_repo_path(parts[2].strip()))
+            else:
+                added_set.add(normalize_repo_path(path))
+        elif status_code.startswith("T"):
+            # Type change: treated as modified
+            modified_set.add(normalize_repo_path(path))
+        else:
+            raise MalformedCandidateEvidenceError(
+                f"Unrecognized git name-status code {status_code!r} in line: {line!r}"
+            )
+
+    modified_set -= added_set
+    deleted_set -= added_set | modified_set
+
+    return (
+        tuple(sorted(added_set)),
+        tuple(sorted(modified_set)),
+        tuple(sorted(deleted_set)),
+    )
+
+
 def capture_candidate_from_sandbox(
     sandbox_adapter: Any,
     sandbox_handle: Any,
@@ -748,6 +843,7 @@ def capture_candidate_from_sandbox(
     *,
     workspace_path: str | None = None,
     candidate_id: str | None = None,
+    timeout_seconds: int = 60,
 ) -> CandidateSnapshot:
     """Capture candidate snapshot directly from disposable candidate sandbox via git.
 
@@ -755,8 +851,18 @@ def capture_candidate_from_sandbox(
     1. sandbox_handle exposes deterministic SandboxIdentity.
     2. sandbox_handle.sandbox_identity strictly equals execution_result.sandbox_identity.
     3. exact workspace binding to execution_result.workspace_path.
-    4. deterministic git repo top-level and git rev-parse HEAD match source commit.
-    5. reproducible git binary patch or fail closed with BinaryDiffUnsupportedError.
+    4. separate bounded commands against the same sandbox handle and workspace
+       for deterministic facts:
+       - git rev-parse --show-toplevel
+       - git rev-parse HEAD
+       - git add -A
+       - git write-tree
+       - git diff --name-status --no-renames --cached HEAD
+       - git diff --binary --full-index --cached HEAD
+    5. diff command stdout becomes patch_text directly (no regex sentinel extraction).
+    6. reproducible git binary patch or fail closed with BinaryDiffUnsupportedError.
+    7. rename semantics: rename old.py -> new.py is preserved deterministically as
+       old=deleted, new=added.
     """
     if sandbox_adapter is None:
         raise MalformedCandidateEvidenceError("sandbox_adapter must not be None")
@@ -784,55 +890,50 @@ def capture_candidate_from_sandbox(
 
     # 3. Exact workspace binding
     expected_ws = execution_result.workspace_path.rstrip("/")
+    if not expected_ws:
+        raise MalformedCandidateEvidenceError("workspace_path must not be empty")
     if workspace_path is not None and workspace_path.rstrip("/") != expected_ws:
         raise MalformedCandidateEvidenceError(
             f"Workspace path mismatch: provided workspace {workspace_path!r} does not "
             f"match execution_result.workspace_path {execution_result.workspace_path!r}"
         )
     clean_ws = expected_ws
+    bounded_timeout = min(max(timeout_seconds, 1), 600)
 
-    capture_script = (
-        "set -e\n"
-        f"cd {clean_ws}\n"
-        'echo "BASEBREAK_REPO_TOPLEVEL=$(git rev-parse --show-toplevel)"\n'
-        'echo "BASEBREAK_HEAD=$(git rev-parse HEAD)"\n'
-        "git add -A\n"
-        'echo "BASEBREAK_TREE=$(git write-tree)"\n'
-        'echo "BASEBREAK_STATUS_START"\n'
-        "git status --porcelain\n"
-        'echo "BASEBREAK_STATUS_END"\n'
-        'echo "BASEBREAK_DIFF_START"\n'
-        "git diff --binary --full-index --cached HEAD\n"
-        'echo "BASEBREAK_DIFF_END"\n'
-    )
+    def _run_cmd(cmd: str) -> str:
+        try:
+            res = sandbox_adapter.execute_command(
+                sandbox_handle,
+                cmd,
+                working_dir=clean_ws,
+                timeout_seconds=bounded_timeout,
+            )
+        except Exception as exc:
+            raise CandidateCaptureError(
+                f"Failed to execute capture command {cmd!r} in sandbox: {exc}"
+            ) from exc
 
-    try:
-        res = sandbox_adapter.execute_command(
-            sandbox_handle,
-            capture_script,
-            working_dir=clean_ws,
-            timeout_seconds=60,
-        )
-    except Exception as exc:
-        raise CandidateCaptureError(
-            f"Failed to capture candidate state from sandbox: {exc}"
-        ) from exc
+        if res is None:
+            raise CandidateCaptureError(
+                f"Sandbox execution returned None for capture command {cmd!r}"
+            )
 
-    raw_stdout = getattr(res, "stdout", "")
-    exit_code = getattr(res, "exit_code", -1)
-    if exit_code != 0:
-        raw_stderr = getattr(res, "stderr", "")
-        raise CandidateCaptureError(
-            f"Candidate capture script failed inside sandbox with exit {exit_code}: {raw_stderr}"
-        )
+        exit_code = getattr(res, "exit_code", -1)
+        if exit_code != 0:
+            raw_stderr = getattr(res, "stderr", "")
+            raise CandidateCaptureError(
+                f"Candidate capture command {cmd!r} failed inside sandbox with "
+                f"exit {exit_code}: {raw_stderr}"
+            )
+        return getattr(res, "stdout", "")
 
     # 4a. Verify repo top-level matches expected workspace
-    toplevel_match = re.search(r"BASEBREAK_REPO_TOPLEVEL=(.*)", raw_stdout)
-    if not toplevel_match:
+    toplevel_raw = _run_cmd("git rev-parse --show-toplevel")
+    actual_toplevel = toplevel_raw.strip().rstrip("/")
+    if not actual_toplevel:
         raise MalformedCandidateEvidenceError(
             "Could not parse git repo top-level from sandbox capture output"
         )
-    actual_toplevel = toplevel_match.group(1).strip().rstrip("/")
     if actual_toplevel != clean_ws:
         raise MalformedCandidateEvidenceError(
             f"Sandbox git repository top-level {actual_toplevel!r} does not match "
@@ -840,12 +941,12 @@ def capture_candidate_from_sandbox(
         )
 
     # 4b. Verify git HEAD matches execution_result.source_identity.resolved_commit_id
-    head_match = re.search(r"BASEBREAK_HEAD=([0-9a-fA-F]{40,64})", raw_stdout)
-    if not head_match:
+    head_raw = _run_cmd("git rev-parse HEAD")
+    actual_head = head_raw.strip().lower()
+    if not _HEX_40_OR_64_PATTERN.match(actual_head):
         raise MalformedCandidateEvidenceError(
-            "Could not parse git HEAD commit hash from sandbox capture output"
+            f"Could not parse valid git HEAD commit hash from sandbox capture output: {head_raw!r}"
         )
-    actual_head = head_match.group(1).lower()
     expected_head = execution_result.source_identity.resolved_commit_id.lower()
     if actual_head != expected_head:
         raise MalformedCandidateEvidenceError(
@@ -853,51 +954,30 @@ def capture_candidate_from_sandbox(
             f"source commit {expected_head!r}"
         )
 
-    # Parse tree SHA
-    tree_match = re.search(r"BASEBREAK_TREE=([0-9a-fA-F]{40,64})", raw_stdout)
-    if not tree_match:
-        raise MalformedCandidateEvidenceError(
-            "Could not parse git write-tree hash from sandbox capture output"
-        )
-    tree_sha = tree_match.group(1).lower()
+    # 4c. Stage all working tree changes
+    _run_cmd("git add -A")
 
-    # Parse diff & check reproducible binary patch policy
-    diff_match = re.search(r"BASEBREAK_DIFF_START\n([\s\S]*?)BASEBREAK_DIFF_END", raw_stdout)
-    diff_text = diff_match.group(1) if diff_match else ""
+    # 4d. Write tree and get tree SHA
+    tree_raw = _run_cmd("git write-tree")
+    tree_sha = tree_raw.strip().lower()
+    if not _HEX_40_OR_64_PATTERN.match(tree_sha):
+        raise MalformedCandidateEvidenceError(
+            f"Could not parse valid git write-tree hash from sandbox capture output: {tree_raw!r}"
+        )
+
+    # 4e. Changed-file status via --name-status --no-renames --cached HEAD
+    name_status_raw = _run_cmd("git diff --name-status --no-renames --cached HEAD")
+    files_added, files_modified, files_deleted = parse_git_name_status(name_status_raw)
+
+    # 4f. Full binary diff via --binary --full-index --cached HEAD
+    # Stdout itself becomes patch_text directly (no sentinel delimiters)
+    diff_text = _run_cmd("git diff --binary --full-index --cached HEAD")
     if re.search(r"Binary files\s+.*\s+differ", diff_text):
         raise BinaryDiffUnsupportedError(
             "Non-reproducible binary diff detected: git reported binary files differ "
             "without reproducible binary patch"
         )
     patch_digest = compute_bytes_digest(diff_text.encode("utf-8")).value
-
-    # Parse status
-    status_match = re.search(r"BASEBREAK_STATUS_START\n([\s\S]*?)BASEBREAK_STATUS_END", raw_stdout)
-    status_text = status_match.group(1) if status_match else ""
-
-    added_set: set[str] = set()
-    modified_set: set[str] = set()
-    deleted_set: set[str] = set()
-
-    for line in status_text.splitlines():
-        trimmed = line.strip()
-        if not trimmed:
-            continue
-        status_code = trimmed[:2].strip()
-        path = trimmed[2:].strip()
-        if not path:
-            continue
-        norm_path = normalize_repo_path(path)
-        if "A" in status_code or "??" in status_code:
-            added_set.add(norm_path)
-        elif "M" in status_code:
-            modified_set.add(norm_path)
-        elif "D" in status_code:
-            deleted_set.add(norm_path)
-
-    # Ensure sets are mutually disjoint
-    modified_set -= added_set
-    deleted_set -= added_set | modified_set
 
     # Identify Builder-authored tests
     builder_tests = identify_builder_authored_tests(execution_result)
@@ -910,9 +990,9 @@ def capture_candidate_from_sandbox(
         candidate_tree_digest=tree_sha,
         patch_digest=patch_digest,
         patch_text=diff_text,
-        files_added=tuple(sorted(added_set)),
-        files_modified=tuple(sorted(modified_set)),
-        files_deleted=tuple(sorted(deleted_set)),
+        files_added=files_added,
+        files_modified=files_modified,
+        files_deleted=files_deleted,
         builder_authored_tests=builder_tests,
         frozen_contract_digest=execution_result.frozen_contract_digest,
         context_digest=execution_result.context_digest,
@@ -935,4 +1015,5 @@ __all__ = [
     "compute_tree_digest",
     "generate_unified_diff",
     "identify_builder_authored_tests",
+    "parse_git_name_status",
 ]

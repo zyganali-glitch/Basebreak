@@ -30,6 +30,7 @@ Tests cover:
 from __future__ import annotations
 
 import inspect
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
@@ -48,6 +49,7 @@ from basebreak.builder.capture import (
     compute_tree_digest,
     generate_unified_diff,
     identify_builder_authored_tests,
+    parse_git_name_status,
 )
 from basebreak.builder.execution import (
     DEFAULT_WORKSPACE_PATH,
@@ -93,10 +95,17 @@ class MockSandboxHandle:
 
 
 class MockSandboxAdapter:
-    def __init__(self, stdout: str, exit_code: int = 0) -> None:
+    def __init__(
+        self,
+        stdout: str = "",
+        exit_code: int = 0,
+        command_responses: Mapping[str, Any] | None = None,
+    ) -> None:
         self.stdout = stdout
         self.exit_code = exit_code
+        self.command_responses = dict(command_responses) if command_responses else {}
         self.recorded_commands: list[str] = []
+        self.recorded_working_dirs: list[str | None] = []
 
     def execute_command(
         self,
@@ -106,32 +115,47 @@ class MockSandboxAdapter:
         timeout_seconds: int = 60,
     ) -> Any:
         self.recorded_commands.append(command)
+        self.recorded_working_dirs.append(working_dir)
+        if self.exit_code != 0:
+            return SimpleNamespace(
+                exit_code=self.exit_code,
+                stdout=self.stdout,
+                stderr="failed inside sandbox with exit 1",
+            )
+        for key, resp in self.command_responses.items():
+            if key in command:
+                if isinstance(resp, tuple):
+                    code, out, err = resp
+                    return SimpleNamespace(exit_code=code, stdout=out, stderr=err)
+                return SimpleNamespace(exit_code=0, stdout=str(resp), stderr="")
         return SimpleNamespace(
-            exit_code=self.exit_code,
+            exit_code=0,
             stdout=self.stdout,
             stderr="",
         )
 
 
-def make_sandbox_stdout(
+def make_sandbox_adapter(
     *,
     workspace: str = DEFAULT_WORKSPACE_PATH,
     head_commit: str = BASE_COMMIT_ID,
     tree_sha: str = "0123456789abcdef0123456789abcdef01234567",
-    status_lines: str = " M src/app.py\n?? tests/test_app.py\n D src/legacy.py",
+    name_status_output: str = "M\tsrc/app.py\nA\ttests/test_app.py\nD\tsrc/legacy.py\n",
     diff_text: str = "--- a/src/app.py\n+++ b/src/app.py\n@@ -1 +1 @@\n-old\n+new\n",
-) -> str:
-    return (
-        f"BASEBREAK_REPO_TOPLEVEL={workspace}\n"
-        f"BASEBREAK_HEAD={head_commit}\n"
-        f"BASEBREAK_TREE={tree_sha}\n"
-        "BASEBREAK_STATUS_START\n"
-        f"{status_lines}\n"
-        "BASEBREAK_STATUS_END\n"
-        "BASEBREAK_DIFF_START\n"
-        f"{diff_text}"
-        "BASEBREAK_DIFF_END\n"
-    )
+    exit_code: int = 0,
+    command_overrides: Mapping[str, Any] | None = None,
+) -> MockSandboxAdapter:
+    responses: dict[str, Any] = {
+        "git rev-parse --show-toplevel": f"{workspace}\n",
+        "git rev-parse HEAD": f"{head_commit}\n",
+        "git add -A": "",
+        "git write-tree": f"{tree_sha}\n",
+        "git diff --name-status": name_status_output,
+        "git diff --binary": diff_text,
+    }
+    if command_overrides:
+        responses.update(command_overrides)
+    return MockSandboxAdapter(command_responses=responses, exit_code=exit_code)
 
 
 # --- Diff & Tree Digest Tests ---
@@ -928,12 +952,11 @@ def test_capture_candidate_from_sandbox_success() -> None:
     src_id = make_source_identity()
     handle = MockSandboxHandle(sandbox_identity=sbx_id)
 
-    mock_stdout = make_sandbox_stdout(
+    adapter = make_sandbox_adapter(
         workspace="/workspace/candidate",
         head_commit=src_id.resolved_commit_id,
         tree_sha=mock_tree,
     )
-    adapter = MockSandboxAdapter(stdout=mock_stdout)
 
     exec_res = CandidateExecutionResult(
         source_identity=src_id,
@@ -960,7 +983,10 @@ def test_capture_candidate_from_sandbox_success() -> None:
     assert snap.files_added == ("tests/test_app.py",)
     assert snap.files_deleted == ("src/legacy.py",)
     assert "--- a/src/app.py" in snap.patch_text
+    assert snap.provenance == EvidenceProvenance.LIVE_NEBIUS
     assert snap.is_authoritative is False
+    assert len(adapter.recorded_commands) == 6
+    assert all(wd == "/workspace/candidate" for wd in adapter.recorded_working_dirs)
 
 
 def test_capture_candidate_from_sandbox_identity_mismatch_rejected() -> None:
@@ -1064,8 +1090,7 @@ def test_capture_candidate_from_sandbox_workspace_mismatch_rejected() -> None:
         )
 
     # 2. Inside sandbox, git repo top-level reports different directory
-    mock_stdout_wrong_ws = make_sandbox_stdout(workspace="/workspace/rogue_repo")
-    adapter_wrong_ws = MockSandboxAdapter(stdout=mock_stdout_wrong_ws)
+    adapter_wrong_ws = make_sandbox_adapter(workspace="/workspace/rogue_repo")
     with pytest.raises(
         MalformedCandidateEvidenceError, match="does not match expected candidate workspace"
     ):
@@ -1083,8 +1108,10 @@ def test_capture_candidate_from_sandbox_head_commit_mismatch_rejected() -> None:
     handle = MockSandboxHandle(sandbox_identity=sbx_id)
 
     # Inside sandbox, git HEAD resolved to ALT_COMMIT_ID
-    mock_stdout_wrong_head = make_sandbox_stdout(head_commit=ALT_COMMIT_ID)
-    adapter = MockSandboxAdapter(stdout=mock_stdout_wrong_head)
+    adapter = make_sandbox_adapter(
+        workspace="/workspace/candidate",
+        head_commit=ALT_COMMIT_ID,
+    )
 
     exec_res = CandidateExecutionResult(
         source_identity=src_id,
@@ -1096,6 +1123,7 @@ def test_capture_candidate_from_sandbox_head_commit_mismatch_rejected() -> None:
         file_mutations=(),
         command_executions=(),
         total_duration_seconds=0.5,
+        workspace_path="/workspace/candidate",
         provenance=EvidenceProvenance.LIVE_NEBIUS,
     )
 
@@ -1119,12 +1147,11 @@ def test_capture_candidate_from_sandbox_binary_files_differ_fails_closed() -> No
         "diff --git a/bin/artifact.dat b/bin/artifact.dat\n"
         "Binary files a/bin/artifact.dat and b/bin/artifact.dat differ\n"
     )
-    mock_stdout = make_sandbox_stdout(
+    adapter = make_sandbox_adapter(
         workspace="/workspace/candidate",
         head_commit=src_id.resolved_commit_id,
         diff_text=non_reproducible_diff,
     )
-    adapter = MockSandboxAdapter(stdout=mock_stdout)
 
     exec_res = CandidateExecutionResult(
         source_identity=src_id,
@@ -1136,6 +1163,7 @@ def test_capture_candidate_from_sandbox_binary_files_differ_fails_closed() -> No
         file_mutations=(),
         command_executions=(),
         total_duration_seconds=0.5,
+        workspace_path="/workspace/candidate",
         provenance=EvidenceProvenance.LIVE_NEBIUS,
     )
 
@@ -1161,12 +1189,11 @@ def test_capture_candidate_from_sandbox_reproducible_git_binary_patch_succeeds()
         "literal 5\n"
         "Mc${n00001\n\n"
     )
-    mock_stdout = make_sandbox_stdout(
+    adapter = make_sandbox_adapter(
         workspace="/workspace/candidate",
         head_commit=src_id.resolved_commit_id,
         diff_text=reproducible_binary_patch,
     )
-    adapter = MockSandboxAdapter(stdout=mock_stdout)
 
     exec_res = CandidateExecutionResult(
         source_identity=src_id,
@@ -1178,6 +1205,7 @@ def test_capture_candidate_from_sandbox_reproducible_git_binary_patch_succeeds()
         file_mutations=(),
         command_executions=(),
         total_duration_seconds=0.5,
+        workspace_path="/workspace/candidate",
         provenance=EvidenceProvenance.LIVE_NEBIUS,
     )
 
@@ -1216,6 +1244,254 @@ def test_capture_candidate_from_sandbox_handles_script_failure() -> None:
             sandbox_handle=handle,
             execution_result=exec_res,
         )
+
+
+# --- Defect 1 & Defect 2 Regression Tests ---
+
+
+def test_capture_candidate_from_execution_live_nebius_fails_closed() -> None:
+    """Proves: execution with LIVE_NEBIUS provenance + candidate_files fails closed."""
+    sbx_id = make_sandbox_id()
+    src_id = make_source_identity()
+    base_files = {"src/app.py": "def f(): return 1\n"}
+    cand_files = {"src/app.py": "def f(): return 2\n"}
+    exec_res = CandidateExecutionResult(
+        source_identity=src_id,
+        frozen_contract_digest=FROZEN_CONTRACT_DIGEST,
+        context_digest=CONTEXT_DIGEST,
+        proposal_digest="1" * 64,
+        proposal_plan_summary="Plan",
+        sandbox_identity=sbx_id,
+        file_mutations=(),
+        command_executions=(),
+        total_duration_seconds=0.5,
+        provenance=EvidenceProvenance.LIVE_NEBIUS,
+    )
+    with pytest.raises(
+        MalformedCandidateEvidenceError,
+        match="Cannot capture candidate from in-memory file mapping",
+    ):
+        capture_candidate_from_execution(
+            execution_result=exec_res,
+            base_files=base_files,
+            candidate_files=cand_files,
+        )
+
+
+def test_capture_candidate_from_execution_recorded_live_fails_closed() -> None:
+    """Proves: execution with RECORDED_LIVE provenance + candidate_files fails closed."""
+    sbx_id = make_sandbox_id()
+    src_id = make_source_identity()
+    base_files = {"src/app.py": "def f(): return 1\n"}
+    cand_files = {"src/app.py": "def f(): return 2\n"}
+    exec_res = CandidateExecutionResult(
+        source_identity=src_id,
+        frozen_contract_digest=FROZEN_CONTRACT_DIGEST,
+        context_digest=CONTEXT_DIGEST,
+        proposal_digest="1" * 64,
+        proposal_plan_summary="Plan",
+        sandbox_identity=sbx_id,
+        file_mutations=(),
+        command_executions=(),
+        total_duration_seconds=0.5,
+        provenance=EvidenceProvenance.RECORDED_LIVE,
+    )
+    with pytest.raises(
+        MalformedCandidateEvidenceError,
+        match="Cannot capture candidate from in-memory file mapping",
+    ):
+        capture_candidate_from_execution(
+            execution_result=exec_res,
+            base_files=base_files,
+            candidate_files=cand_files,
+        )
+
+
+def test_direct_in_memory_capture_rejects_live_provenance() -> None:
+    """Proves: capture_candidate_from_files fails closed on LIVE_NEBIUS or RECORDED_LIVE."""
+    base_files = {"src/app.py": "x = 1\n"}
+    cand_files = {"src/app.py": "x = 2\n"}
+    src_id = make_source_identity()
+
+    with pytest.raises(
+        MalformedCandidateEvidenceError, match="cannot be assigned live provenance 'LIVE_NEBIUS'"
+    ):
+        capture_candidate_from_files(
+            base_files=base_files,
+            candidate_files=cand_files,
+            source_identity=src_id,
+            frozen_contract_digest=FROZEN_CONTRACT_DIGEST,
+            context_digest=CONTEXT_DIGEST,
+            provenance=EvidenceProvenance.LIVE_NEBIUS,
+        )
+
+    with pytest.raises(
+        MalformedCandidateEvidenceError, match="cannot be assigned live provenance 'RECORDED_LIVE'"
+    ):
+        capture_candidate_from_files(
+            base_files=base_files,
+            candidate_files=cand_files,
+            source_identity=src_id,
+            frozen_contract_digest=FROZEN_CONTRACT_DIGEST,
+            context_digest=CONTEXT_DIGEST,
+            provenance=EvidenceProvenance.RECORDED_LIVE,
+        )
+
+
+def test_in_memory_capture_allows_fixture_and_local_execution_provenance() -> None:
+    """Proves: in-memory capture works with LOCAL_EXECUTION and FIXTURE."""
+    base_files = {"src/app.py": "x = 1\n"}
+    cand_files = {"src/app.py": "x = 2\n"}
+    src_id = make_source_identity()
+
+    snap_local = capture_candidate_from_files(
+        base_files=base_files,
+        candidate_files=cand_files,
+        source_identity=src_id,
+        frozen_contract_digest=FROZEN_CONTRACT_DIGEST,
+        context_digest=CONTEXT_DIGEST,
+        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+    )
+    assert snap_local.provenance == EvidenceProvenance.LOCAL_EXECUTION
+
+    snap_fixture = capture_candidate_from_files(
+        base_files=base_files,
+        candidate_files=cand_files,
+        source_identity=src_id,
+        frozen_contract_digest=FROZEN_CONTRACT_DIGEST,
+        context_digest=CONTEXT_DIGEST,
+        provenance=EvidenceProvenance.FIXTURE,
+    )
+    assert snap_fixture.provenance == EvidenceProvenance.FIXTURE
+
+
+def test_actual_sandbox_capture_preserves_genuine_execution_provenance() -> None:
+    """Proves: capture_candidate_from_sandbox preserves genuine LIVE_NEBIUS provenance."""
+    sbx_id = make_sandbox_id()
+    src_id = make_source_identity()
+    handle = MockSandboxHandle(sandbox_identity=sbx_id)
+    adapter = make_sandbox_adapter(
+        workspace="/workspace/candidate",
+        head_commit=src_id.resolved_commit_id,
+    )
+    exec_res = CandidateExecutionResult(
+        source_identity=src_id,
+        frozen_contract_digest=FROZEN_CONTRACT_DIGEST,
+        context_digest=CONTEXT_DIGEST,
+        proposal_digest="1" * 64,
+        proposal_plan_summary="Plan",
+        sandbox_identity=sbx_id,
+        file_mutations=(),
+        command_executions=(),
+        total_duration_seconds=0.5,
+        workspace_path="/workspace/candidate",
+        provenance=EvidenceProvenance.LIVE_NEBIUS,
+    )
+    snap = capture_candidate_from_sandbox(
+        sandbox_adapter=adapter,
+        sandbox_handle=handle,
+        execution_result=exec_res,
+    )
+    assert snap.provenance == EvidenceProvenance.LIVE_NEBIUS
+
+
+def test_untrusted_patch_content_with_sentinel_markers_does_not_collide() -> None:
+    """Proves: untrusted patch containing sentinel markers cannot alter framing."""
+    sbx_id = make_sandbox_id()
+    src_id = make_source_identity()
+    handle = MockSandboxHandle(sandbox_identity=sbx_id)
+
+    untrusted_diff = (
+        "--- a/src/app.py\n"
+        "+++ b/src/app.py\n"
+        "@@ -1,3 +1,6 @@\n"
+        " BASEBREAK_DIFF_START\n"
+        "+# Malicious injection attempt\n"
+        "+BASEBREAK_DIFF_END\n"
+        "+BASEBREAK_STATUS_START\n"
+    )
+    adapter = make_sandbox_adapter(
+        workspace="/workspace/candidate",
+        head_commit=src_id.resolved_commit_id,
+        diff_text=untrusted_diff,
+    )
+    exec_res = CandidateExecutionResult(
+        source_identity=src_id,
+        frozen_contract_digest=FROZEN_CONTRACT_DIGEST,
+        context_digest=CONTEXT_DIGEST,
+        proposal_digest="1" * 64,
+        proposal_plan_summary="Plan",
+        sandbox_identity=sbx_id,
+        file_mutations=(),
+        command_executions=(),
+        total_duration_seconds=0.5,
+        workspace_path="/workspace/candidate",
+        provenance=EvidenceProvenance.LIVE_NEBIUS,
+    )
+    snap = capture_candidate_from_sandbox(
+        sandbox_adapter=adapter,
+        sandbox_handle=handle,
+        execution_result=exec_res,
+    )
+    assert snap.patch_text == untrusted_diff
+    assert snap.patch_digest == compute_bytes_digest(untrusted_diff.encode("utf-8")).value
+
+
+def test_rename_semantics_preserves_added_and_deleted() -> None:
+    """Proves: rename old.py -> new.py does not disappear from changed files."""
+    sbx_id = make_sandbox_id()
+    src_id = make_source_identity()
+    handle = MockSandboxHandle(sandbox_identity=sbx_id)
+
+    # Output from git diff --name-status --no-renames --cached HEAD
+    name_status_output = "D\tsrc/old.py\nA\tsrc/new.py\nM\tsrc/other.py\n"
+    adapter = make_sandbox_adapter(
+        workspace="/workspace/candidate",
+        head_commit=src_id.resolved_commit_id,
+        name_status_output=name_status_output,
+    )
+    exec_res = CandidateExecutionResult(
+        source_identity=src_id,
+        frozen_contract_digest=FROZEN_CONTRACT_DIGEST,
+        context_digest=CONTEXT_DIGEST,
+        proposal_digest="1" * 64,
+        proposal_plan_summary="Plan",
+        sandbox_identity=sbx_id,
+        file_mutations=(),
+        command_executions=(),
+        total_duration_seconds=0.5,
+        workspace_path="/workspace/candidate",
+        provenance=EvidenceProvenance.LIVE_NEBIUS,
+    )
+    snap = capture_candidate_from_sandbox(
+        sandbox_adapter=adapter,
+        sandbox_handle=handle,
+        execution_result=exec_res,
+    )
+    assert "src/old.py" in snap.files_deleted
+    assert "src/new.py" in snap.files_added
+    assert "src/other.py" in snap.files_modified
+
+
+def test_parse_git_name_status_rename_and_copy() -> None:
+    """Proves: parse_git_name_status handles --no-renames, explicit R and C lines."""
+    # With --no-renames: D and A lines
+    status_no_renames = "D\told.py\nA\tnew.py\nM\tmod.py\n"
+    added, mod, deleted = parse_git_name_status(status_no_renames)
+    assert added == ("new.py",)
+    assert mod == ("mod.py",)
+    assert deleted == ("old.py",)
+
+    # With explicit rename line (R100):
+    status_rename = "R100\told.py\tnew.py\n"
+    added, mod, deleted = parse_git_name_status(status_rename)
+    assert added == ("new.py",)
+    assert deleted == ("old.py",)
+
+    # With copy line (C100):
+    status_copy = "C100\tsrc.py\tdst.py\n"
+    added, mod, deleted = parse_git_name_status(status_copy)
+    assert added == ("dst.py",)
 
 
 # --- Provider Purity Tests ---
