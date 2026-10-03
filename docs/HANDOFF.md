@@ -71,7 +71,7 @@ Judge claim:
 - P-Ω P-06 phase-closure critical security-truth reconciliation is independently VERIFIED / PASS at SHA `8b6ba8a3003d24a7ed43e455352ea34f45770f71`.
 - P-06 phase (Contract Compiler) is independently CLOSED / PASS.
 - P-07.01 (Define Builder context allowlist and model input minimization) is independently VERIFIED / PASS at SHA `4cccc112bf4a50448eb81e91cb4902fa3344798f`.
-- P-07.02 (Implement Nemotron Builder plan/code loop in real sandbox) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (live-tested source commit `f23f5d5df5aa1711e04711254df159e4030e9d8e`, tree `a061f9a1eea4b47c9675231217aaca4bced62fe2`; genuine LIVE_NEBIUS evidence in `docs/P07_02_LIVE_BUILDER_LOOP.md`).
+- P-07.02 (Implement Nemotron Builder plan/code loop in real sandbox) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (live-tested source commit `df13707106bf92bc027a6268c92903c1795c2793`, tree `1d6b10e810f7e56c918c52c255d9509add256f0d`; genuine LIVE_NEBIUS evidence in `docs/P07_02_LIVE_BUILDER_LOOP.md`).
 - P-07.03+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Last independently VERIFIED baseline SHA
