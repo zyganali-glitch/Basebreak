@@ -70,11 +70,12 @@ Judge claim:
 - P-06.06 (Freeze contract digest before Builder execution) is independently VERIFIED / PASS at SHA `4588b7efdd331725364be59a9484a68c39f30d86`.
 - P-Ω P-06 phase-closure critical security-truth reconciliation is independently VERIFIED / PASS at SHA `8b6ba8a3003d24a7ed43e455352ea34f45770f71`.
 - P-06 phase (Contract Compiler) is independently CLOSED / PASS.
-- P-07.01 (Define Builder context allowlist and model input minimization) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-07.02+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- P-07.01 (Define Builder context allowlist and model input minimization) is independently VERIFIED / PASS at SHA `4cccc112bf4a50448eb81e91cb4902fa3344798f`.
+- P-07.02 (Implement Nemotron Builder plan/code loop in real sandbox) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (live-tested source commit `f23f5d5df5aa1711e04711254df159e4030e9d8e`, tree `a061f9a1eea4b47c9675231217aaca4bced62fe2`; genuine LIVE_NEBIUS evidence in `docs/P07_02_LIVE_BUILDER_LOOP.md`).
+- P-07.03+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Last independently VERIFIED baseline SHA
-`8b6ba8a3003d24a7ed43e455352ea34f45770f71` (independently VERIFIED / PASS at P-Ω P-06 phase-closure).
+`4cccc112bf4a50448eb81e91cb4902fa3344798f` (independently VERIFIED / PASS at P-07.01).
 
 ## Blocking live gate vs active task
 
@@ -82,17 +83,17 @@ Judge claim:
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-`P-07.01 — Define Builder context allowlist and model input minimization` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+`P-07.02 — Implement Nemotron Builder plan/code loop in real sandbox` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
 
 ### Active exact task
-`P-07.01 — Define Builder context allowlist and model input minimization` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; awaiting independent QA verification).
+`P-07.02 — Implement Nemotron Builder plan/code loop in real sandbox` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; awaiting independent QA verification).
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-06 all tasks and phases are independently VERIFIED / PASS. P-07.01 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-07.02+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-06 all tasks and phases are independently VERIFIED / PASS. P-07.01 is independently VERIFIED / PASS. P-07.02 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-07.03+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, and Builder context primitives (`src/basebreak/builder/context.py`) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
 - **Phase status:** P-00, P-01, P-02, P-03, P-04, P-05, P-06 phases are independently CLOSED / PASS. P-07 phase remains OPEN.
-- **Batch restoration & hard stop:** P-07.01 is completed as an independent QA candidate. P-07.02+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
-- **Not authorized / forbidden:** P-07.02+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** P-07.02 is completed as an independent QA candidate. P-07.03+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Not authorized / forbidden:** P-07.03+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);

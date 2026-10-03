@@ -372,7 +372,7 @@ Phase exit: Builder cannot silently rewrite the task it will later “prove”. 
 
 # P-07 — Builder Runtime v1
 ### P-07.01 — Define Builder context allowlist and model input minimization
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented deterministic Builder context allowlist, model-input minimization, and context envelope in src/basebreak/builder/context.py; deny-by-default repository selection, byte/file bounds, prompt fence delimiters, protected surface / verifier asset / secret / traversal rejection, and cryptographic context_digest binding; 53 focused tests in tests/builder/test_context.py passing; 1601 full non-live tests passing; ruff check, ruff format --check, and mypy passing clean)
+Status: DONE (independently VERIFIED / PASS at SHA 4cccc112bf4a50448eb81e91cb4902fa3344798f)
 Acceptance:
 - Builder input envelope distinguishes trusted contract/control instructions from untrusted repository context;
 - explicit deny-by-default allowlist bounds repository files entering context;
@@ -381,6 +381,7 @@ Acceptance:
 - fail-closed rejection of protected governance surfaces, verifier-only / witness assets, secrets, and path traversal;
 - untrusted repository text remains unprivileged data with zero governance authority.
 ### P-07.02 — Implement Nemotron Builder plan/code loop in real sandbox
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented Nemotron Builder plan/code loop in disposable sandbox in src/basebreak/builder/loop.py; authoritative FrozenContract and BuilderContextEnvelope integration; real live Nemotron inference via canonical NebiusModelClient on nvidia/Nemotron-3_5-Lightning; real disposable sandbox execution via canonical NebiusSandboxAdapter on tag:astral/uv:python3.11-alpine; structured Builder proposal with plan, proposed file actions, and proposed commands; zero self-certification with is_authoritative strictly False; secret-safe prompts and outputs; no file edits or command execution in P-07.02; tested source commit f23f5d5df5aa1711e04711254df159e4030e9d8e, tree a061f9a1eea4b47c9675231217aaca4bced62fe2; genuine LIVE_NEBIUS evidence in docs/P07_02_LIVE_BUILDER_LOOP.md; 24 unit tests passing in tests/builder/test_loop.py; 1644 full non-live tests passing; ruff check, ruff format --check, and mypy passing clean)
 ### P-07.03 — Implement bounded file editing and command execution
 ### P-07.04 — Capture candidate diff/tree hash and Builder-authored tests
 ### P-07.05 — Enforce protected surfaces and forbidden action policy
