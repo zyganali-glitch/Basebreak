@@ -74,11 +74,13 @@ Judge claim:
 - P-07.02 (Implement Nemotron Builder plan/code loop in real sandbox) is independently VERIFIED / PASS at SHA `8419f86c954313d49d9445a0ef4274fb94bfa0ce`.
 - P-07.03 (Implement bounded file editing and command execution) is independently VERIFIED / PASS at SHA `b5a40a589ca4c82255880237abb87f0a52a80a40`.
 - P-07.04 (Capture candidate diff/tree hash and Builder-authored tests) is independently VERIFIED / PASS at SHA `49eb9c8c2d03d47d32a6602bbb317b7e97125304`.
-- P-07.05 (Enforce protected surfaces and forbidden action policy) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (surgically repaired: eliminated caller-controlled policy-relaxation paths by making canonical P-04 protected-surface manifest non-downgradable across CandidateSecurityEnforcer, CandidateWorkspaceExecutor, CandidateExecutionConfig, and validate_candidate_proposal; rejected caller-supplied protected_manifest and enforce_protected_surfaces=False in CandidateExecutionConfig, CandidateWorkspaceExecutor, CandidateSecurityEnforcer, and validate_candidate_proposal; made enforcer.protected_manifest a read-only property returning canonical manifest; added CandidateSecurityEnforcementResult canonical manifest integrity check; 30 unit and adversarial tests passing in tests/builder/test_candidate_enforcement.py).
-- P-07.06+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
+- P-07.05 (Enforce protected surfaces and forbidden action policy) is independently VERIFIED / PASS at SHA `21eade65ab81c3f3bc32dd8a071b1c0f5e4f1fe2`.
+- P-07.06 (Reproduce candidate from trusted base + captured patch in a fresh sandbox) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented deterministic reproduction in src/basebreak/builder/reproduction.py; genuine LIVE_NEBIUS proof in docs/P07_06_LIVE_CANDIDATE_REPRODUCTION.md tested against implementation SHA 0f6bfa1121a164e410a849261990ff0b04820609 on nvidia/Nemotron-3_5-Lightning; Builder Sandbox sbx-06b1b18023e84dbf, Reproduction Sandbox sbx-12f47dac72c947e3; patch digest 7cccbf81d7a947bcb308dea86e404b95696d3ac2d3dfa4789ff038190ff55c96, candidate tree 385eed7e67e6b16e1caa102c9820b9ada947e508, reproduced tree 385eed7e67e6b16e1caa102c9820b9ada947e508, deterministic tree equality True; 25 focused unit tests in tests/builder/test_candidate_reproduction.py).
+- P-07 phase (Builder Runtime v1) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (all micro-tasks P-07.01 through P-07.06 completed).
+- P-08+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
-`49eb9c8c2d03d47d32a6602bbb317b7e97125304` (independently VERIFIED / PASS at P-07.04).
+`21eade65ab81c3f3bc32dd8a071b1c0f5e4f1fe2` (independently VERIFIED / PASS at P-07.05).
 
 ## Blocking live gate vs active task
 
@@ -86,17 +88,17 @@ Judge claim:
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-`P-07.05 — Enforce protected surfaces and forbidden action policy` (surgically repaired non-downgradable canonical P-04 protected-surface enforcement across CandidateSecurityEnforcer, CandidateWorkspaceExecutor, CandidateExecutionConfig, and validate_candidate_proposal; fail-closed rejection of caller-supplied manifests or disabled enforcement; read-only canonical manifest property on enforcer; result record manifest integrity enforcement; 30 unit and adversarial tests in `tests/builder/test_candidate_enforcement.py`).
+`P-07.06 — Reproduce candidate from trusted base + captured patch in a fresh sandbox` & P-07 Phase Exit (implemented CandidateReproductionConfig, CandidateReproductionResult, CandidateReproductionExecutor in `src/basebreak/builder/reproduction.py`; validates snapshot source identity, frozen contract digest, context digest, patch digest SHA-256; revalidates patch against canonical non-downgradable P-04 protected-surface policy; creates new distinct disposable sandbox with fresh sandbox identity; materializes exact trusted base; transports and applies exact captured patch; verifies exact bit-for-bit candidate tree equality; tears down sandbox on failure or completion; strictly non-authoritative: is_authoritative=False, is_causally_verified=False, grants_pass=False; genuine LIVE_NEBIUS proof in `docs/P07_06_LIVE_CANDIDATE_REPRODUCTION.md`; 25 focused unit tests in `tests/builder/test_candidate_reproduction.py`).
 
 ### Active exact task
-P-07.05 completed / independent QA candidate. HARD STOP after P-07.05. P-07.06+ are strictly NOT AUTHORIZED / NOT_RUN. Awaiting independent QA verification of P-07.05.
+P-07.06 completed / independent QA candidate. HARD STOP after P-07.06. P-08+ are strictly NOT AUTHORIZED / NOT_RUN. Awaiting independent QA verification of P-07.06 and P-07 Phase Exit.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-06 all tasks and phases are independently VERIFIED / PASS. P-07.01 through P-07.04 are independently VERIFIED / PASS. P-07.05 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-07.06+ remain strictly NOT AUTHORIZED / NOT_RUN.
-- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, and Builder primitives (`src/basebreak/builder/context.py`, `execution.py`, `capture.py`, `enforcement.py`) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
-- **Phase status:** P-00, P-01, P-02, P-03, P-04, P-05, P-06 phases are independently CLOSED / PASS. P-07 phase remains OPEN.
-- **Batch restoration & hard stop:** P-07.05 completed as executor candidate. P-07.06+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
-- **Not authorized / forbidden:** P-07.06+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-06 all tasks and phases are independently VERIFIED / PASS. P-07.01 through P-07.05 are independently VERIFIED / PASS. P-07.06 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-08+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, and Builder primitives (`src/basebreak/builder/context.py`, `execution.py`, `capture.py`, `enforcement.py`, `reproduction.py`) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
+- **Phase status:** P-00, P-01, P-02, P-03, P-04, P-05, P-06 phases are independently CLOSED / PASS. P-07 phase is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- **Batch restoration & hard stop:** P-07.06 completed as executor candidate. P-08+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Not authorized / forbidden:** P-08+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -114,6 +116,6 @@ P-07.05 completed / independent QA candidate. HARD STOP after P-07.05. P-07.06+ 
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-07.05 for independent QA verification.
-2. Maintain hard stop after P-07.05; do not activate or implement P-07.06+.
+1. Submit P-07.06 and P-07 Phase Exit for independent QA verification.
+2. Maintain hard stop after P-07.06; do not activate or implement P-08+.
 3. Await independent QA evaluation.
