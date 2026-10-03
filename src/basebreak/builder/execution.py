@@ -1112,7 +1112,7 @@ class CandidateWorkspaceExecutor:
         envelope: BuilderContextEnvelope | None = None,
         source_materializer: Any | None = None,
         sandbox_handle: Any | None = None,
-        provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
+        provenance: EvidenceProvenance | None = None,
         **kwargs: Any,
     ) -> CandidateExecutionResult:
         """Execute validated Builder proposal inside candidate sandbox.
@@ -1155,6 +1155,15 @@ class CandidateWorkspaceExecutor:
         resolved_contract_digest = envelope.frozen_contract.contract_digest
         resolved_context_digest = envelope.context_digest
         resolved_source_id = envelope.source_identity
+
+        # Derive runtime execution provenance mechanically from sandbox adapter
+        adapter_prov = getattr(self.sandbox_adapter, "execution_provenance", None)
+        if isinstance(adapter_prov, EvidenceProvenance):
+            effective_provenance = adapter_prov
+        elif provenance is not None:
+            effective_provenance = provenance
+        else:
+            effective_provenance = EvidenceProvenance.LOCAL_EXECUTION
 
         # Step 2: Resolve active source materializer (fail closed if absent)
         active_materializer = source_materializer or self.source_materializer
@@ -1271,7 +1280,7 @@ class CandidateWorkspaceExecutor:
                     proposal_digest=proposal_digest,
                     proposal=proposal,
                     start_time=start_time,
-                    provenance=provenance,
+                    provenance=effective_provenance,
                     created_handle=created_handle,
                 )
 
@@ -1443,7 +1452,7 @@ class CandidateWorkspaceExecutor:
             sandbox_identity=sbx_identity,
             total_duration_seconds=total_duration,
             workspace_path=clean_workspace,
-            provenance=provenance,
+            provenance=effective_provenance,
             is_authoritative=False,
         )
 
