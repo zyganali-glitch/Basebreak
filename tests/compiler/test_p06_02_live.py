@@ -317,6 +317,7 @@ def run_live_requirement_proposal_proof() -> dict[str, Any]:
     return evidence
 
 
+@pytest.mark.live
 def test_p06_02_live_requirement_proposal_proof() -> None:
     """Execute live Nemotron requirement extraction when credentials are present."""
     if os.environ.get("BASEBREAK_SKIP_LIVE_EXECUTION") == "1":

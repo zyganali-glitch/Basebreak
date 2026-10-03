@@ -222,6 +222,8 @@ class MockSourceMaterializer:
         sandbox: Any,
         workspace_path: str,
         timeout_seconds: int = 120,
+        disposable: bool = True,
+        **kwargs: Any,
     ) -> MockMaterializedSourceRecord:
         sbx_id = getattr(sandbox, "sandbox_identity", SandboxIdentity("sbx-default"))
         return MockMaterializedSourceRecord(

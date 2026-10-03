@@ -547,15 +547,26 @@ class BuilderLoopResult:
 # --- Parsing & Structural Validation ---
 
 
+def _recover_malformed_redundant_quotes(candidate: str) -> str:
+    """Attempt bounded recovery for redundant unescaped opening quotes on JSON string values.
+
+    ONLY invoked as a fallback when strict json.loads() has already failed.
+    Never runs on valid JSON payloads.
+    Targets malformed patterns emitted by LLMs (e.g. 3 or more unescaped opening
+    quotes before string content).
+    """
+    return re.sub(r'("(?:\w+)"\s*:\s*)"{3,}', r'\1"', candidate)
+
+
 def _extract_json_payload(raw_text: str) -> str:
-    """Extract JSON string from model response, stripping markdown fences and thinking blocks."""
+    """Extract JSON string from model response, stripping markdown fences and thinking blocks.
+
+    Byte-semantically preserves valid JSON candidates without pre-parse mutations.
+    """
     trimmed = raw_text.strip()
 
     # Strip thinking tags if emitted by reasoning models
     trimmed = re.sub(r"<think>.*?</think>", "", trimmed, flags=re.DOTALL).strip()
-
-    # Normalize redundant unescaped opening quotes emitted by LLMs (e.g. """"\"\"\" -> "\"\"\")
-    trimmed = re.sub(r'("(?:\w+)"\s*:\s*)"{2,}', r'\1"', trimmed)
 
     # Case 1: Search fenced code blocks (```json ... ``` or ``` ... ```)
     fence_blocks: list[str] = re.findall(
@@ -583,7 +594,13 @@ def _extract_json_payload(raw_text: str) -> str:
     first_brace = trimmed.find("{")
     last_brace = trimmed.rfind("}")
     if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-        return str(trimmed[first_brace : last_brace + 1]).strip()
+        candidate = str(trimmed[first_brace : last_brace + 1]).strip()
+        try:
+            json.loads(candidate)
+            return candidate
+        except Exception:
+            pass
+        return candidate
 
     return trimmed
 
@@ -609,12 +626,24 @@ def parse_and_validate_builder_response(raw_text: str) -> BuilderProposal:
 
     json_str = _extract_json_payload(raw_text)
 
+    data: Any
     try:
         data = json.loads(json_str)
-    except Exception as exc:
-        raise MalformedBuilderOutputError(
-            f"Model response could not be parsed as JSON: {exc}"
-        ) from exc
+    except Exception as strict_exc:
+        # Strict parsing failed. Only now attempt bounded deterministic malformed-output recovery.
+        recovered_str = _recover_malformed_redundant_quotes(json_str)
+        if recovered_str != json_str:
+            try:
+                data = json.loads(recovered_str)
+            except Exception:
+                data = None
+        else:
+            data = None
+
+        if data is None:
+            raise MalformedBuilderOutputError(
+                f"Model response could not be parsed as JSON: {strict_exc}"
+            ) from strict_exc
 
     if not isinstance(data, dict):
         raise MalformedBuilderOutputError(

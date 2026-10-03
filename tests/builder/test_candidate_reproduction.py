@@ -241,6 +241,8 @@ class MockSourceMaterializer:
         sandbox: Any,
         workspace_path: str,
         timeout_seconds: int = 120,
+        disposable: bool = True,
+        **kwargs: Any,
     ) -> MockMaterializedSourceRecord:
         if self.should_fail:
             raise RuntimeError("Simulated repository materialization failure")
@@ -873,3 +875,217 @@ def test_serialization_roundtrip() -> None:
     assert restored.is_authoritative is False
     assert restored.is_causally_verified is False
     assert restored.grants_pass is False
+
+
+# --- Blocker 2 & 3 QA Regression Tests ---
+
+
+def test_caller_cannot_forge_live_nebius_provenance() -> None:
+    """Blocker 3: Caller cannot assert or forge LIVE_NEBIUS in reproduction."""
+    from basebreak.evidence.provenance import ProvenanceLaunderingError
+
+    envelope = _create_envelope()
+    snapshot = _create_snapshot(envelope)
+    adapter = MockReproductionSandboxAdapter()
+    materializer = MockSourceMaterializer()
+    executor = CandidateReproductionExecutor(
+        sandbox_adapter=adapter,
+        source_materializer=materializer,
+    )
+
+    with pytest.raises(
+        ProvenanceLaunderingError, match="Caller cannot assert or request 'LIVE_NEBIUS'"
+    ):
+        executor.reproduce(
+            snapshot=snapshot,
+            envelope=envelope,
+            provenance=EvidenceProvenance.LIVE_NEBIUS,
+        )
+
+
+def test_caller_cannot_pass_recorded_live_provenance() -> None:
+    """Blocker 3: RECORDED_LIVE cannot masquerade as fresh live reproduction."""
+    from basebreak.evidence.provenance import ProvenanceLaunderingError
+
+    envelope = _create_envelope()
+    snapshot = _create_snapshot(envelope)
+    adapter = MockReproductionSandboxAdapter()
+    materializer = MockSourceMaterializer()
+    executor = CandidateReproductionExecutor(
+        sandbox_adapter=adapter,
+        source_materializer=materializer,
+    )
+
+    with pytest.raises(
+        ProvenanceLaunderingError, match="Caller cannot assert or request 'RECORDED_LIVE'"
+    ):
+        executor.reproduce(
+            snapshot=snapshot,
+            envelope=envelope,
+            provenance=EvidenceProvenance.RECORDED_LIVE,
+        )
+
+
+def test_local_mock_reproduction_derives_local_execution() -> None:
+    """Blocker 3: Local/mock reproduction mechanically derives LOCAL_EXECUTION."""
+    envelope = _create_envelope()
+    snapshot = _create_snapshot(envelope)
+    adapter = MockReproductionSandboxAdapter()
+    materializer = MockSourceMaterializer()
+    executor = CandidateReproductionExecutor(
+        sandbox_adapter=adapter,
+        source_materializer=materializer,
+    )
+
+    result = executor.reproduce(snapshot=snapshot, envelope=envelope)
+    assert result.provenance == EvidenceProvenance.LOCAL_EXECUTION
+
+
+def test_cannot_derive_live_nebius_from_non_live_snapshot() -> None:
+    """Blocker 3: LIVE_NEBIUS reproduction cannot be derived from a non-live snapshot."""
+    from basebreak.evidence.provenance import ProvenanceLaunderingError
+
+    envelope = _create_envelope()
+    # snapshot has LOCAL_EXECUTION provenance
+    snapshot = _create_snapshot(envelope)
+    assert snapshot.provenance == EvidenceProvenance.LOCAL_EXECUTION
+
+    # Adapter claims LIVE_NEBIUS execution
+    adapter = MockReproductionSandboxAdapter()
+    adapter.execution_provenance = EvidenceProvenance.LIVE_NEBIUS  # type: ignore[attr-defined]
+
+    materializer = MockSourceMaterializer()
+    executor = CandidateReproductionExecutor(
+        sandbox_adapter=adapter,
+        source_materializer=materializer,
+    )
+
+    with pytest.raises(
+        ProvenanceLaunderingError,
+        match="Cannot derive LIVE_NEBIUS reproduction from non-live snapshot",
+    ):
+        executor.reproduce(snapshot=snapshot, envelope=envelope)
+
+
+def test_deserialization_cannot_upgrade_provenance_to_live_nebius() -> None:
+    """Blocker 3: Deserialization cannot upgrade non-live snapshot to LIVE_NEBIUS."""
+    from basebreak.evidence.provenance import ProvenanceLaunderingError
+
+    envelope = _create_envelope()
+    snapshot = _create_snapshot(envelope)
+
+    result = CandidateReproductionResult(
+        candidate_snapshot=snapshot,
+        reproduced_tree_digest=VALID_TREE_SHA,
+        reproduced_patch_digest=snapshot.patch_digest,
+        sandbox_identity=SandboxIdentity("sbx-repro-0001"),
+        source_identity=envelope.source_identity,
+        duration_seconds=1.0,
+        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+    )
+
+    tampered_data = result.to_dict()
+    tampered_data["provenance"] = "LIVE_NEBIUS"
+
+    with pytest.raises(
+        ProvenanceLaunderingError,
+        match="Cannot deserialize CandidateReproductionResult claiming LIVE_NEBIUS",
+    ):
+        CandidateReproductionResult.from_dict(tampered_data)
+
+
+def test_reproduction_creates_disposable_sandbox() -> None:
+    """Blocker 2: Reproduction sandbox must be created with disposable=True."""
+    envelope = _create_envelope()
+    snapshot = _create_snapshot(envelope)
+    adapter = MockReproductionSandboxAdapter()
+    materializer = MockSourceMaterializer()
+    executor = CandidateReproductionExecutor(
+        sandbox_adapter=adapter,
+        source_materializer=materializer,
+    )
+
+    executor.reproduce(snapshot=snapshot, envelope=envelope)
+    assert len(adapter.created_handles) == 1
+    assert adapter.created_handles[0].disposable is True, (
+        "Reproduction sandbox must be disposable=True"
+    )
+
+
+def test_materializer_type_error_fails_closed_no_retry() -> None:
+    """Blocker 2: Internal materializer TypeError fails closed and is NOT silently retried."""
+    envelope = _create_envelope()
+    snapshot = _create_snapshot(envelope)
+    adapter = MockReproductionSandboxAdapter()
+
+    call_count = 0
+
+    class FailingMaterializer:
+        def materialize_repository(self, *args: Any, **kwargs: Any) -> Any:
+            nonlocal call_count
+            call_count += 1
+            raise TypeError("Simulated internal materializer bug")
+
+    executor = CandidateReproductionExecutor(
+        sandbox_adapter=adapter,
+        source_materializer=FailingMaterializer(),
+    )
+
+    with pytest.raises(
+        MaterializedSourceVerificationError, match="Simulated internal materializer bug"
+    ):
+        executor.reproduce(snapshot=snapshot, envelope=envelope)
+
+    assert call_count == 1, f"Materializer must be called exactly once, called {call_count} times"
+
+
+def test_bundled_execution_mode_succeeds() -> None:
+    """Blocker 2: Bundled execution mode executes in single command without checkpoint layers."""
+    envelope = _create_envelope()
+    snapshot = _create_snapshot(envelope)
+
+    class MockBundledAdapter:
+        execution_provenance = EvidenceProvenance.LOCAL_EXECUTION
+
+        def __init__(self) -> None:
+            self.created_handles: list[MockSandboxHandle] = []
+            self.executed_commands: list[str] = []
+
+        def create_sandbox(self, image: str, disposable: bool = True) -> MockSandboxHandle:
+            h = MockSandboxHandle(
+                sandbox_identity=SandboxIdentity("sbx-bundled-001"),
+                image=image,
+                disposable=disposable,
+            )
+            self.created_handles.append(h)
+            return h
+
+        def execute_command(self, sandbox: Any, command: str, **kwargs: Any) -> Any:
+            self.executed_commands.append(command)
+            stdout = (
+                f"BASEBREAK_REPRO_TREE={VALID_TREE_SHA}\n"
+                "BASEBREAK_REPRO_DIFF_START\n"
+                "M\tsrc/pool.py\n"
+                "BASEBREAK_REPRO_DIFF_END\n"
+            )
+            return SimpleNamespace(exit_code=0, stdout=stdout, stderr="")
+
+        def teardown_sandbox(self, sandbox: Any) -> None:
+            pass
+
+    adapter = MockBundledAdapter()
+    materializer = MockSourceMaterializer()
+    config = CandidateReproductionConfig(bundled_execution=True)
+    executor = CandidateReproductionExecutor(
+        sandbox_adapter=adapter,
+        source_materializer=materializer,
+        config=config,
+    )
+
+    result = executor.reproduce(snapshot=snapshot, envelope=envelope)
+    assert result.reproduced_tree_digest == VALID_TREE_SHA
+    assert result.is_reproduced is True
+    assert adapter.created_handles[0].disposable is True
+    # In bundled mode, exactly 1 command was executed on the handle after materialization
+    assert len(adapter.executed_commands) == 1
+    assert "BASEBREAK_REPRO_TREE" in adapter.executed_commands[0]

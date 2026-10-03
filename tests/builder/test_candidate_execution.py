@@ -1408,3 +1408,43 @@ class TestCandidateExecutionMaterializedSourceAuthority:
         assert not hasattr(result, "is_verified_candidate")
         assert not hasattr(result, "protected_surface_verdict")
         assert not hasattr(result, "forbidden_surface_mutations")
+
+    def test_candidate_execution_creates_disposable_sandbox(self) -> None:
+        """Blocker 2: Candidate workspace executor must create disposable=True sandbox."""
+        source_id = _create_test_source_identity()
+        contract = _create_test_frozen_contract()
+        envelope = _create_test_envelope(contract, source_id)
+        adapter = MockSandboxAdapter()
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=MockSourceMaterializer())
+        proposal = _create_sample_proposal()
+
+        executor.execute(proposal, envelope=envelope)
+        assert len(adapter.created_handles) == 1
+        assert adapter.created_handles[0].disposable is True, (
+            "Candidate sandbox must be disposable=True"
+        )
+
+    def test_candidate_execution_materializer_type_error_fails_closed_no_retry(self) -> None:
+        """Blocker 2: Materializer TypeError must fail closed and NOT be silently retried."""
+        source_id = _create_test_source_identity()
+        contract = _create_test_frozen_contract()
+        envelope = _create_test_envelope(contract, source_id)
+        adapter = MockSandboxAdapter()
+
+        call_count = 0
+
+        class FailingMaterializer:
+            def materialize_repository(self, *args: Any, **kwargs: Any) -> Any:
+                nonlocal call_count
+                call_count += 1
+                raise TypeError("Simulated materializer TypeError bug")
+
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=FailingMaterializer())
+        proposal = _create_sample_proposal()
+
+        with pytest.raises(WorkspaceExecutionError, match="Simulated materializer TypeError bug"):
+            executor.execute(proposal, envelope=envelope)
+
+        assert call_count == 1, (
+            f"Materializer must be called exactly once, called {call_count} times"
+        )

@@ -27,6 +27,7 @@ from enum import Enum
 from typing import Any
 
 from basebreak.domain.execution import ExecutionCommand, SandboxIdentity
+from basebreak.domain.verdict import EvidenceProvenance
 from basebreak.evidence.artifact import compute_bytes_digest
 from basebreak.security.normalization import (
     NormalizedExecutionRecord,
@@ -310,6 +311,25 @@ class NebiusSandboxAdapter:
     @property
     def config(self) -> SandboxClientConfig:
         return self._config
+
+    @property
+    def execution_provenance(self) -> EvidenceProvenance:
+        """Derive trusted deterministic runtime provenance.
+
+        Returns LIVE_NEBIUS strictly when:
+        1. Using default_urllib_transport (genuine network HTTP transport);
+        2. Valid API credentials are present;
+        3. Configured base URL is a valid remote HTTPS endpoint.
+        Returns LOCAL_EXECUTION for mock transports or non-live test environments.
+        """
+        if self._transport is default_urllib_transport:
+            try:
+                api_key, project_id = self._resolve_credentials()
+                if api_key and project_id and self._config.api_base_url.startswith("https://"):
+                    return EvidenceProvenance.LIVE_NEBIUS
+            except Exception:
+                pass
+        return EvidenceProvenance.LOCAL_EXECUTION
 
     def _resolve_credentials(self) -> tuple[str, str]:
         """Resolve and validate API key and Project ID at runtime."""

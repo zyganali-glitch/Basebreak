@@ -729,3 +729,147 @@ class TestBuilderLoopProviderPurity:
                 assert not (mod == forbidden or mod.startswith(forbidden + ".")), (
                     f"Forbidden provider or adapter import found in builder/loop.py: {mod}"
                 )
+
+
+# --- 10. Parser Regression Safety (Blocker 1 QA Tests) ---
+
+
+class TestParserRegressionSafety:
+    """Dedicated regression tests for Blocker 1 (Builder JSON parser integrity)."""
+
+    def test_valid_empty_content_survives(self) -> None:
+        """Valid empty-string content '\"content\": \"\"' must NOT be corrupted."""
+        from basebreak.builder.loop import parse_and_validate_builder_response
+
+        raw_json = (
+            "{\n"
+            '  "plan": {"summary": "Empty content action"},\n'
+            '  "proposed_file_actions": [\n'
+            "    {\n"
+            '      "path": "src/empty.py",\n'
+            '      "action": "CREATE",\n'
+            '      "content": ""\n'
+            "    }\n"
+            "  ]\n"
+            "}"
+        )
+        proposal = parse_and_validate_builder_response(raw_json)
+        assert len(proposal.proposed_file_actions) == 1
+        assert proposal.proposed_file_actions[0].content == ""
+
+    def test_valid_empty_rationale_survives(self) -> None:
+        """Valid empty-string rationale '\"rationale\": \"\"' must NOT be corrupted."""
+        from basebreak.builder.loop import parse_and_validate_builder_response
+
+        raw_json = (
+            "{\n"
+            '  "plan": {"summary": "Empty rationale action"},\n'
+            '  "proposed_commands": [\n'
+            "    {\n"
+            '      "command": "pytest",\n'
+            '      "rationale": ""\n'
+            "    }\n"
+            "  ]\n"
+            "}"
+        )
+        proposal = parse_and_validate_builder_response(raw_json)
+        assert len(proposal.proposed_commands) == 1
+        assert proposal.proposed_commands[0].rationale == ""
+
+    def test_ordinary_valid_strings_survive_unchanged(self) -> None:
+        """Ordinary valid strings survive strictly unchanged."""
+        from basebreak.builder.loop import parse_and_validate_builder_response
+
+        raw_json = (
+            "{\n"
+            '  "plan": {"summary": "Standard summary string"},\n'
+            '  "proposed_file_actions": [\n'
+            "    {\n"
+            '      "path": "src/mod.py",\n'
+            '      "action": "MODIFY",\n'
+            '      "content": "def hello():\\n    return \'world\'\\n"\n'
+            "    }\n"
+            "  ]\n"
+            "}"
+        )
+        proposal = parse_and_validate_builder_response(raw_json)
+        assert proposal.plan.summary == "Standard summary string"
+        assert proposal.proposed_file_actions[0].content == "def hello():\n    return 'world'\n"
+
+    def test_escaped_quotes_survive_unmodified(self) -> None:
+        """Valid escaped quotes inside string values survive unchanged."""
+        from basebreak.builder.loop import parse_and_validate_builder_response
+
+        raw_json = (
+            "{\n"
+            '  "plan": {"summary": "Escaped \\"quotes\\" summary"},\n'
+            '  "proposed_file_actions": [\n'
+            "    {\n"
+            '      "path": "src/escaped.py",\n'
+            '      "action": "CREATE",\n'
+            '      "content": "val = \\"quoted string\\""\n'
+            "    }\n"
+            "  ]\n"
+            "}"
+        )
+        proposal = parse_and_validate_builder_response(raw_json)
+        assert proposal.plan.summary == 'Escaped "quotes" summary'
+        assert proposal.proposed_file_actions[0].content == 'val = "quoted string"'
+
+    def test_legitimate_strings_beginning_with_quotes_not_corrupted(self) -> None:
+        """Strings beginning with escaped quotes are not corrupted."""
+        from basebreak.builder.loop import parse_and_validate_builder_response
+
+        raw_json = r"""{
+  "plan": {"summary": "\"leading quote summary"},
+  "proposed_file_actions": [
+    {
+      "path": "src/quoted.py",
+      "action": "CREATE",
+      "content": "\"docstring\""
+    }
+  ]
+}"""
+        proposal = parse_and_validate_builder_response(raw_json)
+        assert proposal.plan.summary == '"leading quote summary'
+        assert proposal.proposed_file_actions[0].content == '"docstring"'
+
+    def test_malformed_nemotron_redundant_quotes_recovered_in_fallback(self) -> None:
+        """Malformed redundant quotes pattern emitted by Nemotron is recovered in fallback."""
+        from basebreak.builder.loop import parse_and_validate_builder_response
+
+        # Malformed: "content": """"hello" -> 4 unescaped opening quotes
+        malformed_json = (
+            "{\n"
+            '  "plan": {"summary": "Fix docstring"},\n'
+            '  "proposed_file_actions": [\n'
+            "    {\n"
+            '      "path": "src/doc.py",\n'
+            '      "action": "CREATE",\n'
+            '      "content": """"hello"\n'
+            "    }\n"
+            "  ]\n"
+            "}"
+        )
+        proposal = parse_and_validate_builder_response(malformed_json)
+        assert proposal.plan.summary == "Fix docstring"
+        assert len(proposal.proposed_file_actions) == 1
+        assert proposal.proposed_file_actions[0].content == "hello"
+
+    def test_unrelated_malformed_json_fails_closed(self) -> None:
+        """Unrelated malformed JSON fails closed with MalformedBuilderOutputError."""
+        from basebreak.builder.loop import (
+            MalformedBuilderOutputError,
+            parse_and_validate_builder_response,
+        )
+
+        bad_jsons = [
+            '{"plan": {"summary": "truncated"',
+            "{plan: no quotes}",
+            '{"missing_plan": true}',
+            '{"plan": 123}',
+            '{"plan": {"summary": "ok"}, "proposed_file_actions": "not a list"}',
+        ]
+        for bad in bad_jsons:
+            with pytest.raises(MalformedBuilderOutputError):
+                parse_and_validate_builder_response(bad)

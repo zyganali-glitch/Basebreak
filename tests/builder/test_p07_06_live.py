@@ -465,6 +465,7 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
         timeout_seconds=120,
         teardown_on_failure=True,
         teardown_on_completion=True,
+        bundled_execution=True,
     )
     reproducer = CandidateReproductionExecutor(
         sandbox_adapter=sandbox_adapter,
@@ -474,7 +475,6 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
     repro_result: CandidateReproductionResult = reproducer.reproduce(
         snapshot=snapshot,
         envelope=envelope,
-        provenance=EvidenceProvenance.LIVE_NEBIUS,
     )
     repro_sbx_id = repro_result.sandbox_identity.sandbox_id
     print(f"[P-07.06] Sandbox #2 ID: {repro_sbx_id}")

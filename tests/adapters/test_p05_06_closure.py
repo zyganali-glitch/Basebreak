@@ -660,6 +660,7 @@ def test_p05_06_evidence_document_secret_safety() -> None:
         validate_no_secrets(content, path="P05_06_LIVE_ADAPTER_INTEGRATION.md")
 
 
+@pytest.mark.live
 def test_p05_06_live_adapter_suite_execution() -> None:
     """Execute live adapter suite against Nebius Token Factory when credentials are provided."""
     if os.environ.get("BASEBREAK_SKIP_LIVE_EXECUTION") == "1":

@@ -57,6 +57,7 @@ from basebreak.domain.execution import SandboxIdentity
 from basebreak.domain.source import CommitRevision, SourceIdentity
 from basebreak.domain.verdict import EvidenceProvenance
 from basebreak.evidence.artifact import compute_bytes_digest
+from basebreak.evidence.provenance import ProvenanceLaunderingError
 from basebreak.security.protected_surfaces import (
     ProtectedSurfaceManifest,
     ProtectedSurfaceViolation,
@@ -123,6 +124,7 @@ class CandidateReproductionConfig:
     teardown_on_completion: bool = True
     enforce_protected_surfaces: bool = True
     protected_manifest: ProtectedSurfaceManifest | None = None
+    bundled_execution: bool = False
 
     def __post_init__(self) -> None:
         if not (1 <= self.timeout_seconds <= 600):
@@ -244,6 +246,15 @@ class CandidateReproductionResult:
             raise TypeError(
                 f"provenance must be EvidenceProvenance, got {type(self.provenance).__name__}"
             )
+        if (
+            self.provenance == EvidenceProvenance.LIVE_NEBIUS
+            and self.candidate_snapshot.provenance != EvidenceProvenance.LIVE_NEBIUS
+        ):
+            raise ProvenanceLaunderingError(
+                "Cannot construct CandidateReproductionResult claiming LIVE_NEBIUS "
+                f"when candidate snapshot has non-live provenance "
+                f"'{self.candidate_snapshot.provenance.value}'"
+            )
 
         for attr in ("files_added", "files_modified", "files_deleted"):
             val = getattr(self, attr)
@@ -298,6 +309,14 @@ class CandidateReproductionResult:
 
         raw_prov = data.get("provenance", "LOCAL_EXECUTION")
         provenance = EvidenceProvenance(raw_prov)
+        if (
+            provenance == EvidenceProvenance.LIVE_NEBIUS
+            and snapshot.provenance != EvidenceProvenance.LIVE_NEBIUS
+        ):
+            raise ProvenanceLaunderingError(
+                f"Cannot deserialize CandidateReproductionResult claiming LIVE_NEBIUS "
+                f"when candidate snapshot has non-live provenance '{snapshot.provenance.value}'"
+            )
 
         raw_added = data.get("files_added", ())
         raw_mod = data.get("files_modified", ())
@@ -432,7 +451,7 @@ class CandidateReproductionExecutor:
         *,
         snapshot: CandidateSnapshot,
         envelope: BuilderContextEnvelope,
-        provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
+        provenance: EvidenceProvenance | None = None,
         **kwargs: Any,
     ) -> CandidateReproductionResult:
         """Reproduce candidate deterministically from trusted base + exact captured patch.
@@ -467,6 +486,35 @@ class CandidateReproductionExecutor:
             )
         if kwargs:
             raise TypeError(f"Unexpected keyword arguments: {sorted(kwargs.keys())}")
+
+        # Provenance validation: callers cannot forge or assert LIVE_NEBIUS / RECORDED_LIVE
+        if provenance in (EvidenceProvenance.LIVE_NEBIUS, EvidenceProvenance.RECORDED_LIVE):
+            raise ProvenanceLaunderingError(
+                f"Caller cannot assert or request '{provenance.value}' provenance; "
+                "reproduction provenance must be derived mechanically from "
+                "verified live sandbox adapter"
+            )
+        if provenance is not None and not isinstance(provenance, EvidenceProvenance):
+            raise TypeError(
+                f"provenance must be EvidenceProvenance, got {type(provenance).__name__}"
+            )
+
+        # Derive runtime execution provenance mechanically from sandbox adapter
+        adapter_prov = getattr(self.sandbox_adapter, "execution_provenance", None)
+        if isinstance(adapter_prov, EvidenceProvenance):
+            effective_provenance = adapter_prov
+        else:
+            effective_provenance = EvidenceProvenance.LOCAL_EXECUTION
+
+        if effective_provenance == EvidenceProvenance.LIVE_NEBIUS:
+            if snapshot.provenance != EvidenceProvenance.LIVE_NEBIUS:
+                raise ProvenanceLaunderingError(
+                    "Cannot derive LIVE_NEBIUS reproduction from non-live snapshot with "
+                    f"provenance '{snapshot.provenance.value}'. "
+                    "LIVE_NEBIUS requires genuine live platform execution for candidate capture."
+                )
+        elif provenance is not None:
+            effective_provenance = provenance
 
         # Step 2: Input Authority & Type Validation
         if isinstance(snapshot, BuilderProposal):
@@ -547,7 +595,7 @@ class CandidateReproductionExecutor:
         try:
             handle = self.sandbox_adapter.create_sandbox(
                 image=self.config.sandbox_image,
-                disposable=False,
+                disposable=True,
             )
         except Exception as exc:
             raise SandboxFreshnessError(
@@ -581,21 +629,13 @@ class CandidateReproductionExecutor:
 
             # Step 6: Materialize Authoritative Base Repository in Fresh Sandbox
             try:
-                try:
-                    materialization_record = self.source_materializer.materialize_repository(
-                        envelope.source_identity,
-                        sandbox=handle,
-                        workspace_path=clean_ws,
-                        disposable=False,
-                        timeout_seconds=self.config.timeout_seconds,
-                    )
-                except TypeError:
-                    materialization_record = self.source_materializer.materialize_repository(
-                        envelope.source_identity,
-                        sandbox=handle,
-                        workspace_path=clean_ws,
-                        timeout_seconds=self.config.timeout_seconds,
-                    )
+                materialization_record = self.source_materializer.materialize_repository(
+                    envelope.source_identity,
+                    sandbox=handle,
+                    workspace_path=clean_ws,
+                    disposable=True,
+                    timeout_seconds=self.config.timeout_seconds,
+                )
             except Exception as exc:
                 raise MaterializedSourceVerificationError(
                     f"Failed to materialize authoritative repository in reproduction sandbox: {exc}"
@@ -608,86 +648,155 @@ class CandidateReproductionExecutor:
                 expected_sandbox_identity=repro_sbx_id,
             )
 
-            # Step 7: Apply Exact Captured Patch
-            if not snapshot.is_no_change and snapshot.patch_text.strip():
+            # Step 7-9: Apply Captured Patch and Compute Tree / Diff
+            if self.config.bundled_execution:
                 patch_path = f"/tmp/basebreak_candidate_{repro_sbx_id.sandbox_id[:16]}.patch"
-                transport_scripts = build_patch_transport_scripts(snapshot.patch_text, patch_path)
-
-                for script in transport_scripts:
-                    res_write = self.sandbox_adapter.execute_command(
-                        handle,
-                        script,
-                        working_dir=clean_ws,
-                        timeout_seconds=self.config.timeout_seconds,
+                b64_patch = base64.b64encode(snapshot.patch_text.encode("utf-8")).decode("ascii")
+                bundle_script = f"set -e\ncd {shlex.quote(clean_ws)}\n"
+                if not snapshot.is_no_change and snapshot.patch_text.strip():
+                    bundle_script += (
+                        f'printf "%s" {shlex.quote(b64_patch)} | base64 -d > '
+                        f"{shlex.quote(patch_path)}\n"
+                        f"git apply --binary --whitespace=nowarn {shlex.quote(patch_path)}\n"
+                        f"rm -f {shlex.quote(patch_path)}\n"
                     )
-                    if getattr(res_write, "exit_code", -1) != 0:
-                        raw_err = getattr(res_write, "stderr", "") or getattr(
-                            res_write, "stdout", ""
-                        )
-                        raise PatchApplicationError(
-                            "Failed to transport candidate patch into reproduction sandbox: "
-                            f"{raw_err}"
-                        )
-
-                # Execute git apply
-                apply_cmd = f"git apply --binary --whitespace=nowarn {shlex.quote(patch_path)}"
-                res_apply = self.sandbox_adapter.execute_command(
+                bundle_script += (
+                    "git add -A\n"
+                    'echo "BASEBREAK_REPRO_TREE=$(git write-tree)"\n'
+                    'echo "BASEBREAK_REPRO_DIFF_START"\n'
+                    "git diff --name-status --no-renames --cached HEAD\n"
+                    'echo "BASEBREAK_REPRO_DIFF_END"\n'
+                )
+                res_bundle = self.sandbox_adapter.execute_command(
                     handle,
-                    apply_cmd,
+                    bundle_script,
                     working_dir=clean_ws,
                     timeout_seconds=self.config.timeout_seconds,
                 )
-                if getattr(res_apply, "exit_code", -1) != 0:
-                    raw_err = getattr(res_apply, "stderr", "") or getattr(res_apply, "stdout", "")
+                if getattr(res_bundle, "exit_code", -1) != 0:
+                    raw_err = getattr(res_bundle, "stderr", "") or getattr(res_bundle, "stdout", "")
                     raise PatchApplicationError(
-                        f"git apply failed inside fresh reproduction sandbox with "
-                        f"exit {getattr(res_apply, 'exit_code', -1)}: {raw_err}"
+                        f"Bundled reproduction failed inside fresh reproduction sandbox with "
+                        f"exit {getattr(res_bundle, 'exit_code', -1)}: {raw_err}"
+                    )
+                stdout_text = getattr(res_bundle, "stdout", "")
+                tree_match = re.search(r"BASEBREAK_REPRO_TREE=([0-9a-fA-F]{40,64})", stdout_text)
+                if not tree_match:
+                    raise MalformedReproductionInputError(
+                        "Could not parse BASEBREAK_REPRO_TREE from reproduction output"
+                    )
+                reproduced_tree_sha = tree_match.group(1).strip().lower()
+
+                diff_match = re.search(
+                    r"BASEBREAK_REPRO_DIFF_START\n(.*?)\nBASEBREAK_REPRO_DIFF_END",
+                    stdout_text,
+                    re.DOTALL,
+                )
+                repro_diff_output = diff_match.group(1) if diff_match else ""
+                repro_added, repro_mod, repro_del = parse_git_name_status(repro_diff_output)
+            else:
+                # Sequential execution (for mock adapters in tests)
+                # Step 7: Apply Exact Captured Patch
+                if not snapshot.is_no_change and snapshot.patch_text.strip():
+                    patch_path = f"/tmp/basebreak_candidate_{repro_sbx_id.sandbox_id[:16]}.patch"
+                    transport_scripts = build_patch_transport_scripts(
+                        snapshot.patch_text, patch_path
                     )
 
-                # Clean up temporary patch file
-                try:
-                    self.sandbox_adapter.execute_command(
+                    for script in transport_scripts:
+                        res_write = self.sandbox_adapter.execute_command(
+                            handle,
+                            script,
+                            working_dir=clean_ws,
+                            timeout_seconds=self.config.timeout_seconds,
+                        )
+                        if getattr(res_write, "exit_code", -1) != 0:
+                            raw_err = getattr(res_write, "stderr", "") or getattr(
+                                res_write, "stdout", ""
+                            )
+                            raise PatchApplicationError(
+                                "Failed to transport candidate patch into reproduction sandbox: "
+                                f"{raw_err}"
+                            )
+
+                    # Execute git apply
+                    apply_cmd = f"git apply --binary --whitespace=nowarn {shlex.quote(patch_path)}"
+                    res_apply = self.sandbox_adapter.execute_command(
                         handle,
-                        f"rm -f {shlex.quote(patch_path)}",
+                        apply_cmd,
                         working_dir=clean_ws,
                         timeout_seconds=self.config.timeout_seconds,
                     )
-                except Exception:
-                    pass
+                    if getattr(res_apply, "exit_code", -1) != 0:
+                        raw_err = getattr(res_apply, "stderr", "") or getattr(
+                            res_apply, "stdout", ""
+                        )
+                        raise PatchApplicationError(
+                            f"git apply failed inside fresh reproduction sandbox with "
+                            f"exit {getattr(res_apply, 'exit_code', -1)}: {raw_err}"
+                        )
 
-            # Step 8: Stage Changes Deterministically
-            res_add = self.sandbox_adapter.execute_command(
-                handle,
-                "git add -A",
-                working_dir=clean_ws,
-                timeout_seconds=self.config.timeout_seconds,
-            )
-            if getattr(res_add, "exit_code", -1) != 0:
-                raw_err = getattr(res_add, "stderr", "") or getattr(res_add, "stdout", "")
-                raise PatchApplicationError(
-                    f"git add -A failed inside fresh reproduction sandbox with "
-                    f"exit {getattr(res_add, 'exit_code', -1)}: {raw_err}"
-                )
+                    # Clean up temporary patch file
+                    try:
+                        self.sandbox_adapter.execute_command(
+                            handle,
+                            f"rm -f {shlex.quote(patch_path)}",
+                            working_dir=clean_ws,
+                            timeout_seconds=self.config.timeout_seconds,
+                        )
+                    except Exception:
+                        pass
 
-            # Step 9: Compute Resulting Git Tree Identity (git write-tree)
-            res_tree = self.sandbox_adapter.execute_command(
-                handle,
-                "git write-tree",
-                working_dir=clean_ws,
-                timeout_seconds=self.config.timeout_seconds,
-            )
-            if getattr(res_tree, "exit_code", -1) != 0:
-                raw_err = getattr(res_tree, "stderr", "") or getattr(res_tree, "stdout", "")
-                raise PatchApplicationError(
-                    f"git write-tree failed inside fresh reproduction sandbox with "
-                    f"exit {getattr(res_tree, 'exit_code', -1)}: {raw_err}"
+                # Step 8: Stage Changes Deterministically
+                res_add = self.sandbox_adapter.execute_command(
+                    handle,
+                    "git add -A",
+                    working_dir=clean_ws,
+                    timeout_seconds=self.config.timeout_seconds,
                 )
+                if getattr(res_add, "exit_code", -1) != 0:
+                    raw_err = getattr(res_add, "stderr", "") or getattr(res_add, "stdout", "")
+                    raise PatchApplicationError(
+                        f"git add -A failed inside fresh reproduction sandbox with "
+                        f"exit {getattr(res_add, 'exit_code', -1)}: {raw_err}"
+                    )
 
-            reproduced_tree_sha = getattr(res_tree, "stdout", "").strip().lower()
-            if not _HEX_40_OR_64_PATTERN.match(reproduced_tree_sha):
-                raise MalformedReproductionInputError(
-                    f"git write-tree returned invalid digest: {reproduced_tree_sha!r}"
+                # Step 9: Compute Resulting Git Tree Identity (git write-tree)
+                res_tree = self.sandbox_adapter.execute_command(
+                    handle,
+                    "git write-tree",
+                    working_dir=clean_ws,
+                    timeout_seconds=self.config.timeout_seconds,
                 )
+                if getattr(res_tree, "exit_code", -1) != 0:
+                    raw_err = getattr(res_tree, "stderr", "") or getattr(res_tree, "stdout", "")
+                    raise PatchApplicationError(
+                        f"git write-tree failed inside fresh reproduction sandbox with "
+                        f"exit {getattr(res_tree, 'exit_code', -1)}: {raw_err}"
+                    )
+
+                reproduced_tree_sha = getattr(res_tree, "stdout", "").strip().lower()
+                if not _HEX_40_OR_64_PATTERN.match(reproduced_tree_sha):
+                    raise MalformedReproductionInputError(
+                        f"git write-tree returned invalid digest: {reproduced_tree_sha!r}"
+                    )
+
+                # Capture reproduced changed-file state
+                res_diff = self.sandbox_adapter.execute_command(
+                    handle,
+                    "git diff --name-status --no-renames --cached HEAD",
+                    working_dir=clean_ws,
+                    timeout_seconds=self.config.timeout_seconds,
+                )
+                if getattr(res_diff, "exit_code", -1) != 0:
+                    raw_err = getattr(res_diff, "stderr", "") or getattr(res_diff, "stdout", "")
+                    raise PatchApplicationError(
+                        f"git diff --name-status failed inside reproduction sandbox with "
+                        f"exit {getattr(res_diff, 'exit_code', -1)}: {raw_err}"
+                    )
+
+                repro_diff_output = getattr(res_diff, "stdout", "")
+                repro_added, repro_mod, repro_del = parse_git_name_status(repro_diff_output)
 
             # Compare tree digest strictly
             if reproduced_tree_sha != clean_cand_tree:
@@ -696,23 +805,6 @@ class CandidateReproductionExecutor:
                     f"{reproduced_tree_sha!r} does not match captured candidate tree digest "
                     f"{clean_cand_tree!r}"
                 )
-
-            # Capture reproduced changed-file state
-            res_diff = self.sandbox_adapter.execute_command(
-                handle,
-                "git diff --name-status --no-renames --cached HEAD",
-                working_dir=clean_ws,
-                timeout_seconds=self.config.timeout_seconds,
-            )
-            if getattr(res_diff, "exit_code", -1) != 0:
-                raw_err = getattr(res_diff, "stderr", "") or getattr(res_diff, "stdout", "")
-                raise PatchApplicationError(
-                    f"git diff --name-status failed inside reproduction sandbox with "
-                    f"exit {getattr(res_diff, 'exit_code', -1)}: {raw_err}"
-                )
-
-            repro_diff_output = getattr(res_diff, "stdout", "")
-            repro_added, repro_mod, repro_del = parse_git_name_status(repro_diff_output)
 
             # Validate changed-file equality
             if (
@@ -760,7 +852,7 @@ class CandidateReproductionExecutor:
             is_authoritative=False,
             is_causally_verified=False,
             grants_pass=False,
-            provenance=provenance,
+            provenance=effective_provenance,
         )
 
 
