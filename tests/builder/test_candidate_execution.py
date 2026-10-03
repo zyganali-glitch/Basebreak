@@ -47,7 +47,6 @@ from basebreak.builder.execution import (
     SourceMaterializerProtocol,
     TargetAlreadyExistsError,
     UnmaterializedWorkspaceError,
-    VerifiedMaterializedSource,
     WorkspaceExecutionError,
     build_file_mutation_scripts,
     compute_proposal_digest,
@@ -184,23 +183,44 @@ class MockSandboxAdapter:
         self.torn_down_handles.append(handle)
 
 
+@dataclass(frozen=True, slots=True)
+class _MockMaterializedSourceRecord:
+    """Private test fixture record for mock materialization results."""
+
+    source_identity: SourceIdentity
+    resolved_commit_sha: str
+    workspace_path: str
+    sandbox_identity: SandboxIdentity
+    is_verified: bool = True
+
+
 class MockSourceMaterializer:
     """Mock repository source materializer for testing candidate execution.
 
-    Satisfies SourceMaterializerProtocol and produces VerifiedMaterializedSource records.
+    Satisfies SourceMaterializerProtocol and produces _MockMaterializedSourceRecord records.
     """
 
     def __init__(
         self,
         *,
         should_fail: bool = False,
-        should_produce_mismatch: bool = False,
+        should_produce_commit_mismatch: bool = False,
+        should_produce_locator_mismatch: bool = False,
+        should_produce_subpath_mismatch: bool = False,
+        should_produce_workspace_mismatch: bool = False,
+        should_produce_sandbox_mismatch: bool = False,
         should_produce_unverified: bool = False,
+        should_produce_malformed: bool = False,
         error_message: str = "Materialization failed in sandbox",
     ) -> None:
         self.should_fail = should_fail
-        self.should_produce_mismatch = should_produce_mismatch
+        self.should_produce_commit_mismatch = should_produce_commit_mismatch
+        self.should_produce_locator_mismatch = should_produce_locator_mismatch
+        self.should_produce_subpath_mismatch = should_produce_subpath_mismatch
+        self.should_produce_workspace_mismatch = should_produce_workspace_mismatch
+        self.should_produce_sandbox_mismatch = should_produce_sandbox_mismatch
         self.should_produce_unverified = should_produce_unverified
+        self.should_produce_malformed = should_produce_malformed
         self.error_message = error_message
         self.materialized_calls: list[dict[str, Any]] = []
 
@@ -212,7 +232,7 @@ class MockSourceMaterializer:
         workspace_path: str = "/workspace/repo",
         timeout_seconds: int = 120,
         **kwargs: Any,
-    ) -> VerifiedMaterializedSource:
+    ) -> Any:
         self.materialized_calls.append(
             {
                 "source_identity": source_identity,
@@ -224,48 +244,48 @@ class MockSourceMaterializer:
         if self.should_fail:
             raise RuntimeError(self.error_message)
 
+        if self.should_produce_malformed:
+            return "not-a-record"
+
+        src_id = source_identity
+        if self.should_produce_locator_mismatch:
+            src_id = SourceIdentity(
+                locator="https://github.com/mismatched/repo.git",
+                revision=source_identity.revision,
+                subpath=source_identity.subpath,
+            )
+        elif self.should_produce_subpath_mismatch:
+            src_id = SourceIdentity(
+                locator=source_identity.locator,
+                revision=source_identity.revision,
+                subpath="mismatched/subpath",
+            )
+
         commit = (
             "ffffffffffffffffffffffffffffffffffffffff"
-            if self.should_produce_mismatch
+            if self.should_produce_commit_mismatch
             else source_identity.resolved_commit_id
         )
-        sbx_id = getattr(
-            sandbox, "sandbox_identity", SandboxIdentity(sandbox_id="sbx-mock-default")
+
+        ws_path = (
+            "/workspace/wrong_path" if self.should_produce_workspace_mismatch else workspace_path
         )
 
-        return VerifiedMaterializedSource(
-            source_identity=source_identity,
+        sbx_id = (
+            SandboxIdentity(sandbox_id="sbx-mismatched-foreign")
+            if self.should_produce_sandbox_mismatch
+            else getattr(
+                sandbox, "sandbox_identity", SandboxIdentity(sandbox_id="sbx-mock-default")
+            )
+        )
+
+        return _MockMaterializedSourceRecord(
+            source_identity=src_id,
             resolved_commit_sha=commit,
-            workspace_path=workspace_path,
+            workspace_path=ws_path,
             sandbox_identity=sbx_id,
             is_verified=not self.should_produce_unverified,
         )
-
-
-def _create_verified_materialized_source(
-    envelope: Any,
-    sandbox_handle: Any,
-    workspace_path: str = "/workspace/candidate",
-    *,
-    commit_sha: str | None = None,
-    locator: str | None = None,
-    is_verified: bool = True,
-    sandbox_identity: SandboxIdentity | None = None,
-) -> VerifiedMaterializedSource:
-    src_id = envelope.source_identity
-    if locator is not None:
-        src_id = SourceIdentity(
-            locator=locator,
-            revision=src_id.revision,
-            subpath=src_id.subpath,
-        )
-    return VerifiedMaterializedSource(
-        source_identity=src_id,
-        resolved_commit_sha=commit_sha or envelope.source_identity.resolved_commit_id,
-        workspace_path=workspace_path,
-        sandbox_identity=sandbox_identity or sandbox_handle.sandbox_identity,
-        is_verified=is_verified,
-    )
 
 
 # --- Helper Fixtures ---
@@ -914,66 +934,262 @@ class TestCandidateExecutionMaterializedSourceAuthority:
         envelope = _create_test_envelope(contract, source_id)
         adapter = MockSandboxAdapter()
 
-        # Executor without materializer and without materialized_source record
+        # Executor without materializer in constructor and none passed at execution
         executor = CandidateWorkspaceExecutor(adapter)
         proposal = _create_sample_proposal()
 
         with pytest.raises(UnmaterializedWorkspaceError) as exc_info:
             executor.execute(proposal, envelope=envelope)
         assert "Cannot execute candidate in unmaterialized workspace" in str(exc_info.value)
+        assert "source_materializer dependency is required" in str(exc_info.value)
+        assert adapter.executed_commands == []
 
-    def test_materialized_source_commit_mismatch_fails_closed(self) -> None:
+    def test_caller_cannot_supply_materialized_source_record(self) -> None:
         source_id = _create_test_source_identity()
         contract = _create_test_frozen_contract()
         envelope = _create_test_envelope(contract, source_id)
         adapter = MockSandboxAdapter()
         handle = adapter.create_sandbox("test-image")
+        materializer = MockSourceMaterializer()
 
-        bad_commit = "9999999999999999999999999999999999999999"
-        bad_mat_source = _create_verified_materialized_source(
-            envelope=envelope,
-            sandbox_handle=handle,
-            commit_sha=bad_commit,
+        fake_record = _MockMaterializedSourceRecord(
+            source_identity=source_id,
+            resolved_commit_sha=source_id.resolved_commit_id,
+            workspace_path="/workspace/candidate",
+            sandbox_identity=handle.sandbox_identity,
+            is_verified=True,
         )
 
-        executor = CandidateWorkspaceExecutor(adapter)
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
+        proposal = _create_sample_proposal()
+
+        with pytest.raises(MaterializedSourceVerificationError) as exc_info:
+            executor.execute(
+                proposal,
+                envelope=envelope,
+                materialized_source=fake_record,
+                sandbox_handle=handle,
+            )
+        assert "Caller-supplied materialized_source is strictly forbidden" in str(exc_info.value)
+        assert len(materializer.materialized_calls) == 0
+        assert adapter.executed_commands == []
+
+    def test_synthetic_verified_record_cannot_bypass_materializer_execution(self) -> None:
+        source_id = _create_test_source_identity()
+        contract = _create_test_frozen_contract()
+        envelope = _create_test_envelope(contract, source_id)
+        adapter = MockSandboxAdapter()
+        handle = adapter.create_sandbox("test-image")
+        materializer = MockSourceMaterializer()
+
+        # Perfectly matching synthetic record
+        synthetic = _MockMaterializedSourceRecord(
+            source_identity=envelope.source_identity,
+            resolved_commit_sha=envelope.source_identity.resolved_commit_id,
+            workspace_path="/workspace/candidate",
+            sandbox_identity=handle.sandbox_identity,
+            is_verified=True,
+        )
+
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
+        proposal = _create_sample_proposal()
+
+        with pytest.raises(MaterializedSourceVerificationError) as exc_info:
+            executor.execute(
+                proposal,
+                envelope=envelope,
+                materialized_source=synthetic,
+                sandbox_handle=handle,
+            )
+        assert "materialized_source is strictly forbidden" in str(exc_info.value)
+        assert len(materializer.materialized_calls) == 0
+        assert adapter.executed_commands == []
+
+    def test_materializer_invoked_exactly_once_before_first_candidate_mutation(self) -> None:
+        source_id = _create_test_source_identity()
+        contract = _create_test_frozen_contract()
+        envelope = _create_test_envelope(contract, source_id)
+        adapter = MockSandboxAdapter()
+        materializer = MockSourceMaterializer()
+
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
+        proposal = _create_sample_proposal(
+            actions=[
+                ProposedFileAction(
+                    path="src/pool.py",
+                    action=FileActionType.MODIFY,
+                    content="class Pool:\n    pass\n",
+                    rationale="Update pool",
+                )
+            ],
+            commands=[
+                ProposedCommand(command="python -m pytest", rationale="run tests"),
+            ],
+        )
+
+        result = executor.execute(proposal, envelope=envelope)
+
+        assert isinstance(result, CandidateExecutionResult)
+        assert len(materializer.materialized_calls) == 1
+        # All mutation commands in adapter occurred strictly after materialization
+        assert len(adapter.executed_commands) == 2  # 1 file mutation + 1 proposed command
+
+    def test_materializer_receives_authoritative_envelope_source_identity(self) -> None:
+        source_id = _create_test_source_identity()
+        contract = _create_test_frozen_contract()
+        envelope = _create_test_envelope(contract, source_id)
+        adapter = MockSandboxAdapter()
+        materializer = MockSourceMaterializer()
+
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
+        proposal = _create_sample_proposal()
+
+        executor.execute(proposal, envelope=envelope)
+
+        assert len(materializer.materialized_calls) == 1
+        call = materializer.materialized_calls[0]
+        assert call["source_identity"] == envelope.source_identity
+        assert (
+            call["source_identity"].resolved_commit_id
+            == envelope.source_identity.resolved_commit_id
+        )
+        assert call["source_identity"].locator == envelope.source_identity.locator
+        assert call["source_identity"].subpath == envelope.source_identity.subpath
+
+    def test_materializer_receives_exact_same_sandbox_handle(self) -> None:
+        source_id = _create_test_source_identity()
+        contract = _create_test_frozen_contract()
+        envelope = _create_test_envelope(contract, source_id)
+        adapter = MockSandboxAdapter()
+        handle = adapter.create_sandbox("test-image")
+        materializer = MockSourceMaterializer()
+
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
+        proposal = _create_sample_proposal()
+
+        executor.execute(proposal, envelope=envelope, sandbox_handle=handle)
+
+        assert len(materializer.materialized_calls) == 1
+        call = materializer.materialized_calls[0]
+        assert call["sandbox"] is handle
+        for cmd_sbx, _, _ in adapter.executed_commands:
+            assert cmd_sbx is handle
+
+    def test_materializer_receives_exact_same_workspace_path(self) -> None:
+        source_id = _create_test_source_identity()
+        contract = _create_test_frozen_contract()
+        envelope = _create_test_envelope(contract, source_id)
+        adapter = MockSandboxAdapter()
+        materializer = MockSourceMaterializer()
+
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
+        proposal = _create_sample_proposal()
+
+        executor.execute(proposal, envelope=envelope)
+
+        assert len(materializer.materialized_calls) == 1
+        call = materializer.materialized_calls[0]
+        assert call["workspace_path"] == "/workspace/candidate"
+        for _, _, cwd in adapter.executed_commands:
+            assert cwd == "/workspace/candidate"
+
+    def test_materializer_failure_prevents_all_candidate_mutations_and_commands(self) -> None:
+        source_id = _create_test_source_identity()
+        contract = _create_test_frozen_contract()
+        envelope = _create_test_envelope(contract, source_id)
+        adapter = MockSandboxAdapter()
+        materializer = MockSourceMaterializer(
+            should_fail=True,
+            error_message="Git clone failed: host unreachable",
+        )
+
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
+        proposal = _create_sample_proposal()
+
+        with pytest.raises(WorkspaceExecutionError) as exc_info:
+            executor.execute(proposal, envelope=envelope)
+        assert "Failed to materialize authoritative repository in sandbox" in str(exc_info.value)
+        assert "Git clone failed: host unreachable" in str(exc_info.value)
+        # Sandbox must be torn down
+        assert len(adapter.created_handles) == 1
+        assert adapter.created_handles[0].is_torn_down is True
+        # Explicit assertion: zero candidate mutation or execution commands dispatched
+        assert adapter.executed_commands == []
+
+    def test_materializer_commit_mismatch_prevents_mutation(self) -> None:
+        source_id = _create_test_source_identity()
+        contract = _create_test_frozen_contract()
+        envelope = _create_test_envelope(contract, source_id)
+        adapter = MockSandboxAdapter()
+        materializer = MockSourceMaterializer(should_produce_commit_mismatch=True)
+
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
         proposal = _create_sample_proposal()
 
         with pytest.raises(SourceCommitMismatchError) as exc_info:
-            executor.execute(
-                proposal,
-                envelope=envelope,
-                materialized_source=bad_mat_source,
-                sandbox_handle=handle,
-            )
+            executor.execute(proposal, envelope=envelope)
         assert "does not match authoritative envelope commit" in str(exc_info.value)
+        assert adapter.executed_commands == []
 
-    def test_materialized_sandbox_identity_mismatch_fails_closed(self) -> None:
+    def test_materializer_locator_mismatch_prevents_mutation(self) -> None:
         source_id = _create_test_source_identity()
         contract = _create_test_frozen_contract()
         envelope = _create_test_envelope(contract, source_id)
         adapter = MockSandboxAdapter()
-        handle = adapter.create_sandbox("test-image")
+        materializer = MockSourceMaterializer(should_produce_locator_mismatch=True)
 
-        # Materialized record bound to sbx-foreign
-        foreign_sbx_id = SandboxIdentity(sandbox_id="sbx-foreign-9999")
-        mismatched_mat_source = _create_verified_materialized_source(
-            envelope=envelope,
-            sandbox_handle=handle,
-            sandbox_identity=foreign_sbx_id,
-        )
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
+        proposal = _create_sample_proposal()
 
-        executor = CandidateWorkspaceExecutor(adapter)
+        with pytest.raises(MaterializedSourceMismatchError) as exc_info:
+            executor.execute(proposal, envelope=envelope)
+        assert "does not match authoritative envelope locator" in str(exc_info.value)
+        assert adapter.executed_commands == []
+
+    def test_materializer_subpath_mismatch_prevents_mutation(self) -> None:
+        source_id = _create_test_source_identity()
+        contract = _create_test_frozen_contract()
+        envelope = _create_test_envelope(contract, source_id)
+        adapter = MockSandboxAdapter()
+        materializer = MockSourceMaterializer(should_produce_subpath_mismatch=True)
+
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
+        proposal = _create_sample_proposal()
+
+        with pytest.raises(MaterializedSourceMismatchError) as exc_info:
+            executor.execute(proposal, envelope=envelope)
+        assert "subpath" in str(exc_info.value).lower()
+        assert adapter.executed_commands == []
+
+    def test_materializer_workspace_path_mismatch_prevents_mutation(self) -> None:
+        source_id = _create_test_source_identity()
+        contract = _create_test_frozen_contract()
+        envelope = _create_test_envelope(contract, source_id)
+        adapter = MockSandboxAdapter()
+        materializer = MockSourceMaterializer(should_produce_workspace_mismatch=True)
+
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
+        proposal = _create_sample_proposal()
+
+        with pytest.raises(MaterializedSourceMismatchError) as exc_info:
+            executor.execute(proposal, envelope=envelope)
+        assert "does not match candidate execution workspace path" in str(exc_info.value)
+        assert adapter.executed_commands == []
+
+    def test_materializer_sandbox_identity_mismatch_prevents_mutation(self) -> None:
+        source_id = _create_test_source_identity()
+        contract = _create_test_frozen_contract()
+        envelope = _create_test_envelope(contract, source_id)
+        adapter = MockSandboxAdapter()
+        materializer = MockSourceMaterializer(should_produce_sandbox_mismatch=True)
+
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
         proposal = _create_sample_proposal()
 
         with pytest.raises(SandboxIdentityMismatchError) as exc_info:
-            executor.execute(
-                proposal,
-                envelope=envelope,
-                materialized_source=mismatched_mat_source,
-                sandbox_handle=handle,
-            )
+            executor.execute(proposal, envelope=envelope)
         assert "does not match candidate execution sandbox identity" in str(exc_info.value)
+        assert adapter.executed_commands == []
 
     def test_missing_sandbox_identity_fails_closed_no_unidentified(self) -> None:
         source_id = _create_test_source_identity()
@@ -995,6 +1211,7 @@ class TestCandidateExecutionMaterializedSourceAuthority:
             executor.execute(proposal, envelope=envelope, sandbox_handle=bad_handle)
         assert "lacks a deterministic SandboxIdentity" in str(exc_info.value)
         assert "unidentified sandboxes are strictly prohibited" in str(exc_info.value)
+        assert adapter.executed_commands == []
 
     def test_empty_sandbox_id_fails_closed_no_unidentified(self) -> None:
         source_id = _create_test_source_identity()
@@ -1019,95 +1236,48 @@ class TestCandidateExecutionMaterializedSourceAuthority:
             executor.execute(proposal, envelope=envelope, sandbox_handle=empty_handle)
         assert "empty or whitespace sandbox_id" in str(exc_info.value)
         assert "unidentified sandboxes are strictly prohibited" in str(exc_info.value)
+        assert adapter.executed_commands == []
 
-    def test_unverified_materialized_source_fails_closed(self) -> None:
+    def test_unverified_materialization_record_prevents_mutation(self) -> None:
         source_id = _create_test_source_identity()
         contract = _create_test_frozen_contract()
         envelope = _create_test_envelope(contract, source_id)
         adapter = MockSandboxAdapter()
-        handle = adapter.create_sandbox("test-image")
+        materializer = MockSourceMaterializer(should_produce_unverified=True)
 
-        unverified_mat = _create_verified_materialized_source(
-            envelope=envelope,
-            sandbox_handle=handle,
-            is_verified=False,
-        )
-
-        executor = CandidateWorkspaceExecutor(adapter)
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
         proposal = _create_sample_proposal()
 
         with pytest.raises(MaterializedSourceVerificationError) as exc_info:
-            executor.execute(
-                proposal,
-                envelope=envelope,
-                materialized_source=unverified_mat,
-                sandbox_handle=handle,
-            )
+            executor.execute(proposal, envelope=envelope)
         assert "verification did not succeed" in str(exc_info.value)
+        assert adapter.executed_commands == []
 
-    def test_materialized_workspace_path_mismatch_fails_closed(self) -> None:
+    def test_malformed_materialization_record_prevents_mutation(self) -> None:
         source_id = _create_test_source_identity()
         contract = _create_test_frozen_contract()
         envelope = _create_test_envelope(contract, source_id)
         adapter = MockSandboxAdapter()
-        handle = adapter.create_sandbox("test-image")
+        materializer = MockSourceMaterializer(should_produce_malformed=True)
 
-        wrong_path_mat = _create_verified_materialized_source(
-            envelope=envelope,
-            sandbox_handle=handle,
-            workspace_path="/workspace/different_path",
-        )
-
-        executor = CandidateWorkspaceExecutor(adapter)
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
         proposal = _create_sample_proposal()
 
-        with pytest.raises(MaterializedSourceMismatchError) as exc_info:
-            executor.execute(
-                proposal,
-                envelope=envelope,
-                materialized_source=wrong_path_mat,
-                sandbox_handle=handle,
-            )
-        assert "does not match candidate execution workspace path" in str(exc_info.value)
+        with pytest.raises(MaterializedSourceVerificationError):
+            executor.execute(proposal, envelope=envelope)
+        assert adapter.executed_commands == []
 
-    def test_materialized_source_locator_mismatch_fails_closed(self) -> None:
+    def test_successful_verified_materializer_result_allows_normal_bounded_execution(
+        self,
+    ) -> None:
         source_id = _create_test_source_identity()
         contract = _create_test_frozen_contract()
         envelope = _create_test_envelope(contract, source_id)
         adapter = MockSandboxAdapter()
         handle = adapter.create_sandbox("test-image")
+        materializer = MockSourceMaterializer()
 
-        wrong_locator_mat = _create_verified_materialized_source(
-            envelope=envelope,
-            sandbox_handle=handle,
-            locator="https://github.com/different/repo.git",
-        )
-
-        executor = CandidateWorkspaceExecutor(adapter)
-        proposal = _create_sample_proposal()
-
-        with pytest.raises(MaterializedSourceMismatchError) as exc_info:
-            executor.execute(
-                proposal,
-                envelope=envelope,
-                materialized_source=wrong_locator_mat,
-                sandbox_handle=handle,
-            )
-        assert "does not match authoritative envelope locator" in str(exc_info.value)
-
-    def test_verified_source_workspace_binding_allows_execution(self) -> None:
-        source_id = _create_test_source_identity()
-        contract = _create_test_frozen_contract()
-        envelope = _create_test_envelope(contract, source_id)
-        adapter = MockSandboxAdapter()
-        handle = adapter.create_sandbox("test-image")
-
-        mat_source = _create_verified_materialized_source(
-            envelope=envelope,
-            sandbox_handle=handle,
-        )
-
-        executor = CandidateWorkspaceExecutor(adapter)
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
         proposal = _create_sample_proposal(
             actions=[
                 ProposedFileAction(
@@ -1125,7 +1295,6 @@ class TestCandidateExecutionMaterializedSourceAuthority:
         result = executor.execute(
             proposal,
             envelope=envelope,
-            materialized_source=mat_source,
             sandbox_handle=handle,
         )
 
@@ -1136,42 +1305,26 @@ class TestCandidateExecutionMaterializedSourceAuthority:
         assert result.sandbox_identity == handle.sandbox_identity
         assert len(result.file_mutations) == 1
         assert len(result.command_executions) == 1
+        assert len(materializer.materialized_calls) == 1
 
-    def test_orchestrated_materialization_allows_execution(self) -> None:
+    def test_runtime_injected_source_materializer_allows_execution(self) -> None:
         source_id = _create_test_source_identity()
         contract = _create_test_frozen_contract()
         envelope = _create_test_envelope(contract, source_id)
         adapter = MockSandboxAdapter()
         materializer = MockSourceMaterializer()
 
-        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
+        # Constructor receives None, materializer injected at execute()
+        executor = CandidateWorkspaceExecutor(adapter, source_materializer=None)
         proposal = _create_sample_proposal()
 
-        result = executor.execute(proposal, envelope=envelope)
+        result = executor.execute(proposal, envelope=envelope, source_materializer=materializer)
 
         assert isinstance(result, CandidateExecutionResult)
         assert len(materializer.materialized_calls) == 1
         call = materializer.materialized_calls[0]
         assert call["source_identity"] == source_id
         assert call["workspace_path"] == "/workspace/candidate"
-
-    def test_orchestrated_materialization_failure_tears_down_and_fails_closed(self) -> None:
-        source_id = _create_test_source_identity()
-        contract = _create_test_frozen_contract()
-        envelope = _create_test_envelope(contract, source_id)
-        adapter = MockSandboxAdapter()
-        materializer = MockSourceMaterializer(should_fail=True, error_message="Git clone failed")
-
-        executor = CandidateWorkspaceExecutor(adapter, source_materializer=materializer)
-        proposal = _create_sample_proposal()
-
-        with pytest.raises(WorkspaceExecutionError) as exc_info:
-            executor.execute(proposal, envelope=envelope)
-        assert "Failed to materialize authoritative repository in sandbox" in str(exc_info.value)
-        assert "Git clone failed" in str(exc_info.value)
-        # Sandbox must be torn down
-        assert len(adapter.created_handles) == 1
-        assert adapter.created_handles[0].is_torn_down is True
 
     def test_result_identity_comes_only_from_authoritative_envelope(self) -> None:
         source_id = _create_test_source_identity()
@@ -1194,7 +1347,7 @@ class TestCandidateExecutionMaterializedSourceAuthority:
         contract = _create_test_frozen_contract()
         envelope = _create_test_envelope(contract, source_id)
         sbx_id = SandboxIdentity(sandbox_id="sbx-direct")
-        record = VerifiedMaterializedSource(
+        record = _MockMaterializedSourceRecord(
             source_identity=source_id,
             resolved_commit_sha=source_id.resolved_commit_id,
             workspace_path="/workspace/candidate",
@@ -1209,15 +1362,29 @@ class TestCandidateExecutionMaterializedSourceAuthority:
         )
 
     def test_protocols_satisfied_by_materialized_records(self) -> None:
+        from basebreak.adapters.nebius.materialization import MaterializedSourceRecord
+
         source_id = _create_test_source_identity()
-        record = VerifiedMaterializedSource(
+        mock_record = _MockMaterializedSourceRecord(
             source_identity=source_id,
             resolved_commit_sha=source_id.resolved_commit_id,
             workspace_path="/workspace/repo",
             sandbox_identity=SandboxIdentity(sandbox_id="sbx-test"),
             is_verified=True,
         )
-        assert isinstance(record, MaterializedSourceBinding)
+        assert isinstance(mock_record, MaterializedSourceBinding)
+
+        canonical_record = MaterializedSourceRecord(
+            source_identity=source_id,
+            resolved_commit_sha=source_id.resolved_commit_id,
+            resolved_tree_sha="2222222222222222222222222222222222222222",
+            workspace_path="/workspace/repo",
+            sandbox_identity=SandboxIdentity(sandbox_id="sbx-canon"),
+            operation_id="op-1234",
+            duration_seconds=1.5,
+            is_verified=True,
+        )
+        assert isinstance(canonical_record, MaterializedSourceBinding)
         assert isinstance(MockSourceMaterializer(), SourceMaterializerProtocol)
 
     def test_no_p07_05_authority_accidentally_introduced(self) -> None:
