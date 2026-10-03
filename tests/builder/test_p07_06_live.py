@@ -317,7 +317,8 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
         "Task: Add a candidate validation probe test in tests/test_candidate_probe.py.\n"
         "Requirements:\n"
         "1. Create tests/test_candidate_probe.py with passing test_candidate_probe.\n"
-        "2. Propose command pytest tests/test_candidate_probe.py to verify it passes."
+        "2. Only create tests/test_candidate_probe.py; do not modify existing files.\n"
+        "3. Propose command pytest tests/test_candidate_probe.py to verify it passes."
     )
     task: NormalizedTask = ingest_task(task_raw_text)
 
