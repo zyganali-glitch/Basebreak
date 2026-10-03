@@ -237,9 +237,11 @@ The live run exercised the unbroken Basebreak authority chain:
 
 ## 3. Security, Billing & Provenance Verification
 
-- **Promotional Guard / Zero-Cost Law:** Consumed `{total_tokens}` tokens and disposable
-  sandbox execution. Promotional balance verified above safety floor
-  (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`).
+- **Promotional Guard / Zero-Cost Law:** P-07.02 did not mechanically query the current
+  promotional balance; no exact current balance is asserted by this evidence. In accordance
+  with canonical zero-cost policy (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`), this run
+  consumed strictly bounded promotional tokens (`{total_tokens}` tokens) and a single
+  disposable sandbox execution.
 - **No-New-Debt / Boundary Law:** P-07.02 does NOT apply file edits or execute proposed commands.
 - **Builder Independence:** `is_authoritative` is strictly `False`.
   Model cannot award `VERIFIED` or `PASS`.

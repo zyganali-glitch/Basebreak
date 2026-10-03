@@ -62,7 +62,6 @@ DEFAULT_SANDBOX_IMAGE_TAG: str = "tag:astral/uv:python3.11-alpine"
 DEFAULT_MAX_MODEL_CALLS: int = 1
 DEFAULT_MODEL_MAX_TOKENS: int = 8192
 DEFAULT_MODEL_TEMPERATURE: float = 0.0
-DEFAULT_MODEL_TIMEOUT_SECONDS: float = 45.0
 DEFAULT_SANDBOX_TIMEOUT_SECONDS: int = 300
 DEFAULT_SANDBOX_PROBE_COMMAND: tuple[str, ...] = ("echo", "BASEBREAK_BUILDER_SANDBOX_READY")
 
@@ -405,14 +404,20 @@ class BuilderProposal:
 
 @dataclass(frozen=True, slots=True)
 class BuilderLoopConfig:
-    """Bounded runtime configuration for BuilderPlanCodeLoop."""
+    """Bounded runtime configuration for BuilderPlanCodeLoop.
+
+    Authority note:
+    - Model call timeout authority belongs strictly to canonical P-05
+      ModelClientConfig.timeout_seconds. BuilderLoopConfig does not define
+      or override a competing model timeout.
+    - sandbox_timeout_seconds governs the disposable sandbox probe command timeout.
+    """
 
     model_id: str = DEFAULT_PRIMARY_MODEL_ID
     sandbox_image: str = DEFAULT_SANDBOX_IMAGE_TAG
     max_model_calls: int = DEFAULT_MAX_MODEL_CALLS
     max_tokens: int = DEFAULT_MODEL_MAX_TOKENS
     temperature: float = DEFAULT_MODEL_TEMPERATURE
-    timeout_seconds: float = DEFAULT_MODEL_TIMEOUT_SECONDS
     require_sandbox: bool = False
     sandbox_timeout_seconds: int = DEFAULT_SANDBOX_TIMEOUT_SECONDS
     sandbox_probe_command: tuple[str, ...] = DEFAULT_SANDBOX_PROBE_COMMAND
@@ -434,8 +439,6 @@ class BuilderLoopConfig:
             raise BuilderLoopConfigError(
                 f"temperature must be between 0.0 and 2.0, got {self.temperature}"
             )
-        if self.timeout_seconds <= 0:
-            raise BuilderLoopConfigError("timeout_seconds must be positive")
         if self.sandbox_timeout_seconds <= 0 or self.sandbox_timeout_seconds > 600:
             raise BuilderLoopConfigError(
                 f"sandbox_timeout_seconds must be between 1 and 600, "
@@ -930,14 +933,11 @@ class BuilderPlanCodeLoop:
 
         self._model_call_count += 1
         try:
-            try:
-                model_result = self.model_client.complete(
-                    messages,
-                    max_tokens=self.config.max_tokens,
-                    temperature=self.config.temperature,
-                )
-            except TypeError:
-                model_result = self.model_client.complete(messages)
+            model_result = self.model_client.complete(
+                messages,
+                max_tokens=self.config.max_tokens,
+                temperature=self.config.temperature,
+            )
         except Exception as exc:
             # Check for timeout classes
             err_name = type(exc).__name__

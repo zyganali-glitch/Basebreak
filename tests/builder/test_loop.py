@@ -96,6 +96,7 @@ class MockModelClient:
         should_timeout: bool = False,
         should_fail: bool = False,
         error_message: str = "Model API error",
+        exception_to_raise: Exception | None = None,
     ) -> None:
         self.response_content = response_content or (
             '{\n  "plan": {\n    "summary": "Implement pool cleanup",\n'
@@ -110,10 +111,15 @@ class MockModelClient:
         self.should_timeout = should_timeout
         self.should_fail = should_fail
         self.error_message = error_message
+        self.exception_to_raise = exception_to_raise
         self.calls: list[list[dict[str, str]]] = []
+        self.kwargs_received: list[dict[str, Any]] = []
 
     def complete(self, messages: Any, **kwargs: Any) -> MockModelClientResult:
         self.calls.append(messages)
+        self.kwargs_received.append(kwargs)
+        if self.exception_to_raise is not None:
+            raise self.exception_to_raise
         if self.should_timeout:
             raise TimeoutError("Model completion timed out after 45.0s")
         if self.should_fail:
@@ -471,6 +477,54 @@ class TestBoundedModelCalls:
 
         with pytest.raises(BuilderLoopConfigError, match="max_model_calls"):
             BuilderLoopConfig(max_model_calls=10)
+
+    def test_type_error_does_not_trigger_second_invocation(
+        self,
+        sample_envelope: BuilderContextEnvelope,
+    ) -> None:
+        """Regression test for Defect 1: TypeError from model_client.complete() fails closed.
+
+        Proves that a TypeError originating in model_client.complete() does NOT trigger
+        a second invocation, ensuring exactly one attempt per permitted call.
+        """
+        client = MockModelClient(
+            exception_to_raise=TypeError("Internal adapter TypeError simulation")
+        )
+        loop = BuilderPlanCodeLoop(model_client=client)
+
+        with pytest.raises(TypeError, match="Internal adapter TypeError simulation"):
+            loop.run(sample_envelope)
+
+        assert len(client.calls) == 1
+        assert loop.model_call_count == 1
+
+    def test_provider_exception_does_not_silently_fallback(
+        self,
+        sample_envelope: BuilderContextEnvelope,
+    ) -> None:
+        """Regression test: arbitrary provider/model exceptions propagate fail-closed
+        without retry.
+        """
+        client = MockModelClient(
+            exception_to_raise=ValueError("Provider 500 internal server error")
+        )
+        loop = BuilderPlanCodeLoop(model_client=client)
+
+        with pytest.raises(ValueError, match="Provider 500 internal server error"):
+            loop.run(sample_envelope)
+
+        assert len(client.calls) == 1
+        assert loop.model_call_count == 1
+
+    def test_timeout_authority_is_not_competing_or_misleading(self) -> None:
+        """Proves timeout authority is owned exclusively by canonical P-05 client config.
+
+        BuilderLoopConfig must NOT define an unused/misleading timeout_seconds attribute.
+        """
+        cfg = BuilderLoopConfig()
+        assert not hasattr(cfg, "timeout_seconds")
+        with pytest.raises(TypeError):
+            BuilderLoopConfig(timeout_seconds=45.0)  # type: ignore[call-arg]
 
 
 # --- 5. Timeout & Error Propagation ---
