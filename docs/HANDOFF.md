@@ -67,11 +67,13 @@ Judge claim:
 - P-06.03 (Classify change semantics and uncertainty) is independently VERIFIED / PASS at SHA `6a8fe7756ed0ad3df8d7265d0702ecbc0842ecee`.
 - P-06.04 (Deterministically validate requirement IDs, scope, forbidden actions and contradictions) is independently VERIFIED / PASS at SHA `16bc6323a99f971d1cf4e90aedd4b828e240bd5a`.
 - P-06.05 (Add human-editable contract review surface/CLI) is independently VERIFIED / PASS at SHA `763d12efb75c4c7a3d8df78d73737bf0bde9cb3e`.
-- P-06.06 (Freeze contract digest before Builder execution) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented deterministic contract freezing in src/basebreak/compiler/freeze.py; enforced constructor-level authority invariant requiring authoritative APPROVED/READY_FOR_FREEZE ReviewResult via source_review InitVar across all construction paths; direct constructor with missing source_review, tampered contract/requirements, or non-matching review fails closed; freeze_review_result factory derives identity payload exclusively from review_result.contract with canonical requirement_id ordering and SHA-256 digest; FrozenContract.from_dict/from_json requires source_review and fails closed against tampered or attacker-recomputed digests; FrozenContract and FrozenRequirement are immutable dataclasses with zero mutation methods; deterministic verification via verify_frozen_contract; provider-neutral with zero adapter/provider imports; 46 unit/invariant tests passing in test_freeze.py; 275 compiler tests passing; 1561 full non-live tests passing; ruff check, ruff format --check, and mypy passing clean).
+- P-06.06 (Freeze contract digest before Builder execution) is independently VERIFIED / PASS at SHA `4588b7efdd331725364be59a9484a68c39f30d86`.
+- P-Ω P-06 phase-closure critical security-truth reconciliation is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-06 phase remains: OPEN pending independent P-Ω phase-closure QA.
 - P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Last independently VERIFIED baseline SHA
-`763d12efb75c4c7a3d8df78d73737bf0bde9cb3e` (independently VERIFIED / PASS at P-06.05).
+`4588b7efdd331725364be59a9484a68c39f30d86` (independently VERIFIED / PASS at P-06.06).
 
 ## Blocking live gate vs active task
 
@@ -79,16 +81,16 @@ Judge claim:
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-`P-06.06 — Freeze contract digest before Builder execution` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+`P-Ω P-06 phase-closure critical security-truth reconciliation` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
 
 ### Active exact task
-`P-06.06 — Freeze contract digest before Builder execution` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; awaiting independent QA verification).
+`P-Ω P-06 phase-closure critical security-truth reconciliation` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; awaiting independent QA verification).
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-05 all tasks are independently VERIFIED / PASS. P-06.01 through P-06.05 are independently VERIFIED / PASS. P-06.06 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-05 all tasks are independently VERIFIED / PASS. P-06.01 through P-06.06 are independently VERIFIED / PASS. P-Ω P-06 phase-closure security-truth reconciliation is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Provider neutrality:** All domain contracts, evidence primitives, security primitives, and Contract Compiler core production code (`src/basebreak/compiler/*`) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers in semantics.py, validator.py, review.py, review_cli.py, or freeze.py.
-- **Phase status:** P-00, P-01, P-02, P-03, P-04, P-05 phases are independently CLOSED / PASS. P-06 phase is OPEN pending P-06.06 independent QA.
-- **Batch restoration & hard stop:** P-06.06 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-07+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-06.06.
+- **Phase status:** P-00, P-01, P-02, P-03, P-04, P-05 phases are independently CLOSED / PASS. P-06 phase remains OPEN pending P-Ω independent QA closure.
+- **Batch restoration & hard stop:** P-Ω P-06 phase-closure reconciliation is completed as an independent QA candidate. P-07+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 - **Not authorized / forbidden:** P-07+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
@@ -107,6 +109,6 @@ None. P-01 and P-05 live platform/adapter integrations are complete and independ
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-06.06 for independent QA evaluation.
-2. Maintain hard stop at P-06.06; do not pre-implement or execute P-07+.
+1. Submit P-Ω P-06 phase-closure critical security-truth reconciliation for independent QA verification.
+2. Maintain hard stop at P-Ω closure; do not activate or implement P-07+.
 3. Await independent QA evaluation.
