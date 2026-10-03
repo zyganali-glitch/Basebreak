@@ -240,7 +240,7 @@ The live run exercised the unbroken Basebreak authority chain:
 - **Promotional Guard / Zero-Cost Law:** P-07.02 did not mechanically query the current
   promotional balance; no exact current balance is asserted by this evidence. In accordance
   with canonical zero-cost policy (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`), this run
-  consumed strictly bounded promotional tokens (`{total_tokens}` tokens) and a single
+  consumed a strictly bounded `{total_tokens}` model tokens and a single
   disposable sandbox execution.
 - **No-New-Debt / Boundary Law:** P-07.02 does NOT apply file edits or execute proposed commands.
 - **Builder Independence:** `is_authoritative` is strictly `False`.
