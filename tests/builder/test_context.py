@@ -67,6 +67,7 @@ from basebreak.builder.context import (
     SecretContextError,
     VerifierAssetContextError,
     assemble_builder_context,
+    build_canonical_context_identity_payload,
 )
 from basebreak.compiler.freeze import FrozenContract, freeze_review_result
 from basebreak.compiler.ingestion import NormalizedTask, ingest_task
@@ -78,7 +79,7 @@ from basebreak.compiler.semantics import (
     DeterministicClassificationFact,
 )
 from basebreak.domain.semantics import ChangeClass
-from basebreak.domain.source import CommitRevision, SourceIdentity
+from basebreak.domain.source import CommitRevision, RequestedRef, SourceIdentity
 
 # --- Fixtures ---
 
@@ -622,8 +623,220 @@ class TestEnvelopeIntegrityAndSerialization:
             )
 
 
+class TestAuthoritativeSourceSubpathProvenanceBinding:
+    """9. Authoritative SourceIdentity.subpath provenance binding tests."""
+
+    def test_different_subpaths_produce_different_context_digests(
+        self,
+        sample_contract: FrozenContract,
+        sample_repo_files: dict[str, str],
+    ) -> None:
+        rev = CommitRevision("0123456789abcdef0123456789abcdef01234567")
+        source_none = SourceIdentity(locator="github.com/example/repo", revision=rev, subpath=None)
+        source_pkg1 = SourceIdentity(
+            locator="github.com/example/repo", revision=rev, subpath="packages/core"
+        )
+        source_pkg2 = SourceIdentity(
+            locator="github.com/example/repo", revision=rev, subpath="packages/cli"
+        )
+
+        allowlist = BuilderContextAllowlist.from_paths(["src/pool/core.py"])
+        env_none = assemble_builder_context(
+            frozen_contract=sample_contract,
+            source_identity=source_none,
+            allowlist=allowlist,
+            repository_files=sample_repo_files,
+        )
+        env_pkg1 = assemble_builder_context(
+            frozen_contract=sample_contract,
+            source_identity=source_pkg1,
+            allowlist=allowlist,
+            repository_files=sample_repo_files,
+        )
+        env_pkg2 = assemble_builder_context(
+            frozen_contract=sample_contract,
+            source_identity=source_pkg2,
+            allowlist=allowlist,
+            repository_files=sample_repo_files,
+        )
+
+        assert env_none.context_digest != env_pkg1.context_digest
+        assert env_none.context_digest != env_pkg2.context_digest
+        assert env_pkg1.context_digest != env_pkg2.context_digest
+
+    def test_mismatched_serialized_subpath_fails_closed_on_from_dict(
+        self,
+        sample_contract: FrozenContract,
+        sample_repo_files: dict[str, str],
+    ) -> None:
+        rev = CommitRevision("0123456789abcdef0123456789abcdef01234567")
+        source_pkg1 = SourceIdentity(
+            locator="github.com/example/repo", revision=rev, subpath="packages/core"
+        )
+        source_pkg2 = SourceIdentity(
+            locator="github.com/example/repo", revision=rev, subpath="packages/cli"
+        )
+        source_none = SourceIdentity(locator="github.com/example/repo", revision=rev, subpath=None)
+
+        allowlist = BuilderContextAllowlist.from_paths(["src/pool/core.py"])
+        env_pkg1 = assemble_builder_context(
+            frozen_contract=sample_contract,
+            source_identity=source_pkg1,
+            allowlist=allowlist,
+            repository_files=sample_repo_files,
+        )
+
+        serialized = env_pkg1.to_dict()
+
+        # Deserializing with a different authoritative subpath fails closed
+        with pytest.raises(BuilderContextEnvelopeError, match="source_identity"):
+            BuilderContextEnvelope.from_dict(
+                serialized,
+                source_contract=sample_contract,
+                source_identity=source_pkg2,
+            )
+
+        # Deserializing with None when serialized has subpath fails closed
+        with pytest.raises(BuilderContextEnvelopeError, match="source_identity"):
+            BuilderContextEnvelope.from_dict(
+                serialized,
+                source_contract=sample_contract,
+                source_identity=source_none,
+            )
+
+    def test_subpath_none_roundtrip(
+        self,
+        sample_contract: FrozenContract,
+        sample_repo_files: dict[str, str],
+    ) -> None:
+        rev = CommitRevision("0123456789abcdef0123456789abcdef01234567")
+        source_none = SourceIdentity(locator="github.com/example/repo", revision=rev, subpath=None)
+
+        allowlist = BuilderContextAllowlist.from_paths(["src/pool/core.py"])
+        env_none = assemble_builder_context(
+            frozen_contract=sample_contract,
+            source_identity=source_none,
+            allowlist=allowlist,
+            repository_files=sample_repo_files,
+        )
+
+        # Dict roundtrip
+        restored_dict = BuilderContextEnvelope.from_dict(
+            env_none.to_dict(),
+            source_contract=sample_contract,
+            source_identity=source_none,
+        )
+        assert restored_dict.source_identity.subpath is None
+        assert restored_dict.context_digest == env_none.context_digest
+
+        # JSON roundtrip
+        restored_json = BuilderContextEnvelope.from_json(
+            env_none.to_json(),
+            source_contract=sample_contract,
+            source_identity=source_none,
+        )
+        assert restored_json.source_identity.subpath is None
+        assert restored_json.context_digest == env_none.context_digest
+
+    def test_exact_matching_non_none_subpath_roundtrip(
+        self,
+        sample_contract: FrozenContract,
+        sample_repo_files: dict[str, str],
+    ) -> None:
+        rev = CommitRevision("0123456789abcdef0123456789abcdef01234567")
+        source_pkg = SourceIdentity(
+            locator="github.com/example/repo", revision=rev, subpath="packages/core"
+        )
+
+        allowlist = BuilderContextAllowlist.from_paths(["src/pool/core.py"])
+        env = assemble_builder_context(
+            frozen_contract=sample_contract,
+            source_identity=source_pkg,
+            allowlist=allowlist,
+            repository_files=sample_repo_files,
+        )
+
+        # Dict roundtrip
+        restored_dict = BuilderContextEnvelope.from_dict(
+            env.to_dict(),
+            source_contract=sample_contract,
+            source_identity=source_pkg,
+        )
+        assert restored_dict.source_identity.subpath == "packages/core"
+        assert restored_dict.context_digest == env.context_digest
+
+        # JSON roundtrip
+        restored_json = BuilderContextEnvelope.from_json(
+            env.to_json(),
+            source_contract=sample_contract,
+            source_identity=source_pkg,
+        )
+        assert restored_json.source_identity.subpath == "packages/core"
+        assert restored_json.context_digest == env.context_digest
+
+    def test_empty_or_whitespace_subpath_rejected_in_payload_builder(
+        self,
+        sample_contract: FrozenContract,
+    ) -> None:
+        rev = CommitRevision("0123456789abcdef0123456789abcdef01234567")
+
+        with pytest.raises(ValueError, match="source_subpath"):
+            build_canonical_context_identity_payload(
+                schema_version=BUILDER_CONTEXT_SCHEMA_VERSION,
+                frozen_contract_digest=sample_contract.contract_digest,
+                source_locator="github.com/example/repo",
+                source_commit_id=str(rev),
+                source_subpath="",
+                admitted_files=[],
+                system_instructions="instructions",
+            )
+
+        with pytest.raises(ValueError, match="source_subpath"):
+            build_canonical_context_identity_payload(
+                schema_version=BUILDER_CONTEXT_SCHEMA_VERSION,
+                frozen_contract_digest=sample_contract.contract_digest,
+                source_locator="github.com/example/repo",
+                source_commit_id=str(rev),
+                source_subpath="   ",
+                admitted_files=[],
+                system_instructions="instructions",
+            )
+
+    def test_requested_ref_does_not_affect_context_digest(
+        self,
+        sample_contract: FrozenContract,
+        sample_repo_files: dict[str, str],
+    ) -> None:
+        rev = CommitRevision("0123456789abcdef0123456789abcdef01234567")
+        source_without_ref = SourceIdentity(
+            locator="github.com/example/repo", revision=rev, subpath="packages/core"
+        )
+        source_with_ref = SourceIdentity(
+            locator="github.com/example/repo",
+            revision=rev,
+            subpath="packages/core",
+            requested_ref=RequestedRef("main"),
+        )
+
+        allowlist = BuilderContextAllowlist.from_paths(["src/pool/core.py"])
+        env1 = assemble_builder_context(
+            frozen_contract=sample_contract,
+            source_identity=source_without_ref,
+            allowlist=allowlist,
+            repository_files=sample_repo_files,
+        )
+        env2 = assemble_builder_context(
+            frozen_contract=sample_contract,
+            source_identity=source_with_ref,
+            allowlist=allowlist,
+            repository_files=sample_repo_files,
+        )
+
+        assert env1.context_digest == env2.context_digest
+
+
 class TestProviderPurity:
-    """9. Verify zero provider SDK or adapter imports."""
+    """10. Verify zero provider SDK or adapter imports."""
 
     def test_builder_context_provider_purity(self) -> None:
         from basebreak.builder import context

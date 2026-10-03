@@ -398,10 +398,17 @@ def build_canonical_context_identity_payload(
     frozen_contract_digest: str,
     source_locator: str,
     source_commit_id: str,
+    source_subpath: str | None = None,
     admitted_files: Sequence[AdmittedRepoFile | Mapping[str, Any]],
     system_instructions: str,
 ) -> dict[str, Any]:
     """Build deterministic identity payload for context envelope digest computation."""
+    if source_subpath is not None:
+        if not isinstance(source_subpath, str) or not source_subpath.strip():
+            raise ValueError("source_subpath must be None or a non-empty string")
+        if source_subpath.strip() != source_subpath:
+            raise ValueError("source_subpath must not contain leading or trailing whitespace")
+
     file_records: list[dict[str, Any]] = []
     for f in admitted_files:
         if isinstance(f, AdmittedRepoFile):
@@ -432,6 +439,7 @@ def build_canonical_context_identity_payload(
         "schema_version": str(schema_version),
         "source_commit_id": str(source_commit_id),
         "source_locator": str(source_locator),
+        "source_subpath": source_subpath,
         "system_instructions_digest": sys_digest,
     }
 
@@ -528,6 +536,7 @@ class BuilderContextEnvelope:
             frozen_contract_digest=self.frozen_contract.contract_digest,
             source_locator=self.source_identity.locator,
             source_commit_id=str(self.source_identity.revision),
+            source_subpath=self.source_identity.subpath,
             admitted_files=self.admitted_files,
             system_instructions=self.system_instructions,
         )
@@ -654,9 +663,11 @@ class BuilderContextEnvelope:
         raw_source = data.get("source_identity")
         if not isinstance(raw_source, Mapping):
             raise BuilderContextEnvelopeError("Missing or invalid source_identity in envelope data")
-        if raw_source.get("locator") != source_identity.locator or raw_source.get(
-            "revision"
-        ) != str(source_identity.revision):
+        if (
+            raw_source.get("locator") != source_identity.locator
+            or raw_source.get("revision") != str(source_identity.revision)
+            or raw_source.get("subpath") != source_identity.subpath
+        ):
             raise BuilderContextEnvelopeError(
                 "Envelope source_identity does not match authoritative source_identity"
             )
@@ -820,6 +831,7 @@ def assemble_builder_context(
         frozen_contract_digest=frozen_contract.contract_digest,
         source_locator=source_identity.locator,
         source_commit_id=str(source_identity.revision),
+        source_subpath=source_identity.subpath,
         admitted_files=admitted_list,
         system_instructions=sys_instructions,
     )
