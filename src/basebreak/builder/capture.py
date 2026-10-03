@@ -31,7 +31,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from basebreak.builder.execution import CandidateExecutionResult
+from basebreak.builder.execution import (
+    CandidateExecutionResult,
+    CommandExecutionRecord,
+)
 from basebreak.builder.loop import BuilderProposal, FileActionType
 from basebreak.domain.execution import SandboxIdentity, TerminationStatus
 from basebreak.domain.source import CommitRevision, SourceIdentity
@@ -227,21 +230,64 @@ class CandidateSnapshot:
                 f"candidate_tree_digest must be a 40 or 64 hex char string, "
                 f"got {self.candidate_tree_digest!r}"
             )
+        if not isinstance(self.patch_text, str):
+            raise TypeError(f"patch_text must be str, got {type(self.patch_text).__name__}")
         if not isinstance(self.patch_digest, str) or not _HEX_64_PATTERN.match(self.patch_digest):
             raise MalformedCandidateEvidenceError(
                 f"patch_digest must be a 64 hex char string, got {self.patch_digest!r}"
             )
-        if not isinstance(self.patch_text, str):
-            raise TypeError(f"patch_text must be str, got {type(self.patch_text).__name__}")
+        computed_patch_digest = compute_bytes_digest(self.patch_text.encode("utf-8")).value
+        if self.patch_digest != computed_patch_digest:
+            raise MalformedCandidateEvidenceError(
+                f"patch_digest {self.patch_digest!r} does not match computed SHA-256 "
+                f"digest of patch_text {computed_patch_digest!r}"
+            )
 
-        # Coerce lists to tuples
+        # Validate changed files lists: canonicality, deterministic sorted order,
+        # no duplicates, mutually disjoint
         for attr in ("files_added", "files_modified", "files_deleted"):
             val = getattr(self, attr)
             if not isinstance(val, tuple):
                 if isinstance(val, Sequence):
-                    object.__setattr__(self, attr, tuple(val))
+                    val = tuple(val)
+                    object.__setattr__(self, attr, val)
                 else:
                     raise TypeError(f"{attr} must be a sequence of strings")
+
+            for item in val:
+                if not isinstance(item, str) or not item.strip():
+                    raise MalformedCandidateEvidenceError(
+                        f"{attr} entry must be a non-empty string"
+                    )
+                norm = normalize_repo_path(item)
+                if item != norm:
+                    raise MalformedCandidateEvidenceError(
+                        f"Path in {attr} is not normalized: {item!r} (expected {norm!r})"
+                    )
+
+            if len(val) != len(set(val)):
+                raise MalformedCandidateEvidenceError(f"Duplicate path detected in {attr}: {val}")
+
+            if list(val) != sorted(val):
+                raise MalformedCandidateEvidenceError(
+                    f"{attr} must be in deterministic sorted order: {val}"
+                )
+
+        set_added = set(self.files_added)
+        set_modified = set(self.files_modified)
+        set_deleted = set(self.files_deleted)
+        if set_added & set_modified:
+            raise MalformedCandidateEvidenceError(
+                f"files_added and files_modified overlap on: {sorted(set_added & set_modified)}"
+            )
+        if set_added & set_deleted:
+            raise MalformedCandidateEvidenceError(
+                f"files_added and files_deleted overlap on: {sorted(set_added & set_deleted)}"
+            )
+        if set_modified & set_deleted:
+            raise MalformedCandidateEvidenceError(
+                f"files_modified and files_deleted overlap on: {sorted(set_modified & set_deleted)}"
+            )
 
         if not isinstance(self.builder_authored_tests, tuple):
             if isinstance(self.builder_authored_tests, Sequence):
@@ -347,15 +393,27 @@ class CandidateSnapshot:
                 subpath=data.get("source_subpath"),
             )
 
+            raw_added = data.get("files_added", ())
+            raw_mod = data.get("files_modified", ())
+            raw_del = data.get("files_deleted", ())
+            if (
+                not isinstance(raw_added, (list, tuple))
+                or not isinstance(raw_mod, (list, tuple))
+                or not isinstance(raw_del, (list, tuple))
+            ):
+                raise TypeError(
+                    "files_added, files_modified, files_deleted must be lists or tuples"
+                )
+
             return cls(
                 candidate_id=str(data.get("candidate_id", "")),
                 source_identity=src_id,
                 candidate_tree_digest=str(data.get("candidate_tree_digest", "")),
                 patch_digest=str(data.get("patch_digest", "")),
                 patch_text=str(data.get("patch_text", "")),
-                files_added=tuple(str(x) for x in data.get("files_added", ())),
-                files_modified=tuple(str(x) for x in data.get("files_modified", ())),
-                files_deleted=tuple(str(x) for x in data.get("files_deleted", ())),
+                files_added=tuple(str(x) for x in raw_added),
+                files_modified=tuple(str(x) for x in raw_mod),
+                files_deleted=tuple(str(x) for x in raw_del),
                 builder_authored_tests=tests,
                 frozen_contract_digest=str(data.get("frozen_contract_digest", "")),
                 context_digest=str(data.get("context_digest", "")),
@@ -486,38 +544,58 @@ def identify_builder_authored_tests(
 
     Builder-Authored Test Law:
     - Tests added or modified by Builder are flagged as Builder-authored.
-    - Commands executing tests are bound to their respective execution facts.
-    - All tests carry is_builder_authored=True, is_authoritative=False, grants_pass=False.
+    - Classification ORIGINATES strictly from Builder-created/modified test files.
+    - Broad/generic test commands (e.g. pytest) never manufacture a BuilderAuthoredTest
+      when zero Builder-authored test files exist.
+    - Zero verification authority:
+      is_builder_authored=True, is_authoritative=False, grants_pass=False.
     """
     builder_test_files: set[str] = set()
     for mut in execution_result.file_mutations:
-        if _TEST_PATH_PATTERNS.search(mut.path):
-            builder_test_files.add(mut.path)
+        if _TEST_PATH_PATTERNS.search(mut.path) and mut.action != FileActionType.DELETE:
+            builder_test_files.add(normalize_repo_path(mut.path))
+
+    # If Builder authored zero test files, NO tests can be classified as Builder-authored
+    if not builder_test_files:
+        return ()
 
     tests: list[BuilderAuthoredTest] = []
-    for cmd in execution_result.command_executions:
-        is_test_cmd = False
-        target_path = ""
+    executed_test_files: set[str] = set()
 
-        for tf in builder_test_files:
-            if tf in cmd.command:
-                is_test_cmd = True
-                target_path = tf
-                break
+    for tf in sorted(builder_test_files):
+        tf_basename = tf.split("/")[-1]
+        matching_commands: list[CommandExecutionRecord] = []
 
-        if not is_test_cmd and _TEST_COMMAND_PATTERNS.search(cmd.command):
-            is_test_cmd = True
-            for part in cmd.command.split():
-                if _TEST_PATH_PATTERNS.search(part):
-                    target_path = part
-                    break
-            if not target_path:
-                target_path = cmd.command.split()[0] if cmd.command.split() else "test"
+        # 1. Look for commands specifically mentioning tf or its basename
+        for cmd in execution_result.command_executions:
+            if tf in cmd.command or (
+                tf_basename in cmd.command and _TEST_COMMAND_PATTERNS.search(cmd.command)
+            ):
+                matching_commands.append(cmd)
 
-        if is_test_cmd:
+        # 2. If no command explicitly mentioned tf, check for broad test commands
+        if not matching_commands:
+            for cmd in execution_result.command_executions:
+                if _TEST_COMMAND_PATTERNS.search(cmd.command):
+                    # Check if command targets another specific test file
+                    targets_other = False
+                    for part in cmd.command.split():
+                        part_clean = part.strip()
+                        if (
+                            _TEST_PATH_PATTERNS.search(part_clean)
+                            and part_clean != tf
+                            and part_clean != tf_basename
+                        ):
+                            targets_other = True
+                            break
+                    if not targets_other:
+                        matching_commands.append(cmd)
+
+        for cmd in matching_commands:
+            executed_test_files.add(tf)
             tests.append(
                 BuilderAuthoredTest(
-                    path=target_path,
+                    path=tf,
                     command=cmd.command,
                     exit_code=cmd.exit_code,
                     stdout_digest=cmd.stdout_digest,
@@ -530,9 +608,8 @@ def identify_builder_authored_tests(
                 )
             )
 
-    executed_paths = {t.path for t in tests}
-    for tf in sorted(builder_test_files):
-        if tf not in executed_paths:
+        # 3. If tf was not executed by any command, record as unexecuted
+        if tf not in executed_test_files:
             tests.append(
                 BuilderAuthoredTest(
                     path=tf,
@@ -621,33 +698,31 @@ def capture_candidate_from_execution(
     proposal: BuilderProposal | None = None,
     candidate_id: str | None = None,
 ) -> CandidateSnapshot:
-    """Capture candidate snapshot deterministically from execution result and base files."""
+    """Capture candidate snapshot deterministically from execution result and base files.
+
+    Enforces actual-state candidate identity:
+    - Deriving candidate identity from BuilderProposal is strictly forbidden and fails closed.
+    - Actual candidate state must be provided via candidate_files mapping or direct sandbox capture.
+    """
     if not isinstance(execution_result, CandidateExecutionResult):
         r_type = type(execution_result).__name__
         raise TypeError(f"execution_result must be CandidateExecutionResult, got {r_type}")
 
+    if proposal is not None:
+        raise MalformedCandidateEvidenceError(
+            "Deriving candidate identity from BuilderProposal is strictly forbidden; "
+            "candidate identity must reflect actual post-execution filesystem state"
+        )
+
     if candidate_files is not None:
         resolved_cand = dict(candidate_files)
-    elif proposal is not None:
-        resolved_cand = dict(base_files)
-        actions: Sequence[Any] = (
-            getattr(proposal, "proposed_file_actions", None)
-            or getattr(proposal, "file_actions", None)
-            or ()
-        )
-        for act in actions:
-            norm = normalize_repo_path(act.path)
-            if act.action in (FileActionType.CREATE, FileActionType.MODIFY):
-                resolved_cand[norm] = act.content
-            elif act.action == FileActionType.DELETE:
-                resolved_cand.pop(norm, None)
     else:
         if not execution_result.file_mutations:
             resolved_cand = dict(base_files)
         else:
             raise MalformedCandidateEvidenceError(
-                "candidate_files or proposal must be provided to reconstruct candidate files "
-                "when file mutations exist in CandidateExecutionResult"
+                "candidate_files must be provided to capture candidate state when mutations exist; "
+                "reconstructing candidate state from proposal is strictly forbidden"
             )
 
     builder_tests = identify_builder_authored_tests(execution_result)
@@ -671,16 +746,17 @@ def capture_candidate_from_sandbox(
     sandbox_handle: Any,
     execution_result: CandidateExecutionResult,
     *,
-    workspace_path: str = "/workspace/candidate",
+    workspace_path: str | None = None,
     candidate_id: str | None = None,
 ) -> CandidateSnapshot:
     """Capture candidate snapshot directly from disposable candidate sandbox via git.
 
-    Runs git commands inside the sandbox VM:
-    - git add -A
-    - git write-tree
-    - git status --porcelain
-    - git diff --cached HEAD
+    Enforces:
+    1. sandbox_handle exposes deterministic SandboxIdentity.
+    2. sandbox_handle.sandbox_identity strictly equals execution_result.sandbox_identity.
+    3. exact workspace binding to execution_result.workspace_path.
+    4. deterministic git repo top-level and git rev-parse HEAD match source commit.
+    5. reproducible git binary patch or fail closed with BinaryDiffUnsupportedError.
     """
     if sandbox_adapter is None:
         raise MalformedCandidateEvidenceError("sandbox_adapter must not be None")
@@ -690,17 +766,43 @@ def capture_candidate_from_sandbox(
         r_type = type(execution_result).__name__
         raise TypeError(f"execution_result must be CandidateExecutionResult, got {r_type}")
 
-    clean_ws = workspace_path.rstrip("/")
+    # 1 & 2. Sandbox identity validation
+    handle_sbx_id = getattr(sandbox_handle, "sandbox_identity", None)
+    if handle_sbx_id is None or not isinstance(handle_sbx_id, SandboxIdentity):
+        raise MalformedCandidateEvidenceError(
+            "sandbox_handle lacks a valid deterministic SandboxIdentity"
+        )
+    if not handle_sbx_id.sandbox_id or not handle_sbx_id.sandbox_id.strip():
+        raise MalformedCandidateEvidenceError(
+            "sandbox_handle contains an empty or whitespace sandbox_id"
+        )
+    if handle_sbx_id != execution_result.sandbox_identity:
+        raise MalformedCandidateEvidenceError(
+            f"Sandbox identity mismatch: sandbox_handle has {handle_sbx_id.sandbox_id!r}, "
+            f"but execution_result has {execution_result.sandbox_identity.sandbox_id!r}"
+        )
+
+    # 3. Exact workspace binding
+    expected_ws = execution_result.workspace_path.rstrip("/")
+    if workspace_path is not None and workspace_path.rstrip("/") != expected_ws:
+        raise MalformedCandidateEvidenceError(
+            f"Workspace path mismatch: provided workspace {workspace_path!r} does not "
+            f"match execution_result.workspace_path {execution_result.workspace_path!r}"
+        )
+    clean_ws = expected_ws
+
     capture_script = (
         "set -e\n"
         f"cd {clean_ws}\n"
+        'echo "BASEBREAK_REPO_TOPLEVEL=$(git rev-parse --show-toplevel)"\n'
+        'echo "BASEBREAK_HEAD=$(git rev-parse HEAD)"\n'
         "git add -A\n"
         'echo "BASEBREAK_TREE=$(git write-tree)"\n'
         'echo "BASEBREAK_STATUS_START"\n'
         "git status --porcelain\n"
         'echo "BASEBREAK_STATUS_END"\n'
         'echo "BASEBREAK_DIFF_START"\n'
-        "git diff --cached HEAD\n"
+        "git diff --binary --full-index --cached HEAD\n"
         'echo "BASEBREAK_DIFF_END"\n'
     )
 
@@ -724,6 +826,33 @@ def capture_candidate_from_sandbox(
             f"Candidate capture script failed inside sandbox with exit {exit_code}: {raw_stderr}"
         )
 
+    # 4a. Verify repo top-level matches expected workspace
+    toplevel_match = re.search(r"BASEBREAK_REPO_TOPLEVEL=(.*)", raw_stdout)
+    if not toplevel_match:
+        raise MalformedCandidateEvidenceError(
+            "Could not parse git repo top-level from sandbox capture output"
+        )
+    actual_toplevel = toplevel_match.group(1).strip().rstrip("/")
+    if actual_toplevel != clean_ws:
+        raise MalformedCandidateEvidenceError(
+            f"Sandbox git repository top-level {actual_toplevel!r} does not match "
+            f"expected candidate workspace {clean_ws!r}"
+        )
+
+    # 4b. Verify git HEAD matches execution_result.source_identity.resolved_commit_id
+    head_match = re.search(r"BASEBREAK_HEAD=([0-9a-fA-F]{40,64})", raw_stdout)
+    if not head_match:
+        raise MalformedCandidateEvidenceError(
+            "Could not parse git HEAD commit hash from sandbox capture output"
+        )
+    actual_head = head_match.group(1).lower()
+    expected_head = execution_result.source_identity.resolved_commit_id.lower()
+    if actual_head != expected_head:
+        raise MalformedCandidateEvidenceError(
+            f"Sandbox git HEAD {actual_head!r} does not match expected "
+            f"source commit {expected_head!r}"
+        )
+
     # Parse tree SHA
     tree_match = re.search(r"BASEBREAK_TREE=([0-9a-fA-F]{40,64})", raw_stdout)
     if not tree_match:
@@ -732,13 +861,23 @@ def capture_candidate_from_sandbox(
         )
     tree_sha = tree_match.group(1).lower()
 
+    # Parse diff & check reproducible binary patch policy
+    diff_match = re.search(r"BASEBREAK_DIFF_START\n([\s\S]*?)BASEBREAK_DIFF_END", raw_stdout)
+    diff_text = diff_match.group(1) if diff_match else ""
+    if re.search(r"Binary files\s+.*\s+differ", diff_text):
+        raise BinaryDiffUnsupportedError(
+            "Non-reproducible binary diff detected: git reported binary files differ "
+            "without reproducible binary patch"
+        )
+    patch_digest = compute_bytes_digest(diff_text.encode("utf-8")).value
+
     # Parse status
     status_match = re.search(r"BASEBREAK_STATUS_START\n([\s\S]*?)BASEBREAK_STATUS_END", raw_stdout)
     status_text = status_match.group(1) if status_match else ""
 
-    added: list[str] = []
-    modified: list[str] = []
-    deleted: list[str] = []
+    added_set: set[str] = set()
+    modified_set: set[str] = set()
+    deleted_set: set[str] = set()
 
     for line in status_text.splitlines():
         trimmed = line.strip()
@@ -750,16 +889,15 @@ def capture_candidate_from_sandbox(
             continue
         norm_path = normalize_repo_path(path)
         if "A" in status_code or "??" in status_code:
-            added.append(norm_path)
+            added_set.add(norm_path)
         elif "M" in status_code:
-            modified.append(norm_path)
+            modified_set.add(norm_path)
         elif "D" in status_code:
-            deleted.append(norm_path)
+            deleted_set.add(norm_path)
 
-    # Parse diff
-    diff_match = re.search(r"BASEBREAK_DIFF_START\n([\s\S]*?)BASEBREAK_DIFF_END", raw_stdout)
-    diff_text = diff_match.group(1) if diff_match else ""
-    patch_digest = compute_bytes_digest(diff_text.encode("utf-8")).value
+    # Ensure sets are mutually disjoint
+    modified_set -= added_set
+    deleted_set -= added_set | modified_set
 
     # Identify Builder-authored tests
     builder_tests = identify_builder_authored_tests(execution_result)
@@ -772,9 +910,9 @@ def capture_candidate_from_sandbox(
         candidate_tree_digest=tree_sha,
         patch_digest=patch_digest,
         patch_text=diff_text,
-        files_added=tuple(sorted(added)),
-        files_modified=tuple(sorted(modified)),
-        files_deleted=tuple(sorted(deleted)),
+        files_added=tuple(sorted(added_set)),
+        files_modified=tuple(sorted(modified_set)),
+        files_deleted=tuple(sorted(deleted_set)),
         builder_authored_tests=builder_tests,
         frozen_contract_digest=execution_result.frozen_contract_digest,
         context_digest=execution_result.context_digest,

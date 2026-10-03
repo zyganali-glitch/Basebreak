@@ -440,6 +440,7 @@ class CandidateExecutionResult:
     command_executions: tuple[CommandExecutionRecord, ...]
     sandbox_identity: SandboxIdentity
     total_duration_seconds: float
+    workspace_path: str = DEFAULT_WORKSPACE_PATH
     provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION
     is_authoritative: bool = False
 
@@ -494,6 +495,13 @@ class CandidateExecutionResult:
             raise TypeError("total_duration_seconds must be a float")
         if self.total_duration_seconds < 0.0:
             raise ValueError("total_duration_seconds must not be negative")
+        if not isinstance(self.workspace_path, str) or not self.workspace_path.strip():
+            raise ValueError("workspace_path must be a non-empty string")
+        try:
+            clean_ws = validate_workspace_path(self.workspace_path)
+            object.__setattr__(self, "workspace_path", clean_ws)
+        except Exception as exc:
+            raise ValueError(f"Invalid workspace_path {self.workspace_path!r}: {exc}") from exc
         if not isinstance(self.provenance, EvidenceProvenance):
             raise TypeError(
                 f"provenance must be EvidenceProvenance, got {type(self.provenance).__name__}"
@@ -517,6 +525,7 @@ class CandidateExecutionResult:
             "source_locator": self.source_identity.locator,
             "source_subpath": self.source_identity.subpath,
             "total_duration_seconds": self.total_duration_seconds,
+            "workspace_path": self.workspace_path,
         }
 
     @classmethod
@@ -543,6 +552,10 @@ class CandidateExecutionResult:
             subpath=data.get("source_subpath"),
         )
 
+        raw_ws = data.get("workspace_path", DEFAULT_WORKSPACE_PATH)
+        if not isinstance(raw_ws, str) or not raw_ws.strip():
+            raise TypeError("workspace_path must be a non-empty string")
+
         return cls(
             frozen_contract_digest=str(data.get("frozen_contract_digest", "")),
             context_digest=str(data.get("context_digest", "")),
@@ -553,6 +566,7 @@ class CandidateExecutionResult:
             command_executions=commands,
             sandbox_identity=SandboxIdentity(sandbox_id=str(data.get("sandbox_id", ""))),
             total_duration_seconds=float(data.get("total_duration_seconds", 0.0)),
+            workspace_path=raw_ws,
             provenance=prov,
             is_authoritative=False,
         )
@@ -1287,6 +1301,7 @@ class CandidateWorkspaceExecutor:
             command_executions=tuple(command_records),
             sandbox_identity=sbx_identity,
             total_duration_seconds=total_duration,
+            workspace_path=clean_workspace,
             provenance=provenance,
             is_authoritative=False,
         )
