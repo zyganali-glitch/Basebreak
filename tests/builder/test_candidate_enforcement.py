@@ -39,11 +39,13 @@ from basebreak.builder.capture import (
 )
 from basebreak.builder.context import BuilderContextAllowlist, assemble_builder_context
 from basebreak.builder.enforcement import (
+    CandidateEnforcementError,
     CandidateSecurityEnforcementResult,
     CandidateSecurityEnforcer,
 )
 from basebreak.builder.execution import (
     CandidateExecutionConfig,
+    CandidateExecutionConfigError,
     CandidateWorkspaceExecutor,
     CommandBoundingError,
     CredentialLeakageError,
@@ -75,8 +77,10 @@ from basebreak.domain.semantics import ChangeClass
 from basebreak.domain.source import CommitRevision, SourceIdentity
 from basebreak.evidence.artifact import compute_bytes_digest
 from basebreak.security.protected_surfaces import (
+    ProtectedSurfaceManifest,
     ProtectedSurfaceViolation,
     ProtectedSurfaceViolationKind,
+    get_canonical_basebreak_protected_manifest,
 )
 
 # --- Test Fixtures & Constants ---
@@ -1010,3 +1014,282 @@ class TestAuthorityInvariantsAndImmutability:
                 sandbox_adapter=None,
                 source_materializer=MockSourceMaterializer(),
             )
+
+
+class TestNonDowngradableProtectedSurfacePolicy:
+    """Adversarial and regression tests proving canonical P-04 policy is non-downgradable."""
+
+    def test_cannot_disable_protected_surfaces_via_config(self) -> None:
+        """1. A caller cannot disable protected-surface policy via CandidateExecutionConfig."""
+        # A. Construction with enforce_protected_surfaces=False raises CandidateExecutionConfigError
+        with pytest.raises(CandidateExecutionConfigError) as exc_info:
+            CandidateExecutionConfig(enforce_protected_surfaces=False)
+        assert "enforce_protected_surfaces cannot be disabled" in str(exc_info.value).lower()
+
+        # B. Tampering with config via object.__setattr__ fails closed in proposal validation
+        config = CandidateExecutionConfig()
+        object.__setattr__(config, "enforce_protected_surfaces", False)
+        proposal = _create_proposal(
+            actions=[
+                ProposedFileAction(
+                    path="AGENTS.md",
+                    action=FileActionType.MODIFY,
+                    content="# Bypass attempt\n",
+                )
+            ]
+        )
+        with pytest.raises((ProtectedSurfaceViolation, CandidateExecutionConfigError)):
+            validate_candidate_proposal(proposal, config)
+
+        # C. Tampering also fails closed in direct CandidateWorkspaceExecutor
+        adapter = MockUnifiedSandboxAdapter()
+        with pytest.raises((ProtectedSurfaceViolation, CandidateExecutionConfigError)):
+            CandidateWorkspaceExecutor(
+                sandbox_adapter=adapter,
+                source_materializer=MockSourceMaterializer(),
+                config=config,
+            )
+
+        # D. Tampering also fails closed in CandidateSecurityEnforcer
+        with pytest.raises((ProtectedSurfaceViolation, CandidateEnforcementError)):
+            CandidateSecurityEnforcer(
+                sandbox_adapter=adapter,
+                source_materializer=MockSourceMaterializer(),
+                config=config,
+            )
+
+    def test_cannot_substitute_empty_or_weaker_manifest_in_config(self) -> None:
+        """2a. A caller cannot substitute an empty or weaker manifest in config."""
+        empty_manifest = ProtectedSurfaceManifest(
+            exact_files=frozenset(),
+            directory_prefixes=frozenset(),
+        )
+        with pytest.raises(CandidateExecutionConfigError) as exc_info:
+            CandidateExecutionConfig(protected_manifest=empty_manifest)
+        assert "cannot override protected_manifest" in str(exc_info.value).lower()
+
+        # Tampering via object.__setattr__ fails closed
+        config = CandidateExecutionConfig()
+        object.__setattr__(config, "protected_manifest", empty_manifest)
+        proposal = _create_proposal(
+            actions=[
+                ProposedFileAction(
+                    path="AGENTS.md",
+                    action=FileActionType.MODIFY,
+                    content="# Bypass attempt\n",
+                )
+            ]
+        )
+        with pytest.raises((ProtectedSurfaceViolation, CandidateExecutionConfigError)):
+            validate_candidate_proposal(proposal, config)
+
+        adapter = MockUnifiedSandboxAdapter()
+        with pytest.raises((ProtectedSurfaceViolation, CandidateExecutionConfigError)):
+            CandidateWorkspaceExecutor(
+                sandbox_adapter=adapter,
+                source_materializer=MockSourceMaterializer(),
+                config=config,
+            )
+
+        with pytest.raises((ProtectedSurfaceViolation, CandidateEnforcementError)):
+            CandidateSecurityEnforcer(
+                sandbox_adapter=adapter,
+                source_materializer=MockSourceMaterializer(),
+                config=config,
+            )
+
+    def test_cannot_substitute_manifest_in_candidate_security_enforcer(self) -> None:
+        """2b. A caller cannot substitute an empty/weaker manifest into enforcer."""
+        adapter = MockUnifiedSandboxAdapter()
+        empty_manifest = ProtectedSurfaceManifest(
+            exact_files=frozenset(),
+            directory_prefixes=frozenset(),
+        )
+
+        # A. Passing protected_manifest to __init__ raises CandidateEnforcementError
+        with pytest.raises(CandidateEnforcementError) as exc_info:
+            CandidateSecurityEnforcer(
+                sandbox_adapter=adapter,
+                source_materializer=MockSourceMaterializer(),
+                protected_manifest=empty_manifest,
+            )
+        assert "cannot override protected_manifest" in str(exc_info.value).lower()
+
+        # B. Enforcer property protected_manifest is read-only
+        enforcer = CandidateSecurityEnforcer(
+            sandbox_adapter=adapter,
+            source_materializer=MockSourceMaterializer(),
+        )
+        with pytest.raises(AttributeError):
+            enforcer.protected_manifest = empty_manifest  # type: ignore[misc]
+
+        # C. Even if someone tampers with __dict__, property returns canonical manifest
+        enforcer.__dict__["protected_manifest"] = empty_manifest
+        assert enforcer.protected_manifest == get_canonical_basebreak_protected_manifest()
+
+        # D. Preflight validation against AGENTS.md still rejects
+        proposal = _create_proposal(
+            actions=[
+                ProposedFileAction(
+                    path="AGENTS.md",
+                    action=FileActionType.MODIFY,
+                    content="# Attack\n",
+                )
+            ]
+        )
+        with pytest.raises(ProtectedSurfaceViolation):
+            enforcer.validate_preflight_file_actions(proposal.proposed_file_actions)
+
+        # E. Post-execution diff validation against AGENTS.md still rejects
+        diff = (
+            "diff --git a/AGENTS.md b/AGENTS.md\n"
+            "--- a/AGENTS.md\n"
+            "+++ b/AGENTS.md\n"
+            "@@ -1 +1 @@\n"
+            "-# AGENTS.md\n"
+            "+# Hacked\n"
+        )
+        with pytest.raises(ProtectedSurfaceViolation):
+            enforcer.validate_post_execution_diff(diff)
+
+    def test_validate_candidate_proposal_rejects_caller_supplied_manifest(self) -> None:
+        """validate_candidate_proposal rejects caller-supplied protected_manifest argument."""
+        config = CandidateExecutionConfig()
+        empty_manifest = ProtectedSurfaceManifest(
+            exact_files=frozenset(),
+            directory_prefixes=frozenset(),
+        )
+        proposal = _create_proposal(
+            actions=[
+                ProposedFileAction(
+                    path="AGENTS.md",
+                    action=FileActionType.MODIFY,
+                    content="# Bypass attempt\n",
+                )
+            ]
+        )
+        with pytest.raises(InvalidProposedMutationError) as exc_info:
+            validate_candidate_proposal(proposal, config, protected_manifest=empty_manifest)
+        assert "cannot supply protected_manifest" in str(exc_info.value).lower()
+
+    def test_direct_workspace_executor_rejects_all_canonical_protected_surfaces(self) -> None:
+        """3 & 4. Direct workspace executor rejects canonical files and dispatches 0 commands."""
+        adapter = MockUnifiedSandboxAdapter()
+        executor = CandidateWorkspaceExecutor(
+            sandbox_adapter=adapter,
+            source_materializer=MockSourceMaterializer(),
+        )
+        envelope = _create_envelope()
+
+        canonical_paths = [
+            "AGENTS.md",
+            "plans/BASEBREAK_MASTER_EXECUTION_PLAN.md",
+            "docs/SECURITY_BOUNDARY.md",
+            "docs/DONOR_MANIFEST.md",
+            "docs/OPERATOR_REQUIREMENTS.md",
+            "docs/COMPETITION_FEEDBACK_LOG.md",
+            "src/basebreak/domain/source.py",
+            "src/basebreak/evidence/artifact.py",
+            "src/basebreak/security/protected_surfaces.py",
+        ]
+
+        for path in canonical_paths:
+            proposal = _create_proposal(
+                actions=[
+                    ProposedFileAction(
+                        path=path,
+                        action=FileActionType.MODIFY,
+                        content="# Unauthorized mutation\n",
+                    )
+                ]
+            )
+            with pytest.raises(ProtectedSurfaceViolation):
+                executor.execute(envelope=envelope, proposal=proposal)
+
+            # Assert zero mutation command dispatched and zero sandbox created
+            assert len(adapter.created_handles) == 0
+            assert len(adapter.executed_commands) == 0
+
+    def test_safe_ordinary_source_file_allowed(self) -> None:
+        """5. Safe ordinary source-file changes remain allowed."""
+        adapter = MockUnifiedSandboxAdapter()
+        enforcer = CandidateSecurityEnforcer(
+            sandbox_adapter=adapter,
+            source_materializer=MockSourceMaterializer(),
+        )
+        envelope = _create_envelope()
+        proposal = _create_proposal(
+            actions=[
+                ProposedFileAction(
+                    path="src/pool.py",
+                    action=FileActionType.MODIFY,
+                    content="class ConnectionPool:\n    def close(self): pass\n",
+                )
+            ]
+        )
+
+        result = enforcer.execute_and_enforce(envelope=envelope, proposal=proposal)
+        assert result.is_policy_compliant is True
+        assert result.preflight_file_actions_checked == 1
+        assert result.is_authoritative is False
+        assert result.is_causally_verified is False
+        assert result.grants_pass is False
+
+    def test_post_execution_actual_diff_protection_remains_intact(self) -> None:
+        """6. Post-execution diff protection catches stealth mutation and tears down sandbox."""
+        adapter = MockUnifiedSandboxAdapter(
+            git_diff_output=(
+                "diff --git a/docs/SECURITY_BOUNDARY.md b/docs/SECURITY_BOUNDARY.md\n"
+                "--- a/docs/SECURITY_BOUNDARY.md\n"
+                "+++ b/docs/SECURITY_BOUNDARY.md\n"
+                "@@ -1 +1 @@\n"
+                "-# SECURITY BOUNDARY\n"
+                "+# MUTATED\n"
+            ),
+            git_name_status="M\tdocs/SECURITY_BOUNDARY.md\n",
+        )
+        enforcer = CandidateSecurityEnforcer(
+            sandbox_adapter=adapter,
+            source_materializer=MockSourceMaterializer(),
+        )
+        envelope = _create_envelope()
+        proposal = _create_proposal(
+            actions=[],
+            commands=[ProposedCommand(command="sed -i 's/foo/bar/' docs/SECURITY_BOUNDARY.md")],
+        )
+
+        with pytest.raises(ProtectedSurfaceViolation):
+            enforcer.execute_and_enforce(envelope=envelope, proposal=proposal)
+
+        # Sandbox was created, but then torn down upon detecting the violation!
+        assert len(adapter.created_handles) == 1
+        assert adapter.created_handles[0].is_torn_down is True
+
+    def test_enforcement_result_rejects_weakened_canonical_manifest(self) -> None:
+        """CandidateSecurityEnforcementResult rejects forged records with weakened manifests."""
+        adapter = MockUnifiedSandboxAdapter()
+        enforcer = CandidateSecurityEnforcer(
+            sandbox_adapter=adapter,
+            source_materializer=MockSourceMaterializer(),
+        )
+        envelope = _create_envelope()
+        proposal = _create_proposal()
+        valid_result = enforcer.execute_and_enforce(envelope=envelope, proposal=proposal)
+
+        weakened_manifest = ProtectedSurfaceManifest(
+            exact_files=frozenset({"AGENTS.md"}),  # missing other canonical files
+            directory_prefixes=frozenset({"src/basebreak/domain"}),
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            CandidateSecurityEnforcementResult(
+                candidate_snapshot=valid_result.candidate_snapshot,
+                execution_result=valid_result.execution_result,
+                protected_manifest=weakened_manifest,
+                sandbox_identity=valid_result.sandbox_identity,
+                source_identity=valid_result.source_identity,
+                candidate_tree_digest=valid_result.candidate_tree_digest,
+                patch_digest=valid_result.patch_digest,
+                is_policy_compliant=True,
+            )
+        assert "missing canonical" in str(exc_info.value).lower()

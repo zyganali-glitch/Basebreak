@@ -50,7 +50,6 @@ from basebreak.security.protected_surfaces import (
     ProtectedSurfaceViolation,
     check_change,
     get_canonical_basebreak_protected_manifest,
-    normalize_repo_path,
     validate_path,
 )
 from basebreak.security.sandbox_policy import (
@@ -422,12 +421,15 @@ class CandidateExecutionConfig:
             raise CandidateExecutionConfigError("workspace_path must not be empty")
         if not self.sandbox_image or not self.sandbox_image.strip():
             raise CandidateExecutionConfigError("sandbox_image must not be empty")
-        if self.protected_manifest is not None and not isinstance(
-            self.protected_manifest, ProtectedSurfaceManifest
-        ):
+        if not self.enforce_protected_surfaces:
             raise CandidateExecutionConfigError(
-                f"protected_manifest must be ProtectedSurfaceManifest, "
-                f"got {type(self.protected_manifest).__name__}"
+                "enforce_protected_surfaces cannot be disabled; "
+                "canonical P-04 protected-surface policy is mandatory and non-downgradable"
+            )
+        if self.protected_manifest is not None:
+            raise CandidateExecutionConfigError(
+                "Caller cannot override protected_manifest in CandidateExecutionConfig; "
+                "canonical P-04 protected-surface policy is mandatory and non-downgradable"
             )
 
 
@@ -764,20 +766,23 @@ def validate_candidate_proposal(
         raise InvalidProposedMutationError(
             "BuilderProposal is_authoritative must be strictly False"
         )
-
-    manifest = (
-        protected_manifest
-        if protected_manifest is not None
-        else (
-            config.protected_manifest
-            if config.protected_manifest is not None
-            else (
-                get_canonical_basebreak_protected_manifest()
-                if config.enforce_protected_surfaces
-                else None
-            )
+    if protected_manifest is not None:
+        raise InvalidProposedMutationError(
+            "Caller cannot supply protected_manifest to validate_candidate_proposal; "
+            "canonical P-04 protected-surface policy is mandatory and non-downgradable"
         )
-    )
+    if not getattr(config, "enforce_protected_surfaces", True):
+        raise CandidateExecutionConfigError(
+            "enforce_protected_surfaces cannot be disabled; "
+            "canonical P-04 protected-surface policy is mandatory and non-downgradable"
+        )
+    if getattr(config, "protected_manifest", None) is not None:
+        raise CandidateExecutionConfigError(
+            "Caller cannot supply protected_manifest in CandidateExecutionConfig; "
+            "canonical P-04 protected-surface policy is mandatory and non-downgradable"
+        )
+
+    manifest = get_canonical_basebreak_protected_manifest()
 
     # 1. Validate File Actions
     if len(proposal.proposed_file_actions) > config.max_file_actions:
@@ -811,10 +816,7 @@ def validate_candidate_proposal(
 
         # Normalize path and check for traversal / root escape / protected surfaces
         try:
-            if manifest is not None:
-                norm_path = validate_path(action.path, manifest)
-            else:
-                norm_path = normalize_repo_path(action.path)
+            norm_path = validate_path(action.path, manifest)
         except ProtectedSurfaceViolation:
             raise
         except (PathTraversalError, InvalidPathError, PathSecurityError) as exc:
@@ -823,15 +825,14 @@ def validate_candidate_proposal(
             ) from exc
 
         # Validate FileChange representation against manifest
-        if manifest is not None:
-            change = FileChange(path=norm_path, kind=kind)
-            findings = check_change(change, manifest)
-            if findings:
-                first = findings[0]
-                raise ProtectedSurfaceViolation(
-                    f"Proposed file action targets protected surface: {first.message}",
-                    findings=tuple(findings),
-                )
+        change = FileChange(path=norm_path, kind=kind)
+        findings = check_change(change, manifest)
+        if findings:
+            first = findings[0]
+            raise ProtectedSurfaceViolation(
+                f"Proposed file action targets protected surface: {first.message}",
+                findings=tuple(findings),
+            )
 
         # Check for duplicate/conflicting mutations targeting the same path
         if norm_path in normalized_actions:
@@ -1086,9 +1087,20 @@ class CandidateWorkspaceExecutor:
             raise HostExecutionFallbackError(
                 "sandbox_adapter is required; host execution fallback is strictly prohibited"
             )
+        resolved_config = config or CandidateExecutionConfig()
+        if not getattr(resolved_config, "enforce_protected_surfaces", True):
+            raise CandidateExecutionConfigError(
+                "enforce_protected_surfaces cannot be disabled; "
+                "canonical P-04 protected-surface policy is mandatory and non-downgradable"
+            )
+        if getattr(resolved_config, "protected_manifest", None) is not None:
+            raise CandidateExecutionConfigError(
+                "Caller cannot override protected_manifest in config; "
+                "canonical P-04 protected-surface policy is mandatory and non-downgradable"
+            )
         self.sandbox_adapter = sandbox_adapter
         self.source_materializer = source_materializer
-        self.config = config or CandidateExecutionConfig()
+        self.config = resolved_config
 
     def execute(
         self,

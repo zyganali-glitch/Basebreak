@@ -171,6 +171,19 @@ class CandidateSecurityEnforcementResult:
             raise TypeError("execution_result must be CandidateExecutionResult")
         if not isinstance(self.protected_manifest, ProtectedSurfaceManifest):
             raise TypeError("protected_manifest must be ProtectedSurfaceManifest")
+        canonical_manifest = get_canonical_basebreak_protected_manifest()
+        for exact_file in canonical_manifest.exact_files:
+            if exact_file not in self.protected_manifest.exact_files:
+                raise ValueError(
+                    f"CandidateSecurityEnforcementResult protected_manifest is "
+                    f"missing canonical exact file: {exact_file}"
+                )
+        for prefix in canonical_manifest.directory_prefixes:
+            if prefix not in self.protected_manifest.directory_prefixes:
+                raise ValueError(
+                    f"CandidateSecurityEnforcementResult protected_manifest is "
+                    f"missing canonical directory prefix: {prefix}"
+                )
         if not isinstance(self.sandbox_identity, SandboxIdentity):
             raise TypeError("sandbox_identity must be SandboxIdentity")
         if not isinstance(self.source_identity, SourceIdentity):
@@ -292,8 +305,8 @@ class CandidateSecurityEnforcer:
         source_materializer: Any,
         *,
         config: CandidateExecutionConfig | None = None,
-        protected_manifest: ProtectedSurfaceManifest | None = None,
         sandbox_policy: SandboxExecutionPolicy | None = None,
+        protected_manifest: ProtectedSurfaceManifest | None = None,
     ) -> None:
         if sandbox_adapter is None:
             raise HostExecutionFallbackError(
@@ -303,16 +316,33 @@ class CandidateSecurityEnforcer:
             raise UnmaterializedWorkspaceError(
                 "source_materializer is required for candidate workspace materialization"
             )
+        if protected_manifest is not None:
+            raise CandidateEnforcementError(
+                "Caller cannot override protected_manifest; "
+                "canonical P-04 protected surfaces are mandatory and non-downgradable"
+            )
+
+        resolved_config = config or CandidateExecutionConfig()
+        if not getattr(resolved_config, "enforce_protected_surfaces", True):
+            raise CandidateEnforcementError(
+                "enforce_protected_surfaces cannot be False; "
+                "canonical P-04 protected surface enforcement is mandatory"
+            )
+        if getattr(resolved_config, "protected_manifest", None) is not None:
+            raise CandidateEnforcementError(
+                "Caller cannot override protected_manifest in config; "
+                "canonical P-04 protected surfaces are mandatory and non-downgradable"
+            )
 
         self.sandbox_adapter = sandbox_adapter
         self.source_materializer = source_materializer
-        self.config = config or CandidateExecutionConfig()
-        self.protected_manifest = (
-            protected_manifest
-            if protected_manifest is not None
-            else get_canonical_basebreak_protected_manifest()
-        )
+        self.config = resolved_config
         self.sandbox_policy = sandbox_policy or SandboxExecutionPolicy()
+
+    @property
+    def protected_manifest(self) -> ProtectedSurfaceManifest:
+        """Canonical P-04 protected surface manifest. Non-downgradable."""
+        return get_canonical_basebreak_protected_manifest()
 
     def validate_preflight_file_actions(
         self,

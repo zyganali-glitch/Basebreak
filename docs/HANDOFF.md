@@ -74,7 +74,7 @@ Judge claim:
 - P-07.02 (Implement Nemotron Builder plan/code loop in real sandbox) is independently VERIFIED / PASS at SHA `8419f86c954313d49d9445a0ef4274fb94bfa0ce`.
 - P-07.03 (Implement bounded file editing and command execution) is independently VERIFIED / PASS at SHA `b5a40a589ca4c82255880237abb87f0a52a80a40`.
 - P-07.04 (Capture candidate diff/tree hash and Builder-authored tests) is independently VERIFIED / PASS at SHA `49eb9c8c2d03d47d32a6602bbb317b7e97125304`.
-- P-07.05 (Enforce protected surfaces and forbidden action policy) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented pre-execution file-action/command policy enforcement and post-execution actual diff validation against canonical P-04 protected-surface manifest; fail-closed teardown on violation with zero accepted candidate; 22 focused tests passing in tests/builder/test_candidate_enforcement.py).
+- P-07.05 (Enforce protected surfaces and forbidden action policy) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (surgically repaired: eliminated caller-controlled policy-relaxation paths by making canonical P-04 protected-surface manifest non-downgradable across CandidateSecurityEnforcer, CandidateWorkspaceExecutor, CandidateExecutionConfig, and validate_candidate_proposal; rejected caller-supplied protected_manifest and enforce_protected_surfaces=False in CandidateExecutionConfig, CandidateWorkspaceExecutor, CandidateSecurityEnforcer, and validate_candidate_proposal; made enforcer.protected_manifest a read-only property returning canonical manifest; added CandidateSecurityEnforcementResult canonical manifest integrity check; 30 unit and adversarial tests passing in tests/builder/test_candidate_enforcement.py).
 - P-07.06+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
@@ -86,7 +86,7 @@ Judge claim:
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-`P-07.05 — Enforce protected surfaces and forbidden action policy` (pre-execution file-action conversion and check against canonical manifest, pre-dispatch command bounding/process/secret policy, same-sandbox execution and actual diff capture, post-execution protected surface validation, fail-closed teardown, non-authoritative security result contract; 22 unit tests in `tests/builder/test_candidate_enforcement.py`).
+`P-07.05 — Enforce protected surfaces and forbidden action policy` (surgically repaired non-downgradable canonical P-04 protected-surface enforcement across CandidateSecurityEnforcer, CandidateWorkspaceExecutor, CandidateExecutionConfig, and validate_candidate_proposal; fail-closed rejection of caller-supplied manifests or disabled enforcement; read-only canonical manifest property on enforcer; result record manifest integrity enforcement; 30 unit and adversarial tests in `tests/builder/test_candidate_enforcement.py`).
 
 ### Active exact task
 P-07.05 completed / independent QA candidate. HARD STOP after P-07.05. P-07.06+ are strictly NOT AUTHORIZED / NOT_RUN. Awaiting independent QA verification of P-07.05.
