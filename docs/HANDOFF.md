@@ -72,7 +72,9 @@ Judge claim:
 - P-06 phase (Contract Compiler) is independently CLOSED / PASS.
 - P-07.01 (Define Builder context allowlist and model input minimization) is independently VERIFIED / PASS at SHA `4cccc112bf4a50448eb81e91cb4902fa3344798f`.
 - P-07.02 (Implement Nemotron Builder plan/code loop in real sandbox) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (live-tested source commit `df13707106bf92bc027a6268c92903c1795c2793`, tree `1d6b10e810f7e56c918c52c255d9509add256f0d`; genuine LIVE_NEBIUS evidence in `docs/P07_02_LIVE_BUILDER_LOOP.md`).
-- P-07.03+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- P-07.03 (Implement bounded file editing and command execution) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at commit `e476b0564861f87fcda371ec417beb1838957373` (26 focused unit tests passing in `tests/builder/test_candidate_execution.py`).
+- P-07.04 (Capture candidate diff/tree hash and Builder-authored tests) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (20 focused unit tests passing in `tests/builder/test_candidate_capture.py`).
+- P-07.05+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
 `4cccc112bf4a50448eb81e91cb4902fa3344798f` (independently VERIFIED / PASS at P-07.01).
@@ -83,17 +85,17 @@ Judge claim:
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-`P-07.02 — Implement Nemotron Builder plan/code loop in real sandbox` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+`P-07.04 — Capture candidate diff/tree hash and Builder-authored tests` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; awaiting independent QA verification).
 
 ### Active exact task
-`P-07.02 — Implement Nemotron Builder plan/code loop in real sandbox` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; awaiting independent QA verification).
+HARD STOP after P-07.04. P-07.05+ are NOT AUTHORIZED. Awaiting independent QA verification of P-07.03 and P-07.04.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-06 all tasks and phases are independently VERIFIED / PASS. P-07.01 is independently VERIFIED / PASS. P-07.02 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-07.03+ remain strictly NOT AUTHORIZED / NOT_RUN.
-- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, and Builder context primitives (`src/basebreak/builder/context.py`) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
+- **Task status:** P-00 through P-06 all tasks and phases are independently VERIFIED / PASS. P-07.01 is independently VERIFIED / PASS. P-07.02, P-07.03, and P-07.04 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-07.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, and Builder primitives (`src/basebreak/builder/context.py`, `execution.py`, `capture.py`) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
 - **Phase status:** P-00, P-01, P-02, P-03, P-04, P-05, P-06 phases are independently CLOSED / PASS. P-07 phase remains OPEN.
-- **Batch restoration & hard stop:** P-07.02 is completed as an independent QA candidate. P-07.03+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
-- **Not authorized / forbidden:** P-07.03+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** P-07.03 and P-07.04 completed as executor candidates. P-07.05+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Not authorized / forbidden:** P-07.05+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
