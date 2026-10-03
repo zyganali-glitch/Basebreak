@@ -547,7 +547,7 @@ class CandidateReproductionExecutor:
         try:
             handle = self.sandbox_adapter.create_sandbox(
                 image=self.config.sandbox_image,
-                disposable=True,
+                disposable=False,
             )
         except Exception as exc:
             raise SandboxFreshnessError(
@@ -581,12 +581,21 @@ class CandidateReproductionExecutor:
 
             # Step 6: Materialize Authoritative Base Repository in Fresh Sandbox
             try:
-                materialization_record = self.source_materializer.materialize_repository(
-                    envelope.source_identity,
-                    sandbox=handle,
-                    workspace_path=clean_ws,
-                    timeout_seconds=self.config.timeout_seconds,
-                )
+                try:
+                    materialization_record = self.source_materializer.materialize_repository(
+                        envelope.source_identity,
+                        sandbox=handle,
+                        workspace_path=clean_ws,
+                        disposable=False,
+                        timeout_seconds=self.config.timeout_seconds,
+                    )
+                except TypeError:
+                    materialization_record = self.source_materializer.materialize_repository(
+                        envelope.source_identity,
+                        sandbox=handle,
+                        workspace_path=clean_ws,
+                        timeout_seconds=self.config.timeout_seconds,
+                    )
             except Exception as exc:
                 raise MaterializedSourceVerificationError(
                     f"Failed to materialize authoritative repository in reproduction sandbox: {exc}"

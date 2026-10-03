@@ -1177,7 +1177,7 @@ class CandidateWorkspaceExecutor:
             try:
                 handle = self.sandbox_adapter.create_sandbox(
                     image=self.config.sandbox_image,
-                    disposable=True,
+                    disposable=False,
                 )
                 created_handle = True
             except Exception as exc:
@@ -1201,12 +1201,21 @@ class CandidateWorkspaceExecutor:
 
             # Step 6: Materialize Authoritative Source Repository inside Sandbox VM
             try:
-                materialization_record = active_materializer.materialize_repository(
-                    resolved_source_id,
-                    sandbox=handle,
-                    workspace_path=clean_workspace,
-                    timeout_seconds=self.config.per_command_timeout_seconds,
-                )
+                try:
+                    materialization_record = active_materializer.materialize_repository(
+                        resolved_source_id,
+                        sandbox=handle,
+                        workspace_path=clean_workspace,
+                        disposable=False,
+                        timeout_seconds=self.config.per_command_timeout_seconds,
+                    )
+                except TypeError:
+                    materialization_record = active_materializer.materialize_repository(
+                        resolved_source_id,
+                        sandbox=handle,
+                        workspace_path=clean_workspace,
+                        timeout_seconds=self.config.per_command_timeout_seconds,
+                    )
             except Exception as exc:
                 raise WorkspaceExecutionError(
                     f"Failed to materialize authoritative repository in sandbox: {exc}"

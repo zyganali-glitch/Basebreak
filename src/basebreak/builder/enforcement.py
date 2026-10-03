@@ -568,7 +568,7 @@ class CandidateSecurityEnforcer:
             try:
                 handle = self.sandbox_adapter.create_sandbox(
                     image=self.config.sandbox_image,
-                    disposable=True,
+                    disposable=False,
                 )
                 created_handle = True
             except Exception as exc:
