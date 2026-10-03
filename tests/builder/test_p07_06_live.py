@@ -432,14 +432,30 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
     print(f"[P-07.06] Proposed actions: {len(loop_result.proposal.proposed_file_actions)}")
     print(f"[P-07.06] Proposed commands: {len(loop_result.proposal.proposed_commands)}")
 
+    # 3.5. Materialize Clean Base Checkpoint (Sole permitted checkpoint use per SANDBOX_POLICY.md)
+    print("\n[P-07.06] Step 1.5: Caching clean base repository checkpoint layer...")
+    clean_base_record = source_materializer.materialize_repository(
+        source_identity,
+        workspace_path="/workspace/clean_base",
+        disposable=False,  # Canonical clean base checkpoint
+        timeout_seconds=180,
+    )
+    assert clean_base_record.result_image_uuid is not None, (
+        "Clean base checkpoint image must be generated"
+    )
+    clean_base_image = clean_base_record.result_image_uuid
+    print(f"[P-07.06] Clean base checkpoint image: {clean_base_image}")
+
     # 4. Execute and Enforce Candidate Mutations in Disposable Builder Sandbox (Sandbox #1)
     print("\n[P-07.06] Step 2: Executing mutations & capturing candidate in Sandbox #1...")
     exec_cfg = CandidateExecutionConfig(
-        workspace_path="/workspace/candidate",
-        sandbox_image=DEFAULT_SANDBOX_IMAGE,
+        workspace_path="/workspace/clean_base",
+        sandbox_image=clean_base_image,
         per_command_timeout_seconds=120,
         teardown_on_failure=True,
         teardown_on_completion=True,
+        bundled_execution=True,
+        clean_base_record=clean_base_record,
     )
     enforcer = CandidateSecurityEnforcer(
         sandbox_adapter=sandbox_adapter,
@@ -460,12 +476,13 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
     # 5. Reproduce Candidate from Trusted Base + Captured Patch in Fresh Sandbox (Sandbox #2)
     print("\n[P-07.06] Step 3: Reproducing candidate in fresh Sandbox #2...")
     repro_cfg = CandidateReproductionConfig(
-        workspace_path="/workspace/reproduction",
-        sandbox_image=DEFAULT_SANDBOX_IMAGE,
+        workspace_path="/workspace/clean_base",
+        sandbox_image=clean_base_image,
         timeout_seconds=120,
         teardown_on_failure=True,
         teardown_on_completion=True,
         bundled_execution=True,
+        clean_base_record=clean_base_record,
     )
     reproducer = CandidateReproductionExecutor(
         sandbox_adapter=sandbox_adapter,
@@ -516,7 +533,7 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
         "reproduced_tree_digest": repro_result.reproduced_tree_digest,
         "reproduction_sandbox_id": repro_sbx_id,
         "returned_model": loop_result.returned_model,
-        "sandbox_image": DEFAULT_SANDBOX_IMAGE,
+        "sandbox_image": clean_base_image,
         "started_at_utc": start_utc,
         "tested_source_commit_sha": tested_source_commit_sha,
         "tested_source_tree_sha": tested_source_tree_sha,
@@ -539,7 +556,7 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
         total_tokens=loop_result.total_tokens,
         builder_sandbox_id=builder_sbx_id,
         reproduction_sandbox_id=repro_sbx_id,
-        sandbox_image=DEFAULT_SANDBOX_IMAGE,
+        sandbox_image=clean_base_image,
         patch_digest=snapshot.patch_digest,
         captured_candidate_tree_digest=snapshot.candidate_tree_digest,
         reproduced_tree_digest=repro_result.reproduced_tree_digest,

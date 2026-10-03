@@ -47,7 +47,9 @@ from basebreak.builder.execution import (
     DEFAULT_WORKSPACE_PATH,
     CandidateExecutionConfigError,
     HostExecutionFallbackError,
+    MaterializedSourceMismatchError,
     MaterializedSourceVerificationError,
+    SourceCommitMismatchError,
     UnmaterializedWorkspaceError,
     validate_materialized_workspace,
     validate_workspace_path,
@@ -125,6 +127,7 @@ class CandidateReproductionConfig:
     enforce_protected_surfaces: bool = True
     protected_manifest: ProtectedSurfaceManifest | None = None
     bundled_execution: bool = False
+    clean_base_record: Any | None = None
 
     def __post_init__(self) -> None:
         if not (1 <= self.timeout_seconds <= 600):
@@ -628,25 +631,58 @@ class CandidateReproductionExecutor:
                     )
 
             # Step 6: Materialize Authoritative Base Repository in Fresh Sandbox
-            try:
-                materialization_record = self.source_materializer.materialize_repository(
-                    envelope.source_identity,
-                    sandbox=handle,
-                    workspace_path=clean_ws,
-                    disposable=True,
-                    timeout_seconds=self.config.timeout_seconds,
-                )
-            except Exception as exc:
-                raise MaterializedSourceVerificationError(
-                    f"Failed to materialize authoritative repository in reproduction sandbox: {exc}"
-                ) from exc
+            if self.config.clean_base_record is not None:
+                cbr = self.config.clean_base_record
+                if getattr(cbr, "is_verified", None) is not True:
+                    raise MaterializedSourceVerificationError("clean_base_record is not verified")
+                actual_commit = str(getattr(cbr, "resolved_commit_sha", ""))
+                exp_commit = envelope.source_identity.resolved_commit_id
+                if actual_commit.strip().lower() != exp_commit.strip().lower():
+                    raise SourceCommitMismatchError(
+                        f"clean_base_record commit {actual_commit!r} does not match "
+                        f"authoritative envelope commit {exp_commit!r}"
+                    )
+                actual_ws = str(getattr(cbr, "workspace_path", ""))
+                if actual_ws.strip().rstrip("/") != clean_ws.strip().rstrip("/"):
+                    raise MaterializedSourceMismatchError(
+                        f"clean_base_record workspace path {actual_ws!r} "
+                        f"does not match {clean_ws!r}"
+                    )
+                mat_source = getattr(cbr, "source_identity", None)
+                if (
+                    mat_source is not None
+                    and getattr(mat_source, "locator", "") != envelope.source_identity.locator
+                ):
+                    raise MaterializedSourceMismatchError(
+                        f"clean_base_record locator does not match "
+                        f"{envelope.source_identity.locator!r}"
+                    )
+                if not getattr(cbr, "result_image_uuid", None):
+                    raise MaterializedSourceVerificationError(
+                        "clean_base_record missing result_image_uuid"
+                    )
+                materialization_record = cbr
+            else:
+                try:
+                    materialization_record = self.source_materializer.materialize_repository(
+                        envelope.source_identity,
+                        sandbox=handle,
+                        workspace_path=clean_ws,
+                        disposable=True,
+                        timeout_seconds=self.config.timeout_seconds,
+                    )
+                except Exception as exc:
+                    raise MaterializedSourceVerificationError(
+                        f"Failed to materialize authoritative repository in reproduction "
+                        f"sandbox: {exc}"
+                    ) from exc
 
-            validate_materialized_workspace(
-                materialization_record,
-                envelope=envelope,
-                expected_workspace_path=clean_ws,
-                expected_sandbox_identity=repro_sbx_id,
-            )
+                validate_materialized_workspace(
+                    materialization_record,
+                    envelope=envelope,
+                    expected_workspace_path=clean_ws,
+                    expected_sandbox_identity=repro_sbx_id,
+                )
 
             # Step 7-9: Apply Captured Patch and Compute Tree / Diff
             if self.config.bundled_execution:

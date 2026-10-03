@@ -1448,3 +1448,88 @@ class TestCandidateExecutionMaterializedSourceAuthority:
         assert call_count == 1, (
             f"Materializer must be called exactly once, called {call_count} times"
         )
+
+    def test_candidate_execution_bundled_with_clean_base_record(self) -> None:
+        """Blocker 2: Candidate execution with clean_base_record uses clean checkpoint image
+        and bundled disposable execution.
+        """
+        import base64
+        from types import SimpleNamespace
+
+        source_id = _create_test_source_identity()
+        contract = _create_test_frozen_contract()
+        envelope = _create_test_envelope(contract, source_id)
+
+        clean_base_record = SimpleNamespace(
+            source_identity=source_id,
+            resolved_commit_sha=source_id.resolved_commit_id,
+            workspace_path="/workspace/candidate",
+            result_image_uuid="img-clean-base-checkpoint-uuid",
+            is_verified=True,
+        )
+
+        class MockBundledAdapter:
+            def __init__(self) -> None:
+                self.created_handles: list[Any] = []
+                self.executed_commands: list[str] = []
+
+            def create_sandbox(self, image: str, disposable: bool = True) -> Any:
+                h = MockSandboxHandle(
+                    sandbox_identity=SandboxIdentity("sbx-candidate-bundled"),
+                    image=image,
+                    disposable=disposable,
+                )
+                self.created_handles.append(h)
+                return h
+
+            def execute_command(self, sandbox: Any, command: str, **kwargs: Any) -> Any:
+                self.executed_commands.append(command)
+                status_b64 = base64.b64encode(b"A\tsrc/foo.py\n").decode("ascii")
+                raw_diff = (
+                    b"diff --git a/src/foo.py b/src/foo.py\n"
+                    b"new file mode 100644\n--- /dev/null\n+++ b/src/foo.py\n"
+                    b"@@ -0,0 +1 @@\n+def foo(): pass\n"
+                )
+                diff_b64 = base64.b64encode(raw_diff).decode("ascii")
+                stdout = (
+                    "BASEBREAK_TOPLEVEL=/workspace/candidate\n"
+                    f"BASEBREAK_HEAD={source_id.resolved_commit_id}\n"
+                    "BASEBREAK_CANDIDATE_TREE=1234567890abcdef1234567890abcdef12345678\n"
+                    f"BASEBREAK_STATUS_B64={status_b64}\n"
+                    f"BASEBREAK_DIFF_B64={diff_b64}\n"
+                )
+                return SimpleNamespace(exit_code=0, stdout=stdout, stderr="")
+
+            def teardown_sandbox(self, sandbox: Any) -> None:
+                pass
+
+        adapter = MockBundledAdapter()
+        config = CandidateExecutionConfig(
+            bundled_execution=True,
+            clean_base_record=clean_base_record,
+            sandbox_image=clean_base_record.result_image_uuid,
+            workspace_path="/workspace/candidate",
+        )
+        executor = CandidateWorkspaceExecutor(
+            adapter, source_materializer=MockSourceMaterializer(), config=config
+        )
+        proposal = _create_sample_proposal(
+            actions=[
+                ProposedFileAction(
+                    path="src/foo.py",
+                    action=FileActionType.CREATE,
+                    content="def foo(): pass",
+                )
+            ]
+        )
+
+        res = executor.execute(proposal, envelope=envelope)
+        assert res.sandbox_identity.sandbox_id == "sbx-candidate-bundled"
+        assert adapter.created_handles[0].disposable is True
+        assert adapter.created_handles[0].image == "img-clean-base-checkpoint-uuid"
+        assert len(adapter.executed_commands) == 1
+        assert res.bundled_snapshot is not None
+        assert (
+            res.bundled_snapshot.candidate_tree_digest == "1234567890abcdef1234567890abcdef12345678"
+        )
+        assert "src/foo.py" in res.bundled_snapshot.files_added

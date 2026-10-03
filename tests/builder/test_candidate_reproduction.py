@@ -1089,3 +1089,70 @@ def test_bundled_execution_mode_succeeds() -> None:
     # In bundled mode, exactly 1 command was executed on the handle after materialization
     assert len(adapter.executed_commands) == 1
     assert "BASEBREAK_REPRO_TREE" in adapter.executed_commands[0]
+
+
+def test_clean_base_checkpoint_and_bundled_reproduction() -> None:
+    """Blocker 2: Reproduction with clean_base_record uses clean checkpoint image
+    and bundled disposable execution.
+    """
+    from types import SimpleNamespace
+
+    envelope = _create_envelope()
+    snapshot = _create_snapshot(envelope)
+
+    clean_base_record = SimpleNamespace(
+        source_identity=envelope.source_identity,
+        resolved_commit_sha=envelope.source_identity.resolved_commit_id,
+        workspace_path="/workspace/repo",
+        result_image_uuid="img-clean-base-checkpoint-uuid",
+        is_verified=True,
+    )
+
+    class MockCleanBaseBundledAdapter:
+        def __init__(self) -> None:
+            self.created_handles: list[MockSandboxHandle] = []
+            self.executed_commands: list[str] = []
+
+        def create_sandbox(self, image: str, disposable: bool = True) -> MockSandboxHandle:
+            h = MockSandboxHandle(
+                sandbox_identity=SandboxIdentity("sbx-repro-bundled-002"),
+                image=image,
+                disposable=disposable,
+            )
+            self.created_handles.append(h)
+            return h
+
+        def execute_command(self, sandbox: Any, command: str, **kwargs: Any) -> Any:
+            self.executed_commands.append(command)
+            stdout = (
+                f"BASEBREAK_REPRO_TREE={VALID_TREE_SHA}\n"
+                "BASEBREAK_REPRO_DIFF_START\n"
+                "M\tsrc/pool.py\n"
+                "BASEBREAK_REPRO_DIFF_END\n"
+            )
+            return SimpleNamespace(exit_code=0, stdout=stdout, stderr="")
+
+        def teardown_sandbox(self, sandbox: Any) -> None:
+            pass
+
+    adapter = MockCleanBaseBundledAdapter()
+    materializer = MockSourceMaterializer()
+    config = CandidateReproductionConfig(
+        bundled_execution=True,
+        clean_base_record=clean_base_record,
+        sandbox_image=clean_base_record.result_image_uuid,
+        workspace_path=clean_base_record.workspace_path,
+    )
+    executor = CandidateReproductionExecutor(
+        sandbox_adapter=adapter,
+        source_materializer=materializer,
+        config=config,
+    )
+
+    result = executor.reproduce(snapshot=snapshot, envelope=envelope)
+    assert result.reproduced_tree_digest == VALID_TREE_SHA
+    assert result.is_reproduced is True
+    assert adapter.created_handles[0].disposable is True
+    assert adapter.created_handles[0].image == "img-clean-base-checkpoint-uuid"
+    assert len(adapter.executed_commands) == 1
+    assert "BASEBREAK_REPRO_TREE" in adapter.executed_commands[0]

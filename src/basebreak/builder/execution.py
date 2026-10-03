@@ -389,6 +389,8 @@ class CandidateExecutionConfig:
     teardown_on_completion: bool = False
     enforce_protected_surfaces: bool = True
     protected_manifest: ProtectedSurfaceManifest | None = None
+    bundled_execution: bool = False
+    clean_base_record: Any | None = None
 
     def __post_init__(self) -> None:
         if self.max_file_actions < 1 or self.max_file_actions > 200:
@@ -463,6 +465,7 @@ class CandidateExecutionResult:
     workspace_path: str = DEFAULT_WORKSPACE_PATH
     provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION
     is_authoritative: bool = False
+    bundled_snapshot: Any | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -1200,28 +1203,79 @@ class CandidateWorkspaceExecutor:
                 )
 
             # Step 6: Materialize Authoritative Source Repository inside Sandbox VM
-            try:
-                materialization_record = active_materializer.materialize_repository(
-                    resolved_source_id,
-                    sandbox=handle,
-                    workspace_path=clean_workspace,
-                    disposable=True,
-                    timeout_seconds=self.config.per_command_timeout_seconds,
+            if self.config.clean_base_record is not None:
+                cbr = self.config.clean_base_record
+                if getattr(cbr, "is_verified", None) is not True:
+                    raise MaterializedSourceVerificationError("clean_base_record is not verified")
+                actual_commit = str(getattr(cbr, "resolved_commit_sha", ""))
+                if (
+                    actual_commit.strip().lower()
+                    != resolved_source_id.resolved_commit_id.strip().lower()
+                ):
+                    raise SourceCommitMismatchError(
+                        f"clean_base_record commit {actual_commit!r} does not match "
+                        f"authoritative envelope commit {resolved_source_id.resolved_commit_id!r}"
+                    )
+                actual_ws = str(getattr(cbr, "workspace_path", ""))
+                if actual_ws.strip().rstrip("/") != clean_workspace.strip().rstrip("/"):
+                    raise MaterializedSourceMismatchError(
+                        f"clean_base_record workspace path {actual_ws!r} "
+                        f"does not match {clean_workspace!r}"
+                    )
+                mat_source = getattr(cbr, "source_identity", None)
+                if (
+                    mat_source is not None
+                    and getattr(mat_source, "locator", "") != resolved_source_id.locator
+                ):
+                    raise MaterializedSourceMismatchError(
+                        f"clean_base_record locator does not match {resolved_source_id.locator!r}"
+                    )
+                if not getattr(cbr, "result_image_uuid", None):
+                    raise MaterializedSourceVerificationError(
+                        "clean_base_record missing result_image_uuid"
+                    )
+                materialization_record = cbr
+            else:
+                try:
+                    materialization_record = active_materializer.materialize_repository(
+                        resolved_source_id,
+                        sandbox=handle,
+                        workspace_path=clean_workspace,
+                        disposable=True,
+                        timeout_seconds=self.config.per_command_timeout_seconds,
+                    )
+                except Exception as exc:
+                    raise WorkspaceExecutionError(
+                        f"Failed to materialize authoritative repository in sandbox: {exc}"
+                    ) from exc
+
+                # Step 7: Validate Materialized Source Workspace
+                validate_materialized_workspace(
+                    materialization_record,
+                    envelope=envelope,
+                    expected_workspace_path=clean_workspace,
+                    expected_sandbox_identity=sbx_identity,
                 )
-            except Exception as exc:
-                raise WorkspaceExecutionError(
-                    f"Failed to materialize authoritative repository in sandbox: {exc}"
-                ) from exc
 
-            # Step 7: Validate Materialized Source Workspace
-            validate_materialized_workspace(
-                materialization_record,
-                envelope=envelope,
-                expected_workspace_path=clean_workspace,
-                expected_sandbox_identity=sbx_identity,
-            )
+            # Check if bundled execution mode is requested
+            if self.config.bundled_execution:
+                return self._execute_bundled(
+                    handle=handle,
+                    clean_workspace=clean_workspace,
+                    normalized_actions=normalized_actions,
+                    validated_commands=validated_commands,
+                    sbx_identity=sbx_identity,
+                    resolved_contract_digest=resolved_contract_digest,
+                    resolved_context_digest=resolved_context_digest,
+                    resolved_source_id=resolved_source_id,
+                    proposal_digest=proposal_digest,
+                    proposal=proposal,
+                    start_time=start_time,
+                    provenance=provenance,
+                    created_handle=created_handle,
+                )
 
-            # Step 6: Execute File Mutations
+            # Step 8: Execute File Mutations
             mutation_records: list[FileMutationRecord] = []
             for norm_path, action in normalized_actions.items():
                 scripts = build_file_mutation_scripts(norm_path, action, clean_workspace)
@@ -1392,3 +1446,297 @@ class CandidateWorkspaceExecutor:
             provenance=provenance,
             is_authoritative=False,
         )
+
+    def _execute_bundled(
+        self,
+        *,
+        handle: Any,
+        clean_workspace: str,
+        normalized_actions: dict[str, ProposedFileAction],
+        validated_commands: tuple[str, ...],
+        sbx_identity: SandboxIdentity,
+        resolved_contract_digest: str,
+        resolved_context_digest: str,
+        resolved_source_id: SourceIdentity,
+        proposal_digest: str,
+        proposal: BuilderProposal,
+        start_time: float,
+        provenance: EvidenceProvenance,
+        created_handle: bool,
+    ) -> CandidateExecutionResult:
+        """Execute file actions, commands, and git capture in a single bundled script."""
+        lines: list[str] = ["set -e", f"cd {shlex.quote(clean_workspace)}"]
+
+        # Apply mutations
+        for norm_path, action in normalized_actions.items():
+            target_abs = f"{clean_workspace}/{norm_path}"
+            target_dir = "/".join(target_abs.split("/")[:-1])
+            q_target = shlex.quote(target_abs)
+            q_dir = shlex.quote(target_dir)
+
+            if action.action == FileActionType.DELETE:
+                lines.append(
+                    f"if [ ! -e {q_target} ] && [ ! -L {q_target} ]; then\n"
+                    f'    echo "BASEBREAK_MUTATION_ERROR: '
+                    f'DELETE target not found: {norm_path}" >&2\n'
+                    f"    exit 103\n"
+                    f"fi\n"
+                    f"rm -rf {q_target}\n"
+                    f"if [ -e {q_target} ] || [ -L {q_target} ]; then\n"
+                    f'    echo "BASEBREAK_MUTATION_ERROR: '
+                    f'DELETE target removal unverified: {norm_path}" >&2\n'
+                    f"    exit 105\n"
+                    f"fi"
+                )
+            else:
+                b64_content = base64.b64encode(action.content.encode("utf-8")).decode("ascii")
+                if action.action == FileActionType.CREATE:
+                    lines.append(
+                        f"if [ -e {q_target} ] || [ -L {q_target} ]; then\n"
+                        f'    echo "BASEBREAK_MUTATION_ERROR: '
+                        f'CREATE target already exists: {norm_path}" >&2\n'
+                        f"    exit 101\n"
+                        f"fi"
+                    )
+                else:  # MODIFY
+                    lines.append(
+                        f"if [ ! -f {q_target} ]; then\n"
+                        f'    echo "BASEBREAK_MUTATION_ERROR: '
+                        f'MODIFY target not found: {norm_path}" >&2\n'
+                        f"    exit 102\n"
+                        f"fi"
+                    )
+                lines.append(f"mkdir -p {q_dir}")
+                if b64_content:
+                    lines.append(f'printf "%s" {shlex.quote(b64_content)} | base64 -d > {q_target}')
+                else:
+                    lines.append(f": > {q_target}")
+                lines.append(
+                    f"if [ ! -f {q_target} ]; then\n"
+                    f'    echo "BASEBREAK_MUTATION_ERROR: '
+                    f'Target file creation unverified: {norm_path}" >&2\n'
+                    f"    exit 104\n"
+                    f"fi"
+                )
+
+        # Run commands
+        for idx, cmd_str in enumerate(validated_commands):
+            cmd_out_path = f"/tmp/basebreak_cmd_out_{idx}.log"
+            cmd_err_path = f"/tmp/basebreak_cmd_err_{idx}.log"
+            q_out = shlex.quote(cmd_out_path)
+            q_err = shlex.quote(cmd_err_path)
+            b64_out = f"$(base64 -w 0 {q_out} 2>/dev/null || base64 {q_out} | tr -d '\\n')"
+            b64_err = f"$(base64 -w 0 {q_err} 2>/dev/null || base64 {q_err} | tr -d '\\n')"
+            lines.append(
+                f"set +e\n"
+                f"{cmd_str} > {q_out} 2> {q_err}\n"
+                f"CMD_EXIT_{idx}=$?\n"
+                f"set -e\n"
+                f'echo "BASEBREAK_CMD_EXIT_{idx}=$CMD_EXIT_{idx}"\n'
+                f'echo "BASEBREAK_CMD_OUT_B64_{idx}={b64_out}"\n'
+                f'echo "BASEBREAK_CMD_ERR_B64_{idx}={b64_err}"\n'
+                f"rm -f {q_out} {q_err}"
+            )
+
+        # Git capture
+        diff_path = "/tmp/basebreak_diff.patch"
+        status_path = "/tmp/basebreak_status.txt"
+        q_stat = shlex.quote(status_path)
+        q_diff = shlex.quote(diff_path)
+        b64_stat = f"$(base64 -w 0 {q_stat} 2>/dev/null || base64 {q_stat} | tr -d '\\n')"
+        b64_diff = f"$(base64 -w 0 {q_diff} 2>/dev/null || base64 {q_diff} | tr -d '\\n')"
+        lines.append(
+            'echo "BASEBREAK_TOPLEVEL=$(git rev-parse --show-toplevel)"\n'
+            'echo "BASEBREAK_HEAD=$(git rev-parse HEAD)"\n'
+            "git add -A\n"
+            'echo "BASEBREAK_CANDIDATE_TREE=$(git write-tree)"\n'
+            f"git diff --name-status --no-renames --cached HEAD > {q_stat}\n"
+            f'echo "BASEBREAK_STATUS_B64={b64_stat}"\n'
+            f"rm -f {q_stat}\n"
+            f"git diff --binary --full-index --cached HEAD > {q_diff}\n"
+            f'echo "BASEBREAK_DIFF_B64={b64_diff}"\n'
+            f"rm -f {q_diff}"
+        )
+
+        bundle_script = "\n".join(lines)
+
+        try:
+            res = self.sandbox_adapter.execute_command(
+                handle,
+                bundle_script,
+                working_dir=clean_workspace,
+                timeout_seconds=self.config.per_command_timeout_seconds,
+            )
+        except Exception as exc:
+            if "timeout" in type(exc).__name__.lower() or "timed out" in str(exc).lower():
+                raise CandidateExecutionTimeoutError(
+                    f"Timeout executing bundled candidate script: {exc}"
+                ) from exc
+            raise WorkspaceExecutionError(
+                f"Sandbox failure executing bundled candidate script: {exc}"
+            ) from exc
+
+        if getattr(res, "is_timeout", False):
+            raise CandidateExecutionTimeoutError(
+                "Bundled candidate script timed out inside candidate sandbox"
+            )
+
+        exit_code = getattr(res, "exit_code", -1)
+        raw_stdout = getattr(res, "stdout", "")
+        raw_stderr = getattr(res, "stderr", "")
+
+        if exit_code != 0:
+            err_msg = f"Bundled candidate execution failed with exit code {exit_code}: {raw_stderr}"
+            if exit_code == 101:
+                raise TargetAlreadyExistsError(err_msg)
+            if exit_code in (102, 103):
+                raise MissingTargetError(err_msg)
+            raise WorkspaceExecutionError(err_msg)
+
+        # Toplevel check
+        toplevel_match = re.search(r"BASEBREAK_TOPLEVEL=([^\r\n]+)", raw_stdout)
+        if not toplevel_match or toplevel_match.group(1).strip().rstrip(
+            "/"
+        ) != clean_workspace.rstrip("/"):
+            raise WorkspaceExecutionError(
+                "Candidate top-level workspace check failed in bundled execution"
+            )
+
+        # Head commit check
+        head_match = re.search(r"BASEBREAK_HEAD=([0-9a-fA-F]{40,64})", raw_stdout)
+        if (
+            not head_match
+            or head_match.group(1).strip().lower()
+            != resolved_source_id.resolved_commit_id.strip().lower()
+        ):
+            raise WorkspaceExecutionError("Candidate HEAD commit check failed in bundled execution")
+
+        # Candidate tree
+        tree_match = re.search(r"BASEBREAK_CANDIDATE_TREE=([0-9a-fA-F]{40,64})", raw_stdout)
+        if not tree_match:
+            raise WorkspaceExecutionError(
+                "Could not parse BASEBREAK_CANDIDATE_TREE from bundled execution output"
+            )
+        candidate_tree_sha = tree_match.group(1).strip().lower()
+
+        from basebreak.builder.capture import (
+            BinaryDiffUnsupportedError,
+            CandidateSnapshot,
+            identify_builder_authored_tests,
+            parse_git_name_status,
+        )
+
+        # Status output
+        status_match = re.search(r"BASEBREAK_STATUS_B64=([A-Za-z0-9+/=]*)", raw_stdout)
+        status_b64 = status_match.group(1) if status_match else ""
+        status_text = (
+            base64.b64decode(status_b64.encode("ascii")).decode("utf-8") if status_b64 else ""
+        )
+        files_added, files_modified, files_deleted = parse_git_name_status(status_text)
+
+        # Diff output
+        diff_match = re.search(r"BASEBREAK_DIFF_B64=([A-Za-z0-9+/=]*)", raw_stdout)
+        diff_b64 = diff_match.group(1) if diff_match else ""
+        diff_bytes = base64.b64decode(diff_b64.encode("ascii")) if diff_b64 else b""
+        if b"Binary files" in diff_bytes and b"differ" in diff_bytes:
+            raise BinaryDiffUnsupportedError(
+                "Non-reproducible binary diff detected: git reported binary files differ "
+                "without reproducible binary patch"
+            )
+        diff_text = diff_bytes.decode("utf-8", errors="replace")
+        patch_digest = compute_bytes_digest(diff_bytes).value
+
+        mutation_records: list[FileMutationRecord] = []
+        for norm_path, action in normalized_actions.items():
+            content_digest = (
+                compute_bytes_digest(action.content.encode("utf-8")).value
+                if action.action != FileActionType.DELETE
+                else ""
+            )
+            rec = FileMutationRecord(
+                path=norm_path,
+                action=action.action,
+                exit_code=0,
+                stdout_digest=compute_bytes_digest(b"").value,
+                stderr_digest=compute_bytes_digest(b"").value,
+                duration_seconds=0.0,
+                content_digest=content_digest,
+                is_success=True,
+                sandbox_identity=sbx_identity,
+                is_authoritative=False,
+            )
+            mutation_records.append(rec)
+
+        command_records: list[CommandExecutionRecord] = []
+        for idx, cmd_str in enumerate(validated_commands):
+            cmd_exit_m = re.search(rf"BASEBREAK_CMD_EXIT_{idx}=(\d+)", raw_stdout)
+            c_exit = int(cmd_exit_m.group(1)) if cmd_exit_m else None
+
+            cmd_out_m = re.search(rf"BASEBREAK_CMD_OUT_B64_{idx}=([A-Za-z0-9+/=]*)", raw_stdout)
+            cmd_out_b64 = cmd_out_m.group(1) if cmd_out_m else ""
+            cmd_out_bytes = base64.b64decode(cmd_out_b64.encode("ascii")) if cmd_out_b64 else b""
+            cmd_so_digest = compute_bytes_digest(cmd_out_bytes).value
+
+            cmd_err_m = re.search(rf"BASEBREAK_CMD_ERR_B64_{idx}=([A-Za-z0-9+/=]*)", raw_stdout)
+            cmd_err_b64 = cmd_err_m.group(1) if cmd_err_m else ""
+            cmd_err_bytes = base64.b64decode(cmd_err_b64.encode("ascii")) if cmd_err_b64 else b""
+            cmd_se_digest = compute_bytes_digest(cmd_err_bytes).value
+
+            cmd_rec = CommandExecutionRecord(
+                command=cmd_str,
+                exit_code=c_exit,
+                stdout_digest=cmd_so_digest,
+                stderr_digest=cmd_se_digest,
+                duration_seconds=None,
+                status=TerminationStatus.COMPLETED
+                if c_exit is not None
+                else TerminationStatus.FAILED_TO_START,
+                sandbox_identity=sbx_identity,
+                is_authoritative=False,
+            )
+            command_records.append(cmd_rec)
+
+        if created_handle and self.config.teardown_on_completion:
+            try:
+                self.sandbox_adapter.teardown_sandbox(handle)
+            except Exception:
+                pass
+
+        total_duration = time.perf_counter() - start_time
+
+        exec_result = CandidateExecutionResult(
+            frozen_contract_digest=resolved_contract_digest,
+            context_digest=resolved_context_digest,
+            source_identity=resolved_source_id,
+            proposal_digest=proposal_digest,
+            proposal_plan_summary=proposal.plan.summary,
+            file_mutations=tuple(mutation_records),
+            command_executions=tuple(command_records),
+            sandbox_identity=sbx_identity,
+            total_duration_seconds=total_duration,
+            workspace_path=clean_workspace,
+            provenance=provenance,
+            is_authoritative=False,
+        )
+
+        builder_tests = identify_builder_authored_tests(exec_result)
+        cid = f"cand-{patch_digest[:16]}"
+        snapshot = CandidateSnapshot(
+            candidate_id=cid,
+            source_identity=resolved_source_id,
+            candidate_tree_digest=candidate_tree_sha,
+            patch_digest=patch_digest,
+            patch_text=diff_text,
+            files_added=files_added,
+            files_modified=files_modified,
+            files_deleted=files_deleted,
+            builder_authored_tests=builder_tests,
+            frozen_contract_digest=resolved_contract_digest,
+            context_digest=resolved_context_digest,
+            sandbox_identity=sbx_identity,
+            duration_seconds=total_duration,
+            provenance=provenance,
+            is_authoritative=False,
+        )
+        object.__setattr__(exec_result, "bundled_snapshot", snapshot)
+        return exec_result

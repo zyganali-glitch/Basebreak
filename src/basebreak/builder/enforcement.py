@@ -601,19 +601,25 @@ class CandidateSecurityEnforcer:
             )
 
             # 6. P-07.04 Capture Candidate State from SAME sandbox
-            effective_timeout = (
-                timeout_seconds
-                if timeout_seconds is not None
-                else self.config.per_command_timeout_seconds
-            )
-            snapshot = capture_candidate_from_sandbox(
-                sandbox_adapter=self.sandbox_adapter,
-                sandbox_handle=handle,
-                execution_result=execution_result,
-                workspace_path=execution_result.workspace_path,
-                candidate_id=candidate_id,
-                timeout_seconds=effective_timeout,
-            )
+            snapshot: CandidateSnapshot
+            if execution_result.bundled_snapshot is not None:
+                if not isinstance(execution_result.bundled_snapshot, CandidateSnapshot):
+                    raise WorkspaceExecutionError("bundled_snapshot must be CandidateSnapshot")
+                snapshot = execution_result.bundled_snapshot
+            else:
+                effective_timeout = (
+                    timeout_seconds
+                    if timeout_seconds is not None
+                    else self.config.per_command_timeout_seconds
+                )
+                snapshot = capture_candidate_from_sandbox(
+                    sandbox_adapter=self.sandbox_adapter,
+                    sandbox_handle=handle,
+                    execution_result=execution_result,
+                    workspace_path=execution_result.workspace_path,
+                    candidate_id=candidate_id,
+                    timeout_seconds=effective_timeout,
+                )
 
             # 7. Layer 3 — Actual post-execution protected-surface check
             # Validate actual resulting diff against canonical protected surfaces
