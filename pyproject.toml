@@ -41,3 +41,6 @@ warn_unused_configs = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = [
+    "live: live integration tests requiring external provider credentials and network",
+]
