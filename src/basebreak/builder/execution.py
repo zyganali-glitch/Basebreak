@@ -163,6 +163,10 @@ class SourceCommitMismatchError(MaterializedSourceMismatchError):
     """Raised when materialized source commit does not match authoritative envelope commit."""
 
 
+class SourceTreeMismatchError(MaterializedSourceMismatchError):
+    """Raised when materialized source tree does not match expected tree."""
+
+
 class SandboxIdentityMismatchError(MaterializedSourceMismatchError):
     """Raised when materialized workspace sandbox identity does not match execution sandbox."""
 
@@ -503,17 +507,8 @@ class CandidateExecutionConfig:
     enforce_protected_surfaces: bool = True
     protected_manifest: ProtectedSurfaceManifest | None = None
     bundled_execution: bool = False
-    clean_base_record: CleanBaseCheckpointRecord | None = None
 
     def __post_init__(self) -> None:
-        if self.clean_base_record is not None and not isinstance(
-            self.clean_base_record, CleanBaseCheckpointRecord
-        ):
-            raise CleanBaseRecordAuthorityError(
-                f"clean_base_record must be CleanBaseCheckpointRecord, "
-                f"got {type(self.clean_base_record).__name__}; "
-                "synthetic or caller-asserted clean-base objects are strictly forbidden"
-            )
         if self.max_file_actions < 1 or self.max_file_actions > 200:
             raise CandidateExecutionConfigError(
                 f"max_file_actions must be between 1 and 200, got {self.max_file_actions}"
@@ -1279,6 +1274,11 @@ class CandidateWorkspaceExecutor:
         """
         # Step 1: Reject caller-supplied materialized_source and bare digest inputs
         if kwargs:
+            if "clean_base_record" in kwargs or "clean_base_checkpoint" in kwargs:
+                raise CleanBaseRecordAuthorityError(
+                    "Caller clean-base checkpoint injection is strictly forbidden; "
+                    "clean base identity must originate from internal trusted materialization"
+                )
             if "materialized_source" in kwargs:
                 raise MaterializedSourceVerificationError(
                     "Caller-supplied materialized_source is strictly forbidden; "
@@ -1330,37 +1330,11 @@ class CandidateWorkspaceExecutor:
 
         # Clean-base checkpoint resolution & verification
         clean_base_record: CleanBaseCheckpointRecord | None = None
-        if self.config.clean_base_record is not None:
-            cbr = self.config.clean_base_record
-            if not isinstance(cbr, CleanBaseCheckpointRecord):
-                raise CleanBaseRecordAuthorityError(
-                    f"clean_base_record must be CleanBaseCheckpointRecord, "
-                    f"got {type(cbr).__name__}; synthetic or caller-asserted "
-                    "clean-base objects are strictly forbidden"
-                )
-            if cbr.is_verified is not True:
-                raise CleanBaseRecordAuthorityError("clean_base_record is not verified")
-            actual_commit = cbr.resolved_commit_sha.strip().lower()
-            if actual_commit != resolved_source_id.resolved_commit_id.strip().lower():
-                raise SourceCommitMismatchError(
-                    f"clean_base_record commit {actual_commit!r} does not match "
-                    f"authoritative envelope commit {resolved_source_id.resolved_commit_id!r}"
-                )
-            actual_ws = cbr.workspace_path.strip().rstrip("/")
-            if actual_ws != clean_workspace.strip().rstrip("/"):
-                raise MaterializedSourceMismatchError(
-                    f"clean_base_record workspace path {actual_ws!r} "
-                    f"does not match {clean_workspace!r}"
-                )
-            if cbr.source_identity.locator != resolved_source_id.locator:
-                raise MaterializedSourceMismatchError(
-                    f"clean_base_record locator does not match {resolved_source_id.locator!r}"
-                )
-            clean_base_record = cbr
-        elif getattr(self.sandbox_adapter, "is_disposable_provider", False) or hasattr(
+        if getattr(self.sandbox_adapter, "is_disposable_provider", False) or hasattr(
             self.sandbox_adapter, "inspect_operation"
         ):
-            # Canonical production path: materialize clean base checkpoint (disposable=False)
+            # Canonical production path: internally materialize clean base checkpoint
+            # (disposable=False)
             try:
                 raw_mat = active_materializer.materialize_repository(
                     resolved_source_id,
@@ -1372,6 +1346,7 @@ class CandidateWorkspaceExecutor:
             except (
                 CleanBaseRecordAuthorityError,
                 SourceCommitMismatchError,
+                SourceTreeMismatchError,
                 MaterializedSourceMismatchError,
             ):
                 raise
@@ -1379,6 +1354,24 @@ class CandidateWorkspaceExecutor:
                 raise WorkspaceExecutionError(
                     f"Failed to create canonical clean base checkpoint: {exc}"
                 ) from exc
+
+            # Verify that clean_base_record matches authoritative envelope
+            actual_commit = clean_base_record.resolved_commit_sha.strip().lower()
+            if actual_commit != resolved_source_id.resolved_commit_id.strip().lower():
+                raise SourceCommitMismatchError(
+                    f"clean_base_record commit {actual_commit!r} does not match "
+                    f"authoritative envelope commit {resolved_source_id.resolved_commit_id!r}"
+                )
+            actual_ws = clean_base_record.workspace_path.strip().rstrip("/")
+            if actual_ws != clean_workspace.strip().rstrip("/"):
+                raise MaterializedSourceMismatchError(
+                    f"clean_base_record workspace path {actual_ws!r} "
+                    f"does not match {clean_workspace!r}"
+                )
+            if clean_base_record.source_identity.locator != resolved_source_id.locator:
+                raise MaterializedSourceMismatchError(
+                    f"clean_base_record locator does not match {resolved_source_id.locator!r}"
+                )
 
         start_time = time.perf_counter()
 

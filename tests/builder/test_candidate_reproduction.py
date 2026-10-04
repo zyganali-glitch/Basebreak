@@ -221,6 +221,10 @@ class MockMaterializedSourceRecord:
     resolved_commit_sha: str
     workspace_path: str
     sandbox_identity: SandboxIdentity
+    resolved_tree_sha: str = "b" * 40
+    operation_id: str = "op-clean-base-001"
+    result_image_uuid: str | None = "img-clean-base-checkpoint-uuid"
+    duration_seconds: float = 0.1
     is_verified: bool = True
 
 
@@ -238,8 +242,8 @@ class MockSourceMaterializer:
     def materialize_repository(
         self,
         source_identity: SourceIdentity,
-        sandbox: Any,
-        workspace_path: str,
+        sandbox: Any = None,
+        workspace_path: str = "/workspace/repo",
         timeout_seconds: int = 120,
         disposable: bool = True,
         **kwargs: Any,
@@ -1097,23 +1101,9 @@ def test_clean_base_checkpoint_and_bundled_reproduction() -> None:
     """
     from types import SimpleNamespace
 
-    from basebreak.builder.execution import CleanBaseCheckpointRecord
-
-    envelope = _create_envelope()
-    snapshot = _create_snapshot(envelope)
-
-    clean_base_record = CleanBaseCheckpointRecord(
-        source_identity=envelope.source_identity,
-        resolved_commit_sha=envelope.source_identity.resolved_commit_id,
-        resolved_tree_sha="abcdef1234567890abcdef1234567890abcdef12",
-        workspace_path="/workspace/repo",
-        sandbox_identity=SandboxIdentity("sbx-clean-base-orig"),
-        operation_id="op-clean-base-001",
-        checkpoint_image_uuid="img-clean-base-checkpoint-uuid",
-        is_verified=True,
-    )
-
     class MockCleanBaseBundledAdapter:
+        is_disposable_provider = True
+
         def __init__(self) -> None:
             self.created_handles: list[MockSandboxHandle] = []
             self.executed_commands: list[str] = []
@@ -1148,11 +1138,11 @@ def test_clean_base_checkpoint_and_bundled_reproduction() -> None:
 
     adapter = MockCleanBaseBundledAdapter()
     materializer = MockSourceMaterializer()
+    envelope = _create_envelope()
+    snapshot = _create_snapshot(envelope)
     config = CandidateReproductionConfig(
         bundled_execution=True,
-        clean_base_record=clean_base_record,
-        sandbox_image=clean_base_record.checkpoint_image_uuid,
-        workspace_path=clean_base_record.workspace_path,
+        workspace_path="/workspace/repo",
     )
     executor = CandidateReproductionExecutor(
         sandbox_adapter=adapter,
@@ -1163,6 +1153,8 @@ def test_clean_base_checkpoint_and_bundled_reproduction() -> None:
     result = executor.reproduce(snapshot=snapshot, envelope=envelope)
     assert result.reproduced_tree_digest == VALID_TREE_SHA
     assert result.is_reproduced is True
+    assert result.clean_base_checkpoint_image_uuid == "img-clean-base-checkpoint-uuid"
+    assert result.clean_base_operation_id == "op-clean-base-001"
     assert adapter.created_handles[0].disposable is True
     assert adapter.created_handles[0].image == "img-clean-base-checkpoint-uuid"
     assert len(adapter.executed_commands) == 1

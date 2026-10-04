@@ -48,7 +48,6 @@ from basebreak.builder.enforcement import (
 )
 from basebreak.builder.execution import (
     CandidateExecutionConfig,
-    CleanBaseCheckpointRecord,
 )
 from basebreak.builder.loop import (
     BuilderLoopConfig,
@@ -188,15 +187,16 @@ def generate_reproduction_evidence_markdown(
     prompt_tokens: int,
     completion_tokens: int,
     total_tokens: int,
-    clean_base_operation_id: str,
-    clean_base_checkpoint_image_uuid: str,
+    builder_clean_base_operation_id: str,
+    builder_clean_base_checkpoint_image_uuid: str,
     builder_sandbox_id: str,
     builder_provider_operation_id: str,
     builder_result_image_uuid: str | None,
+    reproduction_clean_base_operation_id: str,
+    reproduction_clean_base_checkpoint_image_uuid: str,
     reproduction_sandbox_id: str,
     reproduction_provider_operation_id: str,
     reproduction_result_image_uuid: str | None,
-    sandbox_image: str,
     patch_digest: str,
     captured_candidate_tree_digest: str,
     reproduced_tree_digest: str,
@@ -225,16 +225,6 @@ def generate_reproduction_evidence_markdown(
 - **Total Duration:** `{total_duration_seconds:.3f}s`
 - **Frozen Contract Digest:** `{contract_digest}`
 - **Builder Context Digest:** `{context_digest}`
-- **Sandbox Image:** `{sandbox_image}`
-- **CLEAN BASE Checkpoint Provider Operation ID:** `{clean_base_operation_id}`
-- **CLEAN BASE Checkpoint Image UUID:** `{clean_base_checkpoint_image_uuid}`
-- **Builder Sandbox Correlation ID (Sandbox #1):** `{builder_sandbox_id}`
-- **Builder Provider Operation ID:** `{builder_provider_operation_id}`
-- **Builder Result Image UUID:** `{builder_result_image_uuid}` (strictly None / disposable)
-- **Reproduction Sandbox Correlation ID (Sandbox #2):** `{reproduction_sandbox_id}`
-- **Reproduction Provider Operation ID:** `{reproduction_provider_operation_id}`
-- **Reproduction Result Image UUID:** `{reproduction_result_image_uuid}` (None)
-- **Sandboxes Distinct Verified:** `{builder_sandbox_id != reproduction_sandbox_id}`
 - **Patch Digest:** `{patch_digest}`
 - **Captured Candidate Tree Digest:** `{captured_candidate_tree_digest}`
 - **Reproduced Tree Digest:** `{reproduced_tree_digest}`
@@ -252,7 +242,37 @@ def generate_reproduction_evidence_markdown(
 
 ---
 
-## 1. Verified End-to-End P-07 Phase Exit Chain
+## 1. Verified Four Auditable Provider Operations
+
+### Builder trusted base
+- **Builder clean-base checkpoint provider operation ID:**
+  `{builder_clean_base_operation_id}`
+- **Builder clean-base checkpoint image UUID:**
+  `{builder_clean_base_checkpoint_image_uuid}`
+- **Exact resolved source commit:** `{tested_source_commit_sha}`
+- **Exact resolved source tree:** `{tested_source_tree_sha}`
+
+### Builder candidate
+- **Builder disposable provider operation ID:** `{builder_provider_operation_id}`
+- **Builder result image UUID:** `{builder_result_image_uuid}` (strictly None)
+- **Builder correlation ID:** `{builder_sandbox_id}`
+
+### Reproduction trusted base
+- **Reproduction clean-base checkpoint provider operation ID:**
+  `{reproduction_clean_base_operation_id}`
+- **Reproduction clean-base checkpoint image UUID:**
+  `{reproduction_clean_base_checkpoint_image_uuid}`
+- **Exact resolved source commit:** `{tested_source_commit_sha}`
+- **Exact resolved source tree:** `{tested_source_tree_sha}`
+
+### Reproduction candidate
+- **Reproduction disposable provider operation ID:** `{reproduction_provider_operation_id}`
+- **Reproduction result image UUID:** `{reproduction_result_image_uuid}` (strictly None)
+- **Reproduction correlation ID:** `{reproduction_sandbox_id}`
+
+---
+
+## 2. Verified End-to-End P-07 Phase Exit Chain
 
 The live run exercised the unbroken, genuine Basebreak authority and reproduction chain:
 
@@ -260,24 +280,23 @@ The live run exercised the unbroken, genuine Basebreak authority and reproductio
 Authoritative FrozenContract ({contract_digest[:16]}...)
   -> Minimized Builder Context ({context_digest[:16]}...)
   -> Real Nemotron Model Call ({returned_model})
-  -> Clean Base (op={clean_base_operation_id}, img={clean_base_checkpoint_image_uuid[:8]}...)
-  -> Real Disposable Builder Sandbox ({builder_sandbox_id}, op={builder_provider_operation_id})
-  -> Real File Action Applied in Sandbox VM
-  -> Bounded Command / Test Execution in Sandbox VM
+  -> Builder Clean Base Checkpoint (op={builder_clean_base_operation_id})
+  -> Disposable Builder Sandbox ({builder_sandbox_id})
+  -> Real File Action & Bounded Command Execution in Sandbox VM
   -> P-07.05 Canonical Protected-Surface Enforcement
   -> P-07.04 Candidate State & Tree Capture ({captured_candidate_tree_digest[:16]}...)
   -> Disposable Builder Sandbox Disposed (result_image_uuid=None)
-  -> NEW Disposable Reproduction Sandbox ({reproduction_sandbox_id})
-  -> From Immutable Clean Base Checkpoint ({clean_base_checkpoint_image_uuid[:16]}...)
-  -> Safe Transport and Application of Exact Captured Patch (git apply)
-  -> Deterministic Staging (git add -A) & Tree Calculation (git write-tree)
+  -> Reproduction Clean Base Checkpoint (op={reproduction_clean_base_operation_id})
+  -> NEW Disposable Repro Sandbox ({reproduction_sandbox_id})
+  -> Safe Transport & Application of Exact Captured Patch (git apply)
+  -> Deterministic Staging & Tree Calculation (git write-tree)
   -> Exact Cryptographic Tree Hash Verification
   -> Disposable Reproduction Sandbox Disposed (result_image_uuid=None)
 ```
 
 ---
 
-## 2. Deterministic Cryptographic Tree Equality & Runtime Evidence
+## 3. Deterministic Cryptographic Tree Equality & Runtime Evidence
 
 | Entity | Hash / Identifier | Match / Policy Status |
 |---|---|:---:|
@@ -285,10 +304,11 @@ Authoritative FrozenContract ({contract_digest[:16]}...)
 | **Reproduced Tree (Sandbox #2)** | `{reproduced_tree_digest}` | **EXACT MATCH** |
 | **Builder Sandbox Identity** | `{builder_sandbox_id}` | Distinct |
 | **Reproduction Sandbox Identity** | `{reproduction_sandbox_id}` | Distinct |
-| **Clean Base Checkpoint Image** | `{clean_base_checkpoint_image_uuid}` | Verified Checkpoint |
-| **Builder Provider Operation ID** | `{builder_provider_operation_id}` | Verified Provider Fact |
+| **Builder Checkpoint** | `{builder_clean_base_checkpoint_image_uuid}` | Checkpoint #1 |
+| **Repro Checkpoint** | `{reproduction_clean_base_checkpoint_image_uuid}` | Checkpoint #2 |
+| **Builder Provider Op ID** | `{builder_provider_operation_id}` | Provider Fact |
 | **Builder Result Image UUID** | `{builder_result_image_uuid}` | None (Disposable) |
-| **Repro Provider Op ID** | `{reproduction_provider_operation_id}` | Verified Provider Fact |
+| **Reproduction Provider Op ID** | `{reproduction_provider_operation_id}` | Provider Fact |
 | **Reproduction Result Image UUID** | `{reproduction_result_image_uuid}` | None (Disposable) |
 
 Exact tree equality confirms that:
@@ -298,7 +318,7 @@ without Builder workspace state inheritance.
 
 ---
 
-## 3. Captured Unified Patch Content
+## 4. Captured Unified Patch Content
 
 ```diff
 {patch_text.strip()}
@@ -306,11 +326,13 @@ without Builder workspace state inheritance.
 
 ---
 
-## 4. Security, Billing & Provenance Verification
+## 5. Security, Billing & Provenance Verification
 
 - **Sandbox Freshness:** Sandbox #1 (`{builder_sandbox_id}`) and Sandbox #2
   (`{reproduction_sandbox_id}`) are mechanically distinct cloud instances.
   Sandbox #1 was torn down before reproduction.
+- **Independent Materialization:** Builder and Reproduction clean-base checkpoints were
+  independently created by the internal source materializer bound to the authoritative envelope.
 - **Protected Surface Policy:** Canonical P-04 manifest enforced across both execution
   and reproduction.
 - **Zero-Cost Law:** Total inference consumed `{total_tokens}` tokens; two disposable sandboxes
@@ -453,32 +475,14 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
     print(f"[P-07.06] Proposed actions: {len(loop_result.proposal.proposed_file_actions)}")
     print(f"[P-07.06] Proposed commands: {len(loop_result.proposal.proposed_commands)}")
 
-    # 3.5. Materialize Clean Base Checkpoint (Sole permitted checkpoint use per SANDBOX_POLICY.md)
-    print("\n[P-07.06] Step 1.5: Caching clean base repository checkpoint layer...")
-    raw_clean_base_record = source_materializer.materialize_repository(
-        source_identity,
-        workspace_path="/workspace/clean_base",
-        disposable=False,  # Canonical clean base checkpoint
-        timeout_seconds=180,
-    )
-    clean_base_checkpoint = CleanBaseCheckpointRecord.from_materialized_record(
-        raw_clean_base_record
-    )
-    clean_base_image = clean_base_checkpoint.checkpoint_image_uuid
-    clean_base_op_id = clean_base_checkpoint.operation_id
-    print(f"[P-07.06] Clean base checkpoint image: {clean_base_image}")
-    print(f"[P-07.06] Clean base operation ID: {clean_base_op_id}")
-
     # 4. Execute and Enforce Candidate Mutations in Disposable Builder Sandbox (Sandbox #1)
     print("\n[P-07.06] Step 2: Executing mutations & capturing candidate in Sandbox #1...")
     exec_cfg = CandidateExecutionConfig(
-        workspace_path="/workspace/clean_base",
-        sandbox_image=clean_base_image,
+        workspace_path="/workspace/repo",
         per_command_timeout_seconds=120,
         teardown_on_failure=True,
         teardown_on_completion=True,
         bundled_execution=True,
-        clean_base_record=clean_base_checkpoint,
     )
     enforcer = CandidateSecurityEnforcer(
         sandbox_adapter=sandbox_adapter,
@@ -493,6 +497,11 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
     builder_sbx_id = enforce_result.sandbox_identity.sandbox_id
     builder_provider_op_id = str(enforce_result.execution_result.provider_operation_id)
     builder_result_img = enforce_result.execution_result.result_image_uuid
+    builder_clean_base_op_id = str(enforce_result.execution_result.clean_base_operation_id)
+    builder_clean_base_image = str(enforce_result.execution_result.clean_base_checkpoint_image_uuid)
+
+    print(f"[P-07.06] Builder Clean Base Checkpoint Image: {builder_clean_base_image}")
+    print(f"[P-07.06] Builder Clean Base Operation ID: {builder_clean_base_op_id}")
     print(f"[P-07.06] Sandbox #1 Correlation ID: {builder_sbx_id}")
     print(f"[P-07.06] Sandbox #1 Provider Operation ID: {builder_provider_op_id}")
     print(f"[P-07.06] Sandbox #1 Result Image UUID: {builder_result_img} (must be None)")
@@ -503,13 +512,11 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
     # 5. Reproduce Candidate from Trusted Base + Captured Patch in Fresh Sandbox (Sandbox #2)
     print("\n[P-07.06] Step 3: Reproducing candidate in fresh Sandbox #2...")
     repro_cfg = CandidateReproductionConfig(
-        workspace_path="/workspace/clean_base",
-        sandbox_image=clean_base_image,
+        workspace_path="/workspace/repo",
         timeout_seconds=120,
         teardown_on_failure=True,
         teardown_on_completion=True,
         bundled_execution=True,
-        clean_base_record=clean_base_checkpoint,
     )
     reproducer = CandidateReproductionExecutor(
         sandbox_adapter=sandbox_adapter,
@@ -523,6 +530,11 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
     repro_sbx_id = repro_result.sandbox_identity.sandbox_id
     repro_provider_op_id = str(repro_result.provider_operation_id)
     repro_result_img = repro_result.result_image_uuid
+    repro_clean_base_op_id = str(repro_result.clean_base_operation_id)
+    repro_clean_base_image = str(repro_result.clean_base_checkpoint_image_uuid)
+
+    print(f"[P-07.06] Repro Clean Base Checkpoint Image: {repro_clean_base_image}")
+    print(f"[P-07.06] Repro Clean Base Operation ID: {repro_clean_base_op_id}")
     print(f"[P-07.06] Sandbox #2 Correlation ID: {repro_sbx_id}")
     print(f"[P-07.06] Sandbox #2 Provider Operation ID: {repro_provider_op_id}")
     print(f"[P-07.06] Sandbox #2 Result Image UUID: {repro_result_img} (must be None)")
@@ -533,12 +545,17 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
 
     # 6. Cryptographic and Identity Assertions
     assert builder_sbx_id != repro_sbx_id, "Sandbox #2 must be distinct from Sandbox #1"
-    assert clean_base_op_id != builder_provider_op_id, (
-        "Clean base operation ID must be distinct from builder op ID"
-    )
-    assert builder_provider_op_id != repro_provider_op_id, (
-        "Builder operation ID must be distinct from repro op ID"
-    )
+    assert builder_clean_base_op_id, "Builder clean base op ID must be non-empty"
+    assert builder_clean_base_image, "Builder clean base checkpoint image must be non-empty"
+    assert repro_clean_base_op_id, "Reproduction clean base op ID must be non-empty"
+    assert repro_clean_base_image, "Reproduction clean base checkpoint image must be non-empty"
+    all_op_ids = {
+        builder_clean_base_op_id,
+        builder_provider_op_id,
+        repro_clean_base_op_id,
+        repro_provider_op_id,
+    }
+    assert len(all_op_ids) == 4, f"All 4 operation IDs must be distinct, got {all_op_ids}"
     assert builder_result_img is None, (
         "Builder disposable execution must return null result_image_uuid"
     )
@@ -564,9 +581,9 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
         "builder_sandbox_id": builder_sbx_id,
         "builder_provider_operation_id": builder_provider_op_id,
         "builder_result_image_uuid": builder_result_img,
+        "builder_clean_base_operation_id": builder_clean_base_op_id,
+        "builder_clean_base_checkpoint_image_uuid": builder_clean_base_image,
         "captured_candidate_tree_digest": snapshot.candidate_tree_digest,
-        "clean_base_checkpoint_image_uuid": clean_base_image,
-        "clean_base_operation_id": clean_base_op_id,
         "completion_tokens": loop_result.completion_tokens,
         "context_digest": envelope.context_digest,
         "equality_verified": True,
@@ -587,8 +604,9 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
         "reproduction_sandbox_id": repro_sbx_id,
         "reproduction_provider_operation_id": repro_provider_op_id,
         "reproduction_result_image_uuid": repro_result_img,
+        "reproduction_clean_base_operation_id": repro_clean_base_op_id,
+        "reproduction_clean_base_checkpoint_image_uuid": repro_clean_base_image,
         "returned_model": loop_result.returned_model,
-        "sandbox_image": clean_base_image,
         "started_at_utc": start_utc,
         "tested_source_commit_sha": tested_source_commit_sha,
         "tested_source_tree_sha": tested_source_tree_sha,
@@ -609,15 +627,16 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
         prompt_tokens=loop_result.prompt_tokens,
         completion_tokens=loop_result.completion_tokens,
         total_tokens=loop_result.total_tokens,
-        clean_base_operation_id=clean_base_op_id,
-        clean_base_checkpoint_image_uuid=clean_base_image,
+        builder_clean_base_operation_id=builder_clean_base_op_id,
+        builder_clean_base_checkpoint_image_uuid=builder_clean_base_image,
         builder_sandbox_id=builder_sbx_id,
         builder_provider_operation_id=builder_provider_op_id,
         builder_result_image_uuid=builder_result_img,
+        reproduction_clean_base_operation_id=repro_clean_base_op_id,
+        reproduction_clean_base_checkpoint_image_uuid=repro_clean_base_image,
         reproduction_sandbox_id=repro_sbx_id,
         reproduction_provider_operation_id=repro_provider_op_id,
         reproduction_result_image_uuid=repro_result_img,
-        sandbox_image=clean_base_image,
         patch_digest=snapshot.patch_digest,
         captured_candidate_tree_digest=snapshot.candidate_tree_digest,
         reproduced_tree_digest=repro_result.reproduced_tree_digest,

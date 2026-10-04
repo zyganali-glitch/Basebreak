@@ -561,18 +561,17 @@ class CandidateSecurityEnforcer:
 
         # 4. Acquire / validate Sandbox Handle
         created_handle = False
-        handle: Any
+        handle: Any = None
+        is_disposable = getattr(self.sandbox_adapter, "is_disposable_provider", False) or hasattr(
+            self.sandbox_adapter, "inspect_operation"
+        )
+
         if sandbox_handle is not None:
             handle = sandbox_handle
-        else:
-            target_image = (
-                self.config.clean_base_record.checkpoint_image_uuid
-                if self.config.clean_base_record is not None
-                else self.config.sandbox_image
-            )
+        elif not is_disposable:
             try:
                 handle = self.sandbox_adapter.create_sandbox(
-                    image=target_image,
+                    image=self.config.sandbox_image,
                     disposable=True,
                 )
                 created_handle = True
@@ -582,18 +581,19 @@ class CandidateSecurityEnforcer:
                 ) from exc
 
         try:
-            # Validate sandbox identity on handle
-            sbx_id = getattr(handle, "sandbox_identity", None)
-            if sbx_id is None or not isinstance(sbx_id, SandboxIdentity):
-                raise WorkspaceExecutionError(
-                    "Sandbox handle lacks a deterministic SandboxIdentity"
-                )
-            if not sbx_id.sandbox_id or not sbx_id.sandbox_id.strip():
-                raise WorkspaceExecutionError(
-                    "Sandbox handle contains empty or whitespace sandbox_id"
-                )
+            if handle is not None:
+                # Validate sandbox identity on handle
+                sbx_id = getattr(handle, "sandbox_identity", None)
+                if sbx_id is None or not isinstance(sbx_id, SandboxIdentity):
+                    raise WorkspaceExecutionError(
+                        "Sandbox handle lacks a deterministic SandboxIdentity"
+                    )
+                if not sbx_id.sandbox_id or not sbx_id.sandbox_id.strip():
+                    raise WorkspaceExecutionError(
+                        "Sandbox handle contains empty or whitespace sandbox_id"
+                    )
 
-            # 5. P-07.03 Bounded Workspace Execution inside SAME sandbox
+            # 5. P-07.03 Bounded Workspace Execution inside candidate sandbox
             executor = CandidateWorkspaceExecutor(
                 sandbox_adapter=self.sandbox_adapter,
                 source_materializer=self.source_materializer,
@@ -604,8 +604,9 @@ class CandidateSecurityEnforcer:
                 proposal=proposal,
                 sandbox_handle=handle,
             )
+            sbx_id = execution_result.sandbox_identity
 
-            # 6. P-07.04 Capture Candidate State from SAME sandbox
+            # 6. P-07.04 Capture Candidate State
             snapshot: CandidateSnapshot
             if execution_result.bundled_snapshot is not None:
                 if not isinstance(execution_result.bundled_snapshot, CandidateSnapshot):
@@ -633,15 +634,16 @@ class CandidateSecurityEnforcer:
             except ProtectedSurfaceViolation:
                 # Post-execution protected surface violation detected!
                 # Teardown sandbox immediately to contain violation
-                try:
-                    self.sandbox_adapter.teardown_sandbox(handle)
-                except Exception:
-                    pass
+                if handle is not None:
+                    try:
+                        self.sandbox_adapter.teardown_sandbox(handle)
+                    except Exception:
+                        pass
                 raise
 
         except Exception:
             # Teardown on failure/violation if handle was created here
-            if created_handle and self.config.teardown_on_failure:
+            if created_handle and handle is not None and self.config.teardown_on_failure:
                 try:
                     self.sandbox_adapter.teardown_sandbox(handle)
                 except Exception:
@@ -649,7 +651,7 @@ class CandidateSecurityEnforcer:
             raise
 
         # Teardown on completion if configured
-        if created_handle and self.config.teardown_on_completion:
+        if created_handle and handle is not None and self.config.teardown_on_completion:
             try:
                 self.sandbox_adapter.teardown_sandbox(handle)
             except Exception:

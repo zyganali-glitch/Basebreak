@@ -191,6 +191,10 @@ class _MockMaterializedSourceRecord:
     resolved_commit_sha: str
     workspace_path: str
     sandbox_identity: SandboxIdentity
+    resolved_tree_sha: str = "b" * 40
+    operation_id: str = "op-clean-base-001"
+    result_image_uuid: str | None = "img-clean-base-checkpoint-uuid"
+    duration_seconds: float = 0.1
     is_verified: bool = True
 
 
@@ -1456,24 +1460,13 @@ class TestCandidateExecutionMaterializedSourceAuthority:
         import base64
         from types import SimpleNamespace
 
-        from basebreak.builder.execution import CleanBaseCheckpointRecord
-
         source_id = _create_test_source_identity()
         contract = _create_test_frozen_contract()
         envelope = _create_test_envelope(contract, source_id)
 
-        clean_base_record = CleanBaseCheckpointRecord(
-            source_identity=source_id,
-            resolved_commit_sha=source_id.resolved_commit_id,
-            resolved_tree_sha="abcdef1234567890abcdef1234567890abcdef12",
-            workspace_path="/workspace/candidate",
-            sandbox_identity=SandboxIdentity("sbx-clean-base-orig"),
-            operation_id="op-clean-base-001",
-            checkpoint_image_uuid="img-clean-base-checkpoint-uuid",
-            is_verified=True,
-        )
-
         class MockBundledAdapter:
+            is_disposable_provider = True
+
             def __init__(self) -> None:
                 self.created_handles: list[Any] = []
                 self.executed_commands: list[str] = []
@@ -1517,8 +1510,6 @@ class TestCandidateExecutionMaterializedSourceAuthority:
         adapter = MockBundledAdapter()
         config = CandidateExecutionConfig(
             bundled_execution=True,
-            clean_base_record=clean_base_record,
-            sandbox_image=clean_base_record.checkpoint_image_uuid,
             workspace_path="/workspace/candidate",
         )
         executor = CandidateWorkspaceExecutor(

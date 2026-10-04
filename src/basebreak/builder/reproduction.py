@@ -54,6 +54,7 @@ from basebreak.builder.execution import (
     MaterializedSourceMismatchError,
     MaterializedSourceVerificationError,
     SourceCommitMismatchError,
+    SourceTreeMismatchError,
     UnmaterializedWorkspaceError,
     validate_materialized_workspace,
     validate_workspace_path,
@@ -131,17 +132,8 @@ class CandidateReproductionConfig:
     enforce_protected_surfaces: bool = True
     protected_manifest: ProtectedSurfaceManifest | None = None
     bundled_execution: bool = False
-    clean_base_record: CleanBaseCheckpointRecord | None = None
 
     def __post_init__(self) -> None:
-        if self.clean_base_record is not None and not isinstance(
-            self.clean_base_record, CleanBaseCheckpointRecord
-        ):
-            raise CleanBaseRecordAuthorityError(
-                f"clean_base_record must be CleanBaseCheckpointRecord, "
-                f"got {type(self.clean_base_record).__name__}; "
-                "synthetic or caller-asserted clean-base objects are strictly forbidden"
-            )
         if not (1 <= self.timeout_seconds <= 600):
             raise CandidateReproductionConfigError(
                 f"timeout_seconds must be between 1 and 600, got {self.timeout_seconds}"
@@ -520,6 +512,11 @@ class CandidateReproductionExecutor:
                 "Caller-supplied sandbox is strictly prohibited; "
                 "candidate reproduction must create a NEW disposable sandbox internally"
             )
+        if "clean_base_record" in kwargs or "clean_base_checkpoint" in kwargs:
+            raise CleanBaseRecordAuthorityError(
+                "Caller clean-base checkpoint injection is strictly forbidden; "
+                "clean base identity must originate from internal trusted materialization"
+            )
         if "materialized_source" in kwargs:
             raise MaterializedSourceVerificationError(
                 "Caller-supplied materialized_source is strictly forbidden; "
@@ -633,37 +630,11 @@ class CandidateReproductionExecutor:
 
         # Clean-base checkpoint resolution & verification
         clean_base_record: CleanBaseCheckpointRecord | None = None
-        if self.config.clean_base_record is not None:
-            cbr = self.config.clean_base_record
-            if not isinstance(cbr, CleanBaseCheckpointRecord):
-                raise CleanBaseRecordAuthorityError(
-                    f"clean_base_record must be CleanBaseCheckpointRecord, "
-                    f"got {type(cbr).__name__}; synthetic or caller-asserted "
-                    "clean-base objects are strictly forbidden"
-                )
-            if cbr.is_verified is not True:
-                raise CleanBaseRecordAuthorityError("clean_base_record is not verified")
-            actual_commit = cbr.resolved_commit_sha.strip().lower()
-            exp_commit = envelope.source_identity.resolved_commit_id.strip().lower()
-            if actual_commit != exp_commit:
-                raise SourceCommitMismatchError(
-                    f"clean_base_record commit {actual_commit!r} does not match "
-                    f"authoritative envelope commit {exp_commit!r}"
-                )
-            actual_ws = cbr.workspace_path.strip().rstrip("/")
-            if actual_ws != clean_ws.strip().rstrip("/"):
-                raise MaterializedSourceMismatchError(
-                    f"clean_base_record workspace path {actual_ws!r} does not match {clean_ws!r}"
-                )
-            if cbr.source_identity.locator != envelope.source_identity.locator:
-                raise MaterializedSourceMismatchError(
-                    f"clean_base_record locator does not match {envelope.source_identity.locator!r}"
-                )
-            clean_base_record = cbr
-        elif getattr(self.sandbox_adapter, "is_disposable_provider", False) or hasattr(
+        if getattr(self.sandbox_adapter, "is_disposable_provider", False) or hasattr(
             self.sandbox_adapter, "inspect_operation"
         ):
-            # Canonical production path: materialize clean base checkpoint (disposable=False)
+            # Canonical production path: independently materialize fresh clean base
+            # checkpoint (disposable=False)
             try:
                 raw_mat = self.source_materializer.materialize_repository(
                     envelope.source_identity,
@@ -675,6 +646,7 @@ class CandidateReproductionExecutor:
             except (
                 CleanBaseRecordAuthorityError,
                 SourceCommitMismatchError,
+                SourceTreeMismatchError,
                 MaterializedSourceMismatchError,
             ):
                 raise
@@ -682,6 +654,24 @@ class CandidateReproductionExecutor:
                 raise MaterializedSourceVerificationError(
                     f"Failed to create canonical clean base checkpoint for reproduction: {exc}"
                 ) from exc
+
+            # Verify that clean_base_record matches authoritative envelope
+            actual_commit = clean_base_record.resolved_commit_sha.strip().lower()
+            exp_commit = envelope.source_identity.resolved_commit_id.strip().lower()
+            if actual_commit != exp_commit:
+                raise SourceCommitMismatchError(
+                    f"clean_base_record commit {actual_commit!r} does not match "
+                    f"authoritative envelope commit {exp_commit!r}"
+                )
+            actual_ws = clean_base_record.workspace_path.strip().rstrip("/")
+            if actual_ws != clean_ws.strip().rstrip("/"):
+                raise MaterializedSourceMismatchError(
+                    f"clean_base_record workspace path {actual_ws!r} does not match {clean_ws!r}"
+                )
+            if clean_base_record.source_identity.locator != envelope.source_identity.locator:
+                raise MaterializedSourceMismatchError(
+                    f"clean_base_record locator does not match {envelope.source_identity.locator!r}"
+                )
 
         # Step 4: Create NEW Disposable Sandbox Internally
         target_image = (
