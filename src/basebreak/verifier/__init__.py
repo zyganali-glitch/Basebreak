@@ -1,8 +1,15 @@
-"""Verifier isolation, sealed witness boundary, and execution contracts.
-
-P-08: Verifier Isolation & Sealed Challenge Boundary.
-"""
-
+from basebreak.verifier.boundary import (
+    REDACTED_VERIFIER_PATH,
+    REDACTED_WITNESS_DIGEST,
+    REDACTED_WITNESS_ID,
+    REDACTED_WITNESS_TEXT,
+    VERIFIER_DIRECTORY_PREFIXES,
+    VerifierAssetExclusionError,
+    VerifierBoundaryEnforcer,
+    VerifierBoundaryError,
+    VerifierEnvironmentLeakageError,
+    WitnessLeakageInResultError,
+)
 from basebreak.verifier.context import (
     VERIFIER_CONTEXT_SCHEMA_VERSION,
     BuilderAuthoritySmugglingError,
@@ -47,7 +54,12 @@ __all__ = [
     "DEFAULT_VERIFIER_SANDBOX_IMAGE",
     "DEFAULT_VERIFIER_TIMEOUT_SECONDS",
     "DEFAULT_VERIFIER_WORKSPACE_PATH",
+    "REDACTED_VERIFIER_PATH",
+    "REDACTED_WITNESS_DIGEST",
+    "REDACTED_WITNESS_ID",
+    "REDACTED_WITNESS_TEXT",
     "VERIFIER_CONTEXT_SCHEMA_VERSION",
+    "VERIFIER_DIRECTORY_PREFIXES",
     "BuilderAuthoritySmugglingError",
     "BuilderSandboxReuseError",
     "BuilderWorkspaceInheritanceError",
@@ -60,9 +72,13 @@ __all__ = [
     "UnpinnedSourceError",
     "UntrustedBuilderInputError",
     "UntrustedWitnessAuthorityError",
+    "VerifierAssetExclusionError",
+    "VerifierBoundaryEnforcer",
+    "VerifierBoundaryError",
     "VerifierContextEnvelope",
     "VerifierContextError",
     "VerifierDigestMismatchError",
+    "VerifierEnvironmentLeakageError",
     "VerifierExecutionPolicy",
     "VerifierInputClassification",
     "VerifierMaterializationError",
@@ -73,6 +89,7 @@ __all__ = [
     "VerifierTreeDigestMismatchError",
     "WitnessArtifact",
     "WitnessIntegrityError",
+    "WitnessLeakageInResultError",
     "WitnessPathSecurityError",
     "WitnessProtectedSurfaceCollisionError",
     "WitnessSecretError",

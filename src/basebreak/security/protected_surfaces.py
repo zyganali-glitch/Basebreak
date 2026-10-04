@@ -1450,6 +1450,7 @@ def get_canonical_basebreak_protected_manifest() -> ProtectedSurfaceManifest:
     - src/basebreak/domain: Frozen provider-neutral domain contracts (P-02 closed).
     - src/basebreak/evidence: Frozen deterministic fact authority & evidence store (P-03 closed).
     - src/basebreak/security: Security policy and redaction primitives.
+    - src/basebreak/verifier: Verifier isolation, sealed witnesses, and boundary primitives.
     """
     return ProtectedSurfaceManifest(
         exact_files=frozenset(
@@ -1467,6 +1468,7 @@ def get_canonical_basebreak_protected_manifest() -> ProtectedSurfaceManifest:
                 "src/basebreak/domain",
                 "src/basebreak/evidence",
                 "src/basebreak/security",
+                "src/basebreak/verifier",
             }
         ),
         description=(
