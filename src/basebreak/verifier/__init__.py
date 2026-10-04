@@ -31,6 +31,17 @@ from basebreak.verifier.sandbox import (
     VerifierSandboxSession,
     VerifierTreeDigestMismatchError,
 )
+from basebreak.verifier.witness_store import (
+    SealedWitnessRecord,
+    TrustedWitnessVault,
+    UntrustedWitnessAuthorityError,
+    WitnessArtifact,
+    WitnessIntegrityError,
+    WitnessPathSecurityError,
+    WitnessProtectedSurfaceCollisionError,
+    WitnessSecretError,
+    WitnessTamperingError,
+)
 
 __all__ = [
     "DEFAULT_VERIFIER_SANDBOX_IMAGE",
@@ -43,9 +54,12 @@ __all__ = [
     "HostExecutionFallbackError",
     "MissingSandboxIdentityError",
     "MutableWorkspacePathError",
+    "SealedWitnessRecord",
     "SimulationFallbackError",
+    "TrustedWitnessVault",
     "UnpinnedSourceError",
     "UntrustedBuilderInputError",
+    "UntrustedWitnessAuthorityError",
     "VerifierContextEnvelope",
     "VerifierContextError",
     "VerifierDigestMismatchError",
@@ -57,4 +71,10 @@ __all__ = [
     "VerifierSandboxManager",
     "VerifierSandboxSession",
     "VerifierTreeDigestMismatchError",
+    "WitnessArtifact",
+    "WitnessIntegrityError",
+    "WitnessPathSecurityError",
+    "WitnessProtectedSurfaceCollisionError",
+    "WitnessSecretError",
+    "WitnessTamperingError",
 ]
