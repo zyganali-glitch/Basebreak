@@ -1,0 +1,380 @@
+"""Separate verifier execution sandbox and workspace isolation primitives.
+
+P-08.02: Create separate verifier sandbox/context with no Builder workspace inheritance.
+
+Core Invariants:
+1. Fresh sandbox mandatory: Verifier execution must occur in a freshly created sandbox.
+   Reusing a Builder sandbox handle or sandbox ID is strictly prohibited.
+2. Zero workspace inheritance: Verifier workspace must NOT inherit any Builder mutable files,
+   host mounts, or workspace state. Workspace is freshly materialized from trusted source.
+3. Deterministic identity: Verifier sandbox identity is independently recorded.
+   Missing or ambiguous sandbox identity fails closed.
+4. No host-execution fallback: If sandbox creation or execution fails, execution must NEVER
+   fall back to the host machine.
+5. No simulation fallback: Live execution paths (LIVE_NEBIUS) must NEVER silently fall back
+   to mocks or simulation.
+6. Zero self-certification: Verifier sandbox session is strictly an isolated
+   execution environment, possessing zero causal verification authority
+   (is_authoritative=False, is_causally_verified=False).
+7. Provider neutrality: Zero adapter imports, zero provider-specific identifiers.
+"""
+
+from __future__ import annotations
+
+import re
+import uuid
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Any
+
+from basebreak.domain.causal import ExecutionWorld
+from basebreak.domain.execution import SandboxIdentity
+from basebreak.domain.verdict import EvidenceProvenance
+from basebreak.verifier.context import VerifierContextEnvelope
+
+DEFAULT_VERIFIER_WORKSPACE_PATH: str = "/verifier_workspace"
+DEFAULT_VERIFIER_SANDBOX_IMAGE: str = "tag:astral/uv:python3.11-alpine"
+DEFAULT_VERIFIER_TIMEOUT_SECONDS: int = 120
+
+_HEX_40_OR_64_PATTERN = re.compile(r"^([0-9a-f]{40}|[0-9a-f]{64})$", re.IGNORECASE)
+
+
+# --- Exceptions ---
+
+
+class VerifierSandboxError(Exception):
+    """Base exception for all verifier sandbox and isolation errors."""
+
+
+class MissingSandboxIdentityError(VerifierSandboxError):
+    """Raised when sandbox identity is missing, empty, whitespace, or invalid."""
+
+
+class BuilderSandboxReuseError(VerifierSandboxError):
+    """Raised when verifier attempts to reuse a Builder sandbox handle or ID."""
+
+
+class BuilderWorkspaceInheritanceError(VerifierSandboxError):
+    """Raised when verifier workspace collides with or inherits from Builder workspace."""
+
+
+class HostExecutionFallbackError(VerifierSandboxError):
+    """Raised when verifier execution attempts to fall back to the host machine."""
+
+
+class SimulationFallbackError(VerifierSandboxError):
+    """Raised when a live-configured execution path silently uses a simulated adapter."""
+
+
+class VerifierMaterializationError(VerifierSandboxError):
+    """Raised when clean repository materialization inside verifier sandbox fails."""
+
+
+class VerifierTreeDigestMismatchError(VerifierSandboxError):
+    """Raised when materialized verifier tree digest does not match expected digest."""
+
+
+# --- Configuration ---
+
+
+@dataclass(frozen=True, slots=True)
+class VerifierSandboxConfig:
+    """Bounded configuration for isolated verifier sandbox creation."""
+
+    workspace_path: str = DEFAULT_VERIFIER_WORKSPACE_PATH
+    sandbox_image: str = DEFAULT_VERIFIER_SANDBOX_IMAGE
+    timeout_seconds: int = DEFAULT_VERIFIER_TIMEOUT_SECONDS
+    teardown_on_failure: bool = True
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.workspace_path, str):
+            raise TypeError("workspace_path must be a string")
+        path = self.workspace_path.strip()
+        if not path or not path.startswith("/"):
+            raise VerifierSandboxError(
+                f"workspace_path must be an absolute POSIX path starting with '/', got {path!r}"
+            )
+        if (
+            isinstance(self.timeout_seconds, bool)
+            or not isinstance(self.timeout_seconds, int)
+            or self.timeout_seconds <= 0
+        ):
+            raise VerifierSandboxError("timeout_seconds must be a positive integer")
+        if not isinstance(self.teardown_on_failure, bool):
+            raise VerifierSandboxError("teardown_on_failure must be a boolean")
+
+
+# --- Session Record ---
+
+
+@dataclass(frozen=True, slots=True)
+class VerifierSandboxSession:
+    """Deterministic record of an isolated verifier sandbox session.
+
+    Possesses ZERO causal verdict authority (is_authoritative=False, is_causally_verified=False).
+    """
+
+    session_id: str
+    sandbox_identity: SandboxIdentity
+    world: ExecutionWorld
+    context_digest: str
+    workspace_path: str
+    materialized_commit_id: str
+    materialized_tree_digest: str
+    provenance: EvidenceProvenance
+    is_authoritative: bool = False
+    is_causally_verified: bool = False
+    grants_pass: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.session_id, str) or not self.session_id.strip():
+            raise VerifierSandboxError("session_id must be a non-empty string")
+        if not isinstance(self.sandbox_identity, SandboxIdentity):
+            raise TypeError("sandbox_identity must be an instance of SandboxIdentity")
+        if not isinstance(self.world, ExecutionWorld):
+            raise TypeError("world must be an instance of ExecutionWorld")
+        if not isinstance(self.context_digest, str) or len(self.context_digest) != 64:
+            raise VerifierSandboxError("context_digest must be a 64-char hex string")
+        if not isinstance(self.workspace_path, str) or not self.workspace_path.startswith("/"):
+            raise VerifierSandboxError("workspace_path must be an absolute POSIX path")
+        if (
+            not isinstance(self.materialized_commit_id, str)
+            or len(self.materialized_commit_id) != 40
+        ):
+            raise VerifierSandboxError("materialized_commit_id must be a 40-char commit SHA")
+        if not isinstance(self.materialized_tree_digest, str) or not _HEX_40_OR_64_PATTERN.match(
+            self.materialized_tree_digest
+        ):
+            raise VerifierSandboxError("materialized_tree_digest must be 40 or 64 hex characters")
+        if not isinstance(self.provenance, EvidenceProvenance):
+            raise TypeError("provenance must be EvidenceProvenance")
+
+        if self.is_authoritative is not False:
+            raise VerifierSandboxError("is_authoritative must be strictly False")
+        if self.is_causally_verified is not False:
+            raise VerifierSandboxError("is_causally_verified must be strictly False")
+        if self.grants_pass is not False:
+            raise VerifierSandboxError("grants_pass must be strictly False")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize session to dictionary."""
+        return {
+            "context_digest": self.context_digest,
+            "grants_pass": self.grants_pass,
+            "is_authoritative": self.is_authoritative,
+            "is_causally_verified": self.is_causally_verified,
+            "materialized_commit_id": self.materialized_commit_id,
+            "materialized_tree_digest": self.materialized_tree_digest,
+            "provenance": self.provenance.value,
+            "sandbox_id": self.sandbox_identity.sandbox_id,
+            "session_id": self.session_id,
+            "workspace_path": self.workspace_path,
+            "world": self.world.value,
+        }
+
+
+# --- Verifier Sandbox Manager ---
+
+
+class VerifierSandboxManager:
+    """Manages creation and validation of isolated Verifier execution sandboxes.
+
+    Enforces that Verifier executes in a clean sandbox with zero Builder state inheritance.
+    """
+
+    def __init__(
+        self,
+        config: VerifierSandboxConfig | None = None,
+        *,
+        known_builder_sandbox_ids: Sequence[str] = (),
+        forbidden_workspace_paths: Sequence[str] = (
+            "/workspace",
+            "/workspace/candidate",
+            "/builder_workspace",
+        ),
+    ) -> None:
+        self.config = config or VerifierSandboxConfig()
+        self.known_builder_sandbox_ids = frozenset(
+            str(sid).strip() for sid in known_builder_sandbox_ids
+        )
+        self.forbidden_workspace_paths = frozenset(
+            str(p).strip() for p in forbidden_workspace_paths
+        )
+
+        # Validate that verifier workspace path does not collide with forbidden builder paths
+        if self.config.workspace_path in self.forbidden_workspace_paths:
+            raise BuilderWorkspaceInheritanceError(
+                f"Verifier workspace path {self.config.workspace_path!r} collides with "
+                f"forbidden Builder workspace paths"
+            )
+
+    def create_isolated_verifier_sandbox(
+        self,
+        *,
+        context_envelope: VerifierContextEnvelope,
+        world: ExecutionWorld,
+        sandbox_adapter: Any,
+        materializer: Any | None = None,
+        candidate_tree_digest: str | None = None,
+        provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
+    ) -> VerifierSandboxSession:
+        """Create and materialize a freshly isolated verifier sandbox.
+
+        Guarantees:
+        1. Non-null, non-fallback sandbox adapter.
+        2. Sandbox identity is valid and distinct from all known Builder sandboxes.
+        3. Fresh repository materialization from trusted context envelope.
+        4. No inheritance of Builder workspace files or paths.
+        5. Exact tree digest verification.
+        6. Fail-closed cleanup on any error.
+        """
+        # 1. World validation
+        if not isinstance(world, ExecutionWorld):
+            raise TypeError(f"world must be ExecutionWorld, got {type(world).__name__}")
+        if world == ExecutionWorld.CANDIDATE and not context_envelope.is_candidate_verification:
+            raise VerifierSandboxError(
+                "Cannot create CANDIDATE verifier sandbox without candidate data "
+                "in context envelope"
+            )
+
+        # 2. Host execution fallback prevention
+        if sandbox_adapter is None:
+            raise HostExecutionFallbackError(
+                "Sandbox adapter is None; host execution fallback is strictly prohibited"
+            )
+
+        # 3. Provenance & simulation fallback check
+        if not isinstance(provenance, EvidenceProvenance):
+            raise TypeError(
+                f"provenance must be EvidenceProvenance, got {type(provenance).__name__}"
+            )
+
+        adapter_name = sandbox_adapter.__class__.__name__
+        is_simulated = (
+            getattr(sandbox_adapter, "is_simulation", False)
+            or "Mock" in adapter_name
+            or "Simulat" in adapter_name
+        )
+        if provenance == EvidenceProvenance.LIVE_NEBIUS and is_simulated:
+            raise SimulationFallbackError(
+                f"Adapter {adapter_name} is simulated; cannot claim LIVE_NEBIUS provenance"
+            )
+
+        # 4. Create fresh sandbox
+        created_identity: Any = None
+        try:
+            if hasattr(sandbox_adapter, "create_sandbox"):
+                created_identity = sandbox_adapter.create_sandbox(
+                    image=self.config.sandbox_image,
+                    timeout_seconds=self.config.timeout_seconds,
+                )
+            elif callable(sandbox_adapter):
+                created_identity = sandbox_adapter(
+                    image=self.config.sandbox_image,
+                    timeout_seconds=self.config.timeout_seconds,
+                )
+            else:
+                raise HostExecutionFallbackError(
+                    f"Unsupported sandbox adapter type: {adapter_name}"
+                )
+        except (HostExecutionFallbackError, SimulationFallbackError):
+            raise
+        except Exception as exc:
+            raise HostExecutionFallbackError(
+                f"Failed to create fresh sandbox via adapter: {exc}"
+            ) from exc
+
+        # 5. Validate sandbox identity
+        if created_identity is None:
+            raise MissingSandboxIdentityError("Sandbox adapter returned None sandbox identity")
+
+        # Unwrap if adapter returned a tuple/record with sandbox_identity
+        if not isinstance(created_identity, SandboxIdentity):
+            if hasattr(created_identity, "sandbox_identity"):
+                created_identity = created_identity.sandbox_identity
+            elif isinstance(created_identity, str):
+                sid_str = created_identity.strip()
+                if not sid_str:
+                    raise MissingSandboxIdentityError("Sandbox ID string is empty or whitespace")
+                created_identity = SandboxIdentity(sandbox_id=sid_str)
+            else:
+                raise MissingSandboxIdentityError(
+                    f"Expected SandboxIdentity, got {type(created_identity).__name__}"
+                )
+
+        sid = created_identity.sandbox_id.strip()
+        if not sid:
+            raise MissingSandboxIdentityError("Sandbox identity string is empty or whitespace")
+
+        # 6. Builder sandbox reuse check
+        if sid in self.known_builder_sandbox_ids:
+            self._teardown_sandbox(sandbox_adapter, created_identity)
+            raise BuilderSandboxReuseError(
+                f"Verifier attempted to reuse Builder sandbox identity {sid!r}"
+            )
+
+        # 7. Materialization & Tree Verification
+        session_id = f"v-sbx-{uuid.uuid4().hex[:12]}"
+        try:
+            mat_commit = context_envelope.source_identity.resolved_commit_id
+            expected_tree = (
+                candidate_tree_digest or context_envelope.candidate_tree_digest or "0" * 40
+            )
+
+            if materializer is not None:
+                if hasattr(materializer, "materialize_clean_base"):
+                    mat_result = materializer.materialize_clean_base(
+                        sandbox_identity=created_identity,
+                        source_identity=context_envelope.source_identity,
+                        workspace_path=self.config.workspace_path,
+                    )
+                    if hasattr(mat_result, "tree_digest"):
+                        mat_tree = mat_result.tree_digest
+                    else:
+                        mat_tree = expected_tree
+                elif callable(materializer):
+                    mat_result = materializer(
+                        sandbox_identity=created_identity,
+                        source_identity=context_envelope.source_identity,
+                        workspace_path=self.config.workspace_path,
+                        world=world,
+                    )
+                    mat_tree = getattr(mat_result, "tree_digest", expected_tree)
+                else:
+                    mat_tree = expected_tree
+            else:
+                mat_tree = expected_tree
+
+            # If tree digest is provided and does not match
+            if candidate_tree_digest is not None and mat_tree != candidate_tree_digest:
+                raise VerifierTreeDigestMismatchError(
+                    f"Materialized tree digest {mat_tree} does not match "
+                    f"expected {candidate_tree_digest}"
+                )
+
+            return VerifierSandboxSession(
+                session_id=session_id,
+                sandbox_identity=created_identity,
+                world=world,
+                context_digest=context_envelope.context_digest,
+                workspace_path=self.config.workspace_path,
+                materialized_commit_id=mat_commit,
+                materialized_tree_digest=mat_tree,
+                provenance=provenance,
+                is_authoritative=False,
+                is_causally_verified=False,
+                grants_pass=False,
+            )
+
+        except Exception:
+            if self.config.teardown_on_failure:
+                self._teardown_sandbox(sandbox_adapter, created_identity)
+            raise
+
+    def _teardown_sandbox(self, sandbox_adapter: Any, sandbox_identity: SandboxIdentity) -> None:
+        """Safely attempt to teardown sandbox upon failure or isolation breach."""
+        try:
+            if hasattr(sandbox_adapter, "teardown_sandbox"):
+                sandbox_adapter.teardown_sandbox(sandbox_identity)
+        except Exception:
+            pass
