@@ -46,7 +46,10 @@ from basebreak.builder.enforcement import (
     CandidateSecurityEnforcementResult,
     CandidateSecurityEnforcer,
 )
-from basebreak.builder.execution import CandidateExecutionConfig
+from basebreak.builder.execution import (
+    CandidateExecutionConfig,
+    CleanBaseCheckpointRecord,
+)
 from basebreak.builder.loop import (
     BuilderLoopConfig,
     BuilderLoopResult,
@@ -185,8 +188,14 @@ def generate_reproduction_evidence_markdown(
     prompt_tokens: int,
     completion_tokens: int,
     total_tokens: int,
+    clean_base_operation_id: str,
+    clean_base_checkpoint_image_uuid: str,
     builder_sandbox_id: str,
+    builder_provider_operation_id: str,
+    builder_result_image_uuid: str | None,
     reproduction_sandbox_id: str,
+    reproduction_provider_operation_id: str,
+    reproduction_result_image_uuid: str | None,
     sandbox_image: str,
     patch_digest: str,
     captured_candidate_tree_digest: str,
@@ -217,8 +226,14 @@ def generate_reproduction_evidence_markdown(
 - **Frozen Contract Digest:** `{contract_digest}`
 - **Builder Context Digest:** `{context_digest}`
 - **Sandbox Image:** `{sandbox_image}`
-- **Builder Sandbox Identity (Sandbox #1):** `{builder_sandbox_id}`
-- **Reproduction Sandbox Identity (Sandbox #2):** `{reproduction_sandbox_id}`
+- **CLEAN BASE Checkpoint Provider Operation ID:** `{clean_base_operation_id}`
+- **CLEAN BASE Checkpoint Image UUID:** `{clean_base_checkpoint_image_uuid}`
+- **Builder Sandbox Correlation ID (Sandbox #1):** `{builder_sandbox_id}`
+- **Builder Provider Operation ID:** `{builder_provider_operation_id}`
+- **Builder Result Image UUID:** `{builder_result_image_uuid}` (strictly None / disposable)
+- **Reproduction Sandbox Correlation ID (Sandbox #2):** `{reproduction_sandbox_id}`
+- **Reproduction Provider Operation ID:** `{reproduction_provider_operation_id}`
+- **Reproduction Result Image UUID:** `{reproduction_result_image_uuid}` (None)
 - **Sandboxes Distinct Verified:** `{builder_sandbox_id != reproduction_sandbox_id}`
 - **Patch Digest:** `{patch_digest}`
 - **Captured Candidate Tree Digest:** `{captured_candidate_tree_digest}`
@@ -245,31 +260,36 @@ The live run exercised the unbroken, genuine Basebreak authority and reproductio
 Authoritative FrozenContract ({contract_digest[:16]}...)
   -> Minimized Builder Context ({context_digest[:16]}...)
   -> Real Nemotron Model Call ({returned_model})
-  -> Real Token Factory Builder Sandbox ({builder_sandbox_id})
-  -> Base Repo Materialization (git clone @ {tested_source_commit_sha[:12]})
+  -> Clean Base (op={clean_base_operation_id}, img={clean_base_checkpoint_image_uuid[:8]}...)
+  -> Real Disposable Builder Sandbox ({builder_sandbox_id}, op={builder_provider_operation_id})
   -> Real File Action Applied in Sandbox VM
   -> Bounded Command / Test Execution in Sandbox VM
   -> P-07.05 Canonical Protected-Surface Enforcement
   -> P-07.04 Candidate State & Tree Capture ({captured_candidate_tree_digest[:16]}...)
-  -> Builder Sandbox Teardown & State Destruction
-  -> NEW Real Token Factory Reproduction Sandbox ({reproduction_sandbox_id})
-  -> Rematerialization of Exact Trusted Base Repository
+  -> Disposable Builder Sandbox Disposed (result_image_uuid=None)
+  -> NEW Disposable Reproduction Sandbox ({reproduction_sandbox_id})
+  -> From Immutable Clean Base Checkpoint ({clean_base_checkpoint_image_uuid[:16]}...)
   -> Safe Transport and Application of Exact Captured Patch (git apply)
   -> Deterministic Staging (git add -A) & Tree Calculation (git write-tree)
   -> Exact Cryptographic Tree Hash Verification
-  -> Reproduction Sandbox Teardown
+  -> Disposable Reproduction Sandbox Disposed (result_image_uuid=None)
 ```
 
 ---
 
-## 2. Deterministic Cryptographic Tree Equality
+## 2. Deterministic Cryptographic Tree Equality & Runtime Evidence
 
-| Entity | Hash / Identifier | Match? |
+| Entity | Hash / Identifier | Match / Policy Status |
 |---|---|:---:|
 | **Candidate Tree (Sandbox #1)** | `{captured_candidate_tree_digest}` | **EXACT MATCH** |
 | **Reproduced Tree (Sandbox #2)** | `{reproduced_tree_digest}` | **EXACT MATCH** |
 | **Builder Sandbox Identity** | `{builder_sandbox_id}` | Distinct |
 | **Reproduction Sandbox Identity** | `{reproduction_sandbox_id}` | Distinct |
+| **Clean Base Checkpoint Image** | `{clean_base_checkpoint_image_uuid}` | Verified Checkpoint |
+| **Builder Provider Operation ID** | `{builder_provider_operation_id}` | Verified Provider Fact |
+| **Builder Result Image UUID** | `{builder_result_image_uuid}` | None (Disposable) |
+| **Repro Provider Op ID** | `{reproduction_provider_operation_id}` | Verified Provider Fact |
+| **Reproduction Result Image UUID** | `{reproduction_result_image_uuid}` | None (Disposable) |
 
 Exact tree equality confirms that:
 `TRUSTED BASE + EXACT CAPTURED PATCH -> FRESH SANDBOX -> EXACT CANDIDATE TREE`
@@ -435,17 +455,19 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
 
     # 3.5. Materialize Clean Base Checkpoint (Sole permitted checkpoint use per SANDBOX_POLICY.md)
     print("\n[P-07.06] Step 1.5: Caching clean base repository checkpoint layer...")
-    clean_base_record = source_materializer.materialize_repository(
+    raw_clean_base_record = source_materializer.materialize_repository(
         source_identity,
         workspace_path="/workspace/clean_base",
         disposable=False,  # Canonical clean base checkpoint
         timeout_seconds=180,
     )
-    assert clean_base_record.result_image_uuid is not None, (
-        "Clean base checkpoint image must be generated"
+    clean_base_checkpoint = CleanBaseCheckpointRecord.from_materialized_record(
+        raw_clean_base_record
     )
-    clean_base_image = clean_base_record.result_image_uuid
+    clean_base_image = clean_base_checkpoint.checkpoint_image_uuid
+    clean_base_op_id = clean_base_checkpoint.operation_id
     print(f"[P-07.06] Clean base checkpoint image: {clean_base_image}")
+    print(f"[P-07.06] Clean base operation ID: {clean_base_op_id}")
 
     # 4. Execute and Enforce Candidate Mutations in Disposable Builder Sandbox (Sandbox #1)
     print("\n[P-07.06] Step 2: Executing mutations & capturing candidate in Sandbox #1...")
@@ -456,7 +478,7 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
         teardown_on_failure=True,
         teardown_on_completion=True,
         bundled_execution=True,
-        clean_base_record=clean_base_record,
+        clean_base_record=clean_base_checkpoint,
     )
     enforcer = CandidateSecurityEnforcer(
         sandbox_adapter=sandbox_adapter,
@@ -469,7 +491,11 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
     )
     snapshot = enforce_result.candidate_snapshot
     builder_sbx_id = enforce_result.sandbox_identity.sandbox_id
-    print(f"[P-07.06] Sandbox #1 ID: {builder_sbx_id}")
+    builder_provider_op_id = str(enforce_result.execution_result.provider_operation_id)
+    builder_result_img = enforce_result.execution_result.result_image_uuid
+    print(f"[P-07.06] Sandbox #1 Correlation ID: {builder_sbx_id}")
+    print(f"[P-07.06] Sandbox #1 Provider Operation ID: {builder_provider_op_id}")
+    print(f"[P-07.06] Sandbox #1 Result Image UUID: {builder_result_img} (must be None)")
     print(f"[P-07.06] Captured Candidate Tree Digest: {snapshot.candidate_tree_digest}")
     print(f"[P-07.06] Captured Patch Digest: {snapshot.patch_digest}")
     print(f"[P-07.06] Sandbox #1 torn down: {exec_cfg.teardown_on_completion}")
@@ -483,7 +509,7 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
         teardown_on_failure=True,
         teardown_on_completion=True,
         bundled_execution=True,
-        clean_base_record=clean_base_record,
+        clean_base_record=clean_base_checkpoint,
     )
     reproducer = CandidateReproductionExecutor(
         sandbox_adapter=sandbox_adapter,
@@ -495,7 +521,11 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
         envelope=envelope,
     )
     repro_sbx_id = repro_result.sandbox_identity.sandbox_id
-    print(f"[P-07.06] Sandbox #2 ID: {repro_sbx_id}")
+    repro_provider_op_id = str(repro_result.provider_operation_id)
+    repro_result_img = repro_result.result_image_uuid
+    print(f"[P-07.06] Sandbox #2 Correlation ID: {repro_sbx_id}")
+    print(f"[P-07.06] Sandbox #2 Provider Operation ID: {repro_provider_op_id}")
+    print(f"[P-07.06] Sandbox #2 Result Image UUID: {repro_result_img} (must be None)")
     print(f"[P-07.06] Reproduced Tree Digest: {repro_result.reproduced_tree_digest}")
 
     duration_seconds = time.perf_counter() - start_time
@@ -503,6 +533,24 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
 
     # 6. Cryptographic and Identity Assertions
     assert builder_sbx_id != repro_sbx_id, "Sandbox #2 must be distinct from Sandbox #1"
+    assert clean_base_op_id != builder_provider_op_id, (
+        "Clean base operation ID must be distinct from builder op ID"
+    )
+    assert builder_provider_op_id != repro_provider_op_id, (
+        "Builder operation ID must be distinct from repro op ID"
+    )
+    assert builder_result_img is None, (
+        "Builder disposable execution must return null result_image_uuid"
+    )
+    assert repro_result_img is None, (
+        "Reproduction disposable execution must return null result_image_uuid"
+    )
+    assert enforce_result.execution_result.provenance == EvidenceProvenance.LIVE_NEBIUS, (
+        "Builder execution must have LIVE_NEBIUS provenance"
+    )
+    assert repro_result.provenance == EvidenceProvenance.LIVE_NEBIUS, (
+        "Reproduction must have LIVE_NEBIUS provenance"
+    )
     assert repro_result.reproduced_tree_digest == snapshot.candidate_tree_digest, (
         "Reproduced tree digest must match captured candidate tree digest down to the bit"
     )
@@ -514,7 +562,11 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
     evidence = {
         "builder_authored_tests_count": len(snapshot.builder_authored_tests),
         "builder_sandbox_id": builder_sbx_id,
+        "builder_provider_operation_id": builder_provider_op_id,
+        "builder_result_image_uuid": builder_result_img,
         "captured_candidate_tree_digest": snapshot.candidate_tree_digest,
+        "clean_base_checkpoint_image_uuid": clean_base_image,
+        "clean_base_operation_id": clean_base_op_id,
         "completion_tokens": loop_result.completion_tokens,
         "context_digest": envelope.context_digest,
         "equality_verified": True,
@@ -533,6 +585,8 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
         "provenance": "LIVE_NEBIUS",
         "reproduced_tree_digest": repro_result.reproduced_tree_digest,
         "reproduction_sandbox_id": repro_sbx_id,
+        "reproduction_provider_operation_id": repro_provider_op_id,
+        "reproduction_result_image_uuid": repro_result_img,
         "returned_model": loop_result.returned_model,
         "sandbox_image": clean_base_image,
         "started_at_utc": start_utc,
@@ -555,8 +609,14 @@ def run_live_candidate_reproduction_proof() -> dict[str, Any]:
         prompt_tokens=loop_result.prompt_tokens,
         completion_tokens=loop_result.completion_tokens,
         total_tokens=loop_result.total_tokens,
+        clean_base_operation_id=clean_base_op_id,
+        clean_base_checkpoint_image_uuid=clean_base_image,
         builder_sandbox_id=builder_sbx_id,
+        builder_provider_operation_id=builder_provider_op_id,
+        builder_result_image_uuid=builder_result_img,
         reproduction_sandbox_id=repro_sbx_id,
+        reproduction_provider_operation_id=repro_provider_op_id,
+        reproduction_result_image_uuid=repro_result_img,
         sandbox_image=clean_base_image,
         patch_digest=snapshot.patch_digest,
         captured_candidate_tree_digest=snapshot.candidate_tree_digest,

@@ -1097,14 +1097,19 @@ def test_clean_base_checkpoint_and_bundled_reproduction() -> None:
     """
     from types import SimpleNamespace
 
+    from basebreak.builder.execution import CleanBaseCheckpointRecord
+
     envelope = _create_envelope()
     snapshot = _create_snapshot(envelope)
 
-    clean_base_record = SimpleNamespace(
+    clean_base_record = CleanBaseCheckpointRecord(
         source_identity=envelope.source_identity,
         resolved_commit_sha=envelope.source_identity.resolved_commit_id,
+        resolved_tree_sha="abcdef1234567890abcdef1234567890abcdef12",
         workspace_path="/workspace/repo",
-        result_image_uuid="img-clean-base-checkpoint-uuid",
+        sandbox_identity=SandboxIdentity("sbx-clean-base-orig"),
+        operation_id="op-clean-base-001",
+        checkpoint_image_uuid="img-clean-base-checkpoint-uuid",
         is_verified=True,
     )
 
@@ -1130,7 +1135,13 @@ def test_clean_base_checkpoint_and_bundled_reproduction() -> None:
                 "M\tsrc/pool.py\n"
                 "BASEBREAK_REPRO_DIFF_END\n"
             )
-            return SimpleNamespace(exit_code=0, stdout=stdout, stderr="")
+            return SimpleNamespace(
+                exit_code=0,
+                stdout=stdout,
+                stderr="",
+                result_image_uuid=None,
+                operation_id="op-repro-001",
+            )
 
         def teardown_sandbox(self, sandbox: Any) -> None:
             pass
@@ -1140,7 +1151,7 @@ def test_clean_base_checkpoint_and_bundled_reproduction() -> None:
     config = CandidateReproductionConfig(
         bundled_execution=True,
         clean_base_record=clean_base_record,
-        sandbox_image=clean_base_record.result_image_uuid,
+        sandbox_image=clean_base_record.checkpoint_image_uuid,
         workspace_path=clean_base_record.workspace_path,
     )
     executor = CandidateReproductionExecutor(

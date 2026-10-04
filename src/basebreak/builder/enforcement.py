@@ -565,9 +565,14 @@ class CandidateSecurityEnforcer:
         if sandbox_handle is not None:
             handle = sandbox_handle
         else:
+            target_image = (
+                self.config.clean_base_record.checkpoint_image_uuid
+                if self.config.clean_base_record is not None
+                else self.config.sandbox_image
+            )
             try:
                 handle = self.sandbox_adapter.create_sandbox(
-                    image=self.config.sandbox_image,
+                    image=target_image,
                     disposable=True,
                 )
                 created_handle = True

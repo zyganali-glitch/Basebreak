@@ -40,6 +40,7 @@ from basebreak.domain.execution import (
 from basebreak.domain.source import CommitRevision, SourceIdentity
 from basebreak.domain.verdict import EvidenceProvenance
 from basebreak.evidence.artifact import compute_bytes_digest
+from basebreak.evidence.provenance import ProvenanceLaunderingError
 from basebreak.security.protected_surfaces import (
     FileChange,
     FileChangeKind,
@@ -88,6 +89,7 @@ _PERSISTENT_DAEMON_PATTERN = re.compile(
     r"(\bnohup\b|\bdisown\b|\btmux\b|\bscreen\b|\bdaemon\b)",
     re.IGNORECASE,
 )
+_HEX_40_OR_64_PATTERN = re.compile(r"^([0-9a-f]{40}|[0-9a-f]{64})$", re.IGNORECASE)
 
 
 # --- Exceptions ---
@@ -163,6 +165,18 @@ class SourceCommitMismatchError(MaterializedSourceMismatchError):
 
 class SandboxIdentityMismatchError(MaterializedSourceMismatchError):
     """Raised when materialized workspace sandbox identity does not match execution sandbox."""
+
+
+class InvalidExecutionModeError(CandidateExecutionConfigError):
+    """Raised when execution mode (e.g. non-bundled) causes state loss on provider."""
+
+
+class CleanBaseRecordAuthorityError(WorkspaceExecutionError):
+    """Raised when clean_base_record is synthetic, forged, unverified, or mismatched."""
+
+
+class DisposableExecutionPolicyViolationError(WorkspaceExecutionError):
+    """Raised when a disposable execution unexpectedly returns a persistent image UUID."""
 
 
 # --- Data Records ---
@@ -374,6 +388,105 @@ class SourceMaterializerProtocol(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class CleanBaseCheckpointRecord:
+    """Deterministic immutable record of a verified clean base repository checkpoint.
+
+    Proves an authoritative source commit was materialized into an immutable
+    checkpoint container image layer, verified by git commit & tree hashes.
+    Cannot be forged or substituted with arbitrary caller assertions.
+    """
+
+    source_identity: SourceIdentity
+    resolved_commit_sha: str
+    resolved_tree_sha: str
+    workspace_path: str
+    sandbox_identity: SandboxIdentity
+    operation_id: str
+    checkpoint_image_uuid: str
+    duration_seconds: float | None = None
+    is_verified: bool = True
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source_identity, SourceIdentity):
+            raise TypeError(
+                f"source_identity must be SourceIdentity, got {type(self.source_identity).__name__}"
+            )
+        if self.is_verified is not True:
+            raise CleanBaseRecordAuthorityError(
+                "CleanBaseCheckpointRecord is_verified must be strictly True"
+            )
+        clean_commit = self.resolved_commit_sha.strip().lower()
+        if not _HEX_40_OR_64_PATTERN.match(clean_commit):
+            raise CleanBaseRecordAuthorityError(
+                f"resolved_commit_sha must be a 40 or 64 hex char string, "
+                f"got {self.resolved_commit_sha!r}"
+            )
+        clean_tree = self.resolved_tree_sha.strip().lower()
+        if not _HEX_40_OR_64_PATTERN.match(clean_tree):
+            raise CleanBaseRecordAuthorityError(
+                f"resolved_tree_sha must be a 40 or 64 hex char string, "
+                f"got {self.resolved_tree_sha!r}"
+            )
+        if not isinstance(self.workspace_path, str) or not self.workspace_path.startswith("/"):
+            raise CleanBaseRecordAuthorityError(
+                f"workspace_path must be an absolute path, got {self.workspace_path!r}"
+            )
+        if (
+            not isinstance(self.checkpoint_image_uuid, str)
+            or not self.checkpoint_image_uuid.strip()
+        ):
+            raise CleanBaseRecordAuthorityError("checkpoint_image_uuid must be a non-empty string")
+        if not isinstance(self.operation_id, str) or not self.operation_id.strip():
+            raise CleanBaseRecordAuthorityError("operation_id must be a non-empty string")
+        if not isinstance(self.sandbox_identity, SandboxIdentity):
+            raise TypeError(
+                f"sandbox_identity must be SandboxIdentity, "
+                f"got {type(self.sandbox_identity).__name__}"
+            )
+
+    @classmethod
+    def from_materialized_record(cls, record: Any) -> CleanBaseCheckpointRecord:
+        """Construct a CleanBaseCheckpointRecord from a verified materialization record."""
+        if getattr(record, "is_verified", False) is not True:
+            raise CleanBaseRecordAuthorityError("Materialized record is not verified")
+        img_uuid = getattr(record, "result_image_uuid", None)
+        if not img_uuid or not str(img_uuid).strip():
+            raise CleanBaseRecordAuthorityError(
+                "Clean base checkpoint record requires non-null, non-empty result_image_uuid"
+            )
+        op_id = getattr(record, "operation_id", None)
+        if not op_id or not str(op_id).strip():
+            raise CleanBaseRecordAuthorityError(
+                "Clean base checkpoint record requires non-null, non-empty operation_id"
+            )
+        src_id = getattr(record, "source_identity", None)
+        if not isinstance(src_id, SourceIdentity):
+            raise TypeError("Materialized record source_identity must be SourceIdentity")
+        commit = str(getattr(record, "resolved_commit_sha", ""))
+        tree = str(getattr(record, "resolved_tree_sha", ""))
+        ws = str(getattr(record, "workspace_path", ""))
+        sbx_id = getattr(record, "sandbox_identity", None)
+        if not isinstance(sbx_id, SandboxIdentity):
+            raw_sid = (
+                getattr(sbx_id, "sandbox_id", "sbx-clean-base") if sbx_id else "sbx-clean-base"
+            )
+            sbx_id = SandboxIdentity(sandbox_id=str(raw_sid))
+        dur = getattr(record, "duration_seconds", None)
+
+        return cls(
+            source_identity=src_id,
+            resolved_commit_sha=commit,
+            resolved_tree_sha=tree,
+            workspace_path=ws,
+            sandbox_identity=sbx_id,
+            operation_id=str(op_id).strip(),
+            checkpoint_image_uuid=str(img_uuid).strip(),
+            duration_seconds=float(dur) if dur is not None else None,
+            is_verified=True,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateExecutionConfig:
     """Bounded configuration for candidate workspace file mutation and execution."""
 
@@ -390,9 +503,17 @@ class CandidateExecutionConfig:
     enforce_protected_surfaces: bool = True
     protected_manifest: ProtectedSurfaceManifest | None = None
     bundled_execution: bool = False
-    clean_base_record: Any | None = None
+    clean_base_record: CleanBaseCheckpointRecord | None = None
 
     def __post_init__(self) -> None:
+        if self.clean_base_record is not None and not isinstance(
+            self.clean_base_record, CleanBaseCheckpointRecord
+        ):
+            raise CleanBaseRecordAuthorityError(
+                f"clean_base_record must be CleanBaseCheckpointRecord, "
+                f"got {type(self.clean_base_record).__name__}; "
+                "synthetic or caller-asserted clean-base objects are strictly forbidden"
+            )
         if self.max_file_actions < 1 or self.max_file_actions > 200:
             raise CandidateExecutionConfigError(
                 f"max_file_actions must be between 1 and 200, got {self.max_file_actions}"
@@ -466,6 +587,10 @@ class CandidateExecutionResult:
     provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION
     is_authoritative: bool = False
     bundled_snapshot: Any | None = None
+    clean_base_checkpoint_image_uuid: str | None = None
+    clean_base_operation_id: str | None = None
+    provider_operation_id: str | None = None
+    result_image_uuid: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -535,6 +660,8 @@ class CandidateExecutionResult:
     def to_dict(self) -> dict[str, Any]:
         """Serialize candidate execution result to dictionary."""
         return {
+            "clean_base_checkpoint_image_uuid": self.clean_base_checkpoint_image_uuid,
+            "clean_base_operation_id": self.clean_base_operation_id,
             "command_executions": [c.to_dict() for c in self.command_executions],
             "context_digest": self.context_digest,
             "file_mutations": [m.to_dict() for m in self.file_mutations],
@@ -542,7 +669,9 @@ class CandidateExecutionResult:
             "is_authoritative": self.is_authoritative,
             "proposal_digest": self.proposal_digest,
             "proposal_plan_summary": self.proposal_plan_summary,
+            "provider_operation_id": self.provider_operation_id,
             "provenance": self.provenance.value,
+            "result_image_uuid": self.result_image_uuid,
             "sandbox_id": self.sandbox_identity.sandbox_id,
             "source_commit_id": self.source_identity.resolved_commit_id,
             "source_locator": self.source_identity.locator,
@@ -592,6 +721,10 @@ class CandidateExecutionResult:
             workspace_path=raw_ws,
             provenance=prov,
             is_authoritative=False,
+            clean_base_checkpoint_image_uuid=data.get("clean_base_checkpoint_image_uuid"),
+            clean_base_operation_id=data.get("clean_base_operation_id"),
+            provider_operation_id=data.get("provider_operation_id"),
+            result_image_uuid=data.get("result_image_uuid"),
         )
 
 
@@ -1090,7 +1223,21 @@ class CandidateWorkspaceExecutor:
             raise HostExecutionFallbackError(
                 "sandbox_adapter is required; host execution fallback is strictly prohibited"
             )
-        resolved_config = config or CandidateExecutionConfig()
+        is_disposable = getattr(sandbox_adapter, "is_disposable_provider", False) or hasattr(
+            sandbox_adapter, "inspect_operation"
+        )
+        if is_disposable:
+            if config is not None and not config.bundled_execution:
+                raise InvalidExecutionModeError(
+                    "Canonical production execution cannot enter disposable "
+                    "multi-operation state-loss mode: non-bundled execution is "
+                    "strictly forbidden on disposable sandbox provider"
+                )
+        resolved_config = (
+            CandidateExecutionConfig(bundled_execution=True)
+            if (config is None and is_disposable)
+            else (config or CandidateExecutionConfig())
+        )
         if not getattr(resolved_config, "enforce_protected_surfaces", True):
             raise CandidateExecutionConfigError(
                 "enforce_protected_surfaces cannot be disabled; "
@@ -1156,14 +1303,17 @@ class CandidateWorkspaceExecutor:
         resolved_context_digest = envelope.context_digest
         resolved_source_id = envelope.source_identity
 
-        # Derive runtime execution provenance mechanically from sandbox adapter
-        adapter_prov = getattr(self.sandbox_adapter, "execution_provenance", None)
-        if isinstance(adapter_prov, EvidenceProvenance):
-            effective_provenance = adapter_prov
-        elif provenance is not None:
-            effective_provenance = provenance
+        # Derive runtime execution provenance: reject caller laundering
+        if provenance is not None:
+            if provenance in (EvidenceProvenance.LIVE_NEBIUS, EvidenceProvenance.RECORDED_LIVE):
+                raise ProvenanceLaunderingError(
+                    f"Caller-supplied {provenance.value} provenance is strictly forbidden; "
+                    "execution provenance must be deterministically derived from "
+                    "verified runtime provider execution facts"
+                )
+            caller_provenance = provenance
         else:
-            effective_provenance = EvidenceProvenance.LOCAL_EXECUTION
+            caller_provenance = EvidenceProvenance.LOCAL_EXECUTION
 
         # Step 2: Resolve active source materializer (fail closed if absent)
         active_materializer = source_materializer or self.source_materializer
@@ -1178,17 +1328,81 @@ class CandidateWorkspaceExecutor:
         proposal_digest = compute_proposal_digest(proposal)
         clean_workspace = validate_workspace_path(self.config.workspace_path)
 
+        # Clean-base checkpoint resolution & verification
+        clean_base_record: CleanBaseCheckpointRecord | None = None
+        if self.config.clean_base_record is not None:
+            cbr = self.config.clean_base_record
+            if not isinstance(cbr, CleanBaseCheckpointRecord):
+                raise CleanBaseRecordAuthorityError(
+                    f"clean_base_record must be CleanBaseCheckpointRecord, "
+                    f"got {type(cbr).__name__}; synthetic or caller-asserted "
+                    "clean-base objects are strictly forbidden"
+                )
+            if cbr.is_verified is not True:
+                raise CleanBaseRecordAuthorityError("clean_base_record is not verified")
+            actual_commit = cbr.resolved_commit_sha.strip().lower()
+            if actual_commit != resolved_source_id.resolved_commit_id.strip().lower():
+                raise SourceCommitMismatchError(
+                    f"clean_base_record commit {actual_commit!r} does not match "
+                    f"authoritative envelope commit {resolved_source_id.resolved_commit_id!r}"
+                )
+            actual_ws = cbr.workspace_path.strip().rstrip("/")
+            if actual_ws != clean_workspace.strip().rstrip("/"):
+                raise MaterializedSourceMismatchError(
+                    f"clean_base_record workspace path {actual_ws!r} "
+                    f"does not match {clean_workspace!r}"
+                )
+            if cbr.source_identity.locator != resolved_source_id.locator:
+                raise MaterializedSourceMismatchError(
+                    f"clean_base_record locator does not match {resolved_source_id.locator!r}"
+                )
+            clean_base_record = cbr
+        elif getattr(self.sandbox_adapter, "is_disposable_provider", False) or hasattr(
+            self.sandbox_adapter, "inspect_operation"
+        ):
+            # Canonical production path: materialize clean base checkpoint (disposable=False)
+            try:
+                raw_mat = active_materializer.materialize_repository(
+                    resolved_source_id,
+                    workspace_path=clean_workspace,
+                    disposable=False,
+                    timeout_seconds=self.config.per_command_timeout_seconds,
+                )
+                clean_base_record = CleanBaseCheckpointRecord.from_materialized_record(raw_mat)
+            except (
+                CleanBaseRecordAuthorityError,
+                SourceCommitMismatchError,
+                MaterializedSourceMismatchError,
+            ):
+                raise
+            except Exception as exc:
+                raise WorkspaceExecutionError(
+                    f"Failed to create canonical clean base checkpoint: {exc}"
+                ) from exc
+
         start_time = time.perf_counter()
 
         # Step 4: Acquire Sandbox Handle
+        target_image = (
+            clean_base_record.checkpoint_image_uuid
+            if clean_base_record is not None
+            else self.config.sandbox_image
+        )
         created_handle = False
         handle: Any
         if sandbox_handle is not None:
             handle = sandbox_handle
+            if clean_base_record is not None:
+                h_img = getattr(handle, "image", None)
+                if h_img != target_image:
+                    raise CleanBaseRecordAuthorityError(
+                        f"Provided sandbox handle image {h_img!r} does not match "
+                        f"clean base checkpoint image {target_image!r}"
+                    )
         else:
             try:
                 handle = self.sandbox_adapter.create_sandbox(
-                    image=self.config.sandbox_image,
+                    image=target_image,
                     disposable=True,
                 )
                 created_handle = True
@@ -1211,40 +1425,8 @@ class CandidateWorkspaceExecutor:
                     "unidentified sandboxes are strictly prohibited"
                 )
 
-            # Step 6: Materialize Authoritative Source Repository inside Sandbox VM
-            if self.config.clean_base_record is not None:
-                cbr = self.config.clean_base_record
-                if getattr(cbr, "is_verified", None) is not True:
-                    raise MaterializedSourceVerificationError("clean_base_record is not verified")
-                actual_commit = str(getattr(cbr, "resolved_commit_sha", ""))
-                if (
-                    actual_commit.strip().lower()
-                    != resolved_source_id.resolved_commit_id.strip().lower()
-                ):
-                    raise SourceCommitMismatchError(
-                        f"clean_base_record commit {actual_commit!r} does not match "
-                        f"authoritative envelope commit {resolved_source_id.resolved_commit_id!r}"
-                    )
-                actual_ws = str(getattr(cbr, "workspace_path", ""))
-                if actual_ws.strip().rstrip("/") != clean_workspace.strip().rstrip("/"):
-                    raise MaterializedSourceMismatchError(
-                        f"clean_base_record workspace path {actual_ws!r} "
-                        f"does not match {clean_workspace!r}"
-                    )
-                mat_source = getattr(cbr, "source_identity", None)
-                if (
-                    mat_source is not None
-                    and getattr(mat_source, "locator", "") != resolved_source_id.locator
-                ):
-                    raise MaterializedSourceMismatchError(
-                        f"clean_base_record locator does not match {resolved_source_id.locator!r}"
-                    )
-                if not getattr(cbr, "result_image_uuid", None):
-                    raise MaterializedSourceVerificationError(
-                        "clean_base_record missing result_image_uuid"
-                    )
-                materialization_record = cbr
-            else:
+            # Step 6: Materialize Source Repository in Sandbox VM (if no checkpoint)
+            if clean_base_record is None:
                 try:
                     materialization_record = active_materializer.materialize_repository(
                         resolved_source_id,
@@ -1280,8 +1462,9 @@ class CandidateWorkspaceExecutor:
                     proposal_digest=proposal_digest,
                     proposal=proposal,
                     start_time=start_time,
-                    provenance=effective_provenance,
+                    caller_provenance=caller_provenance,
                     created_handle=created_handle,
+                    clean_base_record=clean_base_record,
                 )
 
             # Step 8: Execute File Mutations
@@ -1452,8 +1635,14 @@ class CandidateWorkspaceExecutor:
             sandbox_identity=sbx_identity,
             total_duration_seconds=total_duration,
             workspace_path=clean_workspace,
-            provenance=effective_provenance,
+            provenance=caller_provenance,
             is_authoritative=False,
+            clean_base_checkpoint_image_uuid=clean_base_record.checkpoint_image_uuid
+            if clean_base_record
+            else None,
+            clean_base_operation_id=clean_base_record.operation_id if clean_base_record else None,
+            provider_operation_id=None,
+            result_image_uuid=None,
         )
 
     def _execute_bundled(
@@ -1470,8 +1659,9 @@ class CandidateWorkspaceExecutor:
         proposal_digest: str,
         proposal: BuilderProposal,
         start_time: float,
-        provenance: EvidenceProvenance,
+        caller_provenance: EvidenceProvenance,
         created_handle: bool,
+        clean_base_record: CleanBaseCheckpointRecord | None = None,
     ) -> CandidateExecutionResult:
         """Execute file actions, commands, and git capture in a single bundled script."""
         lines: list[str] = ["set -e", f"cd {shlex.quote(clean_workspace)}"]
@@ -1593,6 +1783,28 @@ class CandidateWorkspaceExecutor:
         exit_code = getattr(res, "exit_code", -1)
         raw_stdout = getattr(res, "stdout", "")
         raw_stderr = getattr(res, "stderr", "")
+
+        # Canonical P-04 policy: untrusted candidate execution must be disposable and leave no image
+        returned_image_uuid = getattr(res, "result_image_uuid", None)
+        if returned_image_uuid is not None:
+            raise DisposableExecutionPolicyViolationError(
+                "Disposable candidate execution unexpectedly returned persistent image UUID: "
+                f"{returned_image_uuid!r}"
+            )
+        raw_op_id = getattr(res, "operation_id", None)
+        provider_op_id = str(raw_op_id).strip() if (raw_op_id and str(raw_op_id).strip()) else None
+
+        # Derive provenance strictly from actual successful provider facts, not assertions
+        res_prov = getattr(res, "provenance", None)
+        is_canonical_live = (
+            res_prov == EvidenceProvenance.LIVE_NEBIUS
+            and provider_op_id is not None
+            and not provider_op_id.startswith("sbx-")
+            and exit_code == 0
+        )
+        effective_provenance = (
+            EvidenceProvenance.LIVE_NEBIUS if is_canonical_live else caller_provenance
+        )
 
         if exit_code != 0:
             err_msg = f"Bundled candidate execution failed with exit code {exit_code}: {raw_stderr}"
@@ -1724,8 +1936,14 @@ class CandidateWorkspaceExecutor:
             sandbox_identity=sbx_identity,
             total_duration_seconds=total_duration,
             workspace_path=clean_workspace,
-            provenance=provenance,
+            provenance=effective_provenance,
             is_authoritative=False,
+            clean_base_checkpoint_image_uuid=clean_base_record.checkpoint_image_uuid
+            if clean_base_record
+            else None,
+            clean_base_operation_id=clean_base_record.operation_id if clean_base_record else None,
+            provider_operation_id=provider_op_id,
+            result_image_uuid=returned_image_uuid,
         )
 
         builder_tests = identify_builder_authored_tests(exec_result)
@@ -1744,8 +1962,14 @@ class CandidateWorkspaceExecutor:
             context_digest=resolved_context_digest,
             sandbox_identity=sbx_identity,
             duration_seconds=total_duration,
-            provenance=provenance,
+            provenance=effective_provenance,
             is_authoritative=False,
+            clean_base_checkpoint_image_uuid=clean_base_record.checkpoint_image_uuid
+            if clean_base_record
+            else None,
+            clean_base_operation_id=clean_base_record.operation_id if clean_base_record else None,
+            provider_operation_id=provider_op_id,
+            result_image_uuid=returned_image_uuid,
         )
         object.__setattr__(exec_result, "bundled_snapshot", snapshot)
         return exec_result

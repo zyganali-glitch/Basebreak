@@ -216,6 +216,10 @@ class CandidateSnapshot:
     duration_seconds: float = 0.0
     provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION
     is_authoritative: bool = False
+    clean_base_checkpoint_image_uuid: str | None = None
+    clean_base_operation_id: str | None = None
+    provider_operation_id: str | None = None
+    result_image_uuid: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.candidate_id, str) or not self.candidate_id.strip():
@@ -367,6 +371,10 @@ class CandidateSnapshot:
             "source_commit_id": self.source_identity.resolved_commit_id,
             "source_locator": self.source_identity.locator,
             "source_subpath": self.source_identity.subpath,
+            "clean_base_checkpoint_image_uuid": self.clean_base_checkpoint_image_uuid,
+            "clean_base_operation_id": self.clean_base_operation_id,
+            "provider_operation_id": self.provider_operation_id,
+            "result_image_uuid": self.result_image_uuid,
         }
 
     @classmethod
@@ -421,6 +429,10 @@ class CandidateSnapshot:
                 duration_seconds=float(data.get("duration_seconds", 0.0)),
                 provenance=prov,
                 is_authoritative=False,
+                clean_base_checkpoint_image_uuid=data.get("clean_base_checkpoint_image_uuid"),
+                clean_base_operation_id=data.get("clean_base_operation_id"),
+                provider_operation_id=data.get("provider_operation_id"),
+                result_image_uuid=data.get("result_image_uuid"),
             )
         except (ValueError, TypeError, KeyError) as exc:
             raise MalformedCandidateEvidenceError(

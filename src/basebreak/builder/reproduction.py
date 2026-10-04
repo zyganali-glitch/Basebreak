@@ -46,7 +46,11 @@ from basebreak.builder.execution import (
     DEFAULT_SANDBOX_IMAGE,
     DEFAULT_WORKSPACE_PATH,
     CandidateExecutionConfigError,
+    CleanBaseCheckpointRecord,
+    CleanBaseRecordAuthorityError,
+    DisposableExecutionPolicyViolationError,
     HostExecutionFallbackError,
+    InvalidExecutionModeError,
     MaterializedSourceMismatchError,
     MaterializedSourceVerificationError,
     SourceCommitMismatchError,
@@ -127,9 +131,17 @@ class CandidateReproductionConfig:
     enforce_protected_surfaces: bool = True
     protected_manifest: ProtectedSurfaceManifest | None = None
     bundled_execution: bool = False
-    clean_base_record: Any | None = None
+    clean_base_record: CleanBaseCheckpointRecord | None = None
 
     def __post_init__(self) -> None:
+        if self.clean_base_record is not None and not isinstance(
+            self.clean_base_record, CleanBaseCheckpointRecord
+        ):
+            raise CleanBaseRecordAuthorityError(
+                f"clean_base_record must be CleanBaseCheckpointRecord, "
+                f"got {type(self.clean_base_record).__name__}; "
+                "synthetic or caller-asserted clean-base objects are strictly forbidden"
+            )
         if not (1 <= self.timeout_seconds <= 600):
             raise CandidateReproductionConfigError(
                 f"timeout_seconds must be between 1 and 600, got {self.timeout_seconds}"
@@ -178,6 +190,10 @@ class CandidateReproductionResult:
     is_causally_verified: bool = False
     grants_pass: bool = False
     provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION
+    clean_base_checkpoint_image_uuid: str | None = None
+    clean_base_operation_id: str | None = None
+    provider_operation_id: str | None = None
+    result_image_uuid: str | None = None
 
     def __post_init__(self) -> None:
         if self.is_authoritative is not False:
@@ -271,6 +287,8 @@ class CandidateReproductionResult:
         """Serialize CandidateReproductionResult to dictionary."""
         return {
             "candidate_snapshot": self.candidate_snapshot.to_dict(),
+            "clean_base_checkpoint_image_uuid": self.clean_base_checkpoint_image_uuid,
+            "clean_base_operation_id": self.clean_base_operation_id,
             "duration_seconds": self.duration_seconds,
             "files_added": list(self.files_added),
             "files_deleted": list(self.files_deleted),
@@ -279,9 +297,11 @@ class CandidateReproductionResult:
             "is_authoritative": self.is_authoritative,
             "is_causally_verified": self.is_causally_verified,
             "is_reproduced": self.is_reproduced,
+            "provider_operation_id": self.provider_operation_id,
             "provenance": self.provenance.value,
             "reproduced_patch_digest": self.reproduced_patch_digest,
             "reproduced_tree_digest": self.reproduced_tree_digest,
+            "result_image_uuid": self.result_image_uuid,
             "sandbox_id": self.sandbox_identity.sandbox_id,
             "source_commit_id": self.source_identity.resolved_commit_id,
             "source_locator": self.source_identity.locator,
@@ -340,6 +360,10 @@ class CandidateReproductionResult:
             is_causally_verified=bool(data.get("is_causally_verified", False)),
             grants_pass=bool(data.get("grants_pass", False)),
             provenance=provenance,
+            clean_base_checkpoint_image_uuid=data.get("clean_base_checkpoint_image_uuid"),
+            clean_base_operation_id=data.get("clean_base_operation_id"),
+            provider_operation_id=data.get("provider_operation_id"),
+            result_image_uuid=data.get("result_image_uuid"),
         )
 
 
@@ -433,7 +457,21 @@ class CandidateReproductionExecutor:
                 "authoritative source materialization"
             )
 
-        resolved_config = config or CandidateReproductionConfig()
+        is_disposable = getattr(sandbox_adapter, "is_disposable_provider", False) or hasattr(
+            sandbox_adapter, "inspect_operation"
+        )
+        if is_disposable:
+            if config is not None and not config.bundled_execution:
+                raise InvalidExecutionModeError(
+                    "Canonical reproduction cannot enter disposable "
+                    "multi-operation state-loss mode: non-bundled execution is "
+                    "strictly forbidden on disposable sandbox provider"
+                )
+        resolved_config = (
+            CandidateReproductionConfig(bundled_execution=True)
+            if (config is None and is_disposable)
+            else (config or CandidateReproductionConfig())
+        )
         if not getattr(resolved_config, "enforce_protected_surfaces", True):
             raise CandidateReproductionConfigError(
                 "enforce_protected_surfaces cannot be disabled; "
@@ -494,30 +532,17 @@ class CandidateReproductionExecutor:
         if provenance in (EvidenceProvenance.LIVE_NEBIUS, EvidenceProvenance.RECORDED_LIVE):
             raise ProvenanceLaunderingError(
                 f"Caller cannot assert or request '{provenance.value}' provenance; "
-                "reproduction provenance must be derived mechanically from "
-                "verified live sandbox adapter"
+                "reproduction provenance must be deterministically derived from "
+                "verified runtime provider execution facts"
             )
         if provenance is not None and not isinstance(provenance, EvidenceProvenance):
             raise TypeError(
                 f"provenance must be EvidenceProvenance, got {type(provenance).__name__}"
             )
 
-        # Derive runtime execution provenance mechanically from sandbox adapter
-        adapter_prov = getattr(self.sandbox_adapter, "execution_provenance", None)
-        if isinstance(adapter_prov, EvidenceProvenance):
-            effective_provenance = adapter_prov
-        else:
-            effective_provenance = EvidenceProvenance.LOCAL_EXECUTION
-
-        if effective_provenance == EvidenceProvenance.LIVE_NEBIUS:
-            if snapshot.provenance != EvidenceProvenance.LIVE_NEBIUS:
-                raise ProvenanceLaunderingError(
-                    "Cannot derive LIVE_NEBIUS reproduction from non-live snapshot with "
-                    f"provenance '{snapshot.provenance.value}'. "
-                    "LIVE_NEBIUS requires genuine live platform execution for candidate capture."
-                )
-        elif provenance is not None:
-            effective_provenance = provenance
+        caller_provenance = (
+            provenance if provenance is not None else EvidenceProvenance.LOCAL_EXECUTION
+        )
 
         # Step 2: Input Authority & Type Validation
         if isinstance(snapshot, BuilderProposal):
@@ -530,6 +555,18 @@ class CandidateReproductionExecutor:
         if not isinstance(envelope, BuilderContextEnvelope):
             raise TypeError(
                 f"envelope must be BuilderContextEnvelope, got {type(envelope).__name__}"
+            )
+
+        # Fail closed if adapter attempts to derive LIVE_NEBIUS reproduction from non-live snapshot
+        adapter_prov = getattr(self.sandbox_adapter, "execution_provenance", None)
+        if (
+            adapter_prov == EvidenceProvenance.LIVE_NEBIUS
+            and snapshot.provenance != EvidenceProvenance.LIVE_NEBIUS
+        ):
+            raise ProvenanceLaunderingError(
+                "Cannot derive LIVE_NEBIUS reproduction from non-live snapshot with "
+                f"provenance '{snapshot.provenance.value}'. "
+                "LIVE_NEBIUS requires genuine live platform execution for candidate capture."
             )
 
         # Non-authority checks on input snapshot
@@ -594,10 +631,67 @@ class CandidateReproductionExecutor:
         clean_ws = validate_workspace_path(self.config.workspace_path)
         start_time = time.perf_counter()
 
+        # Clean-base checkpoint resolution & verification
+        clean_base_record: CleanBaseCheckpointRecord | None = None
+        if self.config.clean_base_record is not None:
+            cbr = self.config.clean_base_record
+            if not isinstance(cbr, CleanBaseCheckpointRecord):
+                raise CleanBaseRecordAuthorityError(
+                    f"clean_base_record must be CleanBaseCheckpointRecord, "
+                    f"got {type(cbr).__name__}; synthetic or caller-asserted "
+                    "clean-base objects are strictly forbidden"
+                )
+            if cbr.is_verified is not True:
+                raise CleanBaseRecordAuthorityError("clean_base_record is not verified")
+            actual_commit = cbr.resolved_commit_sha.strip().lower()
+            exp_commit = envelope.source_identity.resolved_commit_id.strip().lower()
+            if actual_commit != exp_commit:
+                raise SourceCommitMismatchError(
+                    f"clean_base_record commit {actual_commit!r} does not match "
+                    f"authoritative envelope commit {exp_commit!r}"
+                )
+            actual_ws = cbr.workspace_path.strip().rstrip("/")
+            if actual_ws != clean_ws.strip().rstrip("/"):
+                raise MaterializedSourceMismatchError(
+                    f"clean_base_record workspace path {actual_ws!r} does not match {clean_ws!r}"
+                )
+            if cbr.source_identity.locator != envelope.source_identity.locator:
+                raise MaterializedSourceMismatchError(
+                    f"clean_base_record locator does not match {envelope.source_identity.locator!r}"
+                )
+            clean_base_record = cbr
+        elif getattr(self.sandbox_adapter, "is_disposable_provider", False) or hasattr(
+            self.sandbox_adapter, "inspect_operation"
+        ):
+            # Canonical production path: materialize clean base checkpoint (disposable=False)
+            try:
+                raw_mat = self.source_materializer.materialize_repository(
+                    envelope.source_identity,
+                    workspace_path=clean_ws,
+                    disposable=False,
+                    timeout_seconds=self.config.timeout_seconds,
+                )
+                clean_base_record = CleanBaseCheckpointRecord.from_materialized_record(raw_mat)
+            except (
+                CleanBaseRecordAuthorityError,
+                SourceCommitMismatchError,
+                MaterializedSourceMismatchError,
+            ):
+                raise
+            except Exception as exc:
+                raise MaterializedSourceVerificationError(
+                    f"Failed to create canonical clean base checkpoint for reproduction: {exc}"
+                ) from exc
+
         # Step 4: Create NEW Disposable Sandbox Internally
+        target_image = (
+            clean_base_record.checkpoint_image_uuid
+            if clean_base_record is not None
+            else self.config.sandbox_image
+        )
         try:
             handle = self.sandbox_adapter.create_sandbox(
-                image=self.config.sandbox_image,
+                image=target_image,
                 disposable=True,
             )
         except Exception as exc:
@@ -630,39 +724,8 @@ class CandidateReproductionExecutor:
                         f"to Builder sandbox identity; Builder sandbox reuse is strictly prohibited"
                     )
 
-            # Step 6: Materialize Authoritative Base Repository in Fresh Sandbox
-            if self.config.clean_base_record is not None:
-                cbr = self.config.clean_base_record
-                if getattr(cbr, "is_verified", None) is not True:
-                    raise MaterializedSourceVerificationError("clean_base_record is not verified")
-                actual_commit = str(getattr(cbr, "resolved_commit_sha", ""))
-                exp_commit = envelope.source_identity.resolved_commit_id
-                if actual_commit.strip().lower() != exp_commit.strip().lower():
-                    raise SourceCommitMismatchError(
-                        f"clean_base_record commit {actual_commit!r} does not match "
-                        f"authoritative envelope commit {exp_commit!r}"
-                    )
-                actual_ws = str(getattr(cbr, "workspace_path", ""))
-                if actual_ws.strip().rstrip("/") != clean_ws.strip().rstrip("/"):
-                    raise MaterializedSourceMismatchError(
-                        f"clean_base_record workspace path {actual_ws!r} "
-                        f"does not match {clean_ws!r}"
-                    )
-                mat_source = getattr(cbr, "source_identity", None)
-                if (
-                    mat_source is not None
-                    and getattr(mat_source, "locator", "") != envelope.source_identity.locator
-                ):
-                    raise MaterializedSourceMismatchError(
-                        f"clean_base_record locator does not match "
-                        f"{envelope.source_identity.locator!r}"
-                    )
-                if not getattr(cbr, "result_image_uuid", None):
-                    raise MaterializedSourceVerificationError(
-                        "clean_base_record missing result_image_uuid"
-                    )
-                materialization_record = cbr
-            else:
+            # Step 6: Materialize Base Repository in Fresh Sandbox (if no checkpoint)
+            if clean_base_record is None:
                 try:
                     materialization_record = self.source_materializer.materialize_repository(
                         envelope.source_identity,
@@ -709,6 +772,30 @@ class CandidateReproductionExecutor:
                     working_dir=clean_ws,
                     timeout_seconds=self.config.timeout_seconds,
                 )
+                # Canonical P-04 policy: untrusted reproduction execution must leave no image
+                returned_image_uuid = getattr(res_bundle, "result_image_uuid", None)
+                if returned_image_uuid is not None:
+                    raise DisposableExecutionPolicyViolationError(
+                        "Disposable reproduction execution unexpectedly returned "
+                        f"persistent image UUID: {returned_image_uuid!r}"
+                    )
+                raw_op_id = getattr(res_bundle, "operation_id", None)
+                provider_op_id = (
+                    str(raw_op_id).strip() if (raw_op_id and str(raw_op_id).strip()) else None
+                )
+
+                res_prov = getattr(res_bundle, "provenance", None)
+                is_canonical_live = (
+                    res_prov == EvidenceProvenance.LIVE_NEBIUS
+                    and provider_op_id is not None
+                    and not provider_op_id.startswith("sbx-")
+                    and getattr(res_bundle, "exit_code", -1) == 0
+                    and snapshot.provenance == EvidenceProvenance.LIVE_NEBIUS
+                )
+                effective_provenance = (
+                    EvidenceProvenance.LIVE_NEBIUS if is_canonical_live else caller_provenance
+                )
+
                 if getattr(res_bundle, "exit_code", -1) != 0:
                     raw_err = getattr(res_bundle, "stderr", "") or getattr(res_bundle, "stdout", "")
                     raise PatchApplicationError(
@@ -732,6 +819,10 @@ class CandidateReproductionExecutor:
                 repro_added, repro_mod, repro_del = parse_git_name_status(repro_diff_output)
             else:
                 # Sequential execution (for mock adapters in tests)
+                returned_image_uuid = None
+                provider_op_id = None
+                effective_provenance = caller_provenance
+
                 # Step 7: Apply Exact Captured Patch
                 if not snapshot.is_no_change and snapshot.patch_text.strip():
                     patch_path = f"/tmp/basebreak_candidate_{repro_sbx_id.sandbox_id[:16]}.patch"
@@ -889,6 +980,12 @@ class CandidateReproductionExecutor:
             is_causally_verified=False,
             grants_pass=False,
             provenance=effective_provenance,
+            clean_base_checkpoint_image_uuid=clean_base_record.checkpoint_image_uuid
+            if clean_base_record
+            else None,
+            clean_base_operation_id=clean_base_record.operation_id if clean_base_record else None,
+            provider_operation_id=provider_op_id,
+            result_image_uuid=returned_image_uuid,
         )
 
 

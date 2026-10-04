@@ -1456,15 +1456,20 @@ class TestCandidateExecutionMaterializedSourceAuthority:
         import base64
         from types import SimpleNamespace
 
+        from basebreak.builder.execution import CleanBaseCheckpointRecord
+
         source_id = _create_test_source_identity()
         contract = _create_test_frozen_contract()
         envelope = _create_test_envelope(contract, source_id)
 
-        clean_base_record = SimpleNamespace(
+        clean_base_record = CleanBaseCheckpointRecord(
             source_identity=source_id,
             resolved_commit_sha=source_id.resolved_commit_id,
+            resolved_tree_sha="abcdef1234567890abcdef1234567890abcdef12",
             workspace_path="/workspace/candidate",
-            result_image_uuid="img-clean-base-checkpoint-uuid",
+            sandbox_identity=SandboxIdentity("sbx-clean-base-orig"),
+            operation_id="op-clean-base-001",
+            checkpoint_image_uuid="img-clean-base-checkpoint-uuid",
             is_verified=True,
         )
 
@@ -1498,7 +1503,13 @@ class TestCandidateExecutionMaterializedSourceAuthority:
                     f"BASEBREAK_STATUS_B64={status_b64}\n"
                     f"BASEBREAK_DIFF_B64={diff_b64}\n"
                 )
-                return SimpleNamespace(exit_code=0, stdout=stdout, stderr="")
+                return SimpleNamespace(
+                    exit_code=0,
+                    stdout=stdout,
+                    stderr="",
+                    result_image_uuid=None,
+                    operation_id="op-builder-001",
+                )
 
             def teardown_sandbox(self, sandbox: Any) -> None:
                 pass
@@ -1507,7 +1518,7 @@ class TestCandidateExecutionMaterializedSourceAuthority:
         config = CandidateExecutionConfig(
             bundled_execution=True,
             clean_base_record=clean_base_record,
-            sandbox_image=clean_base_record.result_image_uuid,
+            sandbox_image=clean_base_record.checkpoint_image_uuid,
             workspace_path="/workspace/candidate",
         )
         executor = CandidateWorkspaceExecutor(

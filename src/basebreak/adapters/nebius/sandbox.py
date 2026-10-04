@@ -244,6 +244,7 @@ class NebiusSandboxExecutionResult:
     is_timeout: bool = False
     is_cancelled: bool = False
     raw_payload: dict[str, Any] | None = None
+    provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION
 
     @property
     def stdout_digest(self) -> str:
@@ -300,6 +301,8 @@ class NebiusSandboxAdapter:
     - provider metadata does not override deterministic execution facts.
     """
 
+    is_disposable_provider: bool = True
+
     def __init__(
         self,
         config: SandboxClientConfig | None = None,
@@ -307,6 +310,7 @@ class NebiusSandboxAdapter:
     ) -> None:
         self._config = config or SandboxClientConfig()
         self._transport = transport or default_urllib_transport
+        self._last_successful_live_operation_id: str | None = None
 
     @property
     def config(self) -> SandboxClientConfig:
@@ -316,19 +320,13 @@ class NebiusSandboxAdapter:
     def execution_provenance(self) -> EvidenceProvenance:
         """Derive trusted deterministic runtime provenance.
 
-        Returns LIVE_NEBIUS strictly when:
-        1. Using default_urllib_transport (genuine network HTTP transport);
-        2. Valid API credentials are present;
-        3. Configured base URL is a valid remote HTTPS endpoint.
-        Returns LOCAL_EXECUTION for mock transports or non-live test environments.
+        Returns LIVE_NEBIUS strictly when an actual canonical live provider operation
+        has completed successfully via the live transport on a remote HTTPS endpoint.
+        Returns LOCAL_EXECUTION prior to live execution, for mock transports, or
+        when credentials/URL exist without verified provider execution.
         """
-        if self._transport is default_urllib_transport:
-            try:
-                api_key, project_id = self._resolve_credentials()
-                if api_key and project_id and self._config.api_base_url.startswith("https://"):
-                    return EvidenceProvenance.LIVE_NEBIUS
-            except Exception:
-                pass
+        if self._last_successful_live_operation_id is not None:
+            return EvidenceProvenance.LIVE_NEBIUS
         return EvidenceProvenance.LOCAL_EXECUTION
 
     def _resolve_credentials(self) -> tuple[str, str]:
@@ -939,6 +937,21 @@ class NebiusSandboxAdapter:
         is_timeout = final_status.status == "TIMEOUT"
         is_cancelled = final_status.status == "CANCELLED"
 
+        is_canonical_live = (
+            self._transport is default_urllib_transport
+            and self._config.api_base_url.startswith("https://")
+            and bool(operation_id and operation_id.strip())
+            and final_status.is_terminal
+            and final_status.exit_code is not None
+        )
+        res_prov = (
+            EvidenceProvenance.LIVE_NEBIUS
+            if is_canonical_live
+            else EvidenceProvenance.LOCAL_EXECUTION
+        )
+        if is_canonical_live:
+            self._last_successful_live_operation_id = operation_id
+
         return NebiusSandboxExecutionResult(
             sandbox_identity=identity,
             operation_id=operation_id,
@@ -953,6 +966,7 @@ class NebiusSandboxAdapter:
             is_timeout=is_timeout,
             is_cancelled=is_cancelled,
             raw_payload=final_status.raw_payload,
+            provenance=res_prov,
         )
 
     def teardown_sandbox(
