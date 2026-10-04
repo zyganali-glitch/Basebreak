@@ -39,6 +39,20 @@ DEFAULT_VERIFIER_TIMEOUT_SECONDS: int = 120
 _HEX_40_OR_64_PATTERN = re.compile(r"^([0-9a-f]{40}|[0-9a-f]{64})$", re.IGNORECASE)
 
 
+def _extract_materialization_fact(result: Any, *keys: str) -> Any:
+    """Extract a named attribute or dict key from a materialization result."""
+    for key in keys:
+        if isinstance(result, dict) and key in result:
+            val = result[key]
+            if val is not None:
+                return val
+        if hasattr(result, key):
+            val = getattr(result, key)
+            if val is not None:
+                return val
+    return None
+
+
 # --- Exceptions ---
 
 
@@ -313,44 +327,227 @@ class VerifierSandboxManager:
                 f"Verifier attempted to reuse Builder sandbox identity {sid!r}"
             )
 
-        # 7. Materialization & Tree Verification
+        # 7. Mandatory Materialization & Deterministic Fact Verification
         session_id = f"v-sbx-{uuid.uuid4().hex[:12]}"
         try:
-            mat_commit = context_envelope.source_identity.resolved_commit_id
-            expected_tree = (
-                candidate_tree_digest or context_envelope.candidate_tree_digest or "0" * 40
-            )
+            if materializer is None:
+                raise VerifierMaterializationError(
+                    "Materializer is mandatory; verifier sandbox session requires deterministic "
+                    "repository materialization proof"
+                )
 
-            if materializer is not None:
-                if hasattr(materializer, "materialize_clean_base"):
-                    mat_result = materializer.materialize_clean_base(
+            # Invoke materializer through neutral polymorphic interface
+            if hasattr(materializer, "materialize_clean_base") and callable(
+                materializer.materialize_clean_base
+            ):
+                mat_result = materializer.materialize_clean_base(
+                    sandbox_identity=created_identity,
+                    source_identity=context_envelope.source_identity,
+                    workspace_path=self.config.workspace_path,
+                )
+            elif hasattr(materializer, "materialize_repository") and callable(
+                materializer.materialize_repository
+            ):
+                try:
+                    mat_result = materializer.materialize_repository(
+                        source_identity=context_envelope.source_identity,
+                        sandbox=created_identity,
+                        workspace_path=self.config.workspace_path,
+                    )
+                except TypeError:
+                    mat_result = materializer.materialize_repository(
                         sandbox_identity=created_identity,
                         source_identity=context_envelope.source_identity,
                         workspace_path=self.config.workspace_path,
                     )
-                    if hasattr(mat_result, "tree_digest"):
-                        mat_tree = mat_result.tree_digest
-                    else:
-                        mat_tree = expected_tree
-                elif callable(materializer):
+            elif callable(materializer):
+                try:
                     mat_result = materializer(
                         sandbox_identity=created_identity,
                         source_identity=context_envelope.source_identity,
                         workspace_path=self.config.workspace_path,
                         world=world,
                     )
-                    mat_tree = getattr(mat_result, "tree_digest", expected_tree)
-                else:
-                    mat_tree = expected_tree
+                except TypeError:
+                    try:
+                        mat_result = materializer(
+                            sandbox_identity=created_identity,
+                            source_identity=context_envelope.source_identity,
+                            workspace_path=self.config.workspace_path,
+                        )
+                    except TypeError:
+                        mat_result = materializer(
+                            source_identity=context_envelope.source_identity,
+                            workspace_path=self.config.workspace_path,
+                        )
             else:
-                mat_tree = expected_tree
-
-            # If tree digest is provided and does not match
-            if candidate_tree_digest is not None and mat_tree != candidate_tree_digest:
-                raise VerifierTreeDigestMismatchError(
-                    f"Materialized tree digest {mat_tree} does not match "
-                    f"expected {candidate_tree_digest}"
+                raise VerifierMaterializationError(
+                    f"Invalid materializer: {type(materializer).__name__} is neither callable "
+                    f"nor implements materialize_repository / materialize_clean_base"
                 )
+
+            if mat_result is None:
+                raise VerifierMaterializationError(
+                    "Materializer returned None; deterministic materialization proof is required"
+                )
+
+            # --- Fact 1: Resolved Commit Verification ---
+            actual_commit = _extract_materialization_fact(
+                mat_result,
+                "resolved_commit_sha",
+                "materialized_commit_id",
+                "commit_id",
+                "commit_sha",
+                "commit",
+            )
+            if (
+                actual_commit is None
+                or not isinstance(actual_commit, str)
+                or not actual_commit.strip()
+            ):
+                raise VerifierMaterializationError(
+                    "Materializer result missing required resolved commit"
+                )
+            actual_commit = actual_commit.strip()
+            if not _HEX_40_OR_64_PATTERN.match(actual_commit):
+                raise VerifierMaterializationError(
+                    f"Materialized commit {actual_commit!r} is not a valid hex commit hash"
+                )
+            expected_commit = context_envelope.source_identity.resolved_commit_id
+            if actual_commit.lower() != expected_commit.lower():
+                raise VerifierMaterializationError(
+                    f"Materialized commit {actual_commit!r} does not match authoritative "
+                    f"context commit {expected_commit!r}"
+                )
+
+            # --- Fact 2: Tree Digest Verification ---
+            actual_tree = _extract_materialization_fact(
+                mat_result,
+                "resolved_tree_sha",
+                "materialized_tree_digest",
+                "tree_digest",
+                "tree_sha",
+                "tree",
+            )
+            if actual_tree is None or not isinstance(actual_tree, str) or not actual_tree.strip():
+                raise VerifierMaterializationError(
+                    "Materializer result missing required tree digest"
+                )
+            actual_tree = actual_tree.strip().lower()
+            if not _HEX_40_OR_64_PATTERN.match(actual_tree):
+                raise VerifierMaterializationError(
+                    f"Materialized tree digest is syntactically invalid: {actual_tree!r}"
+                )
+
+            # Candidate tree digest verification
+            if candidate_tree_digest is not None:
+                expected_cand_tree = candidate_tree_digest.strip().lower()
+                if actual_tree != expected_cand_tree:
+                    raise VerifierTreeDigestMismatchError(
+                        f"Materialized tree digest {actual_tree!r} does not match "
+                        f"expected candidate tree digest {candidate_tree_digest!r}"
+                    )
+            elif (
+                world == ExecutionWorld.CANDIDATE
+                and context_envelope.candidate_tree_digest is not None
+            ):
+                expected_cand_tree = context_envelope.candidate_tree_digest.strip().lower()
+                if actual_tree != expected_cand_tree:
+                    raise VerifierTreeDigestMismatchError(
+                        f"Materialized candidate tree digest {actual_tree!r} does not match "
+                        f"authoritative candidate tree digest {expected_cand_tree!r}"
+                    )
+
+            # --- Fact 3: Workspace Path Verification ---
+            actual_workspace = _extract_materialization_fact(
+                mat_result,
+                "workspace_path",
+                "workspace",
+            )
+            if (
+                actual_workspace is None
+                or not isinstance(actual_workspace, str)
+                or not actual_workspace.strip()
+            ):
+                raise VerifierMaterializationError(
+                    "Materializer result missing required workspace_path"
+                )
+            clean_mat_ws = actual_workspace.strip().rstrip("/")
+            clean_expected_ws = self.config.workspace_path.strip().rstrip("/")
+            if clean_mat_ws in self.forbidden_workspace_paths:
+                raise BuilderWorkspaceInheritanceError(
+                    f"Materialized workspace path {actual_workspace!r} collides with "
+                    f"forbidden Builder workspace paths"
+                )
+            if clean_mat_ws != clean_expected_ws:
+                raise VerifierMaterializationError(
+                    f"Materialized workspace path {actual_workspace!r} does not match "
+                    f"isolated verifier workspace path {self.config.workspace_path!r}"
+                )
+
+            # --- Fact 4: Source Binding / Locator Verification (where available) ---
+            mat_source_obj = _extract_materialization_fact(mat_result, "source_identity")
+            if mat_source_obj is not None:
+                mat_loc = getattr(mat_source_obj, "locator", None)
+                if mat_loc is None and isinstance(mat_source_obj, dict):
+                    mat_loc = mat_source_obj.get("locator")
+            else:
+                mat_loc = _extract_materialization_fact(mat_result, "source_locator", "locator")
+
+            if mat_loc is not None:
+                if not isinstance(mat_loc, str) or not mat_loc.strip():
+                    raise VerifierMaterializationError(
+                        "Materialized source locator is empty or invalid"
+                    )
+                if mat_loc.strip() != context_envelope.source_identity.locator.strip():
+                    raise VerifierMaterializationError(
+                        f"Materialized source locator {mat_loc!r} does not match "
+                        f"authoritative context locator "
+                        f"{context_envelope.source_identity.locator!r}"
+                    )
+
+            # --- Fact 5: Sandbox Identity Binding Verification (where available) ---
+            mat_sbx = _extract_materialization_fact(
+                mat_result,
+                "sandbox_identity",
+                "sandbox_id",
+                "sandbox",
+            )
+            if mat_sbx is not None:
+                if isinstance(mat_sbx, SandboxIdentity):
+                    actual_sbx_id = mat_sbx.sandbox_id
+                elif hasattr(mat_sbx, "sandbox_id"):
+                    actual_sbx_id = getattr(mat_sbx, "sandbox_id")
+                elif isinstance(mat_sbx, str):
+                    actual_sbx_id = mat_sbx
+                else:
+                    raise VerifierMaterializationError(
+                        "Invalid sandbox identity type in materializer result: "
+                        f"{type(mat_sbx).__name__}"
+                    )
+                actual_sbx_id = actual_sbx_id.strip()
+                if not actual_sbx_id:
+                    raise VerifierMaterializationError(
+                        "Materializer result contains empty sandbox ID"
+                    )
+                if actual_sbx_id in self.known_builder_sandbox_ids:
+                    raise BuilderSandboxReuseError(
+                        "Materializer result bound to known Builder sandbox identity "
+                        f"{actual_sbx_id!r}"
+                    )
+                if actual_sbx_id != created_identity.sandbox_id.strip():
+                    raise VerifierMaterializationError(
+                        f"Materializer result sandbox ID {actual_sbx_id!r} does not match "
+                        f"newly created verifier sandbox ID {created_identity.sandbox_id!r}"
+                    )
+
+            # --- Fact 6: Verification Status Flag Check (where present) ---
+            if hasattr(mat_result, "is_verified"):
+                if getattr(mat_result, "is_verified") is not True:
+                    raise VerifierMaterializationError(
+                        "Materializer result indicates materialization verification failed "
+                        f"(is_verified={getattr(mat_result, 'is_verified')!r})"
+                    )
 
             return VerifierSandboxSession(
                 session_id=session_id,
@@ -358,8 +555,8 @@ class VerifierSandboxManager:
                 world=world,
                 context_digest=context_envelope.context_digest,
                 workspace_path=self.config.workspace_path,
-                materialized_commit_id=mat_commit,
-                materialized_tree_digest=mat_tree,
+                materialized_commit_id=actual_commit,
+                materialized_tree_digest=actual_tree,
                 provenance=provenance,
                 is_authoritative=False,
                 is_causally_verified=False,
