@@ -21,6 +21,7 @@ Core Invariants:
 
 from __future__ import annotations
 
+import inspect
 import re
 import uuid
 from collections.abc import Sequence
@@ -29,6 +30,7 @@ from typing import Any
 
 from basebreak.domain.causal import ExecutionWorld
 from basebreak.domain.execution import SandboxIdentity
+from basebreak.domain.source import SourceIdentity
 from basebreak.domain.verdict import EvidenceProvenance
 from basebreak.verifier.context import VerifierContextEnvelope
 
@@ -37,6 +39,90 @@ DEFAULT_VERIFIER_SANDBOX_IMAGE: str = "tag:astral/uv:python3.11-alpine"
 DEFAULT_VERIFIER_TIMEOUT_SECONDS: int = 120
 
 _HEX_40_OR_64_PATTERN = re.compile(r"^([0-9a-f]{40}|[0-9a-f]{64})$", re.IGNORECASE)
+
+
+def _prepare_materializer_args(
+    fn: Any,
+    *,
+    source_identity: SourceIdentity,
+    created_identity: SandboxIdentity,
+    workspace_path: str,
+    world: ExecutionWorld,
+) -> tuple[tuple[Any, ...], dict[str, Any]]:
+    """Deterministically inspect callable signature and prepare arguments before invocation.
+
+    Prevents broad TypeError trial-and-error retry loops.
+    """
+    try:
+        sig = inspect.signature(fn)
+    except (ValueError, TypeError):
+        return (), {
+            "source_identity": source_identity,
+            "sandbox_identity": created_identity,
+            "workspace_path": workspace_path,
+        }
+
+    params = sig.parameters
+    has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+    available_facts: dict[str, Any] = {
+        "source_identity": source_identity,
+        "workspace_path": workspace_path,
+        "world": world,
+    }
+
+    if "sandbox" in params and "sandbox_identity" not in params:
+        available_facts["sandbox"] = created_identity
+    elif "sandbox_identity" in params and "sandbox" not in params:
+        available_facts["sandbox_identity"] = created_identity
+    else:
+        available_facts["sandbox_identity"] = created_identity
+        if "sandbox" in params or has_var_keyword:
+            available_facts["sandbox"] = created_identity
+
+    if has_var_keyword:
+        call_kwargs = dict(available_facts)
+        call_kwargs["sandbox"] = created_identity
+        call_kwargs["sandbox_identity"] = created_identity
+        return (), call_kwargs
+
+    call_args: list[Any] = []
+    call_kwargs = {}
+
+    for name, param in params.items():
+        if param.kind == inspect.Parameter.POSITIONAL_ONLY:
+            if name in available_facts:
+                call_args.append(available_facts[name])
+            elif name in ("source", "repo_source"):
+                call_args.append(source_identity)
+            elif name in ("workspace", "target_workspace"):
+                call_args.append(workspace_path)
+            elif name in ("sbx", "sandbox"):
+                call_args.append(created_identity)
+            else:
+                if param.default is inspect.Parameter.empty:
+                    raise VerifierMaterializationError(
+                        f"Materializer parameter {name!r} cannot be resolved from trusted facts"
+                    )
+        elif param.kind in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        ):
+            if name in available_facts:
+                call_kwargs[name] = available_facts[name]
+            elif name in ("source", "repo_source"):
+                call_kwargs[name] = source_identity
+            elif name in ("workspace", "target_workspace"):
+                call_kwargs[name] = workspace_path
+            elif name in ("sbx",):
+                call_kwargs[name] = created_identity
+            else:
+                if param.default is inspect.Parameter.empty:
+                    raise VerifierMaterializationError(
+                        f"Materializer parameter {name!r} cannot be resolved from trusted facts"
+                    )
+
+    return tuple(call_args), call_kwargs
 
 
 def _extract_materialization_fact(result: Any, *keys: str) -> Any:
@@ -336,55 +422,35 @@ class VerifierSandboxManager:
                     "repository materialization proof"
                 )
 
-            # Invoke materializer through neutral polymorphic interface
+            # 1. Resolve target materialization callable deterministically
+            target_fn: Any
             if hasattr(materializer, "materialize_clean_base") and callable(
                 materializer.materialize_clean_base
             ):
-                mat_result = materializer.materialize_clean_base(
-                    sandbox_identity=created_identity,
-                    source_identity=context_envelope.source_identity,
-                    workspace_path=self.config.workspace_path,
-                )
+                target_fn = materializer.materialize_clean_base
             elif hasattr(materializer, "materialize_repository") and callable(
                 materializer.materialize_repository
             ):
-                try:
-                    mat_result = materializer.materialize_repository(
-                        source_identity=context_envelope.source_identity,
-                        sandbox=created_identity,
-                        workspace_path=self.config.workspace_path,
-                    )
-                except TypeError:
-                    mat_result = materializer.materialize_repository(
-                        sandbox_identity=created_identity,
-                        source_identity=context_envelope.source_identity,
-                        workspace_path=self.config.workspace_path,
-                    )
+                target_fn = materializer.materialize_repository
             elif callable(materializer):
-                try:
-                    mat_result = materializer(
-                        sandbox_identity=created_identity,
-                        source_identity=context_envelope.source_identity,
-                        workspace_path=self.config.workspace_path,
-                        world=world,
-                    )
-                except TypeError:
-                    try:
-                        mat_result = materializer(
-                            sandbox_identity=created_identity,
-                            source_identity=context_envelope.source_identity,
-                            workspace_path=self.config.workspace_path,
-                        )
-                    except TypeError:
-                        mat_result = materializer(
-                            source_identity=context_envelope.source_identity,
-                            workspace_path=self.config.workspace_path,
-                        )
+                target_fn = materializer
             else:
                 raise VerifierMaterializationError(
                     f"Invalid materializer: {type(materializer).__name__} is neither callable "
                     f"nor implements materialize_repository / materialize_clean_base"
                 )
+
+            # 2. Inspect signature before invocation to prepare arguments deterministically
+            call_args, call_kwargs = _prepare_materializer_args(
+                target_fn,
+                source_identity=context_envelope.source_identity,
+                created_identity=created_identity,
+                workspace_path=self.config.workspace_path,
+                world=world,
+            )
+
+            # 3. Exactly ONE execution attempt — no retry, no broad TypeError catching
+            mat_result = target_fn(*call_args, **call_kwargs)
 
             if mat_result is None:
                 raise VerifierMaterializationError(

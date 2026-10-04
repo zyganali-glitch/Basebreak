@@ -101,6 +101,7 @@ class MockMaterializer:
         self.tree_digest = tree_digest
         self.workspace_path = workspace_path
         self.sandbox_id = sandbox_id
+        self.call_count: int = 0
 
     def materialize_repository(
         self,
@@ -110,12 +111,53 @@ class MockMaterializer:
         workspace_path: str = "/verifier_workspace",
         **kwargs: Any,
     ) -> MockMaterializationResult:
+        self.call_count += 1
         sbx_id = (
             SandboxIdentity(self.sandbox_id)
             if self.sandbox_id
             else (
                 sandbox if isinstance(sandbox, SandboxIdentity) else SandboxIdentity("sbx-unknown")
             )
+        )
+        return MockMaterializationResult(
+            resolved_commit_sha=self.commit,
+            resolved_tree_sha=self.tree_digest,
+            workspace_path=self.workspace_path,
+            sandbox_identity=sbx_id,
+            source_identity=source_identity,
+            is_verified=True,
+        )
+
+
+class CanonicalMaterializerWithoutKwargs:
+    """Canonical adapter mock with strict explicit signature and no **kwargs."""
+
+    def __init__(
+        self,
+        commit: str,
+        tree_digest: str,
+        workspace_path: str = "/verifier_workspace",
+        sandbox_id: str = "sbx-canon-001",
+    ) -> None:
+        self.commit = commit
+        self.tree_digest = tree_digest
+        self.workspace_path = workspace_path
+        self.sandbox_id = sandbox_id
+        self.call_count: int = 0
+
+    def materialize_repository(
+        self,
+        source_identity: SourceIdentity,
+        *,
+        sandbox: Any = None,
+        workspace_path: str = "/workspace/repo",
+        expected_tree_sha: str | None = None,
+        disposable: bool = True,
+        timeout_seconds: int = 120,
+    ) -> MockMaterializationResult:
+        self.call_count += 1
+        sbx_id = (
+            sandbox if isinstance(sandbox, SandboxIdentity) else SandboxIdentity(self.sandbox_id)
         )
         return MockMaterializationResult(
             resolved_commit_sha=self.commit,
@@ -223,9 +265,135 @@ def test_create_isolated_verifier_sandbox_success(
     assert session.context_digest == sample_envelope.context_digest
     assert session.materialized_commit_id == sample_envelope.source_identity.resolved_commit_id
     assert session.materialized_tree_digest == "a" * 40
+    assert materializer.call_count == 1
     assert not session.is_authoritative
     assert not session.is_causally_verified
     assert not session.grants_pass
+
+
+def test_materializer_invoked_exactly_once_on_success(
+    sample_envelope: VerifierContextEnvelope,
+) -> None:
+    """Requirement A: materializer is invoked exactly once on successful verification."""
+    adapter = MockSandboxAdapter(sandbox_id="sbx-exact-once")
+    materializer = MockMaterializer(
+        commit=sample_envelope.source_identity.resolved_commit_id,
+        tree_digest="b" * 40,
+        workspace_path="/verifier_workspace",
+        sandbox_id="sbx-exact-once",
+    )
+    manager = VerifierSandboxManager()
+
+    session = manager.create_isolated_verifier_sandbox(
+        context_envelope=sample_envelope,
+        world=ExecutionWorld.BASE,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+    )
+
+    assert materializer.call_count == 1
+    assert session.materialized_commit_id == sample_envelope.source_identity.resolved_commit_id
+    assert session.materialized_tree_digest == "b" * 40
+
+
+def test_materializer_internal_type_error_invoked_exactly_once_no_retry(
+    sample_envelope: VerifierContextEnvelope,
+) -> None:
+    """Requirements B & C: Internal TypeError raises, invoked exactly once, no alternate retry."""
+    adapter = MockSandboxAdapter(sandbox_id="sbx-type-err-01")
+    manager = VerifierSandboxManager()
+
+    class ExplodingMaterializer:
+        def __init__(self) -> None:
+            self.call_count = 0
+
+        def materialize_repository(
+            self,
+            source_identity: SourceIdentity,
+            *,
+            sandbox: Any = None,
+            workspace_path: str = "/verifier_workspace",
+            **kwargs: Any,
+        ) -> Any:
+            self.call_count += 1
+            # Simulate internal TypeError occurring during repository materialization
+            raise TypeError("Simulated internal TypeError during container clone operation")
+
+    exploding = ExplodingMaterializer()
+
+    with pytest.raises(
+        TypeError,
+        match="Simulated internal TypeError during container clone operation",
+    ):
+        manager.create_isolated_verifier_sandbox(
+            context_envelope=sample_envelope,
+            world=ExecutionWorld.BASE,
+            sandbox_adapter=adapter,
+            materializer=exploding,
+        )
+
+    # Invariant: external invocation count is strictly 1, zero alternate retry
+    assert exploding.call_count == 1
+    assert "sbx-type-err-01" in adapter.torn_down_ids
+
+
+def test_callable_materializer_internal_type_error_invoked_exactly_once_no_retry(
+    sample_envelope: VerifierContextEnvelope,
+) -> None:
+    """Requirements B & C: Generic callable raising internal TypeError is invoked exactly once."""
+    adapter = MockSandboxAdapter(sandbox_id="sbx-type-err-02")
+    manager = VerifierSandboxManager()
+
+    call_count = 0
+
+    def faulty_callable(
+        sandbox_identity: Any,
+        source_identity: Any,
+        workspace_path: Any,
+        **kwargs: Any,
+    ) -> Any:
+        nonlocal call_count
+        call_count += 1
+        raise TypeError("Simulated internal TypeError inside generic callable")
+
+    with pytest.raises(
+        TypeError,
+        match="Simulated internal TypeError inside generic callable",
+    ):
+        manager.create_isolated_verifier_sandbox(
+            context_envelope=sample_envelope,
+            world=ExecutionWorld.BASE,
+            sandbox_adapter=adapter,
+            materializer=faulty_callable,
+        )
+
+    assert call_count == 1
+    assert "sbx-type-err-02" in adapter.torn_down_ids
+
+
+def test_canonical_materializer_without_kwargs_succeeds_once(
+    sample_envelope: VerifierContextEnvelope,
+) -> None:
+    """Requirement D: canonical materializer without **kwargs succeeds with exactly one call."""
+    adapter = MockSandboxAdapter(sandbox_id="sbx-canon-once")
+    canonical = CanonicalMaterializerWithoutKwargs(
+        commit=sample_envelope.source_identity.resolved_commit_id,
+        tree_digest="d" * 40,
+        workspace_path="/verifier_workspace",
+        sandbox_id="sbx-canon-once",
+    )
+    manager = VerifierSandboxManager()
+
+    session = manager.create_isolated_verifier_sandbox(
+        context_envelope=sample_envelope,
+        world=ExecutionWorld.BASE,
+        sandbox_adapter=adapter,
+        materializer=canonical,
+    )
+
+    assert canonical.call_count == 1
+    assert session.materialized_commit_id == sample_envelope.source_identity.resolved_commit_id
+    assert session.materialized_tree_digest == "d" * 40
 
 
 def test_materializer_none_fails_closed(
