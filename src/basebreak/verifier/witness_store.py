@@ -163,6 +163,11 @@ class WitnessArtifact:
         except (PathTraversalError, PathSecurityError) as exc:
             raise WitnessPathSecurityError(f"Witness path safety violation: {exc}") from exc
 
+        if norm_path != path:
+            raise WitnessPathSecurityError(
+                f"Witness path must be already normalized without relative components: {path!r}"
+            )
+
         active_manifest = manifest or get_canonical_basebreak_protected_manifest()
         if is_path_protected(norm_path, active_manifest):
             raise WitnessProtectedSurfaceCollisionError(
