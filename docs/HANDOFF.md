@@ -78,20 +78,14 @@ Judge claim:
 - P-07.06 (Reproduce candidate from trusted base + captured patch in a fresh sandbox) is independently VERIFIED / PASS at SHA `92ec4aa298c0bba96648d9612d3b5f755bf454f6`.
 - P-07 phase (Builder Runtime v1) is independently CLOSED / PASS at SHA `92ec4aa298c0bba96648d9612d3b5f755bf454f6`.
 - P-08 phase (Verifier Isolation & Sealed Challenge Boundary) is independently CLOSED / PASS at SHA `55abf808e9fc01d5003ef32d61557800942ceed8`.
-- P-09 phase (Witness Generation, P-09.01 through P-09.06) is EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE (genuine LIVE_NEBIUS proof bound to implementation SHA `6cdbe613eada838b31d8d97620f3f02bf19a8916` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in `docs/P09_LIVE_WITNESS_PLAN.md`).
-- P-10.01 (Execute identical witness on trusted base) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-10.02 (Execute identical witness on exact candidate) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-10.03 (Bind both executions to source/sandbox/witness hashes) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-10.04 (Reconcile BUG_FIX FAIL→PASS deterministically) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-10.05 (Handle PASS→PASS, FAIL→FAIL, ERROR/TIMEOUT as non-verified states) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-10.06 (Produce first local causal receipt) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-10.07 (Execute first end-to-end causal vertical slice and produce a judge-readable proof summary) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-10 phase (Causal Two-World Engine) is EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE (genuine LIVE_NEBIUS proof bound to implementation SHA `6cdbe613eada838b31d8d97620f3f02bf19a8916` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in `docs/P10_LIVE_CLOSURE_PROOF.md`).
-- P-11+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
+- P-09 phase (Witness Generation, P-09.01 through P-09.06) is independently CLOSED / PASS at SHA `2889e20a43581f1d7141c771d33452d6a194d20b` (genuine LIVE_NEBIUS proof bound to implementation SHA `6cdbe613eada838b31d8d97620f3f02bf19a8916` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in `docs/P09_LIVE_WITNESS_PLAN.md`).
+- P-10 phase (Causal Two-World Engine, P-10.01 through P-10.07) is independently CLOSED / PASS at SHA `2889e20a43581f1d7141c771d33452d6a194d20b` (genuine LIVE_NEBIUS proof bound to implementation SHA `6cdbe613eada838b31d8d97620f3f02bf19a8916` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in `docs/P10_LIVE_CLOSURE_PROOF.md`).
+- P-11.01 (Define safe candidate-delta subtraction strategies) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-11.02+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
-`55abf808e9fc01d5003ef32d61557800942ceed8` (independently VERIFIED / PASS at P-08 phase closure).
-P-09 completed commit: `4ee198177f9edcb2f0587060ca271863a09aaf93`.
+`2889e20a43581f1d7141c771d33452d6a194d20b` (independently VERIFIED / PASS at P-09 and P-10 phase closure).
+Last fresh live-tested implementation SHA: `6cdbe613eada838b31d8d97620f3f02bf19a8916`.
 
 ## Blocking live gate vs active task
 
@@ -99,17 +93,17 @@ P-09 completed commit: `4ee198177f9edcb2f0587060ca271863a09aaf93`.
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-P-09 + P-10 (Witness Generation & Causal Two-World Engine).
+P-11.01 (Define safe candidate-delta subtraction strategies).
 
 ### Active exact task
-Awaiting independent QA verification of P-09 + P-10. P-11+ are strictly NOT AUTHORIZED / NOT_RUN.
+Awaiting independent QA verification of P-11.01. P-11.02+ are strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-08 all tasks and phases are independently VERIFIED / PASS. P-09 and P-10 are EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE. P-11+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-10 all tasks and phases are independently VERIFIED / PASS. P-11.01 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-11.02+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, and Causal primitives remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
-- **Phase status:** P-00 through P-08 phases are independently CLOSED / PASS. P-09 and P-10 are EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE. P-11+ are strictly NOT AUTHORIZED / NOT_RUN.
-- **Batch restoration & hard stop:** P-09 and P-10 completed as executor candidate. P-11+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
-- **Not authorized / forbidden:** P-11+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Phase status:** P-00 through P-10 phases are independently CLOSED / PASS. P-11 phase remains OPEN. P-11.02+ are strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** P-11.01 completed as executor candidate. P-11.02+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Not authorized / forbidden:** P-11.02+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -127,7 +121,7 @@ Awaiting independent QA verification of P-09 + P-10. P-11+ are strictly NOT AUTH
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-10.01 through P-10.07 (P-10 phase) for independent QA verification.
-2. Maintain hard stop after P-10.07; do not activate or implement P-11+.
+1. Submit P-11.01 for independent QA verification.
+2. Maintain hard stop after P-11.01; do not activate or implement P-11.02+.
 3. Await independent QA evaluation.
 
