@@ -78,7 +78,7 @@ Judge claim:
 - P-07.06 (Reproduce candidate from trusted base + captured patch in a fresh sandbox) is independently VERIFIED / PASS at SHA `92ec4aa298c0bba96648d9612d3b5f755bf454f6`.
 - P-07 phase (Builder Runtime v1) is independently CLOSED / PASS at SHA `92ec4aa298c0bba96648d9612d3b5f755bf454f6`.
 - P-08 phase (Verifier Isolation & Sealed Challenge Boundary) is independently CLOSED / PASS at SHA `55abf808e9fc01d5003ef32d61557800942ceed8`.
-- P-09 phase (Witness Generation, P-09.01 through P-09.06) is EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE (genuine LIVE_NEBIUS proof bound to implementation SHA `81ff638c14e5a29938b457bc8f368efc490ae4c3` in `docs/P09_LIVE_WITNESS_PLAN.md`).
+- P-09 phase (Witness Generation, P-09.01 through P-09.06) is EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE (genuine LIVE_NEBIUS proof bound to implementation SHA `15aeeb73d486f83795fe8431bd0403b354d18ff2` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in `docs/P09_LIVE_WITNESS_PLAN.md`).
 - P-10.01 (Execute identical witness on trusted base) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-10.02 (Execute identical witness on exact candidate) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-10.03 (Bind both executions to source/sandbox/witness hashes) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
@@ -86,7 +86,7 @@ Judge claim:
 - P-10.05 (Handle PASS→PASS, FAIL→FAIL, ERROR/TIMEOUT as non-verified states) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-10.06 (Produce first local causal receipt) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-10.07 (Execute first end-to-end causal vertical slice and produce a judge-readable proof summary) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-10 phase (Causal Two-World Engine) is EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE (genuine LIVE_NEBIUS proof bound to implementation SHA `81ff638c14e5a29938b457bc8f368efc490ae4c3` in `docs/P10_LIVE_CLOSURE_PROOF.md`).
+- P-10 phase (Causal Two-World Engine) is EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE (genuine LIVE_NEBIUS proof bound to implementation SHA `15aeeb73d486f83795fe8431bd0403b354d18ff2` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in `docs/P10_LIVE_CLOSURE_PROOF.md`).
 - P-11+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
