@@ -32,6 +32,11 @@ from typing import Any
 
 from basebreak.builder.capture import CandidateSnapshot
 from basebreak.domain.causal import CandidateIdentity, CounterfactualIdentity
+from basebreak.domain.source import (
+    CommitRevision,
+    SourceIdentity,
+    _validate_subpath,
+)
 from basebreak.evidence.artifact import compute_bytes_digest
 from basebreak.security.protected_surfaces import (
     ProtectedSurfaceViolation,
@@ -254,13 +259,10 @@ class ParsedCandidatePatch:
         return None
 
     def get_hunk(self, hunk_id: str) -> ParsedDiffHunk | None:
+        """Find a parsed hunk matching exact hunk_id or exact 64-char hunk_digest."""
         for f in self.files:
             for h in f.hunks:
-                if (
-                    h.hunk_id == hunk_id
-                    or h.hunk_digest == hunk_id
-                    or h.hunk_digest.startswith(hunk_id)
-                ):
+                if h.hunk_id == hunk_id or h.hunk_digest == hunk_id:
                     return h
         return None
 
@@ -340,6 +342,8 @@ class CounterfactualDeltaPlan:
     reverse_delta_digest: str
     subtracted_files: tuple[str, ...]
     subtracted_hunk_ids: tuple[str, ...]
+    source_locator: str | None = None
+    source_subpath: str | None = None
     is_authoritative: bool = False
     is_causally_verified: bool = False
     grants_pass: bool = False
@@ -386,6 +390,32 @@ class CounterfactualDeltaPlan:
                 raise CandidateIdentityMismatchError(
                     f"{name} must be a 40 or 64 hex char string: {val!r}"
                 )
+
+        if self.source_locator is not None:
+            if not isinstance(self.source_locator, str):
+                tname = type(self.source_locator).__name__
+                raise TypeError(f"source_locator must be a string or None, got {tname}")
+            if self.source_subpath is not None and not isinstance(self.source_subpath, str):
+                tname = type(self.source_subpath).__name__
+                raise TypeError(f"source_subpath must be a string or None, got {tname}")
+            try:
+                SourceIdentity(
+                    locator=self.source_locator,
+                    revision=CommitRevision(self.source_commit_id),
+                    subpath=self.source_subpath,
+                )
+            except (ValueError, TypeError) as exc:
+                raise CandidateIdentityMismatchError(
+                    f"Invalid canonical source identity: {exc}"
+                ) from exc
+        elif self.source_subpath is not None:
+            if not isinstance(self.source_subpath, str):
+                tname = type(self.source_subpath).__name__
+                raise TypeError(f"source_subpath must be a string or None, got {tname}")
+            try:
+                _validate_subpath(self.source_subpath)
+            except (ValueError, TypeError) as exc:
+                raise CandidateIdentityMismatchError(f"Invalid source_subpath: {exc}") from exc
 
         # Validate cryptographic digests of derived delta texts
         sub_comp = compute_bytes_digest(self.subtracted_delta_text.encode("utf-8")).value
@@ -437,6 +467,30 @@ class CounterfactualDeltaPlan:
                 f"Candidate patch_digest {candidate.patch_digest!r} does not match "
                 f"plan target_candidate_patch_digest {self.target_candidate_patch_digest!r}"
             )
+        if candidate.resolved_commit_id != self.source_commit_id:
+            raise CandidateIdentityMismatchError(
+                f"Candidate resolved_commit_id {candidate.resolved_commit_id!r} does not match "
+                f"plan source_commit_id {self.source_commit_id!r}"
+            )
+        if self.source_locator is not None and candidate.source.locator != self.source_locator:
+            raise CandidateIdentityMismatchError(
+                f"Candidate source locator {candidate.source.locator!r} does not match "
+                f"plan source_locator {self.source_locator!r}"
+            )
+        if self.source_locator is not None and candidate.source.subpath != self.source_subpath:
+            raise CandidateIdentityMismatchError(
+                f"Candidate source subpath {candidate.source.subpath!r} does not match "
+                f"plan source_subpath {self.source_subpath!r}"
+            )
+        if (
+            self.source_locator is None
+            and self.source_subpath is not None
+            and candidate.source.subpath != self.source_subpath
+        ):
+            raise CandidateIdentityMismatchError(
+                f"Candidate source subpath {candidate.source.subpath!r} does not match "
+                f"plan source_subpath {self.source_subpath!r}"
+            )
         return CounterfactualIdentity(
             counterfactual_id=self.counterfactual_id,
             target_candidate=candidate,
@@ -452,6 +506,8 @@ class CounterfactualDeltaPlan:
             "target_candidate_id": self.target_candidate_id,
             "target_candidate_patch_digest": self.target_candidate_patch_digest,
             "source_commit_id": self.source_commit_id,
+            "source_locator": self.source_locator,
+            "source_subpath": self.source_subpath,
             "candidate_tree_digest": self.candidate_tree_digest,
             "frozen_contract_digest": self.frozen_contract_digest,
             "sealed_witness_digest": self.sealed_witness_digest,
@@ -486,6 +542,11 @@ class CounterfactualDeltaPlan:
             raise CallerAuthorityError("CounterfactualDeltaPlan grants_pass must be strictly False")
 
         try:
+            raw_locator = data.get("source_locator")
+            source_locator = str(raw_locator) if raw_locator is not None else None
+            raw_subpath = data.get("source_subpath")
+            source_subpath = str(raw_subpath) if raw_subpath is not None else None
+
             return cls(
                 counterfactual_id=str(data["counterfactual_id"]),
                 strategy_type=SubtractionStrategyType(str(data["strategy_type"])),
@@ -503,6 +564,8 @@ class CounterfactualDeltaPlan:
                 reverse_delta_digest=str(data["reverse_delta_digest"]),
                 subtracted_files=tuple(str(x) for x in data.get("subtracted_files", ())),
                 subtracted_hunk_ids=tuple(str(x) for x in data.get("subtracted_hunk_ids", ())),
+                source_locator=source_locator,
+                source_subpath=source_subpath,
                 is_authoritative=False,
                 is_causally_verified=False,
                 grants_pass=False,
@@ -784,6 +847,9 @@ class CandidateDeltaSubtractor:
         frozen_contract_digest: str,
         sealed_witness_digest: str,
         request: SubtractionRequest,
+        source_locator: str | None = None,
+        source_subpath: str | None = None,
+        source_identity: SourceIdentity | None = None,
     ) -> CounterfactualDeltaPlan:
         """Construct a deterministic CounterfactualDeltaPlan for the given candidate and request."""
         # 1. Authority Invariant Enforcement
@@ -791,6 +857,54 @@ class CandidateDeltaSubtractor:
             raise TypeError(f"request must be SubtractionRequest, got {type(request).__name__}")
         if request.is_authoritative or request.grants_pass or request.is_causally_verified:
             raise CallerAuthorityError("Caller cannot assert authority or causal pass")
+
+        if source_identity is not None:
+            if not isinstance(source_identity, SourceIdentity):
+                tname = type(source_identity).__name__
+                raise TypeError(f"source_identity must be SourceIdentity, got {tname}")
+            if source_identity.resolved_commit_id != source_commit_id:
+                raise CandidateIdentityMismatchError(
+                    f"source_identity resolved_commit_id {source_identity.resolved_commit_id!r} "
+                    f"does not match source_commit_id {source_commit_id!r}"
+                )
+            if source_locator is not None and source_locator != source_identity.locator:
+                raise CandidateIdentityMismatchError(
+                    f"source_locator {source_locator!r} does not match "
+                    f"source_identity locator {source_identity.locator!r}"
+                )
+            if source_subpath is not None and source_subpath != source_identity.subpath:
+                raise CandidateIdentityMismatchError(
+                    f"source_subpath {source_subpath!r} does not match "
+                    f"source_identity subpath {source_identity.subpath!r}"
+                )
+            source_locator = source_identity.locator
+            source_subpath = source_identity.subpath
+
+        if source_locator is not None:
+            if not isinstance(source_locator, str):
+                tname = type(source_locator).__name__
+                raise TypeError(f"source_locator must be a string or None, got {tname}")
+            if source_subpath is not None and not isinstance(source_subpath, str):
+                tname = type(source_subpath).__name__
+                raise TypeError(f"source_subpath must be a string or None, got {tname}")
+            try:
+                SourceIdentity(
+                    locator=source_locator,
+                    revision=CommitRevision(source_commit_id),
+                    subpath=source_subpath,
+                )
+            except (ValueError, TypeError) as exc:
+                raise CandidateIdentityMismatchError(
+                    f"Invalid canonical source identity: {exc}"
+                ) from exc
+        elif source_subpath is not None:
+            if not isinstance(source_subpath, str):
+                tname = type(source_subpath).__name__
+                raise TypeError(f"source_subpath must be a string or None, got {tname}")
+            try:
+                _validate_subpath(source_subpath)
+            except (ValueError, TypeError) as exc:
+                raise CandidateIdentityMismatchError(f"Invalid source_subpath: {exc}") from exc
 
         # 2. Candidate Identity & Digest Invariant Enforcement
         if not isinstance(candidate_id, str) or not candidate_id.strip():
@@ -1015,6 +1129,8 @@ class CandidateDeltaSubtractor:
             reverse_delta_digest=rev_digest,
             subtracted_files=tuple(subtracted_files),
             subtracted_hunk_ids=tuple(subtracted_hunk_ids),
+            source_locator=source_locator,
+            source_subpath=source_subpath,
             is_authoritative=False,
             is_causally_verified=False,
             grants_pass=False,
@@ -1041,6 +1157,9 @@ class CandidateDeltaSubtractor:
             candidate_patch_digest=candidate_snapshot.patch_digest,
             candidate_tree_digest=candidate_snapshot.candidate_tree_digest,
             source_commit_id=candidate_snapshot.source_identity.resolved_commit_id,
+            source_locator=candidate_snapshot.source_identity.locator,
+            source_subpath=candidate_snapshot.source_identity.subpath,
+            source_identity=candidate_snapshot.source_identity,
             frozen_contract_digest=candidate_snapshot.frozen_contract_digest,
             sealed_witness_digest=sealed_witness_digest,
             request=request,

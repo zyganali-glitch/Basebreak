@@ -434,6 +434,38 @@ class TestUnsupportedAndAmbiguousSubtraction:
         with pytest.raises(InvalidSubtractionError, match="Hunk line count mismatch"):
             parse_candidate_patch(mismatched)
 
+    def test_target_hunk_digest_prefix_rejected(self) -> None:
+        """Hunk target resolution requires exact ID or exact full digest; prefixes are rejected."""
+        patch_text = MULTI_HUNK_PATCH
+        patch_digest = _digest(patch_text)
+        parsed = parse_candidate_patch(patch_text)
+        hunk0 = parsed.files[0].hunks[0]
+
+        # Exact hunk_id and exact hunk_digest resolve cleanly
+        assert parsed.get_hunk(hunk0.hunk_id) is not None
+        assert parsed.get_hunk(hunk0.hunk_digest) is not None
+
+        # Short prefix of hunk_digest is not accepted as exact match
+        short_prefix = hunk0.hunk_digest[:12]
+        assert parsed.get_hunk(short_prefix) is None
+
+        # Subtraction request using a prefix fails closed as unsupported
+        request = SubtractionRequest(
+            strategy_type=SubtractionStrategyType.HUNK_LEVEL_REVERT,
+            target_hunk_ids=(short_prefix,),
+        )
+        with pytest.raises(UnsupportedStrategyError, match="Target hunk ID .* is not present"):
+            plan_candidate_delta_subtraction(
+                candidate_id="cand-01",
+                candidate_patch_text=patch_text,
+                candidate_patch_digest=patch_digest,
+                candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+                source_commit_id=SAMPLE_SOURCE_COMMIT,
+                frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+                sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+                request=request,
+            )
+
 
 class TestProtectedSurfaceAndSecretPolicy:
     """Verifies that protected surfaces and secrets are strictly rejected."""
@@ -639,6 +671,274 @@ class TestSourceCandidateIdentityMismatch:
             CandidateIdentityMismatchError, match="does not match plan target_candidate_id"
         ):
             plan.to_counterfactual_identity(wrong_candidate)
+
+    def test_to_counterfactual_identity_mismatched_resolved_commit_rejected(self) -> None:
+        """Requirement A: same candidate + same patch + different resolved source commit."""
+        patch_text = SINGLE_FILE_PATCH
+        patch_digest = _digest(patch_text)
+        request = SubtractionRequest(strategy_type=SubtractionStrategyType.FULL_PATCH_REVERT)
+
+        plan = plan_candidate_delta_subtraction(
+            candidate_id="cand-01",
+            candidate_patch_text=patch_text,
+            candidate_patch_digest=patch_digest,
+            candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+            source_commit_id=SAMPLE_SOURCE_COMMIT,
+            frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+            sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+            request=request,
+        )
+
+        different_commit = "1" * 40
+        source_id = SourceIdentity(
+            locator="https://github.com/demo/repo.git",
+            revision=CommitRevision(different_commit),
+        )
+        candidate_wrong_commit = CandidateIdentity(
+            candidate_id="cand-01",
+            source=source_id,
+            patch_digest=patch_digest,
+        )
+
+        with pytest.raises(
+            CandidateIdentityMismatchError,
+            match="resolved_commit_id .* does not match plan source_commit_id",
+        ):
+            plan.to_counterfactual_identity(candidate_wrong_commit)
+
+    def test_to_counterfactual_identity_mismatched_source_locator_rejected(self) -> None:
+        """Requirement B: same candidate + same patch + different source repo locator."""
+        patch_text = SINGLE_FILE_PATCH
+        patch_digest = _digest(patch_text)
+        request = SubtractionRequest(strategy_type=SubtractionStrategyType.FULL_PATCH_REVERT)
+
+        plan = plan_candidate_delta_subtraction(
+            candidate_id="cand-01",
+            candidate_patch_text=patch_text,
+            candidate_patch_digest=patch_digest,
+            candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+            source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator="https://github.com/demo/repo.git",
+            frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+            sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+            request=request,
+        )
+
+        substituted_locator_source = SourceIdentity(
+            locator="https://github.com/malicious/unauthorized-fork.git",
+            revision=CommitRevision(SAMPLE_SOURCE_COMMIT),
+        )
+        candidate_wrong_locator = CandidateIdentity(
+            candidate_id="cand-01",
+            source=substituted_locator_source,
+            patch_digest=patch_digest,
+        )
+
+        with pytest.raises(
+            CandidateIdentityMismatchError,
+            match="source locator .* does not match plan source_locator",
+        ):
+            plan.to_counterfactual_identity(candidate_wrong_locator)
+
+    def test_to_counterfactual_identity_mismatched_source_subpath_rejected(self) -> None:
+        """Requirement C: same candidate_id + same patch_digest + different source subpath."""
+        patch_text = SINGLE_FILE_PATCH
+        patch_digest = _digest(patch_text)
+        request = SubtractionRequest(strategy_type=SubtractionStrategyType.FULL_PATCH_REVERT)
+
+        plan = plan_candidate_delta_subtraction(
+            candidate_id="cand-01",
+            candidate_patch_text=patch_text,
+            candidate_patch_digest=patch_digest,
+            candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+            source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator="https://github.com/demo/repo.git",
+            source_subpath="packages/core",
+            frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+            sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+            request=request,
+        )
+
+        # 1. Different subpath
+        candidate_diff_subpath = CandidateIdentity(
+            candidate_id="cand-01",
+            source=SourceIdentity(
+                locator="https://github.com/demo/repo.git",
+                revision=CommitRevision(SAMPLE_SOURCE_COMMIT),
+                subpath="packages/other",
+            ),
+            patch_digest=patch_digest,
+        )
+        with pytest.raises(
+            CandidateIdentityMismatchError,
+            match="source subpath .* does not match plan source_subpath",
+        ):
+            plan.to_counterfactual_identity(candidate_diff_subpath)
+
+        # 2. None subpath when plan has subpath
+        candidate_none_subpath = CandidateIdentity(
+            candidate_id="cand-01",
+            source=SourceIdentity(
+                locator="https://github.com/demo/repo.git",
+                revision=CommitRevision(SAMPLE_SOURCE_COMMIT),
+                subpath=None,
+            ),
+            patch_digest=patch_digest,
+        )
+        with pytest.raises(
+            CandidateIdentityMismatchError,
+            match="source subpath .* does not match plan source_subpath",
+        ):
+            plan.to_counterfactual_identity(candidate_none_subpath)
+
+        # 3. Subpath present on candidate when plan has None subpath
+        plan_no_subpath = plan_candidate_delta_subtraction(
+            candidate_id="cand-01",
+            candidate_patch_text=patch_text,
+            candidate_patch_digest=patch_digest,
+            candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+            source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator="https://github.com/demo/repo.git",
+            source_subpath=None,
+            frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+            sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+            request=request,
+        )
+        with pytest.raises(
+            CandidateIdentityMismatchError,
+            match="source subpath .* does not match plan source_subpath",
+        ):
+            plan_no_subpath.to_counterfactual_identity(candidate_diff_subpath)
+
+    def test_serialized_deserialized_plan_substituted_candidate_rejected(self) -> None:
+        """Requirement D: serialized/deserialized plan followed by substituted CandidateIdentity."""
+        patch_text = SINGLE_FILE_PATCH
+        patch_digest = _digest(patch_text)
+        request = SubtractionRequest(strategy_type=SubtractionStrategyType.FULL_PATCH_REVERT)
+
+        source_id = SourceIdentity(
+            locator="https://github.com/demo/repo.git",
+            revision=CommitRevision(SAMPLE_SOURCE_COMMIT),
+            subpath="services/api",
+        )
+        snapshot = CandidateSnapshot(
+            candidate_id="cand-snap-01",
+            source_identity=source_id,
+            candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+            patch_digest=patch_digest,
+            patch_text=patch_text,
+            files_added=(),
+            files_modified=("src/demo_target/cli.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+            context_digest="c" * 64,
+        )
+
+        plan = plan_subtraction_from_snapshot(
+            candidate_snapshot=snapshot,
+            sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+            request=request,
+        )
+
+        # Serialize and restore
+        data = plan.to_dict()
+        restored = CounterfactualDeltaPlan.from_dict(data)
+
+        # Substituted commit rejected
+        with pytest.raises(CandidateIdentityMismatchError, match="resolved_commit_id"):
+            restored.to_counterfactual_identity(
+                CandidateIdentity(
+                    candidate_id="cand-snap-01",
+                    source=SourceIdentity(
+                        locator="https://github.com/demo/repo.git",
+                        revision=CommitRevision("9" * 40),
+                        subpath="services/api",
+                    ),
+                    patch_digest=patch_digest,
+                )
+            )
+
+        # Substituted locator rejected
+        with pytest.raises(CandidateIdentityMismatchError, match="source locator"):
+            restored.to_counterfactual_identity(
+                CandidateIdentity(
+                    candidate_id="cand-snap-01",
+                    source=SourceIdentity(
+                        locator="https://github.com/attacker/repo.git",
+                        revision=CommitRevision(SAMPLE_SOURCE_COMMIT),
+                        subpath="services/api",
+                    ),
+                    patch_digest=patch_digest,
+                )
+            )
+
+        # Substituted subpath rejected
+        with pytest.raises(CandidateIdentityMismatchError, match="source subpath"):
+            restored.to_counterfactual_identity(
+                CandidateIdentity(
+                    candidate_id="cand-snap-01",
+                    source=SourceIdentity(
+                        locator="https://github.com/demo/repo.git",
+                        revision=CommitRevision(SAMPLE_SOURCE_COMMIT),
+                        subpath="services/other",
+                    ),
+                    patch_digest=patch_digest,
+                )
+            )
+
+    def test_canonical_exact_candidate_identity_succeeds(self) -> None:
+        """Requirement E: canonical exact CandidateIdentity still succeeds."""
+        patch_text = SINGLE_FILE_PATCH
+        patch_digest = _digest(patch_text)
+        request = SubtractionRequest(strategy_type=SubtractionStrategyType.FULL_PATCH_REVERT)
+
+        source_id = SourceIdentity(
+            locator="https://github.com/demo/repo.git",
+            revision=CommitRevision(SAMPLE_SOURCE_COMMIT),
+            subpath="services/api",
+        )
+        snapshot = CandidateSnapshot(
+            candidate_id="cand-snap-01",
+            source_identity=source_id,
+            candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+            patch_digest=patch_digest,
+            patch_text=patch_text,
+            files_added=(),
+            files_modified=("src/demo_target/cli.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+            context_digest="c" * 64,
+        )
+
+        plan = plan_subtraction_from_snapshot(
+            candidate_snapshot=snapshot,
+            sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+            request=request,
+        )
+
+        exact_candidate = CandidateIdentity(
+            candidate_id="cand-snap-01",
+            source=source_id,
+            patch_digest=patch_digest,
+            description="Verified candidate identity",
+        )
+
+        # Derivation succeeds on original plan
+        cf_id = plan.to_counterfactual_identity(exact_candidate)
+        assert cf_id.counterfactual_id == plan.counterfactual_id
+        assert cf_id.target_candidate == exact_candidate
+        assert cf_id.delta_digest == plan.subtracted_delta_digest
+        assert cf_id.target_candidate.resolved_commit_id == plan.source_commit_id
+        assert cf_id.target_candidate.source.locator == plan.source_locator
+        assert cf_id.target_candidate.source.subpath == plan.source_subpath
+
+        # Derivation succeeds identically on round-tripped deserialized plan
+        data = plan.to_dict()
+        restored = CounterfactualDeltaPlan.from_dict(data)
+        restored_cf_id = restored.to_counterfactual_identity(exact_candidate)
+        assert restored_cf_id == cf_id
 
 
 class TestCallerSuppliedFakeAuthority:
