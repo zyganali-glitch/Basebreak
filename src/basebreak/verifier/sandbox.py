@@ -82,12 +82,13 @@ def _prepare_materializer_args(
         if context_envelope.candidate_patch_text is not None:
             available_facts["candidate_patch_text"] = context_envelope.candidate_patch_text
             available_facts["patch_text"] = context_envelope.candidate_patch_text
-    if candidate_tree_digest is not None:
-        available_facts["candidate_tree_digest"] = candidate_tree_digest
-        available_facts["expected_tree_sha"] = candidate_tree_digest
-    elif context_envelope is not None and context_envelope.candidate_tree_digest is not None:
-        available_facts["candidate_tree_digest"] = context_envelope.candidate_tree_digest
-        available_facts["expected_tree_sha"] = context_envelope.candidate_tree_digest
+    if world == ExecutionWorld.CANDIDATE:
+        if candidate_tree_digest is not None:
+            available_facts["candidate_tree_digest"] = candidate_tree_digest
+            available_facts["expected_tree_sha"] = candidate_tree_digest
+        elif context_envelope is not None and context_envelope.candidate_tree_digest is not None:
+            available_facts["candidate_tree_digest"] = context_envelope.candidate_tree_digest
+            available_facts["expected_tree_sha"] = context_envelope.candidate_tree_digest
     if sandbox_adapter is not None:
         available_facts["sandbox_adapter"] = sandbox_adapter
         available_facts["adapter"] = sandbox_adapter

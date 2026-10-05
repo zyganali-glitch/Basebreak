@@ -96,7 +96,7 @@ class CausalRepositoryMaterializer:
                 source_identity=source_identity,
                 sandbox=sandbox,
                 workspace_path=clean_ws,
-                expected_tree_sha=expected_tree_sha,
+                expected_tree_sha=None if world == ExecutionWorld.BASE else expected_tree_sha,
                 disposable=False,
                 timeout_seconds=timeout_seconds,
             )
