@@ -435,17 +435,28 @@ Phase exit: at least one independent witness can exist without Builder knowledge
 
 # P-10 — Causal Two-World Engine
 ### P-10.01 — Execute identical witness on trusted base
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in src/basebreak/causal/engine.py; executes sealed witness in fresh disposable verifier sandbox against clean materialized base source commit; normalizes outcome to FAIL under BUG_FIX; verified in tests/causal/test_engine.py and tests/causal/test_p10_closure.py)
+
 ### P-10.02 — Execute identical witness on exact candidate
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in src/basebreak/causal/engine.py; executes identical sealed witness in fresh disposable verifier sandbox against candidate tree with patch applied; normalizes outcome to PASS under BUG_FIX; verified in tests/causal/test_engine.py and tests/causal/test_p10_closure.py)
+
 ### P-10.03 — Bind both executions to source/sandbox/witness hashes
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in src/basebreak/causal/engine.py; validates distinct sandbox identities, rejects Builder sandbox reuse with BuilderSandboxReuseError, enforces pre-execution witness lock chain of custody via verify_witness_lock_chain, rejects identical tree digests under BUG_FIX as empty patch; verified in tests/causal/test_engine.py and tests/causal/test_p10_closure.py)
 Acceptance:
 - BASE and CANDIDATE execution evidence records must explicitly carry and bind to the exact frozen contract digest and witness digest;
 - no reliance on loose prose matching; execution evidence is mechanically and cryptographically bound to contract and witness identities.
+
 ### P-10.04 — Reconcile BUG_FIX FAIL→PASS deterministically
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in src/basebreak/causal/reconciliation.py; reconcile_causal_transition enforces invariant truth: BASE=FAIL and CANDIDATE=PASS is the sole positive causal transition yielding CAUSAL_BUG_FIX_VERIFIED and PreliminaryVerdict.VERIFIED; zero model authority; 10 tests in tests/causal/test_reconciliation.py)
+
 ### P-10.05 — Handle PASS→PASS, FAIL→FAIL, ERROR/TIMEOUT as non-verified states
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in src/basebreak/causal/reconciliation.py; anti-collapse blocks PASS->PASS as UNVERIFIED_TRIVIAL_PASS / INCONCLUSIVE, FAIL->FAIL as UNVERIFIED_DEFECT_PERSISTS / CONTRADICTED, PASS->FAIL as UNVERIFIED_REGRESSION / CONTRADICTED, TIMEOUT as NON_VERIFIED_TIMEOUT / INCONCLUSIVE, ERROR as NON_VERIFIED_EXECUTION_ERROR / INCONCLUSIVE, vacuous witness as NON_VERIFIED_VACUOUS / INCONCLUSIVE, and precondition failure as NON_VERIFIED_INVALID_PRECONDITION / BLOCKED; verified in tests/causal/test_reconciliation.py and tests/causal/test_p10_closure.py)
+
 ### P-10.06 — Produce first local causal receipt
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in src/basebreak/causal/receipt.py; LocalCausalReceipt with cryptographic binding to contract, witness, candidate, and both worlds; computes deterministic SHA-256 receipt digest over canonical JSON bytes; verify_causal_receipt_integrity detects tampering across all fields; 3 tests in tests/causal/test_receipt.py)
 
 ### P-10.07 — Execute first end-to-end causal vertical slice and produce a judge-readable proof summary
-Status: PENDING
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in src/basebreak/causal/harness.py; run_causal_verification_slice executes coherent vertical slice from contract and plan to sealed witness, two-world execution, and causal receipt; format_judge_proof_summary and render_judge_proof_markdown produce machine-readable JSON and human-inspectable Markdown highlighting thesis 'If the patch matters, the base must break.' and unbroken digest chain; minimal developer harness without prematurely freezing public CLI; verified in tests/causal/test_harness.py and tests/causal/test_p10_closure.py)
 Acceptance:
 - integration checkpoint, not final UI;
 - complete path from task → Builder → independent witness → BASE execution → CANDIDATE execution → causal receipt;
@@ -454,7 +465,7 @@ Acceptance:
 - provenance clearly distinguishes FIXTURE/LOCAL_EXECUTION/LIVE_NEBIUS/RECORDED_LIVE;
 - validates complete mechanical digest chain: `requirement → frozen contract digest → witness digest → BASE/CANDIDATE execution evidence`;
 - exposes a bounded MINIMAL DEVELOPER INVOCATION / INTEGRATION HARNESS capable of executing that coherent slice (may be temporary/internal; must NOT prematurely freeze `basebreak verify` or another public stable CLI contract; stable public CLI remains frozen at P-19 after P-18 receipt contracts stabilize).
-Phase exit: Basebreak can prove a real base/candidate behavioral transition.
+Phase exit: Basebreak can prove a real base/candidate behavioral transition. (P-10 Phase Exit complete: all micro-tasks P-10.01 through P-10.07 completed; all 27 causal tests passing; 1957 full non-live tests passing; durable proof in docs/P10_LIVE_CAUSAL_ENGINE.md; P-10 phase status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; P-11+ remain strictly NOT AUTHORIZED / NOT_RUN; HARD STOP ENFORCED)
 
 ---
 

@@ -78,18 +78,20 @@ Judge claim:
 - P-07.06 (Reproduce candidate from trusted base + captured patch in a fresh sandbox) is independently VERIFIED / PASS at SHA `92ec4aa298c0bba96648d9612d3b5f755bf454f6`.
 - P-07 phase (Builder Runtime v1) is independently CLOSED / PASS at SHA `92ec4aa298c0bba96648d9612d3b5f755bf454f6`.
 - P-08 phase (Verifier Isolation & Sealed Challenge Boundary) is independently CLOSED / PASS at SHA `55abf808e9fc01d5003ef32d61557800942ceed8`.
-- P-09.01 (Implement Nemotron witness-plan generation from frozen contract + trusted source) is COMPLETED.
-- P-09.02 (Validate witness plans against scope/security/runtime policy) is COMPLETED.
-- P-09.03 (Generate executable independent behavioral witnesses for BUG_FIX) is COMPLETED.
-- P-09.04 (Add witness determinism/timeout/result normalization) is COMPLETED.
-- P-09.05 (Detect vacuous witnesses and invalid preconditions) is COMPLETED.
-- P-09.06 (Preserve witness digest before candidate execution) is COMPLETED.
-- P-09 phase (Witness Generation) is COMPLETED (genuine LIVE_NEBIUS proof in `docs/P09_LIVE_WITNESS_PLAN.md`).
-- P-10 (Causal Two-World Engine, P-10.01 through P-10.07) is ACTIVE.
-- P-11+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- P-09 phase (Witness Generation, P-09.01 through P-09.06) is COMPLETED and PUSHED at commit `4ee198177f9edcb2f0587060ca271863a09aaf93` (genuine LIVE_NEBIUS proof in `docs/P09_LIVE_WITNESS_PLAN.md`).
+- P-10.01 (Execute identical witness on trusted base) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-10.02 (Execute identical witness on exact candidate) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-10.03 (Bind both executions to source/sandbox/witness hashes) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-10.04 (Reconcile BUG_FIX FAIL→PASS deterministically) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-10.05 (Handle PASS→PASS, FAIL→FAIL, ERROR/TIMEOUT as non-verified states) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-10.06 (Produce first local causal receipt) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-10.07 (Execute first end-to-end causal vertical slice and produce a judge-readable proof summary) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-10 phase (Causal Two-World Engine) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (durable proof in `docs/P10_LIVE_CAUSAL_ENGINE.md`).
+- P-11+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
 `55abf808e9fc01d5003ef32d61557800942ceed8` (independently VERIFIED / PASS at P-08 phase closure).
+P-09 completed commit: `4ee198177f9edcb2f0587060ca271863a09aaf93`.
 
 ## Blocking live gate vs active task
 
@@ -97,17 +99,17 @@ Judge claim:
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-P-09 (Witness Generation batch) completed. P-10 (Causal Two-World Engine) active under two-phase authorization.
+P-10 (Causal Two-World Engine, P-10.01 through P-10.07).
 
 ### Active exact task
-P-10 — Causal Two-World Engine (P-10.01 through P-10.07). P-11+ are strictly NOT AUTHORIZED / NOT_RUN.
+Awaiting independent QA verification of P-10. P-11+ are strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-08 all tasks and phases are independently VERIFIED / PASS. P-09 is COMPLETED. P-10 is ACTIVE. P-11+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-08 all tasks and phases are independently VERIFIED / PASS. P-09 is COMPLETED and PUSHED. P-10 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-11+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, and Causal primitives remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
-- **Phase status:** P-00 through P-08 phases are independently CLOSED / PASS. P-09 is COMPLETED. P-10 is ACTIVE. P-11+ are strictly NOT AUTHORIZED / NOT_RUN.
-- **Batch restoration & hard stop:** P-08.01 through P-08.05 completed as executor candidate. P-09+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
-- **Not authorized / forbidden:** P-09+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Phase status:** P-00 through P-08 phases are independently CLOSED / PASS. P-09 is COMPLETED. P-10 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-11+ are strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** P-10.01 through P-10.07 completed as executor candidate. P-11+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Not authorized / forbidden:** P-11+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -125,7 +127,7 @@ P-10 — Causal Two-World Engine (P-10.01 through P-10.07). P-11+ are strictly N
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-08.01 through P-08.05 (P-08 phase) for independent QA verification.
-2. Maintain hard stop after P-08.05; do not activate or implement P-09+.
+1. Submit P-10.01 through P-10.07 (P-10 phase) for independent QA verification.
+2. Maintain hard stop after P-10.07; do not activate or implement P-11+.
 3. Await independent QA evaluation.
 
