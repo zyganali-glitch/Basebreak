@@ -466,6 +466,8 @@ def parse_witness_plan_proposal(raw_text: str) -> WitnessPlanProposal:
         rationale = str(item.get("rationale", ""))
         if not path:
             raise MalformedWitnessPlanError(f"Artifact at index {idx} has empty path")
+        if "\n" not in content and "\\n" in content:
+            content = content.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\t", "    ")
         parsed_artifacts.append(
             ProposedWitnessArtifact(path=path, content=content, rationale=rationale)
         )

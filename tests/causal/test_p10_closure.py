@@ -656,10 +656,10 @@ class TestP10CausalClosure:
 
         # Outcomes
         assert base_exec.outcome == WitnessOutcome.FAIL, (
-            f"BASE expected FAIL, got {base_exec.outcome}"
+            f"BASE expected FAIL, got {base_exec.outcome} (exit {base_exec.exit_code})"
         )
         assert cand_exec.outcome == WitnessOutcome.PASS, (
-            f"CANDIDATE expected PASS, got {cand_exec.outcome}"
+            f"CANDIDATE expected PASS, got {cand_exec.outcome} (exit {cand_exec.exit_code})"
         )
         assert base_exec.exit_code == 1
         assert cand_exec.exit_code == 0
