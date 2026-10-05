@@ -20,6 +20,10 @@ from basebreak.causal.harness import (
     render_judge_proof_markdown,
     run_causal_verification_slice,
 )
+from basebreak.causal.materializer import (
+    CausalRepositoryMaterializer,
+    GitRepositoryMaterializer,
+)
 from basebreak.causal.receipt import (
     CAUSAL_RECEIPT_SCHEMA_VERSION,
     CausalReceiptError,
@@ -48,8 +52,10 @@ __all__ = [
     "CausalReceiptError",
     "CausalReceiptIntegrityError",
     "CausalReceiptTamperingError",
+    "CausalRepositoryMaterializer",
     "CausalTransition",
     "EmptyCandidatePatchError",
+    "GitRepositoryMaterializer",
     "LocalCausalReceipt",
     "ReconciliationFact",
     "SandboxCollisionError",

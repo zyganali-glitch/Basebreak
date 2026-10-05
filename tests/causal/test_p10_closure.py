@@ -456,17 +456,20 @@ class TestP10CausalClosure:
             pytest.skip("NEBIUS_PROJECT_ID not configured for remote VM sandbox creation")
 
         # When project_id is available, test against real remote Token Factory Sandboxes
-        from basebreak.adapter.materializer import (  # type: ignore[import-untyped]
-            GitRepositoryMaterializer,
-        )
-        from basebreak.adapter.nebius import (  # type: ignore[import-untyped]
+        from basebreak.adapters.nebius.sandbox import (
             NebiusSandboxAdapter,
+            SandboxClientConfig,
+        )
+        from basebreak.causal.materializer import (
+            GitRepositoryMaterializer,
         )
 
         envelope, plan, sealed, vault = _create_test_pipeline_bundle()
-        adapter = NebiusSandboxAdapter(api_key=api_key, project_id=project_id)
+        adapter = NebiusSandboxAdapter(
+            config=SandboxClientConfig(api_key=api_key, project_id=project_id)
+        )
         manager = VerifierSandboxManager()
-        materializer = GitRepositoryMaterializer()
+        materializer = GitRepositoryMaterializer(adapter=adapter)
 
         receipt, summary, markdown = run_causal_verification_slice(
             context_envelope=envelope,

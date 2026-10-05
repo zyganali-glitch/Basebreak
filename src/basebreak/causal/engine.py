@@ -22,6 +22,7 @@ Core Invariants:
 from __future__ import annotations
 
 import base64
+import inspect
 import posixpath
 import shlex
 import time
@@ -119,7 +120,19 @@ class CausalExecutionEngine:
 
         self.sandbox_manager = sandbox_manager
         self.sandbox_adapter = sandbox_adapter
-        self.materializer = materializer
+
+        # Automatically wrap base-only materializer to support candidate world
+        from basebreak.adapters.nebius.materialization import NebiusSourceMaterializer
+        from basebreak.causal.materializer import CausalRepositoryMaterializer
+
+        if isinstance(materializer, NebiusSourceMaterializer):
+            self.materializer: Any = CausalRepositoryMaterializer(
+                adapter=sandbox_adapter,
+                source_materializer=materializer,
+            )
+        else:
+            self.materializer = materializer
+
         self.vault = vault
         self.provenance = provenance
 
@@ -145,12 +158,22 @@ class CausalExecutionEngine:
                 f'printf "%s" {shlex.quote(b64_content)} | base64 -d > {shlex.quote(full_path)}'
             )
 
+        deploy_kwargs: dict[str, Any] = {
+            "working_dir": session.workspace_path,
+            "timeout_seconds": 60,
+        }
+        try:
+            sig = inspect.signature(self.sandbox_adapter.execute_command)
+            if "disposable" in sig.parameters:
+                deploy_kwargs["disposable"] = False
+        except Exception:
+            pass
+
         deploy_script = "\n".join(lines) + "\n"
         res = self.sandbox_adapter.execute_command(
             session.sandbox_identity,
             deploy_script,
-            working_dir=session.workspace_path,
-            timeout_seconds=60,
+            **deploy_kwargs,
         )
         exit_code = getattr(res, "exit_code", None)
         if exit_code is None and hasattr(res, "result"):
@@ -173,13 +196,23 @@ class CausalExecutionEngine:
         else:
             cmd_input = str(command)
 
+        exec_kwargs: dict[str, Any] = {
+            "working_dir": session.workspace_path,
+            "timeout_seconds": timeout_seconds,
+        }
+        try:
+            sig = inspect.signature(self.sandbox_adapter.execute_command)
+            if "disposable" in sig.parameters:
+                exec_kwargs["disposable"] = True
+        except Exception:
+            pass
+
         start_time = time.perf_counter()
         try:
             res = self.sandbox_adapter.execute_command(
                 session.sandbox_identity,
                 cmd_input,
-                working_dir=session.workspace_path,
-                timeout_seconds=timeout_seconds,
+                **exec_kwargs,
             )
             elapsed = time.perf_counter() - start_time
         except Exception as exc:

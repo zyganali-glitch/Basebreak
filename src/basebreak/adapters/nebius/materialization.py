@@ -221,7 +221,10 @@ def build_materialization_script(
     git_check_cmd = (
         "(which git >/dev/null 2>&1 || "
         "apk add --no-cache git >/dev/null 2>&1 || "
-        "(apt-get update -qq && apt-get install -y -qq git >/dev/null 2>&1))"
+        "(apt-get update -qq && apt-get install -y -qq git >/dev/null 2>&1)); "
+        "(which pytest >/dev/null 2>&1 || "
+        "uv pip install --system pytest >/dev/null 2>&1 || "
+        "pip install --quiet pytest >/dev/null 2>&1 || true)"
     )
     lines = [
         "set -e",

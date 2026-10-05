@@ -48,6 +48,9 @@ def _prepare_materializer_args(
     created_identity: SandboxIdentity,
     workspace_path: str,
     world: ExecutionWorld,
+    context_envelope: VerifierContextEnvelope | None = None,
+    candidate_tree_digest: str | None = None,
+    sandbox_adapter: Any = None,
 ) -> tuple[tuple[Any, ...], dict[str, Any]]:
     """Deterministically inspect callable signature and prepare arguments before invocation.
 
@@ -56,11 +59,14 @@ def _prepare_materializer_args(
     try:
         sig = inspect.signature(fn)
     except (ValueError, TypeError):
-        return (), {
+        fallback_kwargs: dict[str, Any] = {
             "source_identity": source_identity,
             "sandbox_identity": created_identity,
             "workspace_path": workspace_path,
         }
+        if context_envelope is not None:
+            fallback_kwargs["context_envelope"] = context_envelope
+        return (), fallback_kwargs
 
     params = sig.parameters
     has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
@@ -70,6 +76,21 @@ def _prepare_materializer_args(
         "workspace_path": workspace_path,
         "world": world,
     }
+    if context_envelope is not None:
+        available_facts["context_envelope"] = context_envelope
+        available_facts["envelope"] = context_envelope
+        if context_envelope.candidate_patch_text is not None:
+            available_facts["candidate_patch_text"] = context_envelope.candidate_patch_text
+            available_facts["patch_text"] = context_envelope.candidate_patch_text
+    if candidate_tree_digest is not None:
+        available_facts["candidate_tree_digest"] = candidate_tree_digest
+        available_facts["expected_tree_sha"] = candidate_tree_digest
+    elif context_envelope is not None and context_envelope.candidate_tree_digest is not None:
+        available_facts["candidate_tree_digest"] = context_envelope.candidate_tree_digest
+        available_facts["expected_tree_sha"] = context_envelope.candidate_tree_digest
+    if sandbox_adapter is not None:
+        available_facts["sandbox_adapter"] = sandbox_adapter
+        available_facts["adapter"] = sandbox_adapter
 
     if "sandbox" in params and "sandbox_identity" not in params:
         available_facts["sandbox"] = created_identity
@@ -447,6 +468,9 @@ class VerifierSandboxManager:
                 created_identity=created_identity,
                 workspace_path=self.config.workspace_path,
                 world=world,
+                context_envelope=context_envelope,
+                candidate_tree_digest=candidate_tree_digest,
+                sandbox_adapter=sandbox_adapter,
             )
 
             # 3. Exactly ONE execution attempt — no retry, no broad TypeError catching

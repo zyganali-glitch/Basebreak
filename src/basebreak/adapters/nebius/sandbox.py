@@ -311,6 +311,7 @@ class NebiusSandboxAdapter:
         self._config = config or SandboxClientConfig()
         self._transport = transport or default_urllib_transport
         self._last_successful_live_operation_id: str | None = None
+        self._handles: dict[str, NebiusSandboxHandle] = {}
 
     @property
     def config(self) -> SandboxClientConfig:
@@ -445,12 +446,14 @@ class NebiusSandboxAdapter:
         sandbox_id = f"sbx-{uuid.uuid4().hex[:16]}"
         identity = SandboxIdentity(sandbox_id=sandbox_id, description=description)
 
-        return NebiusSandboxHandle(
+        handle = NebiusSandboxHandle(
             sandbox_identity=identity,
             image=chosen_image.strip(),
             disposable=disposable,
             lifecycle_state=SandboxLifecycleState.CREATED,
         )
+        self._handles[identity.sandbox_id] = handle
+        return handle
 
     def _normalize_command_string(
         self,
@@ -817,6 +820,19 @@ class NebiusSandboxAdapter:
             target_image = handle.result_image_uuid or handle.image
             is_disposable = handle.disposable if disposable is None else disposable
             identity = handle.sandbox_identity
+        elif isinstance(sandbox, SandboxIdentity):
+            if sandbox.sandbox_id in self._handles:
+                handle = self._handles[sandbox.sandbox_id]
+                if handle.lifecycle_state == SandboxLifecycleState.DISPOSED:
+                    sid = handle.sandbox_identity.sandbox_id
+                    raise SandboxLifecycleError(f"Cannot execute command on disposed sandbox {sid}")
+                target_image = handle.result_image_uuid or handle.image
+                is_disposable = handle.disposable if disposable is None else disposable
+                identity = handle.sandbox_identity
+            else:
+                target_image = self._config.default_image
+                is_disposable = True if disposable is None else disposable
+                identity = sandbox
         elif isinstance(sandbox, str):
             if not sandbox.strip():
                 raise SandboxConfigError("Target sandbox image must not be empty")
@@ -971,7 +987,7 @@ class NebiusSandboxAdapter:
 
     def teardown_sandbox(
         self,
-        handle: NebiusSandboxHandle,
+        handle: NebiusSandboxHandle | SandboxIdentity | str,
         *,
         verify_whoami: bool = False,
     ) -> None:
@@ -981,20 +997,34 @@ class NebiusSandboxAdapter:
         Fails closed without marking DISPOSED if cancellation or verification fails.
         Subsequent execution commands on this handle will fail closed.
         """
-        if handle.lifecycle_state == SandboxLifecycleState.DISPOSED:
+        real_handle: NebiusSandboxHandle | None = None
+        if isinstance(handle, NebiusSandboxHandle):
+            real_handle = handle
+        elif isinstance(handle, SandboxIdentity):
+            real_handle = self._handles.get(handle.sandbox_id)
+            if real_handle is None:
+                return
+        elif isinstance(handle, str):
+            real_handle = self._handles.get(handle.strip())
+            if real_handle is None:
+                return
+        else:
+            return
+
+        if real_handle.lifecycle_state == SandboxLifecycleState.DISPOSED:
             return
 
         # Cancel in-flight operation if running
-        if handle.lifecycle_state == SandboxLifecycleState.RUNNING:
-            if not handle.last_operation_id:
+        if real_handle.lifecycle_state == SandboxLifecycleState.RUNNING:
+            if not real_handle.last_operation_id:
                 raise SandboxLifecycleError(
-                    f"Cannot teardown running sandbox {handle.sandbox_identity.sandbox_id}: "
+                    f"Cannot teardown running sandbox {real_handle.sandbox_identity.sandbox_id}: "
                     "missing operation ID for in-flight operation"
                 )
-            cancelled = self.cancel_operation(handle.last_operation_id)
+            cancelled = self.cancel_operation(real_handle.last_operation_id)
             if not cancelled:
                 raise SandboxAdapterError(
-                    f"Teardown failed: cancellation of operation {handle.last_operation_id} "
+                    f"Teardown failed: cancellation of operation {real_handle.last_operation_id} "
                     "returned unconfirmed status"
                 )
 
@@ -1021,4 +1051,4 @@ class NebiusSandboxAdapter:
                     "active running instance(s)"
                 )
 
-        handle.lifecycle_state = SandboxLifecycleState.DISPOSED
+        real_handle.lifecycle_state = SandboxLifecycleState.DISPOSED
