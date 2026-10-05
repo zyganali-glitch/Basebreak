@@ -49,10 +49,15 @@ class CausalTransition(str, Enum):
     NON_VERIFIED_INVALID_PRECONDITION = "NON_VERIFIED_INVALID_PRECONDITION"
     NON_VERIFIED_TAMPERING_OR_INTEGRITY_FAILURE = "NON_VERIFIED_TAMPERING_OR_INTEGRITY_FAILURE"
 
+    # Three-world causal triplet transitions
+    CAUSAL_TRIPLET_VERIFIED = "CAUSAL_TRIPLET_VERIFIED"
+    UNVERIFIED_COUNTERFACTUAL_INEFFECTIVE = "UNVERIFIED_COUNTERFACTUAL_INEFFECTIVE"
+    NON_VERIFIED_INVALID_COUNTERFACTUAL = "NON_VERIFIED_INVALID_COUNTERFACTUAL"
+
 
 @dataclass(frozen=True, slots=True)
 class ReconciliationFact:
-    """Deterministic result of two-world outcome reconciliation."""
+    """Deterministic result of outcome reconciliation."""
 
     transition: CausalTransition
     verdict: PreliminaryVerdict
@@ -74,9 +79,13 @@ class ReconciliationFact:
             raise ValueError("rationale must be a non-empty string")
 
         # Invariant: is_causally_verified iff transition is CAUSAL_BUG_FIX_VERIFIED
-        # and verdict is VERIFIED
+        # or CAUSAL_TRIPLET_VERIFIED and verdict is VERIFIED
         expected_verified = (
-            self.transition == CausalTransition.CAUSAL_BUG_FIX_VERIFIED
+            self.transition
+            in (
+                CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+                CausalTransition.CAUSAL_TRIPLET_VERIFIED,
+            )
             and self.verdict == PreliminaryVerdict.VERIFIED
         )
         if self.is_causally_verified != expected_verified:
@@ -226,5 +235,193 @@ def reconcile_causal_transition(
         rationale=(
             f"Unhandled outcome combination: BASE={base_outcome.value}, "
             f"CANDIDATE={candidate_outcome.value}"
+        ),
+    )
+
+
+def reconcile_causal_triplet(
+    *,
+    base_outcome: WitnessOutcome,
+    candidate_outcome: WitnessOutcome,
+    counterfactual_outcome: WitnessOutcome,
+    base_vacuity: VacuityCheckResult | None = None,
+    candidate_vacuity: VacuityCheckResult | None = None,
+    counterfactual_vacuity: VacuityCheckResult | None = None,
+    integrity_failure_reason: str | None = None,
+    invalid_counterfactual_reason: str | None = None,
+) -> ReconciliationFact:
+    """Deterministically reconcile BASE, CANDIDATE, and COUNTERFACTUAL execution outcomes.
+
+    The ONLY positive causal triplet is:
+    BASE = FAIL
+    CANDIDATE = PASS
+    COUNTERFACTUAL = FAIL
+    -> CAUSAL_TRIPLET_VERIFIED (PreliminaryVerdict.VERIFIED, is_causally_verified=True).
+
+    Any other behavioral combination, vacuous witness, timeout, error, invalid precondition,
+    or integrity/construction defect resolves to a non-verified state.
+    """
+    if not isinstance(base_outcome, WitnessOutcome):
+        raise TypeError(f"base_outcome must be WitnessOutcome, got {type(base_outcome).__name__}")
+    if not isinstance(candidate_outcome, WitnessOutcome):
+        raise TypeError(
+            f"candidate_outcome must be WitnessOutcome, got {type(candidate_outcome).__name__}"
+        )
+    if not isinstance(counterfactual_outcome, WitnessOutcome):
+        cf_type = type(counterfactual_outcome).__name__
+        raise TypeError(f"counterfactual_outcome must be WitnessOutcome, got {cf_type}")
+
+    # 1. Cryptographic binding or integrity failure
+    if integrity_failure_reason is not None and str(integrity_failure_reason).strip():
+        reason = str(integrity_failure_reason).strip()
+        return ReconciliationFact(
+            transition=CausalTransition.NON_VERIFIED_TAMPERING_OR_INTEGRITY_FAILURE,
+            verdict=PreliminaryVerdict.CONTRADICTED,
+            is_causally_verified=False,
+            rationale=f"Cryptographic binding or integrity check failed: {reason}",
+        )
+
+    # 2. Invalid counterfactual construction (P-11.06: fail closed, never false PASS)
+    if invalid_counterfactual_reason is not None and str(invalid_counterfactual_reason).strip():
+        reason = str(invalid_counterfactual_reason).strip()
+        return ReconciliationFact(
+            transition=CausalTransition.NON_VERIFIED_INVALID_COUNTERFACTUAL,
+            verdict=PreliminaryVerdict.INCONCLUSIVE,
+            is_causally_verified=False,
+            rationale=f"Invalid counterfactual construction: {reason}",
+        )
+
+    # 3. Vacuity defense across all three worlds
+    if base_vacuity is not None and base_vacuity.is_vacuous:
+        return ReconciliationFact(
+            transition=CausalTransition.NON_VERIFIED_VACUOUS,
+            verdict=PreliminaryVerdict.INCONCLUSIVE,
+            is_causally_verified=False,
+            rationale=f"Witness on BASE world is vacuous: {base_vacuity.details}",
+        )
+    if candidate_vacuity is not None and candidate_vacuity.is_vacuous:
+        return ReconciliationFact(
+            transition=CausalTransition.NON_VERIFIED_VACUOUS,
+            verdict=PreliminaryVerdict.INCONCLUSIVE,
+            is_causally_verified=False,
+            rationale=f"Witness on CANDIDATE world is vacuous: {candidate_vacuity.details}",
+        )
+    if counterfactual_vacuity is not None and counterfactual_vacuity.is_vacuous:
+        return ReconciliationFact(
+            transition=CausalTransition.NON_VERIFIED_VACUOUS,
+            verdict=PreliminaryVerdict.INCONCLUSIVE,
+            is_causally_verified=False,
+            rationale=(
+                f"Witness on COUNTERFACTUAL world is vacuous: {counterfactual_vacuity.details}"
+            ),
+        )
+
+    # 4. Precondition failures
+    if (
+        base_outcome == WitnessOutcome.INVALID_PRECONDITION
+        or candidate_outcome == WitnessOutcome.INVALID_PRECONDITION
+        or counterfactual_outcome == WitnessOutcome.INVALID_PRECONDITION
+    ):
+        return ReconciliationFact(
+            transition=CausalTransition.NON_VERIFIED_INVALID_PRECONDITION,
+            verdict=PreliminaryVerdict.BLOCKED,
+            is_causally_verified=False,
+            rationale=(
+                f"Execution precondition was invalid (BASE: {base_outcome.value}, "
+                f"CANDIDATE: {candidate_outcome.value}, "
+                f"COUNTERFACTUAL: {counterfactual_outcome.value})"
+            ),
+        )
+
+    # 5. Timeout outcomes
+    if (
+        base_outcome == WitnessOutcome.TIMEOUT
+        or candidate_outcome == WitnessOutcome.TIMEOUT
+        or counterfactual_outcome == WitnessOutcome.TIMEOUT
+    ):
+        return ReconciliationFact(
+            transition=CausalTransition.NON_VERIFIED_TIMEOUT,
+            verdict=PreliminaryVerdict.INCONCLUSIVE,
+            is_causally_verified=False,
+            rationale=(
+                f"Execution timed out (BASE: {base_outcome.value}, "
+                f"CANDIDATE: {candidate_outcome.value}, "
+                f"COUNTERFACTUAL: {counterfactual_outcome.value})"
+            ),
+        )
+
+    # 6. Execution / infrastructure errors
+    if (
+        base_outcome == WitnessOutcome.ERROR
+        or candidate_outcome == WitnessOutcome.ERROR
+        or counterfactual_outcome == WitnessOutcome.ERROR
+    ):
+        return ReconciliationFact(
+            transition=CausalTransition.NON_VERIFIED_EXECUTION_ERROR,
+            verdict=PreliminaryVerdict.INCONCLUSIVE,
+            is_causally_verified=False,
+            rationale=(
+                f"Execution error encountered (BASE: {base_outcome.value}, "
+                f"CANDIDATE: {candidate_outcome.value}, "
+                f"COUNTERFACTUAL: {counterfactual_outcome.value})"
+            ),
+        )
+
+    # 7. Candidate failure: defect persists
+    if candidate_outcome == WitnessOutcome.FAIL:
+        return ReconciliationFact(
+            transition=CausalTransition.UNVERIFIED_DEFECT_PERSISTS,
+            verdict=PreliminaryVerdict.CONTRADICTED,
+            is_causally_verified=False,
+            rationale="CANDIDATE failed under witness; defect persists.",
+        )
+
+    # 8. Base passed: trivial pass without patch
+    if base_outcome == WitnessOutcome.PASS:
+        return ReconciliationFact(
+            transition=CausalTransition.UNVERIFIED_TRIVIAL_PASS,
+            verdict=PreliminaryVerdict.INCONCLUSIVE,
+            is_causally_verified=False,
+            rationale=(
+                "BASE passed without candidate patch; "
+                "patch was not causally necessary under this witness."
+            ),
+        )
+
+    # 9. At this point: BASE = FAIL and CANDIDATE = PASS
+    # Check COUNTERFACTUAL outcome:
+    if counterfactual_outcome == WitnessOutcome.FAIL:
+        # Sole positive causal triplet
+        return ReconciliationFact(
+            transition=CausalTransition.CAUSAL_TRIPLET_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            is_causally_verified=True,
+            rationale=(
+                "Causal triplet verified: BASE=FAIL, CANDIDATE=PASS, COUNTERFACTUAL=FAIL "
+                "under identical witness. Patch delta proved causally necessary."
+            ),
+        )
+
+    if counterfactual_outcome == WitnessOutcome.PASS:
+        # Counterfactual also passed -> delta subtraction did not break it -> ineffective
+        return ReconciliationFact(
+            transition=CausalTransition.UNVERIFIED_COUNTERFACTUAL_INEFFECTIVE,
+            verdict=PreliminaryVerdict.INCONCLUSIVE,
+            is_causally_verified=False,
+            rationale=(
+                "COUNTERFACTUAL passed under witness after delta subtraction; "
+                "subtracted region was not causally necessary for the fix."
+            ),
+        )
+
+    # Fail closed for any unhandled combination
+    return ReconciliationFact(
+        transition=CausalTransition.NON_VERIFIED_EXECUTION_ERROR,
+        verdict=PreliminaryVerdict.INCONCLUSIVE,
+        is_causally_verified=False,
+        rationale=(
+            f"Unhandled outcome triplet: BASE={base_outcome.value}, "
+            f"CANDIDATE={candidate_outcome.value}, "
+            f"COUNTERFACTUAL={counterfactual_outcome.value}"
         ),
     )

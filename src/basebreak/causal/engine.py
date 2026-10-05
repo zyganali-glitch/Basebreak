@@ -34,11 +34,14 @@ from basebreak.causal.receipt import (
     LocalCausalReceipt,
     WorldExecutionFact,
     create_causal_receipt,
+    create_causal_triplet_receipt,
 )
 from basebreak.causal.reconciliation import (
     ReconciliationFact,
     reconcile_causal_transition,
+    reconcile_causal_triplet,
 )
+from basebreak.causal.subtraction import CounterfactualDeltaPlan
 from basebreak.domain.causal import ExecutionWorld
 from basebreak.domain.execution import TerminationStatus
 from basebreak.domain.verdict import EvidenceProvenance
@@ -254,6 +257,8 @@ class CausalExecutionEngine:
         world: ExecutionWorld,
         execution_command: Sequence[str] | str,
         candidate_tree_digest: str | None = None,
+        counterfactual_plan: Any | None = None,
+        counterfactual_tree_digest: str | None = None,
     ) -> WorldExecutionOutput:
         """Execute the sealed witness in a freshly isolated verifier sandbox for a single world.
 
@@ -271,6 +276,8 @@ class CausalExecutionEngine:
             sandbox_adapter=self.sandbox_adapter,
             materializer=self.materializer,
             candidate_tree_digest=candidate_tree_digest,
+            counterfactual_plan=counterfactual_plan,
+            counterfactual_tree_digest=counterfactual_tree_digest,
             provenance=self.provenance,
         )
 
@@ -447,6 +454,197 @@ class CausalExecutionEngine:
             lock_digest=witness_lock.lock_digest,
             base_execution=base_fact,
             candidate_execution=candidate_fact,
+            transition=reconciliation.transition,
+            verdict=reconciliation.verdict,
+            provenance=self.provenance,
+            narrative=reconciliation.rationale,
+        )
+
+        return receipt
+
+    def execute_causal_triplet(
+        self,
+        *,
+        context_envelope: VerifierContextEnvelope,
+        sealed_record: SealedWitnessRecord,
+        witness_lock: ImmutableWitnessLock,
+        counterfactual_plan: CounterfactualDeltaPlan,
+        execution_command: Sequence[str] | str,
+    ) -> LocalCausalReceipt:
+        """Execute identical witness across BASE, CANDIDATE, and COUNTERFACTUAL worlds.
+
+        P-11.03: Materialize counterfactual candidate in fresh isolated sandbox.
+        P-11.04: Execute same witness against counterfactual.
+        P-11.05: Reconcile FAIL->PASS->FAIL causal triplet.
+        P-11.06: Detect invalid counterfactual construction and return non-verified.
+        """
+        # Step A: Validate witness lock chain of custody
+        self.vault.verify_witness_integrity(sealed_record)
+        verify_witness_lock_chain(
+            lock=witness_lock,
+            frozen_contract=context_envelope.frozen_contract,
+            base_record=sealed_record,
+            candidate_record=sealed_record,
+        )
+
+        if witness_lock.frozen_contract_digest != context_envelope.frozen_contract.contract_digest:
+            raise CausalBindingError(
+                f"witness_lock frozen_contract_digest ({witness_lock.frozen_contract_digest}) "
+                f"does not match context_envelope contract digest "
+                f"({context_envelope.frozen_contract.contract_digest})"
+            )
+        if witness_lock.source_commit_id != context_envelope.source_identity.resolved_commit_id:
+            raise CausalBindingError(
+                f"witness_lock source_commit_id ({witness_lock.source_commit_id}) "
+                f"does not match context_envelope source commit "
+                f"({context_envelope.source_identity.resolved_commit_id})"
+            )
+
+        # Step B: Validate counterfactual plan binding
+        if not isinstance(counterfactual_plan, CounterfactualDeltaPlan):
+            raise TypeError(
+                f"counterfactual_plan must be CounterfactualDeltaPlan, "
+                f"got {type(counterfactual_plan).__name__}"
+            )
+        if (
+            counterfactual_plan.frozen_contract_digest
+            != context_envelope.frozen_contract.contract_digest
+        ):
+            raise CausalBindingError(
+                "counterfactual_plan frozen_contract_digest does not match context envelope"
+            )
+        if counterfactual_plan.sealed_witness_digest != sealed_record.seal_digest:
+            raise CausalBindingError(
+                "counterfactual_plan sealed_witness_digest does not match sealed record"
+            )
+        if (
+            counterfactual_plan.source_commit_id
+            != context_envelope.source_identity.resolved_commit_id
+        ):
+            raise CausalBindingError(
+                "counterfactual_plan source_commit_id does not match context envelope"
+            )
+        if counterfactual_plan.source_locator != context_envelope.source_identity.locator:
+            raise CausalBindingError(
+                "counterfactual_plan source_locator does not match context envelope"
+            )
+        if counterfactual_plan.source_subpath != context_envelope.source_identity.subpath:
+            raise CausalBindingError(
+                "counterfactual_plan source_subpath does not match context envelope"
+            )
+
+        # Step C: P-11.04 — Execute identical witness on trusted BASE
+        base_output = self.execute_world(
+            context_envelope=context_envelope,
+            sealed_record=sealed_record,
+            world=ExecutionWorld.BASE,
+            execution_command=execution_command,
+        )
+
+        # Step D: P-11.04 — Execute identical witness on exact CANDIDATE
+        candidate_output = self.execute_world(
+            context_envelope=context_envelope,
+            sealed_record=sealed_record,
+            world=ExecutionWorld.CANDIDATE,
+            execution_command=execution_command,
+            candidate_tree_digest=context_envelope.candidate_tree_digest,
+        )
+
+        # Step E: P-11.03 & P-11.04 — Execute identical witness on COUNTERFACTUAL in fresh sandbox
+        cf_output = self.execute_world(
+            context_envelope=context_envelope,
+            sealed_record=sealed_record,
+            world=ExecutionWorld.COUNTERFACTUAL,
+            execution_command=execution_command,
+            counterfactual_plan=counterfactual_plan,
+        )
+
+        # Step F: Cryptographic binding and integrity checks across ALL THREE worlds
+        integrity_failure_reason: str | None = None
+        invalid_cf_reason: str | None = None
+
+        # Check 1: Witness digest equality across all runs
+        w_digests = {
+            base_output.normalized_result.witness_digest,
+            candidate_output.normalized_result.witness_digest,
+            cf_output.normalized_result.witness_digest,
+        }
+        if w_digests != {sealed_record.seal_digest}:
+            integrity_failure_reason = "Witness digest mismatch across execution runs"
+
+        # Check 2: Sandbox ID collision: all 3 must be distinct
+        sandbox_ids = {
+            base_output.session.sandbox_identity.sandbox_id,
+            candidate_output.session.sandbox_identity.sandbox_id,
+            cf_output.session.sandbox_identity.sandbox_id,
+        }
+        if len(sandbox_ids) != 3:
+            integrity_failure_reason = "Execution runs reused the same sandbox identity"
+
+        # Check 3: Builder sandbox collision
+        if any(sid in self.sandbox_manager.known_builder_sandbox_ids for sid in sandbox_ids):
+            integrity_failure_reason = "Execution reused a known Builder sandbox identity"
+
+        # Check 4: Source commit match
+        expected_commit = context_envelope.source_identity.resolved_commit_id
+        if (
+            base_output.normalized_result.source_commit_id != expected_commit
+            or candidate_output.normalized_result.source_commit_id != expected_commit
+            or cf_output.normalized_result.source_commit_id != expected_commit
+        ):
+            integrity_failure_reason = (
+                "Execution source commit does not match authoritative context"
+            )
+
+        # Check 5: Candidate tree must differ from base tree under BUG_FIX
+        if base_output.tree_digest.lower() == candidate_output.tree_digest.lower():
+            integrity_failure_reason = (
+                "Candidate tree digest is identical to base tree digest (empty patch)"
+            )
+
+        # Check 6: Counterfactual tree check: delta subtraction must not be no-op
+        if cf_output.tree_digest.lower() == candidate_output.tree_digest.lower():
+            invalid_cf_reason = (
+                "Counterfactual tree is identical to candidate tree (subtraction had zero effect)"
+            )
+
+        # Step G: P-11.05 & P-11.06 — Deterministic Triplet Outcome Reconciliation
+        reconciliation: ReconciliationFact = reconcile_causal_triplet(
+            base_outcome=base_output.normalized_result.outcome,
+            candidate_outcome=candidate_output.normalized_result.outcome,
+            counterfactual_outcome=cf_output.normalized_result.outcome,
+            base_vacuity=base_output.vacuity_result,
+            candidate_vacuity=candidate_output.vacuity_result,
+            counterfactual_vacuity=cf_output.vacuity_result,
+            integrity_failure_reason=integrity_failure_reason,
+            invalid_counterfactual_reason=invalid_cf_reason,
+        )
+
+        # Step H: Causal Triplet Receipt Generation
+        base_fact = WorldExecutionFact.from_normalized_result(
+            base_output.normalized_result,
+            tree_digest=base_output.tree_digest,
+        )
+        candidate_fact = WorldExecutionFact.from_normalized_result(
+            candidate_output.normalized_result,
+            tree_digest=candidate_output.tree_digest,
+        )
+        cf_fact = WorldExecutionFact.from_normalized_result(
+            cf_output.normalized_result,
+            tree_digest=cf_output.tree_digest,
+        )
+
+        receipt = create_causal_triplet_receipt(
+            requirement_id=sealed_record.requirement_id,
+            frozen_contract_digest=sealed_record.frozen_contract_digest,
+            witness_id=sealed_record.witness_id,
+            witness_digest=sealed_record.seal_digest,
+            lock_digest=witness_lock.lock_digest,
+            base_execution=base_fact,
+            candidate_execution=candidate_fact,
+            counterfactual_execution=cf_fact,
+            counterfactual_id=counterfactual_plan.counterfactual_id,
+            delta_digest=counterfactual_plan.subtracted_delta_digest,
             transition=reconciliation.transition,
             verdict=reconciliation.verdict,
             provenance=self.provenance,

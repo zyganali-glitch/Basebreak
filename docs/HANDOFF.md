@@ -80,11 +80,17 @@ Judge claim:
 - P-08 phase (Verifier Isolation & Sealed Challenge Boundary) is independently CLOSED / PASS at SHA `55abf808e9fc01d5003ef32d61557800942ceed8`.
 - P-09 phase (Witness Generation, P-09.01 through P-09.06) is independently CLOSED / PASS at SHA `2889e20a43581f1d7141c771d33452d6a194d20b` (genuine LIVE_NEBIUS proof bound to implementation SHA `6cdbe613eada838b31d8d97620f3f02bf19a8916` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in `docs/P09_LIVE_WITNESS_PLAN.md`).
 - P-10 phase (Causal Two-World Engine, P-10.01 through P-10.07) is independently CLOSED / PASS at SHA `2889e20a43581f1d7141c771d33452d6a194d20b` (genuine LIVE_NEBIUS proof bound to implementation SHA `6cdbe613eada838b31d8d97620f3f02bf19a8916` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in `docs/P10_LIVE_CLOSURE_PROOF.md`).
-- P-11.01 (Define safe candidate-delta subtraction strategies) is EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE.
-- P-11.02+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
+- P-11.01 (Define safe candidate-delta subtraction strategies) is independently VERIFIED / PASS at SHA `d936bd1d6b57d98c5beb783173ae6cae02b1e698`.
+- P-11.02 (Select bounded relevant patch region without model authority over verdict) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-11.03 (Materialize counterfactual candidate in fresh sandbox) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-11.04 (Execute same witness against counterfactual) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-11.05 (Reconcile FAIL→PASS→FAIL causal triplet) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-11.06 (Detect invalid counterfactual construction and return INCONCLUSIVE, never false PASS) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-11 phase (Counterfactual Third Run) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-12+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
-`2889e20a43581f1d7141c771d33452d6a194d20b` (independently VERIFIED / PASS at P-09 and P-10 phase closure).
+`d936bd1d6b57d98c5beb783173ae6cae02b1e698` (independently VERIFIED / PASS at P-11.01 surgical repair).
 Last fresh live-tested implementation SHA: `6cdbe613eada838b31d8d97620f3f02bf19a8916`.
 
 ## Blocking live gate vs active task
@@ -93,17 +99,17 @@ Last fresh live-tested implementation SHA: `6cdbe613eada838b31d8d97620f3f02bf19a
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-P-11.01 (Define safe candidate-delta subtraction strategies — EXECUTOR_REPAIRED).
+P-11.02 through P-11.06 (Counterfactual Third Run Phase Batch — EXECUTOR_COMPLETED).
 
 ### Active exact task
-Awaiting independent QA verification of P-11.01. P-11.02+ are strictly NOT AUTHORIZED / NOT_RUN.
+Awaiting independent QA verification of P-11 (P-11.02 through P-11.06). P-12+ are strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-10 all tasks and phases are independently VERIFIED / PASS. P-11.01 is EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE. P-11.02+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-10 all tasks and phases are independently VERIFIED / PASS. P-11.01 is independently VERIFIED / PASS. P-11.02 through P-11.06 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-12+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, and Causal primitives remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
-- **Phase status:** P-00 through P-10 phases are independently CLOSED / PASS. P-11 phase remains OPEN. P-11.02+ are strictly NOT AUTHORIZED / NOT_RUN.
-- **Batch restoration & hard stop:** P-11.01 repaired as executor candidate. P-11.02+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
-- **Not authorized / forbidden:** P-11.02+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Phase status:** P-00 through P-10 phases are independently CLOSED / PASS. P-11 phase is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-12+ are strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** P-11 bounded batch completed as executor candidate. P-12+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Not authorized / forbidden:** P-12+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -121,7 +127,7 @@ Awaiting independent QA verification of P-11.01. P-11.02+ are strictly NOT AUTHO
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-11.01 for independent QA verification.
-2. Maintain hard stop after P-11.01; do not activate or implement P-11.02+.
+1. Submit P-11 bounded batch (P-11.02 through P-11.06) for independent QA verification.
+2. Maintain hard stop before P-12; do not activate or implement P-12+.
 3. Await independent QA evaluation.
 

@@ -150,9 +150,12 @@ def build_canonical_receipt_payload(
     verdict: PreliminaryVerdict,
     provenance: EvidenceProvenance,
     created_at_utc: str,
+    counterfactual_execution: WorldExecutionFact | None = None,
+    counterfactual_id: str | None = None,
+    delta_digest: str | None = None,
 ) -> dict[str, Any]:
     """Construct deterministic identity payload for receipt digest computation."""
-    return {
+    payload: dict[str, Any] = {
         "base_execution": base_execution.to_dict(),
         "candidate_execution": candidate_execution.to_dict(),
         "created_at_utc": str(created_at_utc),
@@ -166,6 +169,13 @@ def build_canonical_receipt_payload(
         "witness_digest": str(witness_digest),
         "witness_id": str(witness_id),
     }
+    if counterfactual_execution is not None:
+        payload["counterfactual_execution"] = counterfactual_execution.to_dict()
+    if counterfactual_id is not None:
+        payload["counterfactual_id"] = str(counterfactual_id)
+    if delta_digest is not None:
+        payload["delta_digest"] = str(delta_digest)
+    return payload
 
 
 def compute_receipt_digest(payload: Mapping[str, Any]) -> str:
@@ -178,7 +188,7 @@ def compute_receipt_digest(payload: Mapping[str, Any]) -> str:
 
 @dataclass(frozen=True, slots=True)
 class LocalCausalReceipt:
-    """Immutable, content-addressed receipt of causal verification between two worlds."""
+    """Immutable, content-addressed receipt of causal verification across execution worlds."""
 
     schema_version: str
     requirement_id: str
@@ -194,6 +204,9 @@ class LocalCausalReceipt:
     created_at_utc: str
     receipt_digest: str
     narrative: str = ""
+    counterfactual_execution: WorldExecutionFact | None = None
+    counterfactual_id: str | None = None
+    delta_digest: str | None = None
 
     def __post_init__(self) -> None:
         if self.schema_version != CAUSAL_RECEIPT_SCHEMA_VERSION:
@@ -230,6 +243,30 @@ class LocalCausalReceipt:
             raise CausalReceiptIntegrityError(
                 f"candidate_execution.world must be CANDIDATE, got {cand_w}"
             )
+        if self.counterfactual_execution is not None:
+            if not isinstance(self.counterfactual_execution, WorldExecutionFact):
+                cand_type = type(self.counterfactual_execution).__name__
+                raise TypeError(
+                    f"counterfactual_execution must be WorldExecutionFact, got {cand_type}"
+                )
+            if self.counterfactual_execution.world != ExecutionWorld.COUNTERFACTUAL:
+                raise CausalReceiptIntegrityError(
+                    f"counterfactual_execution.world must be COUNTERFACTUAL, "
+                    f"got {self.counterfactual_execution.world.value}"
+                )
+            if self.counterfactual_id is not None:
+                if (
+                    not isinstance(self.counterfactual_id, str)
+                    or not self.counterfactual_id.strip()
+                ):
+                    raise CausalReceiptIntegrityError(
+                        "counterfactual_id must be a non-empty string"
+                    )
+            if self.delta_digest is not None:
+                if not isinstance(self.delta_digest, str) or not _HEX_64_PATTERN.match(
+                    self.delta_digest
+                ):
+                    raise CausalReceiptIntegrityError("delta_digest must be a 64-char hex string")
         if not isinstance(self.transition, CausalTransition):
             raise TypeError(
                 f"transition must be CausalTransition, got {type(self.transition).__name__}"
@@ -263,6 +300,9 @@ class LocalCausalReceipt:
             verdict=self.verdict,
             provenance=self.provenance,
             created_at_utc=self.created_at_utc,
+            counterfactual_execution=self.counterfactual_execution,
+            counterfactual_id=self.counterfactual_id,
+            delta_digest=self.delta_digest,
         )
         expected_digest = compute_receipt_digest(payload)
         if self.receipt_digest != expected_digest:
@@ -273,15 +313,15 @@ class LocalCausalReceipt:
 
     @property
     def is_causally_verified(self) -> bool:
-        """True strictly when verdict is VERIFIED and transition is CAUSAL_BUG_FIX_VERIFIED."""
-        return (
-            self.verdict == PreliminaryVerdict.VERIFIED
-            and self.transition == CausalTransition.CAUSAL_BUG_FIX_VERIFIED
+        """True strictly when verdict is VERIFIED and transition is verified."""
+        return self.verdict == PreliminaryVerdict.VERIFIED and self.transition in (
+            CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            CausalTransition.CAUSAL_TRIPLET_VERIFIED,
         )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize receipt to JSON-safe dictionary."""
-        return {
+        res: dict[str, Any] = {
             "base_execution": self.base_execution.to_dict(),
             "candidate_execution": self.candidate_execution.to_dict(),
             "created_at_utc": self.created_at_utc,
@@ -298,6 +338,13 @@ class LocalCausalReceipt:
             "witness_digest": self.witness_digest,
             "witness_id": self.witness_id,
         }
+        if self.counterfactual_execution is not None:
+            res["counterfactual_execution"] = self.counterfactual_execution.to_dict()
+        if self.counterfactual_id is not None:
+            res["counterfactual_id"] = self.counterfactual_id
+        if self.delta_digest is not None:
+            res["delta_digest"] = self.delta_digest
+        return res
 
 
 def create_causal_receipt(
@@ -315,6 +362,9 @@ def create_causal_receipt(
     narrative: str = "",
     created_at_utc: str | None = None,
     schema_version: str = CAUSAL_RECEIPT_SCHEMA_VERSION,
+    counterfactual_execution: WorldExecutionFact | None = None,
+    counterfactual_id: str | None = None,
+    delta_digest: str | None = None,
 ) -> LocalCausalReceipt:
     """Construct an authentic, cryptographically bound LocalCausalReceipt."""
     timestamp = created_at_utc or datetime.now(timezone.utc).isoformat()
@@ -331,6 +381,9 @@ def create_causal_receipt(
         verdict=verdict,
         provenance=provenance,
         created_at_utc=timestamp,
+        counterfactual_execution=counterfactual_execution,
+        counterfactual_id=counterfactual_id,
+        delta_digest=delta_digest,
     )
     digest = compute_receipt_digest(payload)
     return LocalCausalReceipt(
@@ -348,7 +401,54 @@ def create_causal_receipt(
         created_at_utc=timestamp,
         receipt_digest=digest,
         narrative=narrative,
+        counterfactual_execution=counterfactual_execution,
+        counterfactual_id=counterfactual_id,
+        delta_digest=delta_digest,
     )
+
+
+def create_causal_triplet_receipt(
+    *,
+    requirement_id: str,
+    frozen_contract_digest: str,
+    witness_id: str,
+    witness_digest: str,
+    lock_digest: str,
+    base_execution: WorldExecutionFact,
+    candidate_execution: WorldExecutionFact,
+    counterfactual_execution: WorldExecutionFact,
+    counterfactual_id: str,
+    delta_digest: str,
+    transition: CausalTransition,
+    verdict: PreliminaryVerdict,
+    provenance: EvidenceProvenance,
+    narrative: str = "",
+    created_at_utc: str | None = None,
+    schema_version: str = CAUSAL_RECEIPT_SCHEMA_VERSION,
+) -> LocalCausalReceipt:
+    """Construct an authentic LocalCausalReceipt for a 3-world causal triplet."""
+    return create_causal_receipt(
+        requirement_id=requirement_id,
+        frozen_contract_digest=frozen_contract_digest,
+        witness_id=witness_id,
+        witness_digest=witness_digest,
+        lock_digest=lock_digest,
+        base_execution=base_execution,
+        candidate_execution=candidate_execution,
+        counterfactual_execution=counterfactual_execution,
+        counterfactual_id=counterfactual_id,
+        delta_digest=delta_digest,
+        transition=transition,
+        verdict=verdict,
+        provenance=provenance,
+        narrative=narrative,
+        created_at_utc=created_at_utc,
+        schema_version=schema_version,
+    )
+
+
+# Export canonical alias
+CausalTripletReceipt = LocalCausalReceipt
 
 
 def verify_causal_receipt_integrity(receipt: LocalCausalReceipt) -> bool:
@@ -373,6 +473,25 @@ def verify_causal_receipt_integrity(receipt: LocalCausalReceipt) -> bool:
         verdict=receipt.verdict,
         provenance=receipt.provenance,
         created_at_utc=receipt.created_at_utc,
+        counterfactual_execution=receipt.counterfactual_execution,
+        counterfactual_id=receipt.counterfactual_id,
+        delta_digest=receipt.delta_digest,
     )
     expected_digest = compute_receipt_digest(payload)
     return receipt.receipt_digest == expected_digest
+
+
+__all__ = [
+    "CAUSAL_RECEIPT_SCHEMA_VERSION",
+    "CausalReceiptError",
+    "CausalReceiptIntegrityError",
+    "CausalReceiptTamperingError",
+    "CausalTripletReceipt",
+    "LocalCausalReceipt",
+    "WorldExecutionFact",
+    "build_canonical_receipt_payload",
+    "compute_receipt_digest",
+    "create_causal_receipt",
+    "create_causal_triplet_receipt",
+    "verify_causal_receipt_integrity",
+]

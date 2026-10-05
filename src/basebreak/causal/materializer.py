@@ -28,11 +28,16 @@ from basebreak.adapters.nebius.materialization import (
 from basebreak.domain.causal import ExecutionWorld
 from basebreak.domain.execution import SandboxIdentity
 from basebreak.domain.source import SourceIdentity
+from basebreak.evidence.artifact import compute_bytes_digest
 from basebreak.security.protected_surfaces import (
+    ProtectedSurfaceViolation,
     get_canonical_basebreak_protected_manifest,
     validate_diff,
 )
-from basebreak.security.secret_policy import validate_no_secrets
+from basebreak.security.secret_policy import (
+    SecretPersistenceError,
+    validate_no_secrets,
+)
 from basebreak.verifier.context import VerifierContextEnvelope
 from basebreak.verifier.sandbox import (
     VerifierMaterializationError,
@@ -43,10 +48,15 @@ _COMMIT_RE = re.compile(r"BASEBREAK_RESOLVED_COMMIT=([0-9a-fA-F]{40,64})")
 _TREE_RE = re.compile(r"BASEBREAK_RESOLVED_TREE=([0-9a-fA-F]{40,64})")
 _ALT_COMMIT_RE = re.compile(r"RESOLVED_BASE_SHA=([0-9a-fA-F]{40,64})")
 _ALT_TREE_RE = re.compile(r"TREE_SHA=([0-9a-fA-F]{40,64})")
+_STAGED_CAND_TREE_RE = re.compile(r"STAGED_CANDIDATE_TREE=([0-9a-fA-F]{40,64})")
+
+
+class CounterfactualMaterializationError(VerifierMaterializationError):
+    """Raised when materializing counterfactual candidate state in sandbox fails."""
 
 
 class CausalRepositoryMaterializer:
-    """Canonical repository materializer supporting BASE and CANDIDATE worlds."""
+    """Canonical repository materializer supporting BASE, CANDIDATE, and COUNTERFACTUAL worlds."""
 
     def __init__(
         self,
@@ -69,6 +79,7 @@ class CausalRepositoryMaterializer:
         workspace_path: str = "/verifier_workspace",
         world: ExecutionWorld = ExecutionWorld.BASE,
         context_envelope: VerifierContextEnvelope | None = None,
+        counterfactual_plan: Any = None,
         expected_tree_sha: str | None = None,
         disposable: bool = False,
         timeout_seconds: int = 120,
@@ -90,7 +101,8 @@ class CausalRepositoryMaterializer:
 
         # 1. Base world materialization
         if world == ExecutionWorld.BASE or (
-            world != ExecutionWorld.CANDIDATE and not context_envelope
+            world not in (ExecutionWorld.CANDIDATE, ExecutionWorld.COUNTERFACTUAL)
+            and not context_envelope
         ):
             record = self.source_materializer.materialize_repository(
                 source_identity=source_identity,
@@ -107,126 +119,326 @@ class CausalRepositoryMaterializer:
             return record
 
         # 2. Candidate world materialization
-        # Step A: Materialize clean base repository first (must retain image if chained)
-        base_res = self.source_materializer.materialize_repository(
-            source_identity=source_identity,
-            sandbox=sandbox,
-            workspace_path=clean_ws,
-            disposable=False,
-            timeout_seconds=timeout_seconds,
-        )
-        if not isinstance(base_res, MaterializedSourceRecord):
-            raise VerifierMaterializationError(
-                f"Expected MaterializedSourceRecord, got {type(base_res).__name__}"
+        if world == ExecutionWorld.CANDIDATE:
+            # Step A: Materialize clean base repository first (must retain image if chained)
+            base_res = self.source_materializer.materialize_repository(
+                source_identity=source_identity,
+                sandbox=sandbox,
+                workspace_path=clean_ws,
+                disposable=False,
+                timeout_seconds=timeout_seconds,
             )
-        base_record: MaterializedSourceRecord = base_res
+            if not isinstance(base_res, MaterializedSourceRecord):
+                raise VerifierMaterializationError(
+                    f"Expected MaterializedSourceRecord, got {type(base_res).__name__}"
+                )
+            base_record: MaterializedSourceRecord = base_res
 
-        # Step B: Extract candidate patch
-        patch_text: str | None = None
-        if context_envelope is not None:
-            patch_text = context_envelope.candidate_patch_text
-        if patch_text is None:
-            patch_text = kwargs.get("candidate_patch_text") or kwargs.get("patch_text")
-        if not patch_text or not isinstance(patch_text, str) or not patch_text.strip():
-            raise VerifierMaterializationError(
-                "Cannot materialize CANDIDATE world without valid candidate_patch_text in context"
+            # Step B: Extract candidate patch
+            patch_text: str | None = None
+            if context_envelope is not None:
+                patch_text = context_envelope.candidate_patch_text
+            if patch_text is None:
+                patch_text = kwargs.get("candidate_patch_text") or kwargs.get("patch_text")
+            if not patch_text or not isinstance(patch_text, str) or not patch_text.strip():
+                raise VerifierMaterializationError(
+                    "Cannot materialize CANDIDATE world without valid "
+                    "candidate_patch_text in context"
+                )
+
+            # Step C: Revalidate patch through Canonical P-04 Protected Surface Policy
+            canonical_manifest = get_canonical_basebreak_protected_manifest()
+            validate_diff(patch_text, canonical_manifest)
+
+            # Step D: Canonical Secret Safety Check
+            validate_no_secrets(patch_text, path="candidate_patch_text")
+
+            # Step E: Apply Exact Captured Patch via Canonical P-07 Script
+            sbx_id = getattr(sandbox, "sandbox_id", None) or getattr(
+                base_record.sandbox_identity, "sandbox_id", "sbx-repro"
             )
+            if hasattr(sandbox, "sandbox_identity"):
+                sbx_id = sandbox.sandbox_identity.sandbox_id
+            patch_path = f"/tmp/basebreak_candidate_{str(sbx_id)[:16]}.patch"
+            b64_patch = base64.b64encode(patch_text.encode("utf-8")).decode("ascii")
 
-        # Step C: Revalidate patch through Canonical P-04 Protected Surface Policy
-        canonical_manifest = get_canonical_basebreak_protected_manifest()
-        validate_diff(patch_text, canonical_manifest)
-
-        # Step D: Canonical Secret Safety Check
-        validate_no_secrets(patch_text, path="candidate_patch_text")
-
-        # Step E: Apply Exact Captured Patch via Canonical P-07 Script
-        sbx_id = getattr(sandbox, "sandbox_id", None) or getattr(
-            base_record.sandbox_identity, "sandbox_id", "sbx-repro"
-        )
-        if hasattr(sandbox, "sandbox_identity"):
-            sbx_id = sandbox.sandbox_identity.sandbox_id
-        patch_path = f"/tmp/basebreak_candidate_{str(sbx_id)[:16]}.patch"
-        b64_patch = base64.b64encode(patch_text.encode("utf-8")).decode("ascii")
-
-        bundle_script = (
-            "set -e\n"
-            f"cd {shlex.quote(clean_ws)}\n"
-            f'printf "%s" {shlex.quote(b64_patch)} | base64 -d > {shlex.quote(patch_path)}\n'
-            f"git apply --binary --whitespace=nowarn {shlex.quote(patch_path)}\n"
-            f"rm -f {shlex.quote(patch_path)}\n"
-            "git add -A\n"
-            'echo "BASEBREAK_RESOLVED_COMMIT=$(git rev-parse HEAD)"\n'
-            'echo "BASEBREAK_RESOLVED_TREE=$(git write-tree)"\n'
-        )
-
-        exec_res = self.adapter.execute_command(
-            sandbox,
-            bundle_script,
-            working_dir=clean_ws,
-            timeout_seconds=timeout_seconds,
-            disposable=False,
-        )
-
-        exit_code = getattr(exec_res, "exit_code", None)
-        if exit_code is None and hasattr(exec_res, "result"):
-            exit_code = getattr(exec_res.result, "exit_code", None)
-        if exit_code != 0:
-            err = getattr(exec_res, "stderr", "") or getattr(exec_res, "stdout", "")
-            raise VerifierMaterializationError(
-                f"Failed to apply candidate patch in sandbox workspace (exit {exit_code}): {err}"
+            bundle_script = (
+                "set -e\n"
+                f"cd {shlex.quote(clean_ws)}\n"
+                f'printf "%s" {shlex.quote(b64_patch)} | base64 -d > {shlex.quote(patch_path)}\n'
+                f"git apply --binary --whitespace=nowarn {shlex.quote(patch_path)}\n"
+                f"rm -f {shlex.quote(patch_path)}\n"
+                "git add -A\n"
+                'echo "BASEBREAK_RESOLVED_COMMIT=$(git rev-parse HEAD)"\n'
+                'echo "BASEBREAK_RESOLVED_TREE=$(git write-tree)"\n'
             )
 
-        stdout = getattr(exec_res, "stdout", "") or ""
-        commit_match = _COMMIT_RE.search(stdout) or _ALT_COMMIT_RE.search(stdout)
-        tree_match = _TREE_RE.search(stdout) or _ALT_TREE_RE.search(stdout)
-
-        if not commit_match or not tree_match:
-            raise VerifierMaterializationError(
-                "Candidate patch applied but failed to resolve commit or tree hash from sandbox"
+            exec_res = self.adapter.execute_command(
+                sandbox,
+                bundle_script,
+                working_dir=clean_ws,
+                timeout_seconds=timeout_seconds,
+                disposable=False,
             )
 
-        resolved_commit = commit_match.group(1).lower()
-        resolved_tree = tree_match.group(1).lower()
+            exit_code = getattr(exec_res, "exit_code", None)
+            if exit_code is None and hasattr(exec_res, "result"):
+                exit_code = getattr(exec_res.result, "exit_code", None)
+            if exit_code != 0:
+                err = getattr(exec_res, "stderr", "") or getattr(exec_res, "stdout", "")
+                raise VerifierMaterializationError(
+                    f"Failed to apply candidate patch in sandbox workspace "
+                    f"(exit {exit_code}): {err}"
+                )
 
-        # Step F: Validate against authoritative context envelope
-        expected_cand_tree = (
-            expected_tree_sha.strip().lower()
-            if expected_tree_sha
-            else (
-                context_envelope.candidate_tree_digest.strip().lower()
-                if context_envelope and context_envelope.candidate_tree_digest
-                else None
+            stdout = getattr(exec_res, "stdout", "") or ""
+            commit_match = _COMMIT_RE.search(stdout) or _ALT_COMMIT_RE.search(stdout)
+            tree_match = _TREE_RE.search(stdout) or _ALT_TREE_RE.search(stdout)
+
+            if not commit_match or not tree_match:
+                raise VerifierMaterializationError(
+                    "Candidate patch applied but failed to resolve commit or tree hash from sandbox"
+                )
+
+            resolved_commit = commit_match.group(1).lower()
+            resolved_tree = tree_match.group(1).lower()
+
+            # Step F: Validate against authoritative context envelope
+            expected_cand_tree = (
+                expected_tree_sha.strip().lower()
+                if expected_tree_sha
+                else (
+                    context_envelope.candidate_tree_digest.strip().lower()
+                    if context_envelope and context_envelope.candidate_tree_digest
+                    else None
+                )
             )
-        )
-        if expected_cand_tree and resolved_tree != expected_cand_tree:
-            raise VerifierTreeDigestMismatchError(
-                f"Materialized candidate tree digest {resolved_tree!r} does not match "
-                f"expected candidate tree digest {expected_cand_tree!r}"
+            if expected_cand_tree and resolved_tree != expected_cand_tree:
+                raise VerifierTreeDigestMismatchError(
+                    f"Materialized candidate tree digest {resolved_tree!r} does not match "
+                    f"expected candidate tree digest {expected_cand_tree!r}"
+                )
+
+            target_identity = getattr(base_record, "sandbox_identity", None)
+            if target_identity is None:
+                if isinstance(sandbox, SandboxIdentity):
+                    target_identity = sandbox
+                elif hasattr(sandbox, "sandbox_identity"):
+                    target_identity = sandbox.sandbox_identity
+                else:
+                    target_identity = SandboxIdentity(sandbox_id=str(sbx_id))
+
+            return MaterializedSourceRecord(
+                source_identity=source_identity,
+                resolved_commit_sha=resolved_commit,
+                resolved_tree_sha=resolved_tree,
+                workspace_path=clean_ws,
+                sandbox_identity=target_identity,
+                operation_id=getattr(exec_res, "operation_id", base_record.operation_id),
+                duration_seconds=getattr(exec_res, "duration_seconds", None),
+                result_image_uuid=getattr(exec_res, "result_image_uuid", None),
+                is_verified=True,
+                is_clean_workspace=True,
+                is_fresh_sandbox=False,
             )
 
-        target_identity = getattr(base_record, "sandbox_identity", None)
-        if target_identity is None:
-            if isinstance(sandbox, SandboxIdentity):
-                target_identity = sandbox
-            elif hasattr(sandbox, "sandbox_identity"):
-                target_identity = sandbox.sandbox_identity
-            else:
-                target_identity = SandboxIdentity(sandbox_id=str(sbx_id))
+        # 3. Counterfactual world materialization
+        if world == ExecutionWorld.COUNTERFACTUAL:
+            cf_plan = counterfactual_plan or kwargs.get("counterfactual_plan") or kwargs.get("plan")
+            if cf_plan is None and context_envelope is not None:
+                cf_plan = getattr(context_envelope, "counterfactual_plan", None)
+            if cf_plan is None:
+                raise CounterfactualMaterializationError(
+                    "Cannot materialize COUNTERFACTUAL world without valid CounterfactualDeltaPlan"
+                )
+            from basebreak.causal.subtraction import CounterfactualDeltaPlan
 
-        return MaterializedSourceRecord(
-            source_identity=source_identity,
-            resolved_commit_sha=resolved_commit,
-            resolved_tree_sha=resolved_tree,
-            workspace_path=clean_ws,
-            sandbox_identity=target_identity,
-            operation_id=getattr(exec_res, "operation_id", base_record.operation_id),
-            duration_seconds=getattr(exec_res, "duration_seconds", None),
-            result_image_uuid=getattr(exec_res, "result_image_uuid", None),
-            is_verified=True,
-            is_clean_workspace=True,
-            is_fresh_sandbox=False,
-        )
+            if not isinstance(cf_plan, CounterfactualDeltaPlan):
+                cf_type = type(cf_plan).__name__
+                raise TypeError(
+                    f"counterfactual_plan must be CounterfactualDeltaPlan, got {cf_type}"
+                )
+
+            # Step A: Validate source identity binding
+            if cf_plan.source_commit_id.lower() != source_identity.resolved_commit_id.lower():
+                raise CounterfactualMaterializationError(
+                    f"CounterfactualDeltaPlan source_commit_id {cf_plan.source_commit_id!r} "
+                    f"does not match source_identity {source_identity.resolved_commit_id!r}"
+                )
+            if cf_plan.source_locator != source_identity.locator:
+                raise CounterfactualMaterializationError(
+                    f"CounterfactualDeltaPlan source_locator {cf_plan.source_locator!r} "
+                    f"does not match source_identity {source_identity.locator!r}"
+                )
+            if cf_plan.source_subpath != source_identity.subpath:
+                raise CounterfactualMaterializationError(
+                    f"CounterfactualDeltaPlan source_subpath {cf_plan.source_subpath!r} "
+                    f"does not match source_identity {source_identity.subpath!r}"
+                )
+
+            # Step B: Extract candidate patch
+            cand_patch: str | None = None
+            if context_envelope is not None:
+                cand_patch = context_envelope.candidate_patch_text
+            if cand_patch is None:
+                cand_patch = kwargs.get("candidate_patch_text") or kwargs.get("patch_text")
+            if not cand_patch or not isinstance(cand_patch, str) or not cand_patch.strip():
+                raise CounterfactualMaterializationError(
+                    "Cannot materialize COUNTERFACTUAL world without candidate patch text"
+                )
+
+            # Step C: Validate candidate patch digest
+            computed_cand_digest = compute_bytes_digest(cand_patch.encode("utf-8")).value
+            if computed_cand_digest != cf_plan.target_candidate_patch_digest:
+                raise CounterfactualMaterializationError(
+                    f"Candidate patch digest {computed_cand_digest!r} does not match "
+                    f"plan target_candidate_patch_digest {cf_plan.target_candidate_patch_digest!r}"
+                )
+
+            # Step D: Validate protected surfaces and secrets
+            canonical_manifest = get_canonical_basebreak_protected_manifest()
+            try:
+                validate_diff(cand_patch, canonical_manifest)
+                validate_diff(cf_plan.reverse_delta_text, canonical_manifest)
+            except ProtectedSurfaceViolation as exc:
+                raise CounterfactualMaterializationError(
+                    f"Counterfactual patch touches protected surface: {exc}"
+                ) from exc
+
+            try:
+                validate_no_secrets(cand_patch, path="candidate_patch_text")
+                validate_no_secrets(cf_plan.reverse_delta_text, path="reverse_delta_text")
+            except SecretPersistenceError as exc:
+                raise CounterfactualMaterializationError(
+                    f"Counterfactual patch contains secrets: {exc}"
+                ) from exc
+
+            # Step E: Materialize clean base repository
+            base_res = self.source_materializer.materialize_repository(
+                source_identity=source_identity,
+                sandbox=sandbox,
+                workspace_path=clean_ws,
+                disposable=False,
+                timeout_seconds=timeout_seconds,
+            )
+            if not isinstance(base_res, MaterializedSourceRecord):
+                raise VerifierMaterializationError(
+                    f"Expected MaterializedSourceRecord, got {type(base_res).__name__}"
+                )
+            base_record = base_res
+
+            # Step F: Execute candidate staging then reverse delta in fresh sandbox
+            sbx_id = getattr(sandbox, "sandbox_id", None) or getattr(
+                base_record.sandbox_identity, "sandbox_id", "sbx-repro"
+            )
+            if hasattr(sandbox, "sandbox_identity"):
+                sbx_id = sandbox.sandbox_identity.sandbox_id
+
+            cand_patch_path = f"/tmp/basebreak_cand_{str(sbx_id)[:16]}.patch"
+            rev_patch_path = f"/tmp/basebreak_cf_rev_{str(sbx_id)[:16]}.patch"
+            b64_cand = base64.b64encode(cand_patch.encode("utf-8")).decode("ascii")
+            b64_rev = base64.b64encode(cf_plan.reverse_delta_text.encode("utf-8")).decode("ascii")
+
+            q_clean = shlex.quote(clean_ws)
+            q_cand_p = shlex.quote(cand_patch_path)
+            q_rev_p = shlex.quote(rev_patch_path)
+            q_b64_c = shlex.quote(b64_cand)
+            q_b64_r = shlex.quote(b64_rev)
+            cf_bundle_script = (
+                "set -e\n"
+                f"cd {q_clean}\n"
+                f'printf "%s" {q_b64_c} | base64 -d > {q_cand_p}\n'
+                f"git apply --binary --whitespace=nowarn {q_cand_p}\n"
+                f"rm -f {q_cand_p}\n"
+                "git add -A\n"
+                'echo "STAGED_CANDIDATE_TREE=$(git write-tree)"\n'
+                f'printf "%s" {q_b64_r} | base64 -d > {q_rev_p}\n'
+                f"git apply --binary --whitespace=nowarn {q_rev_p}\n"
+                f"rm -f {q_rev_p}\n"
+                "git add -A\n"
+                'echo "BASEBREAK_RESOLVED_COMMIT=$(git rev-parse HEAD)"\n'
+                'echo "BASEBREAK_RESOLVED_TREE=$(git write-tree)"\n'
+            )
+
+            exec_res = self.adapter.execute_command(
+                sandbox,
+                cf_bundle_script,
+                working_dir=clean_ws,
+                timeout_seconds=timeout_seconds,
+                disposable=False,
+            )
+
+            exit_code = getattr(exec_res, "exit_code", None)
+            if exit_code is None and hasattr(exec_res, "result"):
+                exit_code = getattr(exec_res.result, "exit_code", None)
+            if exit_code != 0:
+                err = getattr(exec_res, "stderr", "") or getattr(exec_res, "stdout", "")
+                raise CounterfactualMaterializationError(
+                    f"Failed to apply counterfactual delta in sandbox workspace "
+                    f"(exit {exit_code}): {err}"
+                )
+
+            stdout = getattr(exec_res, "stdout", "") or ""
+            commit_match = _COMMIT_RE.search(stdout) or _ALT_COMMIT_RE.search(stdout)
+            tree_match = _TREE_RE.search(stdout) or _ALT_TREE_RE.search(stdout)
+            staged_match = _STAGED_CAND_TREE_RE.search(stdout)
+
+            if not commit_match or not tree_match or not staged_match:
+                raise CounterfactualMaterializationError(
+                    "Counterfactual patch applied but failed to resolve "
+                    "tree or commit hash from sandbox"
+                )
+
+            staged_tree = staged_match.group(1).lower()
+            if staged_tree != cf_plan.candidate_tree_digest.lower():
+                raise VerifierTreeDigestMismatchError(
+                    f"Staged candidate tree digest {staged_tree!r} does not match "
+                    f"expected candidate tree digest {cf_plan.candidate_tree_digest!r}"
+                )
+
+            resolved_commit = commit_match.group(1).lower()
+            resolved_tree = tree_match.group(1).lower()
+
+            # Step G: Validate resulting counterfactual tree against expected if provided
+            if expected_tree_sha:
+                expected_norm = expected_tree_sha.strip().lower()
+                if resolved_tree != expected_norm:
+                    raise VerifierTreeDigestMismatchError(
+                        f"Materialized counterfactual tree digest {resolved_tree!r} does not match "
+                        f"expected counterfactual tree digest {expected_norm!r}"
+                    )
+
+            target_identity = getattr(base_record, "sandbox_identity", None)
+            if target_identity is None:
+                if isinstance(sandbox, SandboxIdentity):
+                    target_identity = sandbox
+                elif hasattr(sandbox, "sandbox_identity"):
+                    target_identity = sandbox.sandbox_identity
+                else:
+                    target_identity = SandboxIdentity(sandbox_id=str(sbx_id))
+
+            return MaterializedSourceRecord(
+                source_identity=source_identity,
+                resolved_commit_sha=resolved_commit,
+                resolved_tree_sha=resolved_tree,
+                workspace_path=clean_ws,
+                sandbox_identity=target_identity,
+                operation_id=getattr(exec_res, "operation_id", base_record.operation_id),
+                duration_seconds=getattr(exec_res, "duration_seconds", None),
+                result_image_uuid=getattr(exec_res, "result_image_uuid", None),
+                is_verified=True,
+                is_clean_workspace=True,
+                is_fresh_sandbox=False,
+            )
+
+        raise VerifierMaterializationError(f"Unsupported execution world: {world}")
 
 
 # Export canonical alias
 GitRepositoryMaterializer = CausalRepositoryMaterializer
+
+__all__ = [
+    "CausalRepositoryMaterializer",
+    "CounterfactualMaterializationError",
+    "GitRepositoryMaterializer",
+]

@@ -50,6 +50,8 @@ def _prepare_materializer_args(
     world: ExecutionWorld,
     context_envelope: VerifierContextEnvelope | None = None,
     candidate_tree_digest: str | None = None,
+    counterfactual_plan: Any | None = None,
+    counterfactual_tree_digest: str | None = None,
     sandbox_adapter: Any = None,
 ) -> tuple[tuple[Any, ...], dict[str, Any]]:
     """Deterministically inspect callable signature and prepare arguments before invocation.
@@ -89,6 +91,13 @@ def _prepare_materializer_args(
         elif context_envelope is not None and context_envelope.candidate_tree_digest is not None:
             available_facts["candidate_tree_digest"] = context_envelope.candidate_tree_digest
             available_facts["expected_tree_sha"] = context_envelope.candidate_tree_digest
+    if world == ExecutionWorld.COUNTERFACTUAL:
+        if counterfactual_plan is not None:
+            available_facts["counterfactual_plan"] = counterfactual_plan
+            available_facts["plan"] = counterfactual_plan
+        if counterfactual_tree_digest is not None:
+            available_facts["counterfactual_tree_digest"] = counterfactual_tree_digest
+            available_facts["expected_tree_sha"] = counterfactual_tree_digest
     if sandbox_adapter is not None:
         available_facts["sandbox_adapter"] = sandbox_adapter
         available_facts["adapter"] = sandbox_adapter
@@ -338,6 +347,8 @@ class VerifierSandboxManager:
         sandbox_adapter: Any,
         materializer: Any | None = None,
         candidate_tree_digest: str | None = None,
+        counterfactual_plan: Any | None = None,
+        counterfactual_tree_digest: str | None = None,
         provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
     ) -> VerifierSandboxSession:
         """Create and materialize a freshly isolated verifier sandbox.
@@ -356,6 +367,14 @@ class VerifierSandboxManager:
         if world == ExecutionWorld.CANDIDATE and not context_envelope.is_candidate_verification:
             raise VerifierSandboxError(
                 "Cannot create CANDIDATE verifier sandbox without candidate data "
+                "in context envelope"
+            )
+        if (
+            world == ExecutionWorld.COUNTERFACTUAL
+            and not context_envelope.is_candidate_verification
+        ):
+            raise VerifierSandboxError(
+                "Cannot create COUNTERFACTUAL verifier sandbox without candidate data "
                 "in context envelope"
             )
 
@@ -480,6 +499,8 @@ class VerifierSandboxManager:
                 world=world,
                 context_envelope=context_envelope,
                 candidate_tree_digest=candidate_tree_digest,
+                counterfactual_plan=counterfactual_plan,
+                counterfactual_tree_digest=counterfactual_tree_digest,
                 sandbox_adapter=sandbox_adapter,
             )
 
@@ -539,7 +560,7 @@ class VerifierSandboxManager:
                     f"Materialized tree digest is syntactically invalid: {actual_tree!r}"
                 )
 
-            # Candidate tree digest verification
+            # Candidate and Counterfactual tree digest verification
             if candidate_tree_digest is not None:
                 expected_cand_tree = candidate_tree_digest.strip().lower()
                 if actual_tree != expected_cand_tree:
@@ -556,6 +577,13 @@ class VerifierSandboxManager:
                     raise VerifierTreeDigestMismatchError(
                         f"Materialized candidate tree digest {actual_tree!r} does not match "
                         f"authoritative candidate tree digest {expected_cand_tree!r}"
+                    )
+            elif counterfactual_tree_digest is not None and world == ExecutionWorld.COUNTERFACTUAL:
+                expected_cf_tree = counterfactual_tree_digest.strip().lower()
+                if actual_tree != expected_cf_tree:
+                    raise VerifierTreeDigestMismatchError(
+                        f"Materialized counterfactual tree digest {actual_tree!r} does not match "
+                        f"expected counterfactual tree digest {counterfactual_tree_digest!r}"
                     )
 
             # --- Fact 3: Workspace Path Verification ---
