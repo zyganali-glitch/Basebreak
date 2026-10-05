@@ -78,7 +78,7 @@ Judge claim:
 - P-07.06 (Reproduce candidate from trusted base + captured patch in a fresh sandbox) is independently VERIFIED / PASS at SHA `92ec4aa298c0bba96648d9612d3b5f755bf454f6`.
 - P-07 phase (Builder Runtime v1) is independently CLOSED / PASS at SHA `92ec4aa298c0bba96648d9612d3b5f755bf454f6`.
 - P-08 phase (Verifier Isolation & Sealed Challenge Boundary) is independently CLOSED / PASS at SHA `55abf808e9fc01d5003ef32d61557800942ceed8`.
-- P-09 phase (Witness Generation, P-09.01 through P-09.06) is COMPLETED and PUSHED at commit `4ee198177f9edcb2f0587060ca271863a09aaf93` (genuine LIVE_NEBIUS proof in `docs/P09_LIVE_WITNESS_PLAN.md`).
+- P-09 phase (Witness Generation, P-09.01 through P-09.06) is EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE (genuine LIVE_NEBIUS proof bound to implementation SHA `81ff638c14e5a29938b457bc8f368efc490ae4c3` in `docs/P09_LIVE_WITNESS_PLAN.md`).
 - P-10.01 (Execute identical witness on trusted base) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-10.02 (Execute identical witness on exact candidate) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-10.03 (Bind both executions to source/sandbox/witness hashes) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
@@ -86,7 +86,7 @@ Judge claim:
 - P-10.05 (Handle PASS→PASS, FAIL→FAIL, ERROR/TIMEOUT as non-verified states) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-10.06 (Produce first local causal receipt) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-10.07 (Execute first end-to-end causal vertical slice and produce a judge-readable proof summary) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-10 phase (Causal Two-World Engine) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (durable proof in `docs/P10_LIVE_CAUSAL_ENGINE.md`).
+- P-10 phase (Causal Two-World Engine) is EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE (genuine LIVE_NEBIUS proof bound to implementation SHA `81ff638c14e5a29938b457bc8f368efc490ae4c3` in `docs/P10_LIVE_CLOSURE_PROOF.md`).
 - P-11+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
@@ -99,16 +99,16 @@ P-09 completed commit: `4ee198177f9edcb2f0587060ca271863a09aaf93`.
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-P-10 (Causal Two-World Engine, P-10.01 through P-10.07).
+P-09 + P-10 (Witness Generation & Causal Two-World Engine).
 
 ### Active exact task
-Awaiting independent QA verification of P-10. P-11+ are strictly NOT AUTHORIZED / NOT_RUN.
+Awaiting independent QA verification of P-09 + P-10. P-11+ are strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-08 all tasks and phases are independently VERIFIED / PASS. P-09 is COMPLETED and PUSHED. P-10 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-11+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-08 all tasks and phases are independently VERIFIED / PASS. P-09 and P-10 are EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE. P-11+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, and Causal primitives remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
-- **Phase status:** P-00 through P-08 phases are independently CLOSED / PASS. P-09 is COMPLETED. P-10 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-11+ are strictly NOT AUTHORIZED / NOT_RUN.
-- **Batch restoration & hard stop:** P-10.01 through P-10.07 completed as executor candidate. P-11+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Phase status:** P-00 through P-08 phases are independently CLOSED / PASS. P-09 and P-10 are EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE. P-11+ are strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** P-09 and P-10 completed as executor candidate. P-11+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 - **Not authorized / forbidden:** P-11+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
