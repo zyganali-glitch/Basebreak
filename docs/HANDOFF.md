@@ -77,16 +77,19 @@ Judge claim:
 - P-07.05 (Enforce protected surfaces and forbidden action policy) is independently VERIFIED / PASS at SHA `21eade65ab81c3f3bc32dd8a071b1c0f5e4f1fe2`.
 - P-07.06 (Reproduce candidate from trusted base + captured patch in a fresh sandbox) is independently VERIFIED / PASS at SHA `92ec4aa298c0bba96648d9612d3b5f755bf454f6`.
 - P-07 phase (Builder Runtime v1) is independently CLOSED / PASS at SHA `92ec4aa298c0bba96648d9612d3b5f755bf454f6`.
-- P-08.01 (Define minimum trusted inputs visible to Verifier) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-08.02 (Create separate verifier sandbox/context with no Builder workspace inheritance) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-08.03 (Implement sealed witness storage/integrity contract) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-08.04 (Prevent Builder access to hidden witness implementation/artifacts) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-08.05 (Add adversarial isolation tests) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-08 phase (Verifier Isolation & Sealed Challenge Boundary) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-09+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
+- P-08 phase (Verifier Isolation & Sealed Challenge Boundary) is independently CLOSED / PASS at SHA `55abf808e9fc01d5003ef32d61557800942ceed8`.
+- P-09.01 (Implement Nemotron witness-plan generation from frozen contract + trusted source) is COMPLETED.
+- P-09.02 (Validate witness plans against scope/security/runtime policy) is COMPLETED.
+- P-09.03 (Generate executable independent behavioral witnesses for BUG_FIX) is COMPLETED.
+- P-09.04 (Add witness determinism/timeout/result normalization) is COMPLETED.
+- P-09.05 (Detect vacuous witnesses and invalid preconditions) is COMPLETED.
+- P-09.06 (Preserve witness digest before candidate execution) is COMPLETED.
+- P-09 phase (Witness Generation) is COMPLETED (genuine LIVE_NEBIUS proof in `docs/P09_LIVE_WITNESS_PLAN.md`).
+- P-10 (Causal Two-World Engine, P-10.01 through P-10.07) is ACTIVE.
+- P-11+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Last independently VERIFIED baseline SHA
-`92ec4aa298c0bba96648d9612d3b5f755bf454f6` (independently VERIFIED / PASS at P-07 phase closure).
+`55abf808e9fc01d5003ef32d61557800942ceed8` (independently VERIFIED / PASS at P-08 phase closure).
 
 ## Blocking live gate vs active task
 
@@ -94,20 +97,15 @@ Judge claim:
 None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
 
 ### Current QA candidate
-P-08.01 through P-08.05 (Verifier Isolation & Sealed Challenge Boundary batch):
-- P-08.01: `VerifierContextEnvelope`, `VerifierExecutionPolicy`, `VerifierInputClassification` in `src/basebreak/verifier/context.py` (explicit TRUSTED_CONTROL vs UNTRUSTED_CANDIDATE classification, zero Builder authority, pinned 40-char commit SHA, canonical SHA-256 context digest).
-- P-08.02: `VerifierSandboxManager`, `VerifierSandboxConfig`, `VerifierSandboxSession` in `src/basebreak/verifier/sandbox.py` (fresh sandbox mandatory, Builder sandbox reuse prevention, workspace inheritance prevention, fail-closed on missing sandbox identity, zero host/simulation fallback, zero self-certification; final surgical repair enforces mandatory deterministic materialization, eliminates broad TypeError retry loops with deterministic pre-invocation signature inspection, and validates commit, tree, workspace, sandbox, and locator facts with zero fallback to expected values).
-- P-08.03: `WitnessArtifact`, `SealedWitnessRecord`, `TrustedWitnessVault` in `src/basebreak/verifier/witness_store.py` (deterministic SHA-256 digests, tamper-evident verification, rejection of caller-created records claiming unverified authority, path normalization, secret scanning).
-- P-08.04: `VerifierBoundaryEnforcer` in `src/basebreak/verifier/boundary.py` (Builder context exclusion, repo file filtering, env protection, error sanitization, candidate patch mutation protection with `ProtectedSurfaceViolation`, result leakage scanning).
-- P-08.05: 14 adversarial isolation tests in `tests/verifier/test_isolation.py` (57 focused verifier tests across test_sandbox, test_boundary, test_context, test_witness_store, test_isolation; 1890 full non-live tests passing; ruff check, ruff format, and mypy clean).
+P-09 (Witness Generation batch) completed. P-10 (Causal Two-World Engine) active under two-phase authorization.
 
 ### Active exact task
-P-08.01 through P-08.05 completed as executor candidate. HARD STOP after P-08.05. P-09+ are strictly NOT AUTHORIZED / NOT_RUN. Awaiting independent QA verification of P-08 batch and phase exit.
+P-10 — Causal Two-World Engine (P-10.01 through P-10.07). P-11+ are strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-07 all tasks and phases are independently VERIFIED / PASS. P-08.01 through P-08.05 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-09+ remain strictly NOT AUTHORIZED / NOT_RUN.
-- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, and Verifier primitives (`src/basebreak/verifier/context.py`, `sandbox.py`, `witness_store.py`, `boundary.py`) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
-- **Phase status:** P-00, P-01, P-02, P-03, P-04, P-05, P-06, P-07 phases are independently CLOSED / PASS. P-08 phase is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- **Task status:** P-00 through P-08 all tasks and phases are independently VERIFIED / PASS. P-09 is COMPLETED. P-10 is ACTIVE. P-11+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, and Causal primitives remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
+- **Phase status:** P-00 through P-08 phases are independently CLOSED / PASS. P-09 is COMPLETED. P-10 is ACTIVE. P-11+ are strictly NOT AUTHORIZED / NOT_RUN.
 - **Batch restoration & hard stop:** P-08.01 through P-08.05 completed as executor candidate. P-09+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 - **Not authorized / forbidden:** P-09+ remain strictly NOT AUTHORIZED / NOT_RUN.
 

@@ -437,6 +437,16 @@ class VerifierContextEnvelope:
         """True if envelope carries candidate data to verify."""
         return self.candidate_identity is not None
 
+    @property
+    def frozen_contract_digest(self) -> str:
+        """Deterministic SHA-256 digest of the bound FrozenContract."""
+        return self.frozen_contract.contract_digest
+
+    @property
+    def source_commit_id(self) -> str:
+        """Pinned 40-character commit SHA of the trusted source."""
+        return self.source_identity.resolved_commit_id
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize envelope to JSON-safe dictionary."""
         return {

@@ -412,18 +412,24 @@ Phase exit: verifier independence is mechanically stronger than “another promp
 
 # P-09 — Witness Generation
 ### P-09.01 — Implement Nemotron witness-plan generation from frozen contract + trusted source
+Status: DONE (implemented ProposedWitnessArtifact, WitnessPlanProposal, generate_witness_plan in src/basebreak/verifier/witness_plan.py; bounded invocation of canonical Nemotron client; strict contract digest and requirement ID binding; zero Builder authority leakage; deterministic JSON extraction with brace balancing; 13 tests in tests/verifier/test_witness_plan.py)
 Acceptance:
 - witness plan must carry and reference the exact frozen contract digest;
 - deterministic binding between contract identity and planned witness.
 ### P-09.02 — Validate witness plans against scope/security/runtime policy
+Status: DONE (implemented ValidatedWitnessArtifact, ValidatedWitnessPlan, WitnessPlanValidator in src/basebreak/verifier/witness_plan.py; enforces BUG_FIX scope, allowed test executables, path normalization, protected-surface/verifier boundary separation, secret scanning, and zero Builder authority; tests in tests/verifier/test_witness_plan.py)
 ### P-09.03 — Generate executable independent behavioral witnesses for BUG_FIX
+Status: DONE (implemented WitnessGenerator in src/basebreak/verifier/witness_generator.py; converts validated plans into WitnessArtifacts, checks against Builder test collisions and imports, and seals into TrustedWitnessVault with authentic HMAC-SHA256 signatures; 5 tests in tests/verifier/test_witness_generator.py)
 ### P-09.04 — Add witness determinism/timeout/result normalization
+Status: DONE (implemented WitnessOutcome enum, NormalizedWitnessResult, normalize_witness_execution in src/basebreak/verifier/witness_result.py; anti-collapse invariants prevent TIMEOUT/ERROR from masquerading as FAIL or PASS; sanitizes streams and computes deterministic result digest; 7 tests in tests/verifier/test_witness_result.py)
 ### P-09.05 — Detect vacuous witnesses and invalid preconditions
+Status: DONE (implemented static AST analysis and runtime execution output analysis in src/basebreak/verifier/vacuity.py; detects zero assertions, trivial constant assertions, 0 tests collected, and setup/import failures; 6 tests in tests/verifier/test_vacuity.py)
 ### P-09.06 — Preserve witness digest before candidate execution
+Status: DONE (implemented ImmutableWitnessLock, create_witness_lock, verify_witness_lock_chain in src/basebreak/verifier/witness_lock.py; locks witness digest before candidate execution; validates unbroken chain requirement_id -> frozen_contract_digest -> witness_digest; 4 tests in tests/verifier/test_witness_lock.py)
 Acceptance:
 - compute and preserve immutable witness digest bound to the frozen contract digest;
 - witness identity/digest is mechanically locked before candidate execution.
-Phase exit: at least one independent witness can exist without Builder knowledge.
+Phase exit: at least one independent witness can exist without Builder knowledge. (P-09 Phase Exit complete: all micro-tasks P-09.01 through P-09.06 completed; genuine LIVE_NEBIUS proof in docs/P09_LIVE_WITNESS_PLAN.md; P-09 phase status: PASS / CLOSED)
 
 ---
 
