@@ -385,19 +385,28 @@ class VerifierSandboxManager:
         created_identity: Any = None
         try:
             if hasattr(sandbox_adapter, "create_sandbox"):
-                created_identity = sandbox_adapter.create_sandbox(
-                    image=self.config.sandbox_image,
-                    timeout_seconds=self.config.timeout_seconds,
-                )
+                sbx_fn = sandbox_adapter.create_sandbox
             elif callable(sandbox_adapter):
-                created_identity = sandbox_adapter(
-                    image=self.config.sandbox_image,
-                    timeout_seconds=self.config.timeout_seconds,
-                )
+                sbx_fn = sandbox_adapter
             else:
                 raise HostExecutionFallbackError(
                     f"Unsupported sandbox adapter type: {adapter_name}"
                 )
+
+            import inspect as _insp
+
+            sig = _insp.signature(sbx_fn)
+            params = sig.parameters
+            has_var = any(p.kind == _insp.Parameter.VAR_KEYWORD for p in params.values())
+            sbx_kwargs: dict[str, Any] = {}
+            if "image" in params or has_var:
+                sbx_kwargs["image"] = self.config.sandbox_image
+            if "timeout_seconds" in params or has_var:
+                sbx_kwargs["timeout_seconds"] = self.config.timeout_seconds
+            if "disposable" in params or has_var:
+                sbx_kwargs["disposable"] = False
+
+            created_identity = sbx_fn(**sbx_kwargs)
         except (HostExecutionFallbackError, SimulationFallbackError):
             raise
         except Exception as exc:

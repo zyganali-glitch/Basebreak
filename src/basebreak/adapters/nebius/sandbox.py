@@ -433,6 +433,8 @@ class NebiusSandboxAdapter:
         image: str | None = None,
         disposable: bool = True,
         description: str = "",
+        timeout_seconds: int | None = None,
+        **kwargs: Any,
     ) -> NebiusSandboxHandle:
         """Create a new bounded sandbox handle ready for execution.
 
