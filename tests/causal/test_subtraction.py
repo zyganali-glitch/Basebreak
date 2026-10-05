@@ -44,6 +44,7 @@ from basebreak.domain.source import CommitRevision, SourceIdentity
 
 # Sample Fixture Constants
 SAMPLE_SOURCE_COMMIT = "40ff923a134a21d8e357deb7a7988571cd396b56"
+SAMPLE_SOURCE_LOCATOR = "https://github.com/demo/repo.git"
 SAMPLE_BASE_TREE = "f81f6faa0c7572f9941570bbce376fadc10f39a3"
 SAMPLE_CANDIDATE_TREE = "31f7ab50a5e0da6da9160ce47bdc5daf71072216"
 SAMPLE_CONTRACT_DIGEST = "a" * 64
@@ -156,6 +157,7 @@ class TestDeterministicStrategyIdentity:
             candidate_patch_digest=patch_digest,
             candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
             source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator=SAMPLE_SOURCE_LOCATOR,
             frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
             sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
             request=request,
@@ -180,6 +182,7 @@ class TestDeterministicStrategyIdentity:
             candidate_patch_digest=patch_digest,
             candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
             source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator=SAMPLE_SOURCE_LOCATOR,
             frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
             sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
             request=request,
@@ -203,6 +206,7 @@ class TestDeterministicStrategyIdentity:
             candidate_patch_digest=patch_digest,
             candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
             source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator=SAMPLE_SOURCE_LOCATOR,
             frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
             sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
             request=request,
@@ -236,6 +240,7 @@ class TestDeterministicStrategyIdentity:
             candidate_patch_digest=patch_digest,
             candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
             source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator=SAMPLE_SOURCE_LOCATOR,
             frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
             sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
             request=request,
@@ -270,6 +275,7 @@ class TestDeterministicStrategyIdentity:
             candidate_patch_digest=patch_digest,
             candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
             source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator=SAMPLE_SOURCE_LOCATOR,
             frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
             sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
             request=request,
@@ -333,6 +339,7 @@ class TestDeterministicStrategyIdentity:
             candidate_patch_digest=patch_digest,
             candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
             source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator=SAMPLE_SOURCE_LOCATOR,
             frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
             sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
             request=request,
@@ -361,6 +368,7 @@ class TestUnsupportedAndAmbiguousSubtraction:
                 candidate_patch_digest=patch_digest,
                 candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
                 source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=SAMPLE_SOURCE_LOCATOR,
                 frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
                 sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
                 request=request,
@@ -381,6 +389,7 @@ class TestUnsupportedAndAmbiguousSubtraction:
                 candidate_patch_digest=patch_digest,
                 candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
                 source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=SAMPLE_SOURCE_LOCATOR,
                 frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
                 sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
                 request=request,
@@ -404,6 +413,7 @@ class TestUnsupportedAndAmbiguousSubtraction:
                 candidate_patch_digest=patch_digest,
                 candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
                 source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=SAMPLE_SOURCE_LOCATOR,
                 frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
                 sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
                 request=request,
@@ -461,6 +471,7 @@ class TestUnsupportedAndAmbiguousSubtraction:
                 candidate_patch_digest=patch_digest,
                 candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
                 source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=SAMPLE_SOURCE_LOCATOR,
                 frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
                 sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
                 request=request,
@@ -490,6 +501,7 @@ class TestProtectedSurfaceAndSecretPolicy:
                 candidate_patch_digest=patch_digest,
                 candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
                 source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=SAMPLE_SOURCE_LOCATOR,
                 frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
                 sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
                 request=request,
@@ -515,6 +527,7 @@ class TestProtectedSurfaceAndSecretPolicy:
                 candidate_patch_digest=patch_digest,
                 candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
                 source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=SAMPLE_SOURCE_LOCATOR,
                 frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
                 sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
                 request=request,
@@ -539,6 +552,7 @@ class TestProtectedSurfaceAndSecretPolicy:
                 candidate_patch_digest=patch_digest,
                 candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
                 source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=SAMPLE_SOURCE_LOCATOR,
                 frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
                 sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
                 request=request,
@@ -557,6 +571,7 @@ class TestEmptyAndNoOpSubtraction:
                 candidate_patch_digest=_digest(""),
                 candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
                 source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=SAMPLE_SOURCE_LOCATOR,
                 frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
                 sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
                 request=request,
@@ -577,6 +592,7 @@ class TestEmptyAndNoOpSubtraction:
                 candidate_patch_digest=patch_digest,
                 candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
                 source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=SAMPLE_SOURCE_LOCATOR,
                 frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
                 sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
                 request=request,
@@ -597,6 +613,7 @@ class TestEmptyAndNoOpSubtraction:
                 candidate_patch_digest=patch_digest,
                 candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
                 source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=SAMPLE_SOURCE_LOCATOR,
                 frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
                 sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
                 request=request,
@@ -618,6 +635,7 @@ class TestSourceCandidateIdentityMismatch:
                 candidate_patch_digest=fake_digest,
                 candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
                 source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=SAMPLE_SOURCE_LOCATOR,
                 frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
                 sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
                 request=request,
@@ -636,6 +654,7 @@ class TestSourceCandidateIdentityMismatch:
                 candidate_patch_digest=_digest(patch_text),
                 candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
                 source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=SAMPLE_SOURCE_LOCATOR,
                 frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
                 sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
                 request=request,
@@ -652,6 +671,7 @@ class TestSourceCandidateIdentityMismatch:
             candidate_patch_digest=patch_digest,
             candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
             source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator=SAMPLE_SOURCE_LOCATOR,
             frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
             sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
             request=request,
@@ -684,6 +704,7 @@ class TestSourceCandidateIdentityMismatch:
             candidate_patch_digest=patch_digest,
             candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
             source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator=SAMPLE_SOURCE_LOCATOR,
             frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
             sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
             request=request,
@@ -941,6 +962,356 @@ class TestSourceCandidateIdentityMismatch:
         assert restored_cf_id == cf_id
 
 
+class TestCandidateSourceIdentityEnforcement:
+    """Verifies complete, fail-closed enforcement of candidate source repository identity.
+
+    Requirements:
+    A. Public/raw plan_subtraction(...) cannot create an identity-producing plan with missing
+       canonical repository locator.
+    B. A serialized plan with source locator removed/nullified cannot be used to bypass exact
+       candidate source binding.
+    C. Same candidate_id + patch_digest + resolved commit but different locator is rejected for
+       EVERY supported construction/deserialization path.
+    D. Exact canonical candidate still succeeds across all supported construction paths.
+    E. Existing subpath mismatch and commit mismatch tests remain green and uncompromising.
+    """
+
+    def test_raw_plan_subtraction_requires_canonical_source_locator(self) -> None:
+        """Requirement A: raw plan construction fails closed without canonical source locator."""
+        patch_text = SINGLE_FILE_PATCH
+        patch_digest = _digest(patch_text)
+        request = SubtractionRequest(strategy_type=SubtractionStrategyType.FULL_PATCH_REVERT)
+
+        # 1. Missing source_locator (default None)
+        with pytest.raises(
+            CandidateIdentityMismatchError,
+            match="source_locator is required and must be a non-empty string",
+        ):
+            plan_candidate_delta_subtraction(
+                candidate_id="cand-01",
+                candidate_patch_text=patch_text,
+                candidate_patch_digest=patch_digest,
+                candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+                source_commit_id=SAMPLE_SOURCE_COMMIT,
+                frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+                sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+                request=request,
+            )
+
+        # 2. Explicit None source_locator
+        with pytest.raises(
+            CandidateIdentityMismatchError,
+            match="source_locator is required and must be a non-empty string",
+        ):
+            plan_candidate_delta_subtraction(
+                candidate_id="cand-01",
+                candidate_patch_text=patch_text,
+                candidate_patch_digest=patch_digest,
+                candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+                source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=None,
+                frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+                sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+                request=request,
+            )
+
+        # 3. Empty string source_locator
+        with pytest.raises(
+            CandidateIdentityMismatchError,
+            match="source_locator is required and must be a non-empty string",
+        ):
+            plan_candidate_delta_subtraction(
+                candidate_id="cand-01",
+                candidate_patch_text=patch_text,
+                candidate_patch_digest=patch_digest,
+                candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+                source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator="",
+                frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+                sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+                request=request,
+            )
+
+        # 4. Whitespace-only source_locator
+        with pytest.raises(
+            CandidateIdentityMismatchError,
+            match="source_locator is required and must be a non-empty string",
+        ):
+            plan_candidate_delta_subtraction(
+                candidate_id="cand-01",
+                candidate_patch_text=patch_text,
+                candidate_patch_digest=patch_digest,
+                candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+                source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator="   ",
+                frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+                sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+                request=request,
+            )
+
+        # 5. Direct CounterfactualDeltaPlan instantiation with empty/whitespace source_locator
+        with pytest.raises(
+            CandidateIdentityMismatchError, match="source_locator must be a non-empty string"
+        ):
+            CounterfactualDeltaPlan(
+                counterfactual_id="cf-01",
+                strategy_type=SubtractionStrategyType.FULL_PATCH_REVERT,
+                target_candidate_id="cand-01",
+                target_candidate_patch_digest=patch_digest,
+                source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator="",
+                candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+                frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+                sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+                subtracted_delta_text=patch_text,
+                subtracted_delta_digest=patch_digest,
+                counterfactual_patch_text="",
+                counterfactual_patch_digest=_digest(""),
+                reverse_delta_text=invert_patch(patch_text),
+                reverse_delta_digest=_digest(invert_patch(patch_text)),
+                subtracted_files=("src/demo_target/cli.py",),
+                subtracted_hunk_ids=(),
+            )
+
+    def test_serialized_plan_removed_or_null_locator_fails_closed(self) -> None:
+        """Requirement B: serialized plan with missing/nullified locator cannot bypass binding."""
+        patch_text = SINGLE_FILE_PATCH
+        patch_digest = _digest(patch_text)
+        request = SubtractionRequest(strategy_type=SubtractionStrategyType.FULL_PATCH_REVERT)
+
+        plan = plan_candidate_delta_subtraction(
+            candidate_id="cand-01",
+            candidate_patch_text=patch_text,
+            candidate_patch_digest=patch_digest,
+            candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+            source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator=SAMPLE_SOURCE_LOCATOR,
+            frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+            sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+            request=request,
+        )
+
+        base_data = plan.to_dict()
+
+        # 1. source_locator key deleted entirely
+        data_del = dict(base_data)
+        del data_del["source_locator"]
+        with pytest.raises(
+            CandidateIdentityMismatchError,
+            match="Missing mandatory source_locator in serialized plan",
+        ):
+            CounterfactualDeltaPlan.from_dict(data_del)
+
+        # 2. source_locator explicitly nullified
+        data_none = dict(base_data)
+        data_none["source_locator"] = None
+        with pytest.raises(
+            CandidateIdentityMismatchError,
+            match="Missing mandatory source_locator in serialized plan",
+        ):
+            CounterfactualDeltaPlan.from_dict(data_none)
+
+        # 3. source_locator set to empty string
+        data_empty = dict(base_data)
+        data_empty["source_locator"] = ""
+        with pytest.raises(
+            CandidateIdentityMismatchError,
+            match="source_locator must be a non-empty string",
+        ):
+            CounterfactualDeltaPlan.from_dict(data_empty)
+
+        # 4. source_locator set to whitespace
+        data_ws = dict(base_data)
+        data_ws["source_locator"] = "   "
+        with pytest.raises(
+            CandidateIdentityMismatchError,
+            match="source_locator must be a non-empty string",
+        ):
+            CounterfactualDeltaPlan.from_dict(data_ws)
+
+    def test_locator_mismatch_rejected_across_all_construction_paths(self) -> None:
+        """Requirement C: different locator rejected across construction/deserialization paths."""
+        patch_text = SINGLE_FILE_PATCH
+        patch_digest = _digest(patch_text)
+        request = SubtractionRequest(strategy_type=SubtractionStrategyType.FULL_PATCH_REVERT)
+
+        source_id = SourceIdentity(
+            locator=SAMPLE_SOURCE_LOCATOR,
+            revision=CommitRevision(SAMPLE_SOURCE_COMMIT),
+            subpath="src",
+        )
+        snapshot = CandidateSnapshot(
+            candidate_id="cand-snap-01",
+            source_identity=source_id,
+            candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+            patch_digest=patch_digest,
+            patch_text=patch_text,
+            files_added=(),
+            files_modified=("src/demo_target/cli.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+            context_digest="c" * 64,
+        )
+
+        # Malicious candidate: identical candidate_id, patch_digest, commit, subpath,
+        # but substituted repository locator
+        substituted_source = SourceIdentity(
+            locator="https://github.com/adversary/unauthorized-fork.git",
+            revision=CommitRevision(SAMPLE_SOURCE_COMMIT),
+            subpath="src",
+        )
+        substituted_candidate = CandidateIdentity(
+            candidate_id="cand-snap-01",
+            source=substituted_source,
+            patch_digest=patch_digest,
+        )
+
+        # Path 1: Raw plan_subtraction via source_locator parameter
+        plan1 = plan_candidate_delta_subtraction(
+            candidate_id="cand-snap-01",
+            candidate_patch_text=patch_text,
+            candidate_patch_digest=patch_digest,
+            candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+            source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator=SAMPLE_SOURCE_LOCATOR,
+            source_subpath="src",
+            frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+            sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+            request=request,
+        )
+        with pytest.raises(CandidateIdentityMismatchError, match="source locator"):
+            plan1.to_counterfactual_identity(substituted_candidate)
+
+        # Path 2: Raw plan_subtraction via source_identity parameter
+        plan2 = plan_candidate_delta_subtraction(
+            candidate_id="cand-snap-01",
+            candidate_patch_text=patch_text,
+            candidate_patch_digest=patch_digest,
+            candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+            source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_identity=source_id,
+            frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+            sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+            request=request,
+        )
+        with pytest.raises(CandidateIdentityMismatchError, match="source locator"):
+            plan2.to_counterfactual_identity(substituted_candidate)
+
+        # Path 3: plan_from_snapshot
+        plan3 = plan_subtraction_from_snapshot(
+            candidate_snapshot=snapshot,
+            sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+            request=request,
+        )
+        with pytest.raises(CandidateIdentityMismatchError, match="source locator"):
+            plan3.to_counterfactual_identity(substituted_candidate)
+
+        # Path 4: Deserialized plan from_dict
+        plan4 = CounterfactualDeltaPlan.from_dict(plan3.to_dict())
+        with pytest.raises(CandidateIdentityMismatchError, match="source locator"):
+            plan4.to_counterfactual_identity(substituted_candidate)
+
+        # Path 5: Direct CounterfactualDeltaPlan constructor
+        plan5 = CounterfactualDeltaPlan(
+            counterfactual_id="cf-direct-01",
+            strategy_type=SubtractionStrategyType.FULL_PATCH_REVERT,
+            target_candidate_id="cand-snap-01",
+            target_candidate_patch_digest=patch_digest,
+            source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator=SAMPLE_SOURCE_LOCATOR,
+            source_subpath="src",
+            candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+            frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+            sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+            subtracted_delta_text=patch_text,
+            subtracted_delta_digest=patch_digest,
+            counterfactual_patch_text="",
+            counterfactual_patch_digest=_digest(""),
+            reverse_delta_text=invert_patch(patch_text),
+            reverse_delta_digest=_digest(invert_patch(patch_text)),
+            subtracted_files=("src/demo_target/cli.py",),
+            subtracted_hunk_ids=(),
+        )
+        with pytest.raises(CandidateIdentityMismatchError, match="source locator"):
+            plan5.to_counterfactual_identity(substituted_candidate)
+
+    def test_canonical_exact_candidate_succeeds_across_all_paths(self) -> None:
+        """Requirement D: exact canonical candidate succeeds across all construction paths."""
+        patch_text = SINGLE_FILE_PATCH
+        patch_digest = _digest(patch_text)
+        request = SubtractionRequest(strategy_type=SubtractionStrategyType.FULL_PATCH_REVERT)
+
+        source_id = SourceIdentity(
+            locator=SAMPLE_SOURCE_LOCATOR,
+            revision=CommitRevision(SAMPLE_SOURCE_COMMIT),
+            subpath="src",
+        )
+        exact_candidate = CandidateIdentity(
+            candidate_id="cand-canonical-01",
+            source=source_id,
+            patch_digest=patch_digest,
+        )
+        snapshot = CandidateSnapshot(
+            candidate_id="cand-canonical-01",
+            source_identity=source_id,
+            candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+            patch_digest=patch_digest,
+            patch_text=patch_text,
+            files_added=(),
+            files_modified=("src/demo_target/cli.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+            context_digest="c" * 64,
+        )
+
+        plans = [
+            # 1. Raw with locator + subpath
+            plan_candidate_delta_subtraction(
+                candidate_id="cand-canonical-01",
+                candidate_patch_text=patch_text,
+                candidate_patch_digest=patch_digest,
+                candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+                source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=SAMPLE_SOURCE_LOCATOR,
+                source_subpath="src",
+                frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+                sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+                request=request,
+            ),
+            # 2. Raw with source_identity
+            plan_candidate_delta_subtraction(
+                candidate_id="cand-canonical-01",
+                candidate_patch_text=patch_text,
+                candidate_patch_digest=patch_digest,
+                candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
+                source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_identity=source_id,
+                frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
+                sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+                request=request,
+            ),
+            # 3. Snapshot
+            plan_subtraction_from_snapshot(
+                candidate_snapshot=snapshot,
+                sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
+                request=request,
+            ),
+        ]
+
+        # Add deserialized plans
+        plans.extend(CounterfactualDeltaPlan.from_dict(p.to_dict()) for p in list(plans))
+
+        for plan in plans:
+            cf_id = plan.to_counterfactual_identity(exact_candidate)
+            assert cf_id.target_candidate == exact_candidate
+            assert cf_id.target_candidate.resolved_commit_id == plan.source_commit_id
+            assert cf_id.target_candidate.source.locator == plan.source_locator
+            assert cf_id.target_candidate.source.subpath == plan.source_subpath
+            assert cf_id.delta_digest == plan.subtracted_delta_digest
+
+
 class TestCallerSuppliedFakeAuthority:
     """Verifies that callers or models cannot assert fake authority, pass, or certification."""
 
@@ -976,6 +1347,7 @@ class TestCallerSuppliedFakeAuthority:
                 target_candidate_id="cand-01",
                 target_candidate_patch_digest=patch_digest,
                 source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=SAMPLE_SOURCE_LOCATOR,
                 candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
                 frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
                 sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
@@ -1001,6 +1373,7 @@ class TestCallerSuppliedFakeAuthority:
             candidate_patch_digest=patch_digest,
             candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
             source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator=SAMPLE_SOURCE_LOCATOR,
             frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
             sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
             request=request,
@@ -1029,6 +1402,7 @@ class TestContractAndWitnessIntegrity:
                 candidate_patch_digest=_digest(patch_text),
                 candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
                 source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=SAMPLE_SOURCE_LOCATOR,
                 frozen_contract_digest="invalid_short_digest",
                 sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
                 request=request,
@@ -1047,6 +1421,7 @@ class TestContractAndWitnessIntegrity:
                 candidate_patch_digest=_digest(patch_text),
                 candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
                 source_commit_id=SAMPLE_SOURCE_COMMIT,
+                source_locator=SAMPLE_SOURCE_LOCATOR,
                 frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
                 sealed_witness_digest="invalid_short_digest",
                 request=request,
@@ -1063,6 +1438,7 @@ class TestContractAndWitnessIntegrity:
             candidate_patch_digest=patch_digest,
             candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
             source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator=SAMPLE_SOURCE_LOCATOR,
             frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
             sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
             request=request,
@@ -1089,6 +1465,7 @@ class TestFuturePhaseExecutionAbsence:
             candidate_patch_digest=patch_digest,
             candidate_tree_digest=SAMPLE_CANDIDATE_TREE,
             source_commit_id=SAMPLE_SOURCE_COMMIT,
+            source_locator=SAMPLE_SOURCE_LOCATOR,
             frozen_contract_digest=SAMPLE_CONTRACT_DIGEST,
             sealed_witness_digest=SAMPLE_WITNESS_DIGEST,
             request=request,
