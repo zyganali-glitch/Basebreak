@@ -169,7 +169,7 @@ def _create_test_pipeline_bundle() -> tuple[
     req_id = contract.requirements[0].requirement_id
 
     source_id = SourceIdentity(
-        locator="https://github.com/zyganali-glitch/Basebreak.git",
+        locator="https://github.com/zyganali-glitch/basebreak-demo-target.git",
         revision=CommitRevision("a" * 40),
     )
     patch_text = "--- a/src/cli.py\n+++ b/src/cli.py\n@@ -1 +1 @@\n-print('verbose')\n+pass\n"

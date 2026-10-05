@@ -1,4 +1,8 @@
-"""Basebreak CLI utility functions."""
+"""Demo target CLI formatting utility.
+
+Isolated demonstration target for Basebreak causal verification.
+This file contains an intentional defect for testing causal BUG_FIX verification.
+"""
 
 from __future__ import annotations
 
