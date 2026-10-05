@@ -354,13 +354,13 @@ def _extract_json_from_model_output(raw_text: str) -> str:
         if first_b != -1 and last_b != -1 and last_b > first_b:
             candidate_json = str(candidate[first_b : last_b + 1]).strip()
             try:
-                parsed = json.loads(candidate_json)
+                parsed = json.loads(candidate_json, strict=False)
                 if isinstance(parsed, dict) and "witness_id" in parsed:
                     return candidate_json
             except Exception:
                 pass
         try:
-            parsed = json.loads(candidate)
+            parsed = json.loads(candidate, strict=False)
             if isinstance(parsed, dict) and "witness_id" in parsed:
                 return candidate
         except Exception:
@@ -393,7 +393,7 @@ def _extract_json_from_model_output(raw_text: str) -> str:
                         if depth == 0:
                             candidate = trimmed[brace_start : idx + 1].strip()
                             try:
-                                parsed = json.loads(candidate)
+                                parsed = json.loads(candidate, strict=False)
                                 if isinstance(parsed, dict):
                                     return candidate
                             except Exception:
@@ -406,7 +406,7 @@ def _extract_json_from_model_output(raw_text: str) -> str:
     if first_b != -1 and last_b != -1 and last_b > first_b:
         candidate = str(trimmed[first_b : last_b + 1]).strip()
         try:
-            json.loads(candidate)
+            json.loads(candidate, strict=False)
             return candidate
         except Exception:
             pass
@@ -423,7 +423,7 @@ def parse_witness_plan_proposal(raw_text: str) -> WitnessPlanProposal:
     json_str = _extract_json_from_model_output(raw_text)
 
     try:
-        data = json.loads(json_str)
+        data = json.loads(json_str, strict=False)
     except Exception as exc:
         raise MalformedWitnessPlanError(
             f"Model response could not be parsed as JSON: {exc}"
