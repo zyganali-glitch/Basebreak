@@ -429,7 +429,7 @@ Status: DONE (implemented ImmutableWitnessLock, create_witness_lock, verify_witn
 Acceptance:
 - compute and preserve immutable witness digest bound to the frozen contract digest;
 - witness identity/digest is mechanically locked before candidate execution.
-Phase exit: at least one independent witness can exist without Builder knowledge. (P-09 Phase Exit complete: all micro-tasks P-09.01 through P-09.06 completed; genuine LIVE_NEBIUS proof bound to implementation SHA `15aeeb73d486f83795fe8431bd0403b354d18ff2` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in docs/P09_LIVE_WITNESS_PLAN.md; P-09 phase status: EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE)
+Phase exit: at least one independent witness can exist without Builder knowledge. (P-09 Phase Exit complete: all micro-tasks P-09.01 through P-09.06 completed; genuine LIVE_NEBIUS proof bound to implementation SHA `6cdbe613eada838b31d8d97620f3f02bf19a8916` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in docs/P09_LIVE_WITNESS_PLAN.md; P-09 phase status: EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE)
 
 ---
 
@@ -465,7 +465,7 @@ Acceptance:
 - provenance clearly distinguishes FIXTURE/LOCAL_EXECUTION/LIVE_NEBIUS/RECORDED_LIVE;
 - validates complete mechanical digest chain: `requirement → frozen contract digest → witness digest → BASE/CANDIDATE execution evidence`;
 - exposes a bounded MINIMAL DEVELOPER INVOCATION / INTEGRATION HARNESS capable of executing that coherent slice (may be temporary/internal; must NOT prematurely freeze `basebreak verify` or another public stable CLI contract; stable public CLI remains frozen at P-19 after P-18 receipt contracts stabilize).
-Phase exit: Basebreak can prove a real base/candidate behavioral transition. (P-10 Phase Exit complete: all micro-tasks P-10.01 through P-10.07 completed; all 31 causal tests passing; 1962 full non-live tests passing; genuine LIVE_NEBIUS proof bound to implementation SHA `15aeeb73d486f83795fe8431bd0403b354d18ff2` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in docs/P10_LIVE_CLOSURE_PROOF.md; P-10 phase status: EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE; P-11+ remain strictly NOT AUTHORIZED / NOT_RUN; HARD STOP ENFORCED)
+Phase exit: Basebreak can prove a real base/candidate behavioral transition. (P-10 Phase Exit complete: all micro-tasks P-10.01 through P-10.07 completed; all 31 causal tests passing; 1962 full non-live tests passing; genuine LIVE_NEBIUS proof bound to implementation SHA `6cdbe613eada838b31d8d97620f3f02bf19a8916` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in docs/P10_LIVE_CLOSURE_PROOF.md; P-10 phase status: EXECUTOR_REPAIRED / INDEPENDENT_QA_CANDIDATE; P-11+ remain strictly NOT AUTHORIZED / NOT_RUN; HARD STOP ENFORCED)
 
 ---
 

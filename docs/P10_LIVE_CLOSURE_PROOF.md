@@ -7,19 +7,19 @@
 - **Preliminary Verdict:** `VERIFIED` ([PASS] VERIFIED)
 - **Causal Transition:** `CAUSAL_BUG_FIX_VERIFIED`
 - **Evidence Provenance:** `LIVE_NEBIUS`
-- **Verification Timestamp:** `2026-10-05T12:03:59.481078+00:00`
+- **Verification Timestamp:** `2026-10-05T12:24:40.490858+00:00`
 
 ## Target / Product Identity Separation
 | Identity Dimension | Value | Notes |
 | :--- | :--- | :--- |
-| **Basebreak Verifier Implementation SHA** | `15aeeb73d486f83795fe8431bd0403b354d18ff2` | Engine code running the verification |
+| **Basebreak Verifier Implementation SHA** | `6cdbe613eada838b31d8d97620f3f02bf19a8916` | Engine code running |
 | **Target Repository Locator** | `https://github.com/zyganali-glitch/basebreak-demo-target.git` | Isolated public demo repository |
-| **Target BASE Commit** | `40ff923a134a21d8e357deb7a7988571cd396b56` | Root commit containing intentional defect |
-| **Target BASE Tree** | `f81f6faa0c7572f9941570bbce376fadc10f39a3` | Materialized base tree in BASE sandbox |
-| **Candidate Patch Digest** | `2d5dc4640352458323e973643e3a2215ec61d7a5a40996ba08a85516b625536e` | Exact captured patch fixing defect |
-| **Expected Candidate Tree** | `31f7ab50a5e0da6da9160ce47bdc5daf71072216` | Pre-calculated clean candidate tree |
-| **Actual Candidate Tree** | `31f7ab50a5e0da6da9160ce47bdc5daf71072216` | Materialized tree in CANDIDATE sandbox |
-| **Tree Equality Match?** | **EXACT MATCH** | Bit-for-bit candidate reproduction verified |
+| **Target BASE Commit** | `40ff923a134a21d8e357deb7a7988571cd396b56` | Root commit containing defect |
+| **Target BASE Tree** | `f81f6faa0c7572f9941570bbce376fadc10f39a3` | Base tree in BASE sandbox |
+| **Candidate Patch Digest** | `2d5dc4640352458323e973643e3a2215ec61d7a5a40996ba08a85516b625536e` | Captured patch fixing defect |
+| **Expected Candidate Tree** | `31f7ab50a5e0da6da9160ce47bdc5daf71072216` | Pre-calculated candidate tree |
+| **Actual Candidate Tree** | `31f7ab50a5e0da6da9160ce47bdc5daf71072216` | Materialized tree in CANDIDATE |
+| **Tree Equality Match?** | **EXACT MATCH** | Bit-for-bit candidate verified |
 
 ## Two-World Behavioral Evidence
 ```
@@ -37,22 +37,22 @@
 | :--- | :--- | :--- |
 | **Outcome** | `FAIL` | `PASS` |
 | **Exit Code** | `1` | `0` |
-| **Sandbox ID** | `sbx-b607b89e2128481a` | `sbx-65e2598b2ee7497b` |
+| **Sandbox ID** | `sbx-7f6f7a7008bd43ca` | `sbx-46191eab217f4a45` |
 | **Target Commit** | `40ff923a134a` | `40ff923a134a` |
 | **Tree Digest** | `f81f6faa0c75` | `31f7ab50a5e0` |
-| **Duration** | 1.38s | 1.46s |
+| **Duration** | 1.45s | 1.44s |
 
 ## Cryptographic Digest Chain (Unbroken Custody)
 | Artifact / Entity | Identifier / Digest |
 | :--- | :--- |
 | Requirement ID | `REQ-6E7F6FF7` |
-| Frozen Contract | `77b67a648b9f9d92a3af6e9c0203ef641a6a76618464e3c3d383c7d2b7a134c1` |
+| Frozen Contract | `c22049489f5832b20087356ae3983f26e3c2bd869b6693b6d7ee981d6fb48e9b` |
 | Witness ID | `wit-req-6e7f6ff7` |
-| Witness Seal | `a4cc1951f7e6394c8098f19856e0dcca12e2b350e9828d7f663fba1d2c95dc06` |
-| Pre-Execution Lock | `e48444e6c7c65a65260b3496610d6a79158ccab93cdbcad69f8b5767d8ec76ba` |
-| BASE Execution | `522e7fcffd0f73fcff8f176ea0d006f240b086ce712f53cb33fddf12ff1c7fa5` |
-| CANDIDATE Execution | `75aee55363e9a6d556987a690c8cb23be24918b788a2813bd1d17327cedee7e9` |
-| **Causal Receipt** | **`054da1affa5f060ad94ddf9ddcf213d787cdfa85b75ba15c94031a51cc40e4a2`** |
+| Witness Seal | `ca92d963f1e45c7581bdd25d230ef8019d75c242d078a0f069545cc8f456c866` |
+| Pre-Execution Lock | `c788926f1b8e43d84aae9684ec07d98a1bcfe042972b6f3f326d5eb494e24459` |
+| BASE Execution | `c251d40af60724503e96ecbde83ab0f8189fbc26ffc5fbb23b25f5307c42b424` |
+| CANDIDATE Execution | `238bb5b3fed7bfd0a56d086741a31b65f6f8e83a27131f1a131aa22397a63f0a` |
+| **Causal Receipt** | **`ebf2c14685be119a6476b9587e5702d379368d0fb9a5e1cf1d72deda81b0b676`** |
 
 ## Rationale
 BASE broke (FAIL) and CANDIDATE passed (PASS) under identical witness: causal BUG_FIX verified.
