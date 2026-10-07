@@ -473,25 +473,30 @@ Phase exit: Basebreak can prove a real base/candidate behavioral transition. (P-
 ### P-11.01 — Define safe candidate-delta subtraction strategies
 Status: INDEPENDENTLY VERIFIED / PASS at SHA `d936bd1d6b57d98c5beb783173ae6cae02b1e698`.
 ### P-11.02 — Select bounded relevant patch region without model authority over verdict
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented deterministic bounded region selection in src/basebreak/causal/selector.py; ModelRegionProposal is strictly untrusted input with zero verdict authority where is_authoritative, grants_pass, and is_causally_verified are enforced False; model_confidence validated in [0.0, 1.0]; BoundedRegionSelector validates requested strategies FULL_PATCH_REVERT, FILE_LEVEL_REVERT, HUNK_LEVEL_REVERT against exact candidate diffs; mechanically checks against nonexistent/ambiguous/overlapping hunks, protected surfaces, and secret policies; binds to exact CandidateSnapshot and creates ValidatedRegionSelection).
+Status: INDEPENDENTLY VERIFIED / PASS at SHA `e37b772300c1892304c3ac66358e8125c8cd96f9`.
 ### P-11.03 — Materialize counterfactual candidate in fresh sandbox
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (extended CausalRepositoryMaterializer and VerifierSandboxManager for ExecutionWorld.COUNTERFACTUAL; validates CounterfactualDeltaPlan against context envelope and source identity including source_commit_id, source_locator, source_subpath, candidate_patch_digest, and reverse_delta_text; performs two-stage atomic materialization in fresh isolated verifier sandbox applying candidate patch followed by reverse delta; verifies staged candidate tree matches snapshot and extracts resolved commit and tree digests; fails closed on any mutation of protected surfaces or credentials).
+Status: INDEPENDENTLY VERIFIED / PASS at SHA `e37b772300c1892304c3ac66358e8125c8cd96f9`.
 ### P-11.04 — Execute same witness against counterfactual
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented identical witness execution on counterfactual in CausalExecutionEngine.execute_causal_triplet; enforces identical frozen contract digest, requirement ID, and sealed witness digest across BASE, CANDIDATE, and COUNTERFACTUAL worlds; verifies distinct sandbox identities and absence of Builder sandboxes; executes identical witness in clean isolated sandbox and normalizes execution facts).
+Status: INDEPENDENTLY VERIFIED / PASS at SHA `e37b772300c1892304c3ac66358e8125c8cd96f9`.
 ### P-11.05 — Reconcile FAIL→PASS→FAIL causal triplet
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented deterministic 3-world causal triplet reconciliation in reconcile_causal_triplet; verifies CAUSAL_TRIPLET_VERIFIED strictly when BASE=FAIL, CANDIDATE=PASS, and COUNTERFACTUAL=FAIL; creates LocalCausalReceipt with 11 bound cryptographic digests and identifiers; verify_causal_receipt_integrity protects unbroken cryptographic chain of custody; updated harness format_judge_proof_summary and render_judge_proof_markdown to render 3-world comparison and evidence proof).
+Status: INDEPENDENTLY VERIFIED / PASS at SHA `e37b772300c1892304c3ac66358e8125c8cd96f9`.
 ### P-11.06 — Detect invalid counterfactual construction and return INCONCLUSIVE, never false PASS
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (surgically repaired invalid construction semantics in execute_causal_triplet: VerifierMaterializationError, CounterfactualMaterializationError, and VerifierTreeDigestMismatchError caught and mapped deterministically to PreliminaryVerdict.INCONCLUSIVE and CausalTransition.NON_VERIFIED_INVALID_COUNTERFACTUAL with sandbox teardown guaranteed; counterfactual tree colliding with candidate tree yields NON_VERIFIED_INVALID_COUNTERFACTUAL and INCONCLUSIVE; ineffective counterfactual yields UNVERIFIED_COUNTERFACTUAL_INEFFECTIVE and INCONCLUSIVE; TIMEOUT/ERROR/infrastructure failure yield INCONCLUSIVE, never masquerading as behavioral FAIL; base PASS or candidate FAIL yield CONTRADICTED; tampering yields NON_VERIFIED_TAMPERING_OR_INTEGRITY_FAILURE and CONTRADICTED; Builder sandbox reuse triggers BuilderSandboxReuseError and fails closed).
-Phase exit: critical demonstrations can show causal necessity under the witness. (P-11 Phase Status: EXECUTOR_LIVE_CLOSURE_CANDIDATE / INDEPENDENT_QA_CANDIDATE; genuine LIVE_NEBIUS causal triplet verification executed and passed in docs/P11_LIVE_CLOSURE_PROOF.md with real Nemotron witness generation, bound to live-tested implementation SHA 6bb8e0913d08b307ea4382833d4772380389ca78, 3 isolated Nebius sandboxes sbx-0d559eac1af648ce / sbx-4047f62bcebb4a3b / sbx-3ed738b2ce7d4ea7, BASE=FAIL exit 1, CANDIDATE=PASS exit 0, COUNTERFACTUAL=FAIL exit 1, CAUSAL_TRIPLET_VERIFIED, PreliminaryVerdict.VERIFIED, causal receipt 3b80457c7d1499fef1b160286bbc386fb6b16ae36921e65f775d338d905eb4a2; P-12+ strictly NOT AUTHORIZED / NOT_RUN; HARD STOP ENFORCED).
+Status: INDEPENDENTLY VERIFIED / PASS at SHA `e37b772300c1892304c3ac66358e8125c8cd96f9`.
+Phase exit: critical demonstrations can show causal necessity under the witness. (P-11 Phase independently CLOSED / PASS at canonical closure SHA `e37b772300c1892304c3ac66358e8125c8cd96f9`; fresh LIVE_NEBIUS-tested implementation SHA `6bb8e0913d08b307ea4382833d4772380389ca78`; genuine LIVE_NEBIUS causal triplet verification executed and passed in docs/P11_LIVE_CLOSURE_PROOF.md with real Nemotron witness generation, 3 isolated Nebius sandboxes sbx-0d559eac1af648ce / sbx-4047f62bcebb4a3b / sbx-3ed738b2ce7d4ea7, BASE=FAIL exit 1, CANDIDATE=PASS exit 0, COUNTERFACTUAL=FAIL exit 1, CAUSAL_TRIPLET_VERIFIED, PreliminaryVerdict.VERIFIED, causal receipt 3b80457c7d1499fef1b160286bbc386fb6b16ae36921e65f775d338d905eb4a2).
 
 ---
 
 # P-12 — Minimal Causal Slice
 ### P-12.01 — Define causal-slice scope and non-formal-proof disclaimer
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented provider-neutral deterministic domain contracts for causal-slice scope in src/basebreak/causal/slice.py; binds exact CandidateSnapshot, candidate_tree_digest, candidate_patch_digest, frozen_contract_digest, sealed_witness_digest, P-11 counterfactual delta identity, tested subset identity, remainder identity, receipt digest, and provenance; strictly enforces zero authority with is_authoritative=False, grants_pass=False, is_causally_verified=False; defines canonical NonFormalProofDisclaimer with CANONICAL_DISCLAIMER_TEXT and disclaims mathematical proof, global minimality, universal necessity, untested input guarantees, semantic equivalence, and formal verification; codifies 10 scope and authority rules in CausalSliceScopeRules; prohibits marketing certainty terminology; 37 unit and adversarial tests passing in tests/causal/test_slice.py).
 ### P-12.02 — Implement bounded hunk/subset minimization algorithm
+Status: PENDING
 ### P-12.03 — Cache/reuse safe deterministic executions to control cost
+Status: PENDING
 ### P-12.04 — Bind requirement → witness → minimal necessary candidate slice
+Status: PENDING
 ### P-12.05 — Test interacting hunks, non-monotonic behavior, and ambiguous slices
+Status: PENDING
 Phase exit: Basebreak can explain which tested change subset is necessary under a witness.
 
 ---

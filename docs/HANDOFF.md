@@ -80,17 +80,12 @@ Judge claim:
 - P-08 phase (Verifier Isolation & Sealed Challenge Boundary) is independently CLOSED / PASS at SHA `55abf808e9fc01d5003ef32d61557800942ceed8`.
 - P-09 phase (Witness Generation, P-09.01 through P-09.06) is independently CLOSED / PASS at SHA `2889e20a43581f1d7141c771d33452d6a194d20b` (genuine LIVE_NEBIUS proof bound to implementation SHA `6cdbe613eada838b31d8d97620f3f02bf19a8916` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in `docs/P09_LIVE_WITNESS_PLAN.md`).
 - P-10 phase (Causal Two-World Engine, P-10.01 through P-10.07) is independently CLOSED / PASS at SHA `2889e20a43581f1d7141c771d33452d6a194d20b` (genuine LIVE_NEBIUS proof bound to implementation SHA `6cdbe613eada838b31d8d97620f3f02bf19a8916` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in `docs/P10_LIVE_CLOSURE_PROOF.md`).
-- P-11.01 (Define safe candidate-delta subtraction strategies) is independently VERIFIED / PASS at SHA `d936bd1d6b57d98c5beb783173ae6cae02b1e698`.
-- P-11.02 (Select bounded relevant patch region without model authority over verdict) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-11.03 (Materialize counterfactual candidate in fresh sandbox) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-11.04 (Execute same witness against counterfactual) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-11.05 (Reconcile FAIL→PASS→FAIL causal triplet) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-11.06 (Detect invalid counterfactual construction and return INCONCLUSIVE, never false PASS) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (surgically repaired invalid construction semantics to map materializer/sandbox errors to INCONCLUSIVE / NON_VERIFIED_INVALID_COUNTERFACTUAL with guaranteed sandbox teardown).
-- P-11 phase (Counterfactual Third Run) is EXECUTOR_LIVE_CLOSURE_CANDIDATE / INDEPENDENT_QA_CANDIDATE (fresh LIVE_NEBIUS triplet verification executed and passed; genuine proof generated in `docs/P11_LIVE_CLOSURE_PROOF.md`; receipt `3b80457c7d1499fef1b160286bbc386fb6b16ae36921e65f775d338d905eb4a2`; bound to implementation SHA `6bb8e0913d08b307ea4382833d4772380389ca78`).
-- P-12+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
+- P-11 phase (Counterfactual Third Run, P-11.01 through P-11.06) is independently CLOSED / PASS at canonical closure SHA `e37b772300c1892304c3ac66358e8125c8cd96f9` (fresh LIVE_NEBIUS triplet verification executed and passed; genuine proof generated in `docs/P11_LIVE_CLOSURE_PROOF.md`; receipt `3b80457c7d1499fef1b160286bbc386fb6b16ae36921e65f775d338d905eb4a2`; bound to implementation SHA `6bb8e0913d08b307ea4382833d4772380389ca78`).
+- P-12.01 (Define causal-slice scope and non-formal-proof disclaimer) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-12.02+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
-`d936bd1d6b57d98c5beb783173ae6cae02b1e698` (independently VERIFIED / PASS at P-11.01 surgical repair).
+`e37b772300c1892304c3ac66358e8125c8cd96f9` (independently CLOSED / PASS at P-11 canonical closure).
 Last fresh live-tested implementation SHA: `6bb8e0913d08b307ea4382833d4772380389ca78`.
 
 ## Blocking live gate vs active task
@@ -99,17 +94,17 @@ Last fresh live-tested implementation SHA: `6bb8e0913d08b307ea4382833d4772380389
 None. P-11 fresh LIVE_NEBIUS closure demonstration executed and PASSED cleanly with exit code 0.
 
 ### Current QA candidate
-P-11 Phase (P-11.02 through P-11.06 Bounded Counterfactual Verification Batch & Fresh Live Closure Demonstration — EXECUTOR_LIVE_CLOSURE_CANDIDATE / INDEPENDENT_QA_CANDIDATE).
+P-12.01 — Define causal-slice scope and non-formal-proof disclaimer (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
 
 ### Active exact task
-P-11 Live Closure Candidate Submission. P-12+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+P-12.01 — Define causal-slice scope and non-formal-proof disclaimer. P-12.02+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-10 all tasks and phases are independently VERIFIED / PASS. P-11.01 is independently VERIFIED / PASS. P-11.02 through P-11.06 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-11 live demonstration is EXECUTOR_LIVE_CLOSURE_CANDIDATE / INDEPENDENT_QA_CANDIDATE. P-12+ remain strictly NOT AUTHORIZED / NOT_RUN.
-- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, and Causal primitives remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
-- **Phase status:** P-00 through P-10 phases are independently CLOSED / PASS. P-11 phase is EXECUTOR_LIVE_CLOSURE_CANDIDATE / INDEPENDENT_QA_CANDIDATE. P-12+ are strictly NOT AUTHORIZED / NOT_RUN.
-- **Batch restoration & hard stop:** P-11 bounded batch and live closure demonstration completed as executor candidate. P-12+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
-- **Not authorized / forbidden:** P-12+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-11 all tasks and phases are independently VERIFIED / PASS. P-12.01 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-12.02+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, Causal primitives, and Causal Slice contracts remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
+- **Phase status:** P-00 through P-11 phases are independently CLOSED / PASS. P-12 phase remains OPEN with P-12.01 completed as executor candidate. P-12.02+ are strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** P-12.01 executed as single atomic micro-task. P-12.02+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Not authorized / forbidden:** P-12.02+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
