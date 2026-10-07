@@ -230,6 +230,16 @@ class CausalSliceReceipt:
                 f"source_commit_id mismatch: receipt has {self.source_commit_id}, "
                 f"slice has {self.slice_artifact.scope.source_commit_id}"
             )
+        if self.slice_artifact.scope.candidate_tree_digest != self.candidate_tree_digest:
+            raise SliceIdentityMismatchError(
+                f"candidate_tree_digest mismatch: receipt has {self.candidate_tree_digest}, "
+                f"slice has {self.slice_artifact.scope.candidate_tree_digest}"
+            )
+        if self.slice_artifact.scope.candidate_patch_digest != self.candidate_patch_digest:
+            raise SliceIdentityMismatchError(
+                f"candidate_patch_digest mismatch: receipt has {self.candidate_patch_digest}, "
+                f"slice has {self.slice_artifact.scope.candidate_patch_digest}"
+            )
         if self.slice_artifact.status != self.status:
             raise SliceIdentityMismatchError(
                 f"status mismatch: receipt has {self.status.value}, "
