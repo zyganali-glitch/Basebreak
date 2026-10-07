@@ -72,7 +72,9 @@ from basebreak.domain.source import CommitRevision, SourceIdentity
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.verifier.context import VerifierContextEnvelope
 from basebreak.verifier.sandbox import (
+    BuilderSandboxReuseError,
     VerifierSandboxManager,
+    VerifierTreeDigestMismatchError,
 )
 from basebreak.verifier.witness_lock import create_witness_lock
 from basebreak.verifier.witness_plan import ValidatedWitnessArtifact, ValidatedWitnessPlan
@@ -1109,3 +1111,446 @@ class TestP1106InvalidCounterfactualDetection:
                 counterfactual_plan=tampered_contract_plan,
                 execution_command="pytest",
             )
+
+
+# ==============================================================================
+# P-11.06: Surgical Repair: Invalid Construction Semantics
+# ==============================================================================
+
+
+class TestP1106InvalidConstructionSemanticsRepair:
+    """Validates surgical repair of P-11.06 invalid counterfactual construction semantics.
+
+    Proves:
+    A. Counterfactual patch application failure -> INCONCLUSIVE, never exception/VERIFIED.
+    B. Staged candidate tree mismatch -> INCONCLUSIVE.
+    C. Invalid resulting counterfactual materialization -> INCONCLUSIVE.
+    D. Counterfactual materialization infrastructure failure cannot masquerade as behavioral FAIL.
+    E. Existing integrity/tampering behavior remains non-verifying.
+    F. Sandbox teardown occurs on failed counterfactual materialization.
+    G. Valid FAIL->PASS->FAIL still produces CAUSAL_TRIPLET_VERIFIED.
+    """
+
+    @staticmethod
+    def _make_exec_side_effect(cf_exit_code: int = 1) -> Any:
+        def exec_side_effect(sbx: Any, cmd: Any, **kwargs: Any) -> MockSandboxResult:
+            if "printf" in cmd:
+                return MockSandboxResult(exit_code=0)
+            if "001" in getattr(sbx, "sandbox_id", str(sbx)):
+                return MockSandboxResult(exit_code=1, stderr="assert run() == 0 failed")
+            elif "003" in getattr(sbx, "sandbox_id", str(sbx)) or "cf" in getattr(
+                sbx, "sandbox_id", str(sbx)
+            ):
+                return MockSandboxResult(exit_code=cf_exit_code, stderr="assert run() == 0 failed")
+            return MockSandboxResult(exit_code=0)
+
+        return exec_side_effect
+
+    def test_a_counterfactual_patch_application_failure_yields_inconclusive(self) -> None:
+        """Requirement A: Counterfactual patch failure -> INCONCLUSIVE, never exception/VERIFIED."""
+        envelope, sealed_record, vault, _, cf_plan = _build_test_envelope_and_vault()
+        lock = create_witness_lock(record=sealed_record, vault=vault)
+
+        mock_adapter = MagicMock()
+        mock_adapter.create_sandbox.side_effect = [
+            SandboxIdentity(sandbox_id="sbx-base-001"),
+            SandboxIdentity(sandbox_id="sbx-cand-002"),
+            SandboxIdentity(sandbox_id="sbx-cf-003"),
+        ]
+        mock_adapter.execute_command.side_effect = self._make_exec_side_effect()
+
+        class PatchFailureMaterializer:
+            def materialize_repository(self, *args: Any, **kwargs: Any) -> dict[str, object]:
+                world = kwargs.get("world", ExecutionWorld.BASE)
+                if world == ExecutionWorld.BASE:
+                    return {
+                        "resolved_commit_sha": SAMPLE_SOURCE_COMMIT,
+                        "resolved_tree_sha": SAMPLE_BASE_TREE,
+                        "workspace_path": "/verifier_workspace",
+                        "is_verified": True,
+                    }
+                elif world == ExecutionWorld.CANDIDATE:
+                    return {
+                        "resolved_commit_sha": SAMPLE_SOURCE_COMMIT,
+                        "resolved_tree_sha": SAMPLE_CANDIDATE_TREE,
+                        "workspace_path": "/verifier_workspace",
+                        "is_verified": True,
+                    }
+                elif world == ExecutionWorld.COUNTERFACTUAL:
+                    raise CounterfactualMaterializationError(
+                        "Failed to apply counterfactual delta in sandbox workspace (exit 1): "
+                        "error: patch failed: demo.py:10"
+                    )
+                raise ValueError(f"Unknown world: {world}")
+
+        manager = VerifierSandboxManager()
+        engine = CausalExecutionEngine(
+            sandbox_manager=manager,
+            sandbox_adapter=mock_adapter,
+            materializer=PatchFailureMaterializer(),
+            vault=vault,
+        )
+
+        receipt = engine.execute_causal_triplet(
+            context_envelope=envelope,
+            sealed_record=sealed_record,
+            witness_lock=lock,
+            counterfactual_plan=cf_plan,
+            execution_command="pytest",
+        )
+
+        # Must never be VERIFIED
+        assert receipt.is_causally_verified is False
+        assert receipt.verdict == PreliminaryVerdict.INCONCLUSIVE
+        assert receipt.transition == CausalTransition.NON_VERIFIED_INVALID_COUNTERFACTUAL
+        assert receipt.counterfactual_execution is None
+        assert "Counterfactual materialization failed" in receipt.narrative
+        assert verify_causal_receipt_integrity(receipt) is True
+
+    def test_b_staged_candidate_tree_mismatch_yields_inconclusive(self) -> None:
+        """Requirement B: Staged candidate tree mismatch -> INCONCLUSIVE."""
+        envelope, sealed_record, vault, _, cf_plan = _build_test_envelope_and_vault()
+        lock = create_witness_lock(record=sealed_record, vault=vault)
+
+        mock_adapter = MagicMock()
+        mock_adapter.create_sandbox.side_effect = [
+            SandboxIdentity(sandbox_id="sbx-base-001"),
+            SandboxIdentity(sandbox_id="sbx-cand-002"),
+            SandboxIdentity(sandbox_id="sbx-cf-003"),
+        ]
+        mock_adapter.execute_command.side_effect = self._make_exec_side_effect()
+
+        class StagedMismatchMaterializer:
+            def materialize_repository(self, *args: Any, **kwargs: Any) -> dict[str, object]:
+                world = kwargs.get("world", ExecutionWorld.BASE)
+                if world == ExecutionWorld.BASE:
+                    return {
+                        "resolved_commit_sha": SAMPLE_SOURCE_COMMIT,
+                        "resolved_tree_sha": SAMPLE_BASE_TREE,
+                        "workspace_path": "/verifier_workspace",
+                        "is_verified": True,
+                    }
+                elif world == ExecutionWorld.CANDIDATE:
+                    return {
+                        "resolved_commit_sha": SAMPLE_SOURCE_COMMIT,
+                        "resolved_tree_sha": SAMPLE_CANDIDATE_TREE,
+                        "workspace_path": "/verifier_workspace",
+                        "is_verified": True,
+                    }
+                elif world == ExecutionWorld.COUNTERFACTUAL:
+                    raise VerifierTreeDigestMismatchError(
+                        "Staged candidate tree digest 'badtree' does not match "
+                        "expected candidate tree digest"
+                    )
+                raise ValueError(f"Unknown world: {world}")
+
+        manager = VerifierSandboxManager()
+        engine = CausalExecutionEngine(
+            sandbox_manager=manager,
+            sandbox_adapter=mock_adapter,
+            materializer=StagedMismatchMaterializer(),
+            vault=vault,
+        )
+
+        receipt = engine.execute_causal_triplet(
+            context_envelope=envelope,
+            sealed_record=sealed_record,
+            witness_lock=lock,
+            counterfactual_plan=cf_plan,
+            execution_command="pytest",
+        )
+
+        assert receipt.is_causally_verified is False
+        assert receipt.verdict == PreliminaryVerdict.INCONCLUSIVE
+        assert receipt.transition == CausalTransition.NON_VERIFIED_INVALID_COUNTERFACTUAL
+        assert receipt.counterfactual_execution is None
+        assert verify_causal_receipt_integrity(receipt) is True
+
+    def test_c_invalid_resulting_counterfactual_materialization_yields_inconclusive(self) -> None:
+        """Requirement C: Invalid resulting counterfactual materialization -> INCONCLUSIVE."""
+        envelope, sealed_record, vault, _, cf_plan = _build_test_envelope_and_vault()
+        lock = create_witness_lock(record=sealed_record, vault=vault)
+
+        mock_adapter = MagicMock()
+        mock_adapter.create_sandbox.side_effect = [
+            SandboxIdentity(sandbox_id="sbx-base-001"),
+            SandboxIdentity(sandbox_id="sbx-cand-002"),
+            SandboxIdentity(sandbox_id="sbx-cf-003"),
+        ]
+        mock_adapter.execute_command.side_effect = self._make_exec_side_effect()
+
+        class IncompleteMaterializer:
+            def materialize_repository(self, *args: Any, **kwargs: Any) -> dict[str, object]:
+                world = kwargs.get("world", ExecutionWorld.BASE)
+                if world == ExecutionWorld.BASE:
+                    return {
+                        "resolved_commit_sha": SAMPLE_SOURCE_COMMIT,
+                        "resolved_tree_sha": SAMPLE_BASE_TREE,
+                        "workspace_path": "/verifier_workspace",
+                        "is_verified": True,
+                    }
+                elif world == ExecutionWorld.CANDIDATE:
+                    return {
+                        "resolved_commit_sha": SAMPLE_SOURCE_COMMIT,
+                        "resolved_tree_sha": SAMPLE_CANDIDATE_TREE,
+                        "workspace_path": "/verifier_workspace",
+                        "is_verified": True,
+                    }
+                elif world == ExecutionWorld.COUNTERFACTUAL:
+                    # Missing tree hash in return dictionary triggers VerifierMaterializationError
+                    return {
+                        "resolved_commit_sha": SAMPLE_SOURCE_COMMIT,
+                        "workspace_path": "/verifier_workspace",
+                        "is_verified": True,
+                    }
+                raise ValueError(f"Unknown world: {world}")
+
+        manager = VerifierSandboxManager()
+        engine = CausalExecutionEngine(
+            sandbox_manager=manager,
+            sandbox_adapter=mock_adapter,
+            materializer=IncompleteMaterializer(),
+            vault=vault,
+        )
+
+        receipt = engine.execute_causal_triplet(
+            context_envelope=envelope,
+            sealed_record=sealed_record,
+            witness_lock=lock,
+            counterfactual_plan=cf_plan,
+            execution_command="pytest",
+        )
+
+        assert receipt.is_causally_verified is False
+        assert receipt.verdict == PreliminaryVerdict.INCONCLUSIVE
+        assert receipt.transition == CausalTransition.NON_VERIFIED_INVALID_COUNTERFACTUAL
+        assert receipt.counterfactual_execution is None
+        assert verify_causal_receipt_integrity(receipt) is True
+
+    def test_d_cf_infra_failure_cannot_masquerade_as_behavioral_fail(self) -> None:
+        """Requirement D: CF infra failure cannot masquerade as behavioral FAIL."""
+        envelope, sealed_record, vault, _, cf_plan = _build_test_envelope_and_vault()
+        lock = create_witness_lock(record=sealed_record, vault=vault)
+
+        mock_adapter = MagicMock()
+        mock_adapter.create_sandbox.side_effect = [
+            SandboxIdentity(sandbox_id="sbx-base-001"),
+            SandboxIdentity(sandbox_id="sbx-cand-002"),
+            SandboxIdentity(sandbox_id="sbx-cf-003"),
+        ]
+        # BASE fails, CANDIDATE passes (prefix that would yield VERIFIED if CF was FAIL)
+        mock_adapter.execute_command.side_effect = self._make_exec_side_effect()
+
+        class InfrastructureFailureMaterializer:
+            def materialize_repository(self, *args: Any, **kwargs: Any) -> dict[str, object]:
+                world = kwargs.get("world", ExecutionWorld.BASE)
+                if world in (ExecutionWorld.BASE, ExecutionWorld.CANDIDATE):
+                    return {
+                        "resolved_commit_sha": SAMPLE_SOURCE_COMMIT,
+                        "resolved_tree_sha": (
+                            SAMPLE_BASE_TREE
+                            if world == ExecutionWorld.BASE
+                            else SAMPLE_CANDIDATE_TREE
+                        ),
+                        "workspace_path": "/verifier_workspace",
+                        "is_verified": True,
+                    }
+                # Failure during clone/materialization in counterfactual sandbox
+                raise CounterfactualMaterializationError(
+                    "Network timeout during base repository clone inside counterfactual sandbox"
+                )
+
+        manager = VerifierSandboxManager()
+        engine = CausalExecutionEngine(
+            sandbox_manager=manager,
+            sandbox_adapter=mock_adapter,
+            materializer=InfrastructureFailureMaterializer(),
+            vault=vault,
+        )
+
+        receipt = engine.execute_causal_triplet(
+            context_envelope=envelope,
+            sealed_record=sealed_record,
+            witness_lock=lock,
+            counterfactual_plan=cf_plan,
+            execution_command="pytest",
+        )
+
+        # Must NEVER be treated as behavioral FAIL (which would have yielded VERIFIED)
+        assert receipt.transition != CausalTransition.CAUSAL_TRIPLET_VERIFIED
+        assert receipt.verdict != PreliminaryVerdict.VERIFIED
+        assert receipt.is_causally_verified is False
+        # Must deterministically be INCONCLUSIVE
+        assert receipt.verdict == PreliminaryVerdict.INCONCLUSIVE
+        assert receipt.transition == CausalTransition.NON_VERIFIED_INVALID_COUNTERFACTUAL
+        assert receipt.counterfactual_execution is None
+
+    def test_e_existing_integrity_and_tampering_behavior_remains_non_verifying(self) -> None:
+        """Requirement E: Existing integrity/tampering behavior remains non-verifying."""
+        envelope, sealed_record, vault, snapshot, cf_plan = _build_test_envelope_and_vault()
+        lock = create_witness_lock(record=sealed_record, vault=vault)
+
+        # 1. Sandbox ID collision triggers integrity failure -> CONTRADICTED
+        mock_adapter = MagicMock()
+        mock_adapter.create_sandbox.side_effect = [
+            SandboxIdentity(sandbox_id="sbx-colliding-001"),
+            SandboxIdentity(sandbox_id="sbx-colliding-001"),
+            SandboxIdentity(sandbox_id="sbx-cf-003"),
+        ]
+        mock_adapter.execute_command.side_effect = self._make_exec_side_effect()
+
+        manager = VerifierSandboxManager()
+        engine = CausalExecutionEngine(
+            sandbox_manager=manager,
+            sandbox_adapter=mock_adapter,
+            materializer=MockMaterializer(),
+            vault=vault,
+        )
+        receipt = engine.execute_causal_triplet(
+            context_envelope=envelope,
+            sealed_record=sealed_record,
+            witness_lock=lock,
+            counterfactual_plan=cf_plan,
+            execution_command="pytest",
+        )
+        assert receipt.is_causally_verified is False
+        assert receipt.verdict == PreliminaryVerdict.CONTRADICTED
+        assert receipt.transition == CausalTransition.NON_VERIFIED_TAMPERING_OR_INTEGRITY_FAILURE
+
+        # 2. Builder sandbox reuse triggers BuilderSandboxReuseError
+        builder_manager = VerifierSandboxManager(known_builder_sandbox_ids=("sbx-builder-001",))
+        bad_adapter = MagicMock()
+        bad_adapter.create_sandbox.return_value = SandboxIdentity(sandbox_id="sbx-builder-001")
+        engine_builder = CausalExecutionEngine(
+            sandbox_manager=builder_manager,
+            sandbox_adapter=bad_adapter,
+            materializer=MockMaterializer(),
+            vault=vault,
+        )
+        with pytest.raises(BuilderSandboxReuseError):
+            engine_builder.execute_causal_triplet(
+                context_envelope=envelope,
+                sealed_record=sealed_record,
+                witness_lock=lock,
+                counterfactual_plan=cf_plan,
+                execution_command="pytest",
+            )
+
+        # 3. Plan binding mismatch fails closed with CausalBindingError
+        tampered_plan = plan_subtraction_from_snapshot(
+            candidate_snapshot=snapshot,
+            sealed_witness_digest=sealed_record.seal_digest,
+            request=SubtractionRequest(strategy_type=SubtractionStrategyType.FULL_PATCH_REVERT),
+        )
+        object.__setattr__(tampered_plan, "frozen_contract_digest", "f" * 64)
+        with pytest.raises(CausalBindingError):
+            engine.execute_causal_triplet(
+                context_envelope=envelope,
+                sealed_record=sealed_record,
+                witness_lock=lock,
+                counterfactual_plan=tampered_plan,
+                execution_command="pytest",
+            )
+
+        # 4. Invalid plan type raises TypeError
+        with pytest.raises(TypeError, match="CounterfactualDeltaPlan"):
+            engine.execute_causal_triplet(
+                context_envelope=envelope,
+                sealed_record=sealed_record,
+                witness_lock=lock,
+                counterfactual_plan="not-a-plan",  # type: ignore[arg-type]
+                execution_command="pytest",
+            )
+
+    def test_f_sandbox_teardown_occurs_on_failed_counterfactual_materialization(self) -> None:
+        """Requirement F: Sandbox teardown occurs on failed counterfactual materialization."""
+        envelope, sealed_record, vault, _, cf_plan = _build_test_envelope_and_vault()
+        lock = create_witness_lock(record=sealed_record, vault=vault)
+
+        mock_adapter = MagicMock()
+        cf_sandbox_id = SandboxIdentity(sandbox_id="sbx-cf-to-teardown-999")
+        mock_adapter.create_sandbox.side_effect = [
+            SandboxIdentity(sandbox_id="sbx-base-001"),
+            SandboxIdentity(sandbox_id="sbx-cand-002"),
+            cf_sandbox_id,
+        ]
+        mock_adapter.execute_command.side_effect = self._make_exec_side_effect()
+
+        class FailingMaterializer:
+            def materialize_repository(self, *args: Any, **kwargs: Any) -> dict[str, object]:
+                world = kwargs.get("world", ExecutionWorld.BASE)
+                if world in (ExecutionWorld.BASE, ExecutionWorld.CANDIDATE):
+                    return {
+                        "resolved_commit_sha": SAMPLE_SOURCE_COMMIT,
+                        "resolved_tree_sha": (
+                            SAMPLE_BASE_TREE
+                            if world == ExecutionWorld.BASE
+                            else SAMPLE_CANDIDATE_TREE
+                        ),
+                        "workspace_path": "/verifier_workspace",
+                        "is_verified": True,
+                    }
+                raise CounterfactualMaterializationError(
+                    "Materialization failed inside fresh CF sandbox"
+                )
+
+        manager = VerifierSandboxManager()
+        engine = CausalExecutionEngine(
+            sandbox_manager=manager,
+            sandbox_adapter=mock_adapter,
+            materializer=FailingMaterializer(),
+            vault=vault,
+        )
+
+        receipt = engine.execute_causal_triplet(
+            context_envelope=envelope,
+            sealed_record=sealed_record,
+            witness_lock=lock,
+            counterfactual_plan=cf_plan,
+            execution_command="pytest",
+        )
+
+        assert receipt.verdict == PreliminaryVerdict.INCONCLUSIVE
+        assert receipt.transition == CausalTransition.NON_VERIFIED_INVALID_COUNTERFACTUAL
+
+        # Verify that teardown_sandbox was called on the counterfactual sandbox!
+        mock_adapter.teardown_sandbox.assert_any_call(cf_sandbox_id)
+
+    def test_g_valid_fail_pass_fail_produces_causal_triplet_verified(self) -> None:
+        """Requirement G: Valid FAIL->PASS->FAIL still produces CAUSAL_TRIPLET_VERIFIED."""
+        envelope, sealed_record, vault, _, cf_plan = _build_test_envelope_and_vault()
+        lock = create_witness_lock(record=sealed_record, vault=vault)
+
+        mock_adapter = MagicMock()
+        mock_adapter.create_sandbox.side_effect = [
+            SandboxIdentity(sandbox_id="sbx-base-001"),
+            SandboxIdentity(sandbox_id="sbx-cand-002"),
+            SandboxIdentity(sandbox_id="sbx-cf-003"),
+        ]
+        # BASE = exit 1 (FAIL), CANDIDATE = exit 0 (PASS), COUNTERFACTUAL = exit 1 (FAIL)
+        mock_adapter.execute_command.side_effect = self._make_exec_side_effect(cf_exit_code=1)
+
+        manager = VerifierSandboxManager()
+        engine = CausalExecutionEngine(
+            sandbox_manager=manager,
+            sandbox_adapter=mock_adapter,
+            materializer=MockMaterializer(),
+            vault=vault,
+        )
+
+        receipt = engine.execute_causal_triplet(
+            context_envelope=envelope,
+            sealed_record=sealed_record,
+            witness_lock=lock,
+            counterfactual_plan=cf_plan,
+            execution_command="pytest",
+        )
+
+        assert receipt.is_causally_verified is True
+        assert receipt.verdict == PreliminaryVerdict.VERIFIED
+        assert receipt.transition == CausalTransition.CAUSAL_TRIPLET_VERIFIED
+        assert receipt.counterfactual_execution is not None
+        assert receipt.counterfactual_execution.outcome == WitnessOutcome.FAIL
+        assert receipt.base_execution.outcome == WitnessOutcome.FAIL
+        assert receipt.candidate_execution.outcome == WitnessOutcome.PASS
+        assert verify_causal_receipt_integrity(receipt) is True

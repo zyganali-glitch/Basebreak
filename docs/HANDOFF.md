@@ -85,8 +85,8 @@ Judge claim:
 - P-11.03 (Materialize counterfactual candidate in fresh sandbox) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-11.04 (Execute same witness against counterfactual) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-11.05 (Reconcile FAIL→PASS→FAIL causal triplet) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-11.06 (Detect invalid counterfactual construction and return INCONCLUSIVE, never false PASS) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-11 phase (Counterfactual Third Run) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-11.06 (Detect invalid counterfactual construction and return INCONCLUSIVE, never false PASS) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (surgically repaired invalid construction semantics to map materializer/sandbox errors to INCONCLUSIVE / NON_VERIFIED_INVALID_COUNTERFACTUAL with guaranteed sandbox teardown).
+- P-11 phase (Counterfactual Third Run) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE / BLOCKED_LIVE.
 - P-12+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
@@ -96,13 +96,13 @@ Last fresh live-tested implementation SHA: `6cdbe613eada838b31d8d97620f3f02bf19a
 ## Blocking live gate vs active task
 
 ### Blocking live gate
-None. P-01 and P-05 live platform/adapter integrations are complete and independently CLOSED / PASS.
+P-11 fresh LIVE_NEBIUS closure demonstration is BLOCKED_LIVE due to absence of `NEBIUS_API_KEY` in environment. Do not substitute LOCAL_EXECUTION; do not self-award independent PASS.
 
 ### Current QA candidate
-P-11.02 through P-11.06 (Counterfactual Third Run Phase Batch — EXECUTOR_COMPLETED).
+P-11.02 through P-11.06 (Counterfactual Third Run Phase Batch — EXECUTOR_COMPLETED / BLOCKED_LIVE).
 
 ### Active exact task
-Awaiting independent QA verification of P-11 (P-11.02 through P-11.06). P-12+ are strictly NOT AUTHORIZED / NOT_RUN.
+P-11 Surgical Repair and Live Closure (Blocker 1 repaired and validated; Blocker 2 truthful BLOCKED_LIVE). P-12+ are strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Parallelization boundary & rules
 - **Task status:** P-00 through P-10 all tasks and phases are independently VERIFIED / PASS. P-11.01 is independently VERIFIED / PASS. P-11.02 through P-11.06 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-12+ remain strictly NOT AUTHORIZED / NOT_RUN.

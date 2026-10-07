@@ -30,6 +30,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from basebreak.causal.materializer import CounterfactualMaterializationError
 from basebreak.causal.receipt import (
     LocalCausalReceipt,
     WorldExecutionFact,
@@ -47,8 +48,10 @@ from basebreak.domain.execution import TerminationStatus
 from basebreak.domain.verdict import EvidenceProvenance
 from basebreak.verifier.context import VerifierContextEnvelope
 from basebreak.verifier.sandbox import (
+    VerifierMaterializationError,
     VerifierSandboxManager,
     VerifierSandboxSession,
+    VerifierTreeDigestMismatchError,
 )
 from basebreak.verifier.vacuity import (
     VacuityCheckResult,
@@ -61,6 +64,7 @@ from basebreak.verifier.witness_lock import (
 )
 from basebreak.verifier.witness_result import (
     NormalizedWitnessResult,
+    WitnessOutcome,
     normalize_witness_execution,
 )
 from basebreak.verifier.witness_store import (
@@ -551,35 +555,49 @@ class CausalExecutionEngine:
         )
 
         # Step E: P-11.03 & P-11.04 — Execute identical witness on COUNTERFACTUAL in fresh sandbox
-        cf_output = self.execute_world(
-            context_envelope=context_envelope,
-            sealed_record=sealed_record,
-            world=ExecutionWorld.COUNTERFACTUAL,
-            execution_command=execution_command,
-            counterfactual_plan=counterfactual_plan,
-        )
-
-        # Step F: Cryptographic binding and integrity checks across ALL THREE worlds
-        integrity_failure_reason: str | None = None
+        cf_output: WorldExecutionOutput | None = None
         invalid_cf_reason: str | None = None
+
+        try:
+            cf_output = self.execute_world(
+                context_envelope=context_envelope,
+                sealed_record=sealed_record,
+                world=ExecutionWorld.COUNTERFACTUAL,
+                execution_command=execution_command,
+                counterfactual_plan=counterfactual_plan,
+            )
+        except (
+            CounterfactualMaterializationError,
+            VerifierMaterializationError,
+            VerifierTreeDigestMismatchError,
+        ) as exc:
+            invalid_cf_reason = f"Counterfactual materialization failed: {exc}"
+
+        # Step F: Cryptographic binding and integrity checks across available worlds
+        integrity_failure_reason: str | None = None
 
         # Check 1: Witness digest equality across all runs
         w_digests = {
             base_output.normalized_result.witness_digest,
             candidate_output.normalized_result.witness_digest,
-            cf_output.normalized_result.witness_digest,
         }
+        if cf_output is not None:
+            w_digests.add(cf_output.normalized_result.witness_digest)
         if w_digests != {sealed_record.seal_digest}:
             integrity_failure_reason = "Witness digest mismatch across execution runs"
 
-        # Check 2: Sandbox ID collision: all 3 must be distinct
+        # Check 2: Sandbox ID collision
         sandbox_ids = {
             base_output.session.sandbox_identity.sandbox_id,
             candidate_output.session.sandbox_identity.sandbox_id,
-            cf_output.session.sandbox_identity.sandbox_id,
         }
-        if len(sandbox_ids) != 3:
-            integrity_failure_reason = "Execution runs reused the same sandbox identity"
+        if cf_output is not None:
+            sandbox_ids.add(cf_output.session.sandbox_identity.sandbox_id)
+            if len(sandbox_ids) != 3:
+                integrity_failure_reason = "Execution runs reused the same sandbox identity"
+        else:
+            if len(sandbox_ids) != 2:
+                integrity_failure_reason = "Execution runs reused the same sandbox identity"
 
         # Check 3: Builder sandbox collision
         if any(sid in self.sandbox_manager.known_builder_sandbox_ids for sid in sandbox_ids):
@@ -590,7 +608,10 @@ class CausalExecutionEngine:
         if (
             base_output.normalized_result.source_commit_id != expected_commit
             or candidate_output.normalized_result.source_commit_id != expected_commit
-            or cf_output.normalized_result.source_commit_id != expected_commit
+            or (
+                cf_output is not None
+                and cf_output.normalized_result.source_commit_id != expected_commit
+            )
         ):
             integrity_failure_reason = (
                 "Execution source commit does not match authoritative context"
@@ -603,19 +624,26 @@ class CausalExecutionEngine:
             )
 
         # Check 6: Counterfactual tree check: delta subtraction must not be no-op
-        if cf_output.tree_digest.lower() == candidate_output.tree_digest.lower():
-            invalid_cf_reason = (
-                "Counterfactual tree is identical to candidate tree (subtraction had zero effect)"
-            )
+        if cf_output is not None and invalid_cf_reason is None:
+            if cf_output.tree_digest.lower() == candidate_output.tree_digest.lower():
+                invalid_cf_reason = (
+                    "Counterfactual tree is identical to candidate tree "
+                    "(subtraction had zero effect)"
+                )
 
         # Step G: P-11.05 & P-11.06 — Deterministic Triplet Outcome Reconciliation
+        cf_outcome = (
+            cf_output.normalized_result.outcome if cf_output is not None else WitnessOutcome.ERROR
+        )
+        cf_vacuity = cf_output.vacuity_result if cf_output is not None else None
+
         reconciliation: ReconciliationFact = reconcile_causal_triplet(
             base_outcome=base_output.normalized_result.outcome,
             candidate_outcome=candidate_output.normalized_result.outcome,
-            counterfactual_outcome=cf_output.normalized_result.outcome,
+            counterfactual_outcome=cf_outcome,
             base_vacuity=base_output.vacuity_result,
             candidate_vacuity=candidate_output.vacuity_result,
-            counterfactual_vacuity=cf_output.vacuity_result,
+            counterfactual_vacuity=cf_vacuity,
             integrity_failure_reason=integrity_failure_reason,
             invalid_counterfactual_reason=invalid_cf_reason,
         )
@@ -629,9 +657,13 @@ class CausalExecutionEngine:
             candidate_output.normalized_result,
             tree_digest=candidate_output.tree_digest,
         )
-        cf_fact = WorldExecutionFact.from_normalized_result(
-            cf_output.normalized_result,
-            tree_digest=cf_output.tree_digest,
+        cf_fact = (
+            WorldExecutionFact.from_normalized_result(
+                cf_output.normalized_result,
+                tree_digest=cf_output.tree_digest,
+            )
+            if cf_output is not None
+            else None
         )
 
         receipt = create_causal_triplet_receipt(

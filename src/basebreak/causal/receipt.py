@@ -254,19 +254,14 @@ class LocalCausalReceipt:
                     f"counterfactual_execution.world must be COUNTERFACTUAL, "
                     f"got {self.counterfactual_execution.world.value}"
                 )
-            if self.counterfactual_id is not None:
-                if (
-                    not isinstance(self.counterfactual_id, str)
-                    or not self.counterfactual_id.strip()
-                ):
-                    raise CausalReceiptIntegrityError(
-                        "counterfactual_id must be a non-empty string"
-                    )
-            if self.delta_digest is not None:
-                if not isinstance(self.delta_digest, str) or not _HEX_64_PATTERN.match(
-                    self.delta_digest
-                ):
-                    raise CausalReceiptIntegrityError("delta_digest must be a 64-char hex string")
+        if self.counterfactual_id is not None:
+            if not isinstance(self.counterfactual_id, str) or not self.counterfactual_id.strip():
+                raise CausalReceiptIntegrityError("counterfactual_id must be a non-empty string")
+        if self.delta_digest is not None:
+            if not isinstance(self.delta_digest, str) or not _HEX_64_PATTERN.match(
+                self.delta_digest
+            ):
+                raise CausalReceiptIntegrityError("delta_digest must be a 64-char hex string")
         if not isinstance(self.transition, CausalTransition):
             raise TypeError(
                 f"transition must be CausalTransition, got {type(self.transition).__name__}"
@@ -416,7 +411,7 @@ def create_causal_triplet_receipt(
     lock_digest: str,
     base_execution: WorldExecutionFact,
     candidate_execution: WorldExecutionFact,
-    counterfactual_execution: WorldExecutionFact,
+    counterfactual_execution: WorldExecutionFact | None = None,
     counterfactual_id: str,
     delta_digest: str,
     transition: CausalTransition,

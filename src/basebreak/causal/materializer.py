@@ -314,15 +314,22 @@ class CausalRepositoryMaterializer:
                 ) from exc
 
             # Step E: Materialize clean base repository
-            base_res = self.source_materializer.materialize_repository(
-                source_identity=source_identity,
-                sandbox=sandbox,
-                workspace_path=clean_ws,
-                disposable=False,
-                timeout_seconds=timeout_seconds,
-            )
+            try:
+                base_res = self.source_materializer.materialize_repository(
+                    source_identity=source_identity,
+                    sandbox=sandbox,
+                    workspace_path=clean_ws,
+                    disposable=False,
+                    timeout_seconds=timeout_seconds,
+                )
+            except (VerifierMaterializationError, VerifierTreeDigestMismatchError):
+                raise
+            except Exception as exc:
+                raise CounterfactualMaterializationError(
+                    f"Failed to materialize base repository for counterfactual: {exc}"
+                ) from exc
             if not isinstance(base_res, MaterializedSourceRecord):
-                raise VerifierMaterializationError(
+                raise CounterfactualMaterializationError(
                     f"Expected MaterializedSourceRecord, got {type(base_res).__name__}"
                 )
             base_record = base_res
