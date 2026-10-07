@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from basebreak.builder.capture import CandidateSnapshot
 from basebreak.causal.minimizer import (
-    BoundedMinimizerResult,
     BoundedSubsetMinimizer,
     PatchUnit,
     SliceSearchBudget,
-    create_tested_patch_subset_from_hunks,
 )
 from basebreak.causal.slice import (
     CausalSliceStatus,
@@ -19,7 +19,6 @@ from basebreak.causal.slice import (
     SliceSearchCompleteness,
     TestedPatchSubset,
 )
-from basebreak.causal.subtraction import parse_candidate_patch
 from basebreak.domain.source import CommitRevision, SourceIdentity
 from basebreak.domain.verdict import EvidenceProvenance
 from basebreak.evidence.artifact import compute_bytes_digest
@@ -262,14 +261,11 @@ class TestBoundedMinimizationExecution:
         assert result.minimal_subset is None
 
     def test_model_proposal_with_authority_rejected(self) -> None:
-        snap = _make_snapshot(TWO_HUNK_PATCH)
-        minimizer = BoundedSubsetMinimizer(execution_callback=lambda s, sc: WitnessOutcome.PASS)
-
         with pytest.raises(SliceAuthorityError, match="is_authoritative must be False"):
-            ModelSliceProposal(is_authoritative=True)  # type: ignore[arg-type]
+            ModelSliceProposal(is_authoritative=True)
 
         with pytest.raises(SliceAuthorityError, match="claims_minimality must be False"):
-            ModelSliceProposal(claims_minimality=True)  # type: ignore[arg-type]
+            ModelSliceProposal(claims_minimality=True)
 
     def test_untrusted_model_proposal_prioritizes_search_order_without_verdict_authority(
         self,
@@ -303,7 +299,8 @@ class TestBoundedMinimizationExecution:
             model_proposal=proposal,
         )
 
-        # The model's proposed subset (h1,) was evaluated first among proper subsets (index 1 after full)
+        # The model's proposed subset (h1,) was evaluated first among proper subsets
+        # (index 1 after full candidate evaluation)
         assert tested_orders[1] == (h1,)
         # But because h1 failed, model proposal did NOT get accepted as minimal
         assert result.minimal_subset is not None
