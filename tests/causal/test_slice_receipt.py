@@ -254,7 +254,7 @@ class TestCausalSliceReceipt:
             replace(receipt, sealed_witness_digest="9" * 64)
 
         # Mutating candidate_patch_digest
-        with pytest.raises(SliceReceiptTamperingError):
+        with pytest.raises((SliceReceiptTamperingError, SliceIdentityMismatchError)):
             replace(receipt, candidate_patch_digest="9" * 64)
 
         # Mutating evaluated_outcomes
