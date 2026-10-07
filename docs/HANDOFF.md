@@ -86,29 +86,29 @@ Judge claim:
 - P-11.04 (Execute same witness against counterfactual) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-11.05 (Reconcile FAIL→PASS→FAIL causal triplet) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-11.06 (Detect invalid counterfactual construction and return INCONCLUSIVE, never false PASS) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (surgically repaired invalid construction semantics to map materializer/sandbox errors to INCONCLUSIVE / NON_VERIFIED_INVALID_COUNTERFACTUAL with guaranteed sandbox teardown).
-- P-11 phase (Counterfactual Third Run) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE / BLOCKED_LIVE.
+- P-11 phase (Counterfactual Third Run) is EXECUTOR_LIVE_CLOSURE_CANDIDATE / INDEPENDENT_QA_CANDIDATE (fresh LIVE_NEBIUS triplet verification executed and passed; genuine proof generated in `docs/P11_LIVE_CLOSURE_PROOF.md`; receipt `08e0c9b916cace049b09edf34ec2f6d7a8bc9f19e5559a520b102e88f6f8aa85`).
 - P-12+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
 `d936bd1d6b57d98c5beb783173ae6cae02b1e698` (independently VERIFIED / PASS at P-11.01 surgical repair).
-Last fresh live-tested implementation SHA: `6cdbe613eada838b31d8d97620f3f02bf19a8916`.
+Last fresh live-tested implementation SHA: `1e7c1c564ade556f834e9145846f78133a9ec508`.
 
 ## Blocking live gate vs active task
 
 ### Blocking live gate
-P-11 fresh LIVE_NEBIUS closure demonstration is BLOCKED_LIVE due to absence of `NEBIUS_API_KEY` in environment. Do not substitute LOCAL_EXECUTION; do not self-award independent PASS.
+None. P-11 fresh LIVE_NEBIUS closure demonstration executed and PASSED cleanly with exit code 0.
 
 ### Current QA candidate
-P-11.02 through P-11.06 (Counterfactual Third Run Phase Batch — EXECUTOR_COMPLETED / BLOCKED_LIVE).
+P-11 Phase (P-11.02 through P-11.06 Bounded Counterfactual Verification Batch & Fresh Live Closure Demonstration — EXECUTOR_LIVE_CLOSURE_CANDIDATE / INDEPENDENT_QA_CANDIDATE).
 
 ### Active exact task
-P-11 Surgical Repair and Live Closure (Blocker 1 repaired and validated; Blocker 2 truthful BLOCKED_LIVE). P-12+ are strictly NOT AUTHORIZED / NOT_RUN.
+P-11 Live Closure Candidate Submission. P-12+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-10 all tasks and phases are independently VERIFIED / PASS. P-11.01 is independently VERIFIED / PASS. P-11.02 through P-11.06 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-12+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-10 all tasks and phases are independently VERIFIED / PASS. P-11.01 is independently VERIFIED / PASS. P-11.02 through P-11.06 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-11 live demonstration is EXECUTOR_LIVE_CLOSURE_CANDIDATE / INDEPENDENT_QA_CANDIDATE. P-12+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, and Causal primitives remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
-- **Phase status:** P-00 through P-10 phases are independently CLOSED / PASS. P-11 phase is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-12+ are strictly NOT AUTHORIZED / NOT_RUN.
-- **Batch restoration & hard stop:** P-11 bounded batch completed as executor candidate. P-12+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Phase status:** P-00 through P-10 phases are independently CLOSED / PASS. P-11 phase is EXECUTOR_LIVE_CLOSURE_CANDIDATE / INDEPENDENT_QA_CANDIDATE. P-12+ are strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** P-11 bounded batch and live closure demonstration completed as executor candidate. P-12+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 - **Not authorized / forbidden:** P-12+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
@@ -127,7 +127,7 @@ P-11 Surgical Repair and Live Closure (Blocker 1 repaired and validated; Blocker
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-11 bounded batch (P-11.02 through P-11.06) for independent QA verification.
+1. Submit P-11 bounded batch and live closure proof (`docs/P11_LIVE_CLOSURE_PROOF.md`) for independent QA verification.
 2. Maintain hard stop before P-12; do not activate or implement P-12+.
 3. Await independent QA evaluation.
 
