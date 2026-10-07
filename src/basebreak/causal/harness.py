@@ -134,6 +134,16 @@ def render_judge_proof_markdown(summary: dict[str, Any]) -> str:
         "",
     ]
 
+    impl_sha = summary.get("basebreak_implementation_sha")
+    if impl_sha:
+        md_lines.extend(
+            [
+                "## Verification Identity",
+                f"- **Basebreak Implementation SHA:** `{impl_sha}`",
+                "",
+            ]
+        )
+
     if cf is not None:
         md_lines.extend(
             [

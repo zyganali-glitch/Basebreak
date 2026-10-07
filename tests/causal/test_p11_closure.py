@@ -694,6 +694,16 @@ class TestP1104AndP1105CausalTripletExecution:
         assert "COUNTERFACTUAL World (Delta Subtraction)" in summary_markdown
         assert "CAUSAL_TRIPLET_VERIFIED" in summary_markdown
         assert "[PASS] VERIFIED" in summary_markdown
+        assert "## Verification Identity" not in summary_markdown
+
+        # Verify prominent inclusion when basebreak_implementation_sha is supplied
+        sample_sha = "e" * 40
+        summary_with_sha = dict(summary_dict)
+        summary_with_sha["basebreak_implementation_sha"] = sample_sha
+        rendered_with_sha = render_judge_proof_markdown(summary_with_sha)
+        assert "## Verification Identity" in rendered_with_sha
+        assert f"- **Basebreak Implementation SHA:** `{sample_sha}`" in rendered_with_sha
+        assert sample_sha in rendered_with_sha
 
     @pytest.mark.live
     def test_p11_live_causal_triplet_verification(self) -> None:
@@ -897,8 +907,11 @@ class TestP1104AndP1105CausalTripletExecution:
         summary_dict["basebreak_implementation_sha"] = tested_impl_sha
 
         proof_path = os.path.abspath("docs/P11_LIVE_CLOSURE_PROOF.md")
+        rendered_proof = render_judge_proof_markdown(summary_dict)
+        assert tested_impl_sha in rendered_proof
+        assert f"- **Basebreak Implementation SHA:** `{tested_impl_sha}`" in rendered_proof
         with open(proof_path, "w", encoding="utf-8") as f:
-            f.write(render_judge_proof_markdown(summary_dict))
+            f.write(rendered_proof)
 
 
 # ==============================================================================

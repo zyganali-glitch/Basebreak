@@ -121,6 +121,29 @@ class TestCausalHarness:
         assert "CAUSAL TRANSITION: CAUSAL_BUG_FIX_VERIFIED" in md
         assert "REQ-QUIET-001" in md
         assert receipt.receipt_digest in md
+        assert "## Verification Identity" not in md
+
+    def test_render_judge_proof_markdown_with_implementation_sha(self) -> None:
+        """Markdown prominently records full verbatim Basebreak implementation SHA when supplied."""
+        receipt = _build_test_receipt()
+        summary = format_judge_proof_summary(receipt)
+        full_sha = "1e7c1c564ade556f834e9145846f78133a9ec508"
+        summary["basebreak_implementation_sha"] = full_sha
+
+        md = render_judge_proof_markdown(summary)
+        assert "## Verification Identity" in md
+        assert f"- **Basebreak Implementation SHA:** `{full_sha}`" in md
+        assert full_sha in md
+
+    def test_render_judge_proof_markdown_omits_implementation_sha_safely(self) -> None:
+        """Markdown rendering succeeds without error when implementation SHA is omitted."""
+        receipt = _build_test_receipt()
+        summary = format_judge_proof_summary(receipt)
+        assert "basebreak_implementation_sha" not in summary
+
+        md = render_judge_proof_markdown(summary)
+        assert "## Verification Identity" not in md
+        assert "Basebreak Implementation SHA" not in md
 
     def test_run_causal_verification_slice_end_to_end(self) -> None:
         """Integration harness executes full slice from validated plan to proof summary."""
