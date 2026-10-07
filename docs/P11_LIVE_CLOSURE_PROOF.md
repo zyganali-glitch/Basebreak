@@ -7,7 +7,10 @@
 - **Preliminary Verdict:** `VERIFIED` ([PASS] VERIFIED)
 - **Causal Transition:** `CAUSAL_TRIPLET_VERIFIED`
 - **Evidence Provenance:** `LIVE_NEBIUS`
-- **Verification Timestamp:** `2026-10-07T11:17:44.544669+00:00`
+- **Verification Timestamp:** `2026-10-07T16:38:30.378928+00:00`
+
+## Verification Identity
+- **Basebreak Implementation SHA:** `6bb8e0913d08b307ea4382833d4772380389ca78`
 
 ## Causal Triplet Behavioral Evidence
 ```
@@ -28,10 +31,10 @@
 | :--- | :--- | :--- | :--- |
 | **Outcome** | `FAIL` | `PASS` | `FAIL` |
 | **Exit Code** | `1` | `0` | `1` |
-| **Sandbox ID** | `sbx-02a2270ebd2a46c3` | `sbx-baf9bb9ac03b430b` | `sbx-ac9a975636054ed4` |
+| **Sandbox ID** | `sbx-0d559eac1af648ce` | `sbx-4047f62bcebb4a3b` | `sbx-3ed738b2ce7d4ea7` |
 | **Source Commit** | `40ff923a134a` | `40ff923a134a` | `40ff923a134a` |
 | **Tree Digest** | `f81f6faa0c75` | `31f7ab50a5e0` | `f81f6faa0c75` |
-| **Duration** | 1.42s | 1.67s | 1.44s |
+| **Duration** | 1.46s | 1.45s | 1.40s |
 
 ## Cryptographic Digest Chain (Unbroken Custody)
 | Artifact / Entity | Identifier / Digest |
@@ -39,14 +42,14 @@
 | Requirement ID | `REQ-6E7F6FF7` |
 | Frozen Contract | `c22049489f5832b20087356ae3983f26e3c2bd869b6693b6d7ee981d6fb48e9b` |
 | Witness ID | `wit-req-6e7f6ff7` |
-| Witness Seal | `164d10c4a33527bfe5f47edceb347a652d727b3ad7530e79e367d882c8c02b85` |
-| Pre-Execution Lock | `3c4bc9bceac444e33e19a33eb18fe204c287cc12f22dd7fecafb74742f22a215` |
-| BASE Execution | `cc1289ab2e96a0541c62c8c4833c7e0a817235a98d282b088cf70a5e384b3404` |
-| CANDIDATE Execution | `aa655a35cd3438f3cd220d637491130a7682444adc8704bc676e03f668b660c7` |
-| COUNTERFACTUAL Execution | `b829547ea461338723e0802282b886a688a06e2a661d29849d43cce6502d7c7d` |
+| Witness Seal | `755f9abd2323d255910b9ab41ce792e43b31cb2cb70f6f57a63275536b96b410` |
+| Pre-Execution Lock | `d81ea48c1fab7a2920187d5ed81f86909aaf1f81c1cd0be4b771afacee3d3518` |
+| BASE Execution | `b9b7bfcdd116920cbf5a9e5fc7bf495bec6bf55f1f08fa9b9f3ad4cd9f3a2d47` |
+| CANDIDATE Execution | `88ed59064831f5b11c36597ea5142356daa7ed0c21c075621e3297cee651d1f3` |
+| COUNTERFACTUAL Execution | `a1b863b4c1bbbca3d7258223052f63251d877b086f74633171623240b7575c90` |
 | Counterfactual ID | `cf-sub-full_pat-2d5dc46403524583` |
 | Delta Digest | `2d5dc4640352458323e973643e3a2215ec61d7a5a40996ba08a85516b625536e` |
-| **Causal Receipt** | **`08e0c9b916cace049b09edf34ec2f6d7a8bc9f19e5559a520b102e88f6f8aa85`** |
+| **Causal Receipt** | **`3b80457c7d1499fef1b160286bbc386fb6b16ae36921e65f775d338d905eb4a2`** |
 
 ## Rationale
 Causal triplet verified: BASE=FAIL, CANDIDATE=PASS, COUNTERFACTUAL=FAIL under identical witness. Patch delta proved causally necessary.

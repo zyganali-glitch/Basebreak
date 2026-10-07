@@ -86,12 +86,12 @@ Judge claim:
 - P-11.04 (Execute same witness against counterfactual) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-11.05 (Reconcile FAIL→PASS→FAIL causal triplet) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-11.06 (Detect invalid counterfactual construction and return INCONCLUSIVE, never false PASS) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (surgically repaired invalid construction semantics to map materializer/sandbox errors to INCONCLUSIVE / NON_VERIFIED_INVALID_COUNTERFACTUAL with guaranteed sandbox teardown).
-- P-11 phase (Counterfactual Third Run) is EXECUTOR_LIVE_CLOSURE_CANDIDATE / INDEPENDENT_QA_CANDIDATE (fresh LIVE_NEBIUS triplet verification executed and passed; genuine proof generated in `docs/P11_LIVE_CLOSURE_PROOF.md`; receipt `08e0c9b916cace049b09edf34ec2f6d7a8bc9f19e5559a520b102e88f6f8aa85`).
+- P-11 phase (Counterfactual Third Run) is EXECUTOR_LIVE_CLOSURE_CANDIDATE / INDEPENDENT_QA_CANDIDATE (fresh LIVE_NEBIUS triplet verification executed and passed; genuine proof generated in `docs/P11_LIVE_CLOSURE_PROOF.md`; receipt `3b80457c7d1499fef1b160286bbc386fb6b16ae36921e65f775d338d905eb4a2`; bound to implementation SHA `6bb8e0913d08b307ea4382833d4772380389ca78`).
 - P-12+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
 `d936bd1d6b57d98c5beb783173ae6cae02b1e698` (independently VERIFIED / PASS at P-11.01 surgical repair).
-Last fresh live-tested implementation SHA: `1e7c1c564ade556f834e9145846f78133a9ec508`.
+Last fresh live-tested implementation SHA: `6bb8e0913d08b307ea4382833d4772380389ca78`.
 
 ## Blocking live gate vs active task
 
