@@ -186,6 +186,31 @@ class RepairedCandidateSnapshot:
         if self.is_authoritative or self.candidate.is_authoritative:
             raise CandidateLineageError("Repaired candidate cannot claim verdict authority")
 
+    @property
+    def repaired_candidate_id(self) -> str:
+        """Convenience property for candidate ID."""
+        return self.candidate.candidate_id
+
+    @property
+    def repaired_patch(self) -> str:
+        """Convenience property for patch text."""
+        return self.candidate.patch_text
+
+    @property
+    def repaired_patch_digest(self) -> str:
+        """Convenience property for patch digest."""
+        return self.candidate.patch_digest
+
+    @property
+    def repaired_tree_digest(self) -> str:
+        """Convenience property for candidate tree digest."""
+        return self.candidate.candidate_tree_digest
+
+    @property
+    def source_identity(self) -> SourceIdentity:
+        """Convenience property for source identity."""
+        return self.candidate.source_identity
+
 
 def build_canonical_lineage_payload(
     *,
