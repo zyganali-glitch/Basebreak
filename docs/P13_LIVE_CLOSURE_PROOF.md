@@ -1,15 +1,17 @@
 # Basebreak Phase P-13 Multi-Class Live Verification Proof Summary
 
 > **Phase Thesis:** *Basebreak is a generalized verifier, not a one-demo trick.*
-> **Classes Verified:** `FEATURE`, `SECURITY_FIX`, `REFACTOR` (plus offline classes).
+> **Classes Verified:** `FEATURE`, `SECURITY_FIX`, `REFACTOR` (plus offline classes: `PERFORMANCE`, `DEP_API_CHANGE` under `LOCAL_EXECUTION`).
 > **Authority:** *Deterministic facts have final authority.*
 
 ## 1. Executive Verification Summary
 | Change Class | Transition | Verdict | Provenance |
 | :--- | :--- | :--- | :--- |
-| **FEATURE** | `ABSENT->PRESENT` | **`VERIFIED`** | `LIVE` |
-| **SEC_FIX** | `EXPLOIT->BLOCKED` | **`VERIFIED`** | `LIVE` |
-| **REFACTOR** | `BEFORE=AFTER` | **`VERIFIED`** | `LIVE` |
+| **FEATURE** | `ABSENT->PRESENT` | **`VERIFIED`** | `LIVE_NEBIUS` |
+| **SEC_FIX** | `EXPLOIT->BLOCKED` | **`VERIFIED`** | `LIVE_NEBIUS` |
+| **REFACTOR** | `BEFORE=AFTER` | **`VERIFIED`** | `LIVE_NEBIUS` |
+| **PERFORMANCE** | `PARITY+DELTA` | **`VERIFIED`** (Offline) | `LOCAL_EXECUTION` |
+| **DEP_API_CHANGE** | `CONTRACT+SAFETY` | **`VERIFIED`** (Offline) | `LOCAL_EXECUTION` |
 
 ---
 
@@ -69,7 +71,7 @@
 ---
 
 ## 4. Anti-Tampering & Cryptographic Integrity Verification
-All emitted `SemanticVerificationReceipt`s were independently checked and passed:
+All emitted `SemanticVerificationReceipt`s passed programmatic integrity checks:
 1. Canonical JSON representation verification.
 2. Immutable witness lock chain of custody.
 3. Strict isolation between sandboxes.
