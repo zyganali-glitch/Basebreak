@@ -503,34 +503,45 @@ Phase exit: Basebreak can explain which tested change subset is necessary under 
 
 # P-13 — Change-Semantics Expansion
 ### P-13.01 — FEATURE ABSENT→PRESENT verifier
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (candidate commit at SHA `a62dcc7897c8cf3295c962bfa3831872df89bbf3`; implemented deterministic FEATURE verifier in `src/basebreak/causal/feature.py` requiring BASE=ABSENT and CANDIDATE=PRESENT -> FEATURE_VERIFIED; supports explicit absence mechanisms SYMBOL_NOT_FOUND, INPUT_REJECTED, ENDPOINT_UNAVAILABLE, PROPERTY_MISSING; rejects arbitrary test failures and error/timeout states; emits SemanticVerificationReceipt with verified cryptographic integrity; 14 focused tests in `tests/causal/test_feature_verifier.py`)
+Status: DONE (independently VERIFIED / PASS at SHA `0045ad89394758bb6c128b846945f2e7e8b2b955`)
 
 ### P-13.02 — SECURITY_FIX EXPLOITABLE→BLOCKED verifier
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (candidate commit at SHA `0c03682be7fa274a44ee035c94285495209da3a8`; implemented deterministic SECURITY_FIX verifier in `src/basebreak/causal/security.py` requiring BASE=EXPLOITABLE and CANDIDATE=BLOCKED -> SECURITY_FIX_VERIFIED; anti-collapse invariants strictly reject crash, timeout, and unrelated exceptions from counting as BLOCKED; supports explicit blocking mechanisms INPUT_VALIDATION_ERROR, ACCESS_DENIED, EXPLOIT_PAYLOAD_SANITIZED, SECURE_FALLBACK_TRIGGERED; preserves required non-exploit legitimate behavior; emits SemanticVerificationReceipt; 13 focused tests in `tests/causal/test_security_verifier.py`)
+Status: DONE (independently VERIFIED / PASS at SHA `0045ad89394758bb6c128b846945f2e7e8b2b955`)
 
 ### P-13.03 — REFACTOR behavioral-equivalence verifier
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (candidate commit at SHA `8c535d1f8dae8494f107f955d5b76cf6ea2ecbfe`; implemented deterministic REFACTOR verifier in `src/basebreak/causal/refactor.py` requiring BASE and CANDIDATE produce equivalent observable behavior under tested witness set -> REFACTOR_VERIFIED; requires non-empty candidate patch; explicitly disclaims universal semantic equivalence with mandatory tested-witness disclaimer; rejects changed observable output, exit semantics, side effects, and incomplete witness execution; emits SemanticVerificationReceipt; 14 focused tests in `tests/causal/test_refactor_verifier.py`)
+Status: DONE (independently VERIFIED / PASS at SHA `0045ad89394758bb6c128b846945f2e7e8b2b955`)
 
 ### P-13.04 — PERFORMANCE parity + benchmark-delta verifier
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (candidate commit at SHA `39d6321ebf5e9fc8088eb7e945c9bf39b83b4fc3`; implemented deterministic PERFORMANCE verifier in `src/basebreak/causal/performance.py` requiring BOTH functional parity and bounded measured benchmark delta under LOCAL_EXECUTION; records metric, units, sample count, warmup policy, aggregation rule, baseline/candidate measurements, noise policy, and environment constraints; returns INCONCLUSIVE when measurements do not distinguish required delta within noise policy; disclaims universal claims; emits SemanticVerificationReceipt; 14 focused tests in `tests/causal/test_performance_verifier.py`)
+Status: DONE (independently VERIFIED / PASS at SHA `0045ad89394758bb6c128b846945f2e7e8b2b955`)
 
 ### P-13.05 — DEP/API contract migration + regression verifier
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (candidate commit at SHA `f7679c2980e0fa7a9b9b47e5b2259eb27961239c`; implemented deterministic DEP_API_CHANGE verifier in `src/basebreak/causal/dep_api.py` requiring BOTH new contract/migration verification and bounded regression safety for preserved behavior under LOCAL_EXECUTION; binds migration spec, old/new contract facts, exact dependency/API identities, and regression witness set; rejects silent disappearance of preserved behavior; emits SemanticVerificationReceipt; 11 focused tests in `tests/causal/test_dep_api_verifier.py`)
+Status: DONE (independently VERIFIED / PASS at SHA `0045ad89394758bb6c128b846945f2e7e8b2b955`)
 
 ### P-13.06 — Cross-class classification error tests
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (candidate commit at SHA `14d9ceb9acc9fc842714ff3e36b481fa3e418e7c`; comprehensive cross-class semantic isolation and anti-collapse adversarial tests in `tests/causal/test_cross_class_adversarial.py` covering all 16 required invariants: BUG_FIX evidence rejected by FEATURE verifier, FEATURE ABSENT/PRESENT cannot masquerade as FAIL/PASS, SECURITY crash rejected as BLOCKED, SECURITY timeout rejected as BLOCKED, REFACTOR changed behavior rejected, PERFORMANCE faster-but-wrong rejected, PERFORMANCE correct-but-unimproved rejected, DEP/API broken regression rejected, wrong change-class verifier fails closed, frozen contract class mismatch rejected, model prose cannot override deterministic verdict, evidence cross-class replay rejected, receipt tampering rejected, provenance mismatch rejected, candidate/hash mismatch rejected, and ERROR/TIMEOUT remain non-behavioral infrastructure outcomes; 23 focused adversarial tests)
-Phase exit: product is not a one-demo bug-fix trick. (Phase P-13 fully executed and validated; all 6 micro-tasks P-13.01 through P-13.06 completed; 2,257 non-live tests passing; genuine LIVE_NEBIUS demonstration executed cleanly (exit code 0) in `docs/P13_LIVE_CLOSURE_PROOF.md` across 3 distinct change classes in real Nebius Token Factory sandboxes: FEATURE ABSENT->PRESENT with sbx-b2dedf4895d24cb9/sbx-b3d332e510984372, SECURITY_FIX EXPLOITABLE->BLOCKED with sbx-68964d409b5341d3/sbx-dcbd863960f94786, and REFACTOR BEFORE=AFTER with sbx-07aca27a68404dd8/sbx-d39f7d791efe4b85 against isolated demo target `zyganali-glitch/basebreak-demo-target.git`; PERFORMANCE and DEP_API_CHANGE verified under LOCAL_EXECUTION only; P-13 status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; P-14+ remain strictly NOT AUTHORIZED / NOT_RUN; HARD STOP ENFORCED)
+Status: DONE (independently VERIFIED / PASS at SHA `0045ad89394758bb6c128b846945f2e7e8b2b955`)
+Phase exit: product is not a one-demo bug-fix trick. (Phase P-13 independently CLOSED / PASS at SHA `0045ad89394758bb6c128b846945f2e7e8b2b955`).
 
 ---
 
 # P-14 — Sealed Repair Loop
 ### P-14.01 — Define bounded failure-feedback schema
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (committed at SHA `d098907`; implemented SafeRepairFeedback, SanitizedCounterexample, DisclosureClassification, and FailureConditionCategory; canonical hashing, tamper detection, and zero verdict authority enforced)
+
 ### P-14.02 — Return minimized counterexample without hidden witness disclosure
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (committed at SHA `ca56f68`; implemented DisclosureSanitizer, secret redaction, and counterexample minimization without leaking sealed witness internals)
+
 ### P-14.03 — Re-enter Builder in fresh/controlled repair context
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (committed at SHA `7aae566`; implemented BuilderRepairContextEnvelope, context digest binding, verifier leak prevention)
+
 ### P-14.04 — Create repaired candidate with new exact hash
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (committed at SHA `bc89df6`; implemented CandidateLineageRecord, RepairedCandidateSnapshot, anti-candidate-reuse and anti-stagnation rules)
+
 ### P-14.05 — Require fresh verifier reproduction for repaired candidate
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (committed at SHA `6b5ed2c`; implemented RepairedVerificationReceipt, execute_repaired_verifier_reproduction, anti-sandbox-reuse, anti-receipt-replay, and fresh reproduction from base)
+
 ### P-14.06 — Cap repair rounds/cost and return honest non-success
-Phase exit: agent improves from evidence without memorizing the hidden exam.
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (committed at SHA `cb3f6a8`; implemented RepairLoopBudget, RepairLoopReceipt, run_sealed_repair_loop orchestration, honest terminal status classification, and receipt integrity validation)
+Phase exit: agent improves from evidence without memorizing the hidden exam. (Phase P-14 batch fully executed and validated; all 6 micro-tasks P-14.01 through P-14.06 completed; 2,301 non-live tests passing; genuine LIVE_NEBIUS demonstration executed cleanly (exit code 0) in `docs/P14_LIVE_CLOSURE_PROOF.md`: Candidate 0 failed exit 1 in sbx-ad0148d07fee4cd2, safe sanitized feedback FB-R1-6677983c emitted, Candidate 1 cand-live-repaired-c1 repaired with tree 31f7ab50a5e0da6da9160ce47bdc5daf71072216 and lineage 32a15e0b600ee93bf041098ce1a78191269b0644570e4fac59a942e645959f9f, verified in fresh disposable sandbox with exit 0 and WITNESS_PASS, terminal receipt RLR-cc1eb704e0a5 emitted with status VERIFIED_AFTER_REPAIR; P-14 status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; P-15+ remain strictly NOT AUTHORIZED / NOT_RUN; HARD STOP ENFORCED)
 
 ---
 

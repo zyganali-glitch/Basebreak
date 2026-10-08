@@ -82,43 +82,46 @@ Judge claim:
 - P-10 phase (Causal Two-World Engine, P-10.01 through P-10.07) is independently CLOSED / PASS at SHA `2889e20a43581f1d7141c771d33452d6a194d20b` (genuine LIVE_NEBIUS proof bound to implementation SHA `6cdbe613eada838b31d8d97620f3f02bf19a8916` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in `docs/P10_LIVE_CLOSURE_PROOF.md`).
 - P-11 phase (Counterfactual Third Run, P-11.01 through P-11.06) is independently CLOSED / PASS at canonical closure SHA `e37b772300c1892304c3ac66358e8125c8cd96f9` (fresh LIVE_NEBIUS triplet verification executed and passed; genuine proof generated in `docs/P11_LIVE_CLOSURE_PROOF.md`; receipt `3b80457c7d1499fef1b160286bbc386fb6b16ae36921e65f775d338d905eb4a2`; bound to implementation SHA `6bb8e0913d08b307ea4382833d4772380389ca78`).
 - P-12 phase (Minimal Causal Slice, P-12.01 through P-12.05) is independently CLOSED / PASS at SHA `6e5853da72482d5eb2d875be89c9ed6a48f2bfde` (fresh LIVE_NEBIUS demonstration executed and passed; genuine proof in `docs/P12_LIVE_CLOSURE_PROOF.md`; receipt `d75fa9e685cc5fddfa017c2fe58cb5079060d7a9e7961f702ac24df6a85f2016`; bound to implementation SHA `ca2fe46867a83641c22c47375da966fc701d5878`).
-- P-13.01 (FEATURE ABSENT->PRESENT verifier) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `a62dcc7897c8cf3295c962bfa3831872df89bbf3`.
-- P-13.02 (SECURITY_FIX EXPLOITABLE->BLOCKED verifier) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `0c03682be7fa274a44ee035c94285495209da3a8`.
-- P-13.03 (REFACTOR behavioral-equivalence verifier) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `8c535d1f8dae8494f107f955d5b76cf6ea2ecbfe`.
-- P-13.04 (PERFORMANCE parity + benchmark-delta verifier) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `39d6321ebf5e9fc8088eb7e945c9bf39b83b4fc3` (LOCAL_EXECUTION).
-- P-13.05 (DEP/API contract migration + regression verifier) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `f7679c2980e0fa7a9b9b47e5b2259eb27961239c` (LOCAL_EXECUTION).
-- P-13.06 (Cross-class classification error tests) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `14d9ceb9acc9fc842714ff3e36b481fa3e418e7c`.
-- P-13 Phase Closure (Multi-Class Live Verification Proof):
+- P-13 phase (Change-Semantics Expansion, P-13.01 through P-13.06) is independently CLOSED / PASS at SHA `0045ad89394758bb6c128b846945f2e7e8b2b955`.
+- P-14.01 (Define bounded failure-feedback schema) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `d098907`.
+- P-14.02 (Return minimized counterexample without hidden witness disclosure) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `ca56f68`.
+- P-14.03 (Re-enter Builder in fresh/controlled repair context) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `7aae566`.
+- P-14.04 (Create repaired candidate with new exact hash) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `bc89df6`.
+- P-14.05 (Require fresh verifier reproduction for repaired candidate) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `6b5ed2c`.
+- P-14.06 (Cap repair rounds/cost and return honest non-success) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `cb3f6a8`.
+- P-14 Phase Closure (Sealed Repair Loop Live Verification Proof):
   - Fresh LIVE_NEBIUS demonstration executed against real Nebius Token Factory Sandboxes:
-    - FEATURE: ABSENT->PRESENT (`sbx-b2dedf4895d24cb9` / `sbx-b3d332e510984372`), receipt `73223968d1254e32d271bf53d4d89b7aa5c6504bb60e64f25bf060fb6e7d09d7`;
-    - SECURITY_FIX: EXPLOITABLE->BLOCKED (`sbx-68964d409b5341d3` / `sbx-dcbd863960f94786`), receipt `648d3293f4dc72b314d4ee63f5ee1315f381933c75f0d9adf11dc1ec8c1dcf1a`;
-    - REFACTOR: BEFORE=AFTER (`sbx-07aca27a68404dd8` / `sbx-d39f7d791efe4b85`), receipt `d329af6f0ff561a78c0dd2a72fa979728e7dcff48ce90f3e916ed51649b89260`;
-  - Offline change classes (PERFORMANCE parity + benchmark delta, DEP_API_CHANGE contract migration + regression safety) verified under LOCAL_EXECUTION only;
-  - Genuine proof in `docs/P13_LIVE_CLOSURE_PROOF.md`;
-  - P-13 batch is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-14+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
+    - Initial candidate Candidate 0 failed exit 1 with AssertionError (`sbx-ad0148d07fee4cd2`);
+    - Verifier extracted bounded safe feedback (`FB-R1-6677983c`, zero hidden witness code disclosed);
+    - Builder repaired Candidate 1 (`cand-live-repaired-c1`, lineage `32a15e0b600ee93bf041098ce1a78191269b0644570e4fac59a942e645959f9f`, tree `31f7ab50a5e0da6da9160ce47bdc5daf71072216`);
+    - Fresh disposable verifier sandbox executed sealed witness -> Exit 0 (`WITNESS_PASS`);
+    - Terminal loop receipt `RLR-cc1eb704e0a5` emitted with status `VERIFIED_AFTER_REPAIR`, preliminary verdict `VERIFIED`, `is_causally_verified=True`, `grants_pass=True`, `is_authoritative=False` (zero verdict authority invariant);
+    - Cryptographic receipt digest: `1a98f023cfa960b92fdd8fa0286b651bd83e2e7b3dac1be32f3d955cc3a67ce3`;
+    - Documented in `docs/P14_LIVE_CLOSURE_PROOF.md`;
+  - P-14 batch is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-15+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
-`6e5853da72482d5eb2d875be89c9ed6a48f2bfde` (independently VERIFIED / PASS at P-12 closure).
+`0045ad89394758bb6c128b846945f2e7e8b2b955` (independently VERIFIED / PASS at P-13 closure).
 Last fresh live-tested implementation SHA: `14d9ceb9acc9fc842714ff3e36b481fa3e418e7c`.
 
 ## Blocking live gate vs active task
 
 ### Blocking live gate
-None. P-13 fresh LIVE_NEBIUS multi-class demonstration executed cleanly with exit code 0; awaiting independent QA evaluation.
+None. P-14 fresh LIVE_NEBIUS demonstration executed cleanly with exit code 0; awaiting independent QA evaluation.
 
 ### Current QA candidate
-P-13 Change-Semantics Expansion Batch — P-13.01 through P-13.06 + Live Closure Proof (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+P-14 Sealed Repair Loop Batch — P-14.01 through P-14.06 + Live Closure Proof (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
 
 ### Active exact task
-P-13 Change-Semantics Expansion Batch — completed as executor candidate. P-14+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+P-14 Sealed Repair Loop Batch — completed as executor candidate. P-15+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-12 all tasks and phases are independently VERIFIED / PASS. P-13.01 through P-13.06 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-14+ remain strictly NOT AUTHORIZED / NOT_RUN.
-- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, Causal primitives, Causal Slice contracts, and Change-Semantics verifiers (feature, security, refactor, performance, dep_api) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
-- **Phase status:** P-00 through P-12 phases are independently CLOSED / PASS. P-13 phase remains OPEN awaiting independent QA review. P-14+ are strictly NOT AUTHORIZED / NOT_RUN.
-- **Batch restoration & hard stop:** P-13 batch executed and completed. P-14+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
-- **Not authorized / forbidden:** P-14+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-13 all tasks and phases are independently VERIFIED / PASS. P-14.01 through P-14.06 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-15+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, Causal primitives, Causal Slice contracts, Change-Semantics verifiers, and Sealed Repair Loop primitives (SafeRepairFeedback, DisclosureSanitizer, BuilderRepairContextEnvelope, CandidateLineageRecord, RepairedVerificationReceipt, RepairLoopReceipt) remain strictly provider-neutral with zero provider model IDs and zero provider-specific identifiers.
+- **Phase status:** P-00 through P-13 phases are independently CLOSED / PASS. P-14 phase remains OPEN awaiting independent QA review. P-15+ are strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** P-14 batch executed and completed. P-15+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Not authorized / forbidden:** P-15+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -136,7 +139,7 @@ P-13 Change-Semantics Expansion Batch — completed as executor candidate. P-14+
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-13 Change-Semantics Expansion batch (P-13.01 through P-13.06 + Live Closure Proof) for independent QA verification.
-2. Maintain hard stop before P-14; do not activate or implement P-14+.
+1. Submit P-14 Sealed Repair Loop batch (P-14.01 through P-14.06 + Live Closure Proof) for independent QA verification.
+2. Maintain hard stop before P-15; do not activate or implement P-15+.
 3. Await independent QA evaluation.
 
