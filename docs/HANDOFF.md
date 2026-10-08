@@ -81,37 +81,43 @@ Judge claim:
 - P-09 phase (Witness Generation, P-09.01 through P-09.06) is independently CLOSED / PASS at SHA `2889e20a43581f1d7141c771d33452d6a194d20b` (genuine LIVE_NEBIUS proof bound to implementation SHA `6cdbe613eada838b31d8d97620f3f02bf19a8916` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in `docs/P09_LIVE_WITNESS_PLAN.md`).
 - P-10 phase (Causal Two-World Engine, P-10.01 through P-10.07) is independently CLOSED / PASS at SHA `2889e20a43581f1d7141c771d33452d6a194d20b` (genuine LIVE_NEBIUS proof bound to implementation SHA `6cdbe613eada838b31d8d97620f3f02bf19a8916` and isolated demo target `zyganali-glitch/basebreak-demo-target.git` in `docs/P10_LIVE_CLOSURE_PROOF.md`).
 - P-11 phase (Counterfactual Third Run, P-11.01 through P-11.06) is independently CLOSED / PASS at canonical closure SHA `e37b772300c1892304c3ac66358e8125c8cd96f9` (fresh LIVE_NEBIUS triplet verification executed and passed; genuine proof generated in `docs/P11_LIVE_CLOSURE_PROOF.md`; receipt `3b80457c7d1499fef1b160286bbc386fb6b16ae36921e65f775d338d905eb4a2`; bound to implementation SHA `6bb8e0913d08b307ea4382833d4772380389ca78`).
-- P-12.01 (Define causal-slice scope and non-formal-proof disclaimer) is independently VERIFIED / PASS at SHA `b8164588c560b12a2599238f05632eb33441a4d0`.
-- P-12 Bounded Surgical Repair (Defect 1 & Defect 2 resolved across P-12.02 through P-12.05):
-  - Structured `SubsetExecutionFact` introduced and bound to every evaluated subset; naked `WitnessOutcome` callback rejected with `TypeError`;
-  - `ExecutionCacheKey`, store, lookup, and entries strictly bind deterministic `runtime_config_digest`;
-  - `create_causal_slice_receipt_from_result` mechanically derives authentic receipts directly from `result.evaluated_subsets`; caller-invented sequences forbidden;
-  - Comprehensive adversarial test suite in `tests/causal/test_p12_adversarial.py` (42 tests, cases A through O);
-  - Fresh LIVE_NEBIUS demonstration executed against real Nebius Token Factory Sandboxes: BASE=FAIL, FULL=PASS, IRRELEVANT=FAIL, CAUSAL=PASS; genuine proof in `docs/P12_LIVE_CLOSURE_PROOF.md`; receipt `d75fa9e685cc5fddfa017c2fe58cb5079060d7a9e7961f702ac24df6a85f2016`; bound to implementation SHA `ca2fe46867a83641c22c47375da966fc701d5878`;
-  - P-12 batch is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-13+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
+- P-12 phase (Minimal Causal Slice, P-12.01 through P-12.05) is independently CLOSED / PASS at SHA `6e5853da72482d5eb2d875be89c9ed6a48f2bfde` (fresh LIVE_NEBIUS demonstration executed and passed; genuine proof in `docs/P12_LIVE_CLOSURE_PROOF.md`; receipt `d75fa9e685cc5fddfa017c2fe58cb5079060d7a9e7961f702ac24df6a85f2016`; bound to implementation SHA `ca2fe46867a83641c22c47375da966fc701d5878`).
+- P-13.01 (FEATURE ABSENT->PRESENT verifier) is independently VERIFIED / PASS at SHA `a62dcc7897c8cf3295c962bfa3831872df89bbf3`.
+- P-13.02 (SECURITY_FIX EXPLOITABLE->BLOCKED verifier) is independently VERIFIED / PASS at SHA `0c03682be7fa274a44ee035c94285495209da3a8`.
+- P-13.03 (REFACTOR behavioral-equivalence verifier) is independently VERIFIED / PASS at SHA `8c535d1f8dae8494f107f955d5b76cf6ea2ecbfe`.
+- P-13.04 (PERFORMANCE parity + benchmark-delta verifier) is independently VERIFIED / PASS at SHA `39d6321ebf5e9fc8088eb7e945c9bf39b83b4fc3`.
+- P-13.05 (DEP/API contract migration + regression verifier) is independently VERIFIED / PASS at SHA `f7679c2980e0fa7a9b9b47e5b2259eb27961239c`.
+- P-13.06 (Cross-class classification error tests) is independently VERIFIED / PASS at SHA `14d9ceb9acc9fc842714ff3e36b481fa3e418e7c`.
+- P-13 Phase Closure (Multi-Class Live Verification Proof):
+  - Fresh LIVE_NEBIUS demonstration executed against real Nebius Token Factory Sandboxes:
+    - FEATURE: ABSENT->PRESENT (`sbx-b2dedf4895d24cb9` / `sbx-b3d332e510984372`), receipt `73223968d1254e32d271bf53d4d89b7aa5c6504bb60e64f25bf060fb6e7d09d7`;
+    - SECURITY_FIX: EXPLOITABLE->BLOCKED (`sbx-68964d409b5341d3` / `sbx-dcbd863960f94786`), receipt `648d3293f4dc72b314d4ee63f5ee1315f381933c75f0d9adf11dc1ec8c1dcf1a`;
+    - REFACTOR: BEFORE=AFTER (`sbx-07aca27a68404dd8` / `sbx-d39f7d791efe4b85`), receipt `d329af6f0ff561a78c0dd2a72fa979728e7dcff48ce90f3e916ed51649b89260`;
+  - Genuine proof in `docs/P13_LIVE_CLOSURE_PROOF.md`;
+  - P-13 batch is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-14+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
-`b8164588c560b12a2599238f05632eb33441a4d0` (independently VERIFIED / PASS at P-12.01).
-Last fresh live-tested implementation SHA: `ca2fe46867a83641c22c47375da966fc701d5878`.
+`6e5853da72482d5eb2d875be89c9ed6a48f2bfde` (independently VERIFIED / PASS at P-12 closure).
+Last fresh live-tested implementation SHA: `14d9ceb9acc9fc842714ff3e36b481fa3e418e7c`.
 
 ## Blocking live gate vs active task
 
 ### Blocking live gate
-None. P-12 fresh LIVE_NEBIUS closure demonstration executed and PASSED cleanly with exit code 0.
+None. P-13 fresh LIVE_NEBIUS multi-class demonstration executed and PASSED cleanly with exit code 0.
 
 ### Current QA candidate
-P-12 Bounded Surgical Repair Batch — P-12.02 through P-12.05 (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+P-13 Change-Semantics Expansion Batch — P-13.01 through P-13.06 + Live Closure Proof (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
 
 ### Active exact task
-P-12 Bounded Surgical Repair Batch — completed as executor candidate. P-13+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+P-13 Change-Semantics Expansion Batch — completed as executor candidate. P-14+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-11 all tasks and phases are independently VERIFIED / PASS. P-12.01 is independently VERIFIED / PASS. P-12.02 through P-12.05 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-13+ remain strictly NOT AUTHORIZED / NOT_RUN.
-- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, Causal primitives, Causal Slice contracts, minimizer, cache, and slice receipts remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
-- **Phase status:** P-00 through P-11 phases are independently CLOSED / PASS. P-12 phase remains OPEN awaiting independent QA review of the surgical repair. P-13+ are strictly NOT AUTHORIZED / NOT_RUN.
-- **Batch restoration & hard stop:** P-12 surgical repair executed and completed. P-13+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
-- **Not authorized / forbidden:** P-13+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-12 all tasks and phases are independently VERIFIED / PASS. P-13.01 through P-13.06 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-14+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, Causal primitives, Causal Slice contracts, and Change-Semantics verifiers (feature, security, refactor, performance, dep_api) remain strictly provider-neutral with zero `basebreak.adapters` imports, zero provider model IDs, and zero provider-specific identifiers.
+- **Phase status:** P-00 through P-12 phases are independently CLOSED / PASS. P-13 phase remains OPEN awaiting independent QA review. P-14+ are strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** P-13 batch executed and completed. P-14+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Not authorized / forbidden:** P-14+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -129,7 +135,7 @@ P-12 Bounded Surgical Repair Batch — completed as executor candidate. P-13+ ar
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-12 surgical repair batch (P-12.02 through P-12.05) for independent QA verification.
-2. Maintain hard stop before P-13; do not activate or implement P-13+.
+1. Submit P-13 Change-Semantics Expansion batch (P-13.01 through P-13.06 + Live Closure Proof) for independent QA verification.
+2. Maintain hard stop before P-14; do not activate or implement P-14+.
 3. Await independent QA evaluation.
 
