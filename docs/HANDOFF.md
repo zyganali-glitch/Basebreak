@@ -91,21 +91,21 @@ Judge claim:
 - P-14.06 (Cap repair rounds/cost and return honest non-success) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `cb3f6a8`.
 - P-14 Phase Closure (Sealed Repair Loop Live Verification Proof):
   - Fresh LIVE_NEBIUS demonstration executed against real Nebius Token Factory Sandboxes and real Nemotron AI Builder:
-    - Initial candidate Candidate 0 failed exit 1 with AssertionError (`sbx-0b9d5ca4130547af`);
-    - Verifier extracted bounded safe feedback (`4787930d4c501189a65422b7bb6d70fe07053843210fb703442579ec73078f19`, zero hidden witness code disclosed);
-    - Real Nemotron model client (`nvidia/Nemotron-3_5-Lightning`, request `chatcmpl-d3750a4d`, 1723 tokens, 6.52s) received only permitted context, passed mechanical secrecy checks, and produced verified python repair for `src/demo_target/cli.py`;
-    - Builder materialized Candidate 1 (`cand-live-repaired-r1-58ea81c2`, lineage `155f783366d2063281119cf18302342c28424944aed82da4fe5ab2a141f129ce`, patch `2d5dc4640352458323e973643e3a2215ec61d7a5a40996ba08a85516b625536e`, tree `31f7ab50a5e0da6da9160ce47bdc5daf71072216`);
-    - Fresh disposable verifier sandbox (`sbx-1c2fedc2c2c3436a` distinct from `sbx-0b9d5ca4130547af`) executed sealed witness -> Exit 0 (`WITNESS_PASS`);
-    - Terminal loop receipt `RLR-c48db106e75a` emitted with status `VERIFIED_AFTER_REPAIR`, preliminary verdict `VERIFIED`, `is_causally_verified=True`, `grants_pass=True`, `is_authoritative=False` (zero verdict authority invariant);
-    - Cryptographic receipt digest: `5bbc44191e000921431ada3747f88c8dbc71f923ce32792ee6b13802ad46cfb6`;
-    - Bound to exact Basebreak implementation SHA: `2dd845654eecd467bd34731fff9f2120c2a61fcc`;
+    - Initial candidate Candidate 0 failed exit 1 with AssertionError (`sbx-a556a6b6518a424b`);
+    - Verifier extracted execution-derived safe failure feedback (`ca1fbe377fab8b2e620336f991810e29eb338a48472e52d6233707fa1bfc53ae`, derived from exit code 1 and error facts, traceable origin, zero hidden witness code disclosed, zero counterexample fabrication);
+    - Real Nemotron model client (`nvidia/Nemotron-3_5-Lightning`, request `chatcmpl-8576f870`, 1442 tokens, 3.45s) received only permitted context, passed mechanical secrecy checks, and produced verified python repair for `src/demo_target/cli.py`;
+    - Builder materialized Candidate 1 (`cand-live-repaired-r1-e2de3a8d`, lineage `bcafd711e149628ca8397d4483079f348cae71ba82a5d8554edaccd416fc0843`, patch `2d5dc4640352458323e973643e3a2215ec61d7a5a40996ba08a85516b625536e`, tree `31f7ab50a5e0da6da9160ce47bdc5daf71072216`);
+    - Fresh disposable verifier sandbox (`sbx-0c743ca733104380` distinct from `sbx-a556a6b6518a424b`, fail-closed pre-execution sandbox budget checked) executed sealed witness -> Exit 0 (`WITNESS_PASS`);
+    - Terminal loop receipt `RLR-bbff0b7675cb` emitted with status `VERIFIED_AFTER_REPAIR`, preliminary verdict `VERIFIED`, `is_causally_verified=True`, `grants_pass=True`, `is_authoritative=False` (zero verdict authority invariant);
+    - Cryptographic receipt digest: `4e99428941d9e4e46baba39f9a1872f59e69c868298e7e80caca459f5876870e`;
+    - Bound to exact Basebreak implementation SHA: `dcfa538459340ae5adbd0e001ecf5aaa87971fb5`;
     - Documented in `docs/P14_LIVE_CLOSURE_PROOF.md`;
   - P-14 batch is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-15+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
 `0045ad89394758bb6c128b846945f2e7e8b2b955` (independently VERIFIED / PASS at P-13 closure).
-Last fresh live-tested implementation SHA: `2dd845654eecd467bd34731fff9f2120c2a61fcc`.
+Last fresh live-tested implementation SHA: `dcfa538459340ae5adbd0e001ecf5aaa87971fb5`.
 
 ## Blocking live gate vs active task
 
