@@ -9,6 +9,20 @@ and budget-capped repair loop orchestration.
 
 from __future__ import annotations
 
+from basebreak.repair.context import (
+    BuilderRepairContextEnvelope,
+    BuilderRepairContextError,
+    RepairContextBudgetExceededError,
+    RepairContextMismatchedCandidateError,
+    RepairContextMismatchedContractError,
+    RepairContextProtectedSurfaceError,
+    RepairContextTamperingError,
+    VerifierStateLeakError,
+    build_canonical_repair_context_payload,
+    compute_repair_context_digest,
+    create_builder_repair_context,
+    verify_builder_repair_context_integrity,
+)
 from basebreak.repair.feedback import (
     DisclosureClassification,
     FailureConditionCategory,
@@ -31,10 +45,17 @@ from basebreak.repair.sanitizer import (
 )
 
 __all__: list[str] = [
+    "BuilderRepairContextEnvelope",
+    "BuilderRepairContextError",
     "DisclosureClassification",
     "DisclosureSanitizer",
     "DisclosureSanitizerError",
     "FailureConditionCategory",
+    "RepairContextBudgetExceededError",
+    "RepairContextMismatchedCandidateError",
+    "RepairContextMismatchedContractError",
+    "RepairContextProtectedSurfaceError",
+    "RepairContextTamperingError",
     "RepairFeedbackAuthorityError",
     "RepairFeedbackDisclosureError",
     "RepairFeedbackError",
@@ -43,8 +64,13 @@ __all__: list[str] = [
     "SafeRepairFeedback",
     "SanitizedCounterexample",
     "UnsafeDisclosureError",
+    "VerifierStateLeakError",
+    "build_canonical_repair_context_payload",
     "build_canonical_repair_feedback_payload",
+    "compute_repair_context_digest",
     "compute_repair_feedback_digest",
+    "create_builder_repair_context",
     "create_safe_repair_feedback",
+    "verify_builder_repair_context_integrity",
     "verify_repair_feedback_integrity",
 ]
