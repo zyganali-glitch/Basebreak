@@ -24,9 +24,16 @@ from basebreak.repair.feedback import (
     create_safe_repair_feedback,
     verify_repair_feedback_integrity,
 )
+from basebreak.repair.sanitizer import (
+    DisclosureSanitizer,
+    DisclosureSanitizerError,
+    UnsafeDisclosureError,
+)
 
 __all__: list[str] = [
     "DisclosureClassification",
+    "DisclosureSanitizer",
+    "DisclosureSanitizerError",
     "FailureConditionCategory",
     "RepairFeedbackAuthorityError",
     "RepairFeedbackDisclosureError",
@@ -35,6 +42,7 @@ __all__: list[str] = [
     "RepairFeedbackTamperingError",
     "SafeRepairFeedback",
     "SanitizedCounterexample",
+    "UnsafeDisclosureError",
     "build_canonical_repair_feedback_payload",
     "compute_repair_feedback_digest",
     "create_safe_repair_feedback",
