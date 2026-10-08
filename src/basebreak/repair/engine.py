@@ -53,7 +53,9 @@ from basebreak.repair.context import (
 )
 from basebreak.repair.feedback import (
     FailedExecutionFacts,
+    RepairFeedbackError,
     derive_safe_repair_feedback,
+    is_dummy_or_invalid_digest,
 )
 from basebreak.repair.lineage import (
     CandidateIdentityReuseError,
@@ -159,7 +161,7 @@ def verify_clean_implementation_preflight(repo_root: Path | str | None = None) -
     dirty_lines = [
         line.strip()
         for line in raw_status.splitlines()
-        if line.strip() and not line.strip().endswith(".env")
+        if line.strip()
     ]
     if dirty_lines:
         raise CleanImplementationError(
@@ -515,18 +517,181 @@ def run_sealed_repair_loop(
     feedback_digests: list[str] = []
     reproduction_receipt_digests: list[str] = []
 
+    # Deterministic fail-closed validation of initial failed-execution facts (DEFECT 1)
+    if initial_failure_facts is None:
+        return create_repair_loop_receipt(
+            repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+            initial_candidate_id=initial_candidate.candidate_id,
+            initial_patch_digest=initial_candidate.patch_digest,
+            initial_tree_digest=initial_candidate.candidate_tree_digest,
+            final_candidate_id=None,
+            final_patch_digest=None,
+            final_tree_digest=None,
+            status=RepairLoopStatus.INCONCLUSIVE,
+            preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+            is_causally_verified=False,
+            grants_pass=False,
+            total_rounds=0,
+            lineage_digests=lineage_digests,
+            feedback_digests=feedback_digests,
+            reproduction_receipt_digests=reproduction_receipt_digests,
+            counters=counters.to_dict(),
+            failure_reason=(
+                "Missing initial failure facts: repair loop requires verified failed-execution "
+                "evidence before issuing repair feedback or invoking Builder"
+            ),
+            provenance=provenance,
+        )
+
+    if not isinstance(initial_failure_facts, FailedExecutionFacts):
+        return create_repair_loop_receipt(
+            repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+            initial_candidate_id=initial_candidate.candidate_id,
+            initial_patch_digest=initial_candidate.patch_digest,
+            initial_tree_digest=initial_candidate.candidate_tree_digest,
+            final_candidate_id=None,
+            final_patch_digest=None,
+            final_tree_digest=None,
+            status=RepairLoopStatus.INCONCLUSIVE,
+            preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+            is_causally_verified=False,
+            grants_pass=False,
+            total_rounds=0,
+            lineage_digests=lineage_digests,
+            feedback_digests=feedback_digests,
+            reproduction_receipt_digests=reproduction_receipt_digests,
+            counters=counters.to_dict(),
+            failure_reason=(
+                f"Malformed initial failure facts: expected FailedExecutionFacts, "
+                f"got {type(initial_failure_facts).__name__}"
+            ),
+            provenance=provenance,
+        )
+
+    if is_dummy_or_invalid_digest(originating_receipt_digest):
+        return create_repair_loop_receipt(
+            repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+            initial_candidate_id=initial_candidate.candidate_id,
+            initial_patch_digest=initial_candidate.patch_digest,
+            initial_tree_digest=initial_candidate.candidate_tree_digest,
+            final_candidate_id=None,
+            final_patch_digest=None,
+            final_tree_digest=None,
+            status=RepairLoopStatus.INCONCLUSIVE,
+            preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+            is_causally_verified=False,
+            grants_pass=False,
+            total_rounds=0,
+            lineage_digests=lineage_digests,
+            feedback_digests=feedback_digests,
+            reproduction_receipt_digests=reproduction_receipt_digests,
+            counters=counters.to_dict(),
+            failure_reason=(
+                f"Missing or invalid originating_receipt_digest: {originating_receipt_digest!r}; "
+                "repair loop requires a genuine traceable execution digest"
+            ),
+            provenance=provenance,
+        )
+
+    assert originating_receipt_digest is not None
+
+    if (
+        initial_failure_facts.execution_digest is not None
+        and initial_failure_facts.execution_digest != originating_receipt_digest
+    ):
+        return create_repair_loop_receipt(
+            repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+            initial_candidate_id=initial_candidate.candidate_id,
+            initial_patch_digest=initial_candidate.patch_digest,
+            initial_tree_digest=initial_candidate.candidate_tree_digest,
+            final_candidate_id=None,
+            final_patch_digest=None,
+            final_tree_digest=None,
+            status=RepairLoopStatus.INCONCLUSIVE,
+            preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+            is_causally_verified=False,
+            grants_pass=False,
+            total_rounds=0,
+            lineage_digests=lineage_digests,
+            feedback_digests=feedback_digests,
+            reproduction_receipt_digests=reproduction_receipt_digests,
+            counters=counters.to_dict(),
+            failure_reason=(
+                f"Mismatched execution identity: initial_failure_facts.execution_digest "
+                f"({initial_failure_facts.execution_digest!r}) != originating_receipt_digest "
+                f"({originating_receipt_digest!r})"
+            ),
+            provenance=provenance,
+        )
+
+    if (
+        initial_candidate.sandbox_identity is not None
+        and initial_failure_facts.sandbox_id is not None
+        and initial_candidate.sandbox_identity.sandbox_id != initial_failure_facts.sandbox_id
+    ):
+        return create_repair_loop_receipt(
+            repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+            initial_candidate_id=initial_candidate.candidate_id,
+            initial_patch_digest=initial_candidate.patch_digest,
+            initial_tree_digest=initial_candidate.candidate_tree_digest,
+            final_candidate_id=None,
+            final_patch_digest=None,
+            final_tree_digest=None,
+            status=RepairLoopStatus.INCONCLUSIVE,
+            preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+            is_causally_verified=False,
+            grants_pass=False,
+            total_rounds=0,
+            lineage_digests=lineage_digests,
+            feedback_digests=feedback_digests,
+            reproduction_receipt_digests=reproduction_receipt_digests,
+            counters=counters.to_dict(),
+            failure_reason=(
+                f"Mismatched sandbox identity: "
+                f"initial_candidate.sandbox_identity.sandbox_id "
+                f"({initial_candidate.sandbox_identity.sandbox_id!r}) != "
+                f"initial_failure_facts.sandbox_id ({initial_failure_facts.sandbox_id!r})"
+            ),
+            provenance=provenance,
+        )
+
+    if (
+        initial_failure_facts.exit_code == 0
+        and not (
+            initial_failure_facts.deterministic_failure_justification
+            and initial_failure_facts.deterministic_failure_justification.strip()
+        )
+    ):
+        return create_repair_loop_receipt(
+            repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+            initial_candidate_id=initial_candidate.candidate_id,
+            initial_patch_digest=initial_candidate.patch_digest,
+            initial_tree_digest=initial_candidate.candidate_tree_digest,
+            final_candidate_id=None,
+            final_patch_digest=None,
+            final_tree_digest=None,
+            status=RepairLoopStatus.INCONCLUSIVE,
+            preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+            is_causally_verified=False,
+            grants_pass=False,
+            total_rounds=0,
+            lineage_digests=lineage_digests,
+            feedback_digests=feedback_digests,
+            reproduction_receipt_digests=reproduction_receipt_digests,
+            counters=counters.to_dict(),
+            failure_reason=(
+                "Initial execution facts indicate successful exit (exit_code=0) without "
+                "deterministic failure justification; cannot initiate repair loop for "
+                "successful execution"
+            ),
+            provenance=provenance,
+        )
+
     current_candidate = initial_candidate
-    current_receipt_digest = originating_receipt_digest or "0" * 64
-    current_failed_facts = initial_failure_facts or FailedExecutionFacts(
-        exit_code=1,
-        failure_message="Behavioral assertion failed during candidate execution",
-        sandbox_id=(
-            initial_candidate.sandbox_identity.sandbox_id
-            if initial_candidate.sandbox_identity
-            else None
-        ),
-        execution_digest=originating_receipt_digest or ("0" * 64),
-    )
+    current_receipt_digest = originating_receipt_digest
+    current_failed_facts = initial_failure_facts
+    if current_failed_facts.sandbox_id:
+        all_sandbox_ids.add(current_failed_facts.sandbox_id)
 
     final_candidate_id: str | None = None
     final_patch_digest: str | None = None
@@ -597,6 +762,27 @@ def run_sealed_repair_loop(
                 reproduction_receipt_digests=reproduction_receipt_digests,
                 counters=counters.to_dict(),
                 failure_reason=f"Unsafe disclosure detected in feedback extraction: {exc}",
+                provenance=provenance,
+            )
+        except RepairFeedbackError as exc:
+            return create_repair_loop_receipt(
+                repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+                initial_candidate_id=initial_candidate.candidate_id,
+                initial_patch_digest=initial_candidate.patch_digest,
+                initial_tree_digest=initial_candidate.candidate_tree_digest,
+                final_candidate_id=final_candidate_id,
+                final_patch_digest=final_patch_digest,
+                final_tree_digest=final_tree_digest,
+                status=RepairLoopStatus.INCONCLUSIVE,
+                preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+                is_causally_verified=False,
+                grants_pass=False,
+                total_rounds=round_idx - 1,
+                lineage_digests=lineage_digests,
+                feedback_digests=feedback_digests,
+                reproduction_receipt_digests=reproduction_receipt_digests,
+                counters=counters.to_dict(),
+                failure_reason=f"Repair feedback integrity violation: {exc}",
                 provenance=provenance,
             )
 

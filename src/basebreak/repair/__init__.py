@@ -55,6 +55,7 @@ from basebreak.repair.feedback import (
     compute_repair_feedback_digest,
     create_safe_repair_feedback,
     derive_safe_repair_feedback,
+    is_dummy_or_invalid_digest,
     verify_repair_feedback_integrity,
 )
 from basebreak.repair.lineage import (
@@ -153,6 +154,7 @@ __all__: list[str] = [
     "create_safe_repair_feedback",
     "derive_safe_repair_feedback",
     "execute_repaired_verifier_reproduction",
+    "is_dummy_or_invalid_digest",
     "run_sealed_repair_loop",
     "verify_builder_repair_context_integrity",
     "verify_candidate_lineage_integrity",

@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -41,11 +42,13 @@ from basebreak.repair.engine import (
 from basebreak.repair.feedback import (
     FailedExecutionFacts,
     FailureConditionCategory,
+    RepairFeedbackIntegrityError,
     derive_safe_repair_feedback,
 )
 from basebreak.repair.sanitizer import DisclosureSanitizer
 from basebreak.verifier.sandbox import VerifierSandboxManager
 from basebreak.verifier.witness_lock import ImmutableWitnessLock, create_witness_lock
+from basebreak.verifier.witness_result import WitnessOutcome
 from basebreak.verifier.witness_store import (
     SealedWitnessRecord,
     TrustedWitnessVault,
@@ -67,6 +70,15 @@ R1_PATCH_DIGEST = compute_bytes_digest(R1_PATCH.encode("utf-8")).value
 R2_TREE = "2222222222222222222222222222222222222222"
 R2_PATCH = "diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-1\n+4\n"
 R2_PATCH_DIGEST = compute_bytes_digest(R2_PATCH.encode("utf-8")).value
+
+ORIGINATING_C0_DIGEST = compute_bytes_digest(b"candidate-00-execution-record").value
+INITIAL_FAILED_FACTS = FailedExecutionFacts(
+    exit_code=1,
+    failure_message="AssertionError: stdout was not empty when --quiet was passed",
+    sandbox_id="sbx-c0-initial",
+    execution_digest=ORIGINATING_C0_DIGEST,
+    condition_category=FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED,
+)
 
 
 @dataclass
@@ -201,6 +213,7 @@ def _make_fixture_chain() -> tuple[
         builder_authored_tests=(),
         frozen_contract_digest=contract_digest,
         context_digest="0" * 64,
+        sandbox_identity=SandboxIdentity(sandbox_id="sbx-c0-initial"),
         provenance=EvidenceProvenance.LOCAL_EXECUTION,
     )
 
@@ -241,6 +254,9 @@ def test_repair_loop_success_on_round_1() -> None:
         materializer=materializer,
         execution_command="pytest tests/test_witness.py",
         budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
     )
 
     assert receipt.status == RepairLoopStatus.VERIFIED_AFTER_REPAIR
@@ -302,6 +318,9 @@ def test_repair_loop_success_on_round_2() -> None:
         materializer=materializer,
         execution_command="pytest tests/test_witness.py",
         budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
     )
 
     assert receipt.status == RepairLoopStatus.VERIFIED_AFTER_REPAIR
@@ -351,6 +370,9 @@ def test_repair_budget_exhausted_rounds() -> None:
         materializer=materializer,
         execution_command="pytest tests/test_witness.py",
         budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
     )
 
     assert receipt.status == RepairLoopStatus.REPAIR_BUDGET_EXHAUSTED
@@ -396,6 +418,9 @@ def test_repair_stagnation_no_progress() -> None:
         materializer=materializer,
         execution_command="pytest tests/test_witness.py",
         budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
     )
 
     assert receipt.status == RepairLoopStatus.REPAIR_NO_PROGRESS
@@ -439,6 +464,9 @@ def test_repair_invalid_candidate_protected_surface() -> None:
         materializer=materializer,
         execution_command="pytest tests/test_witness.py",
         budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
     )
 
     assert receipt.status == RepairLoopStatus.REPAIR_INVALID_CANDIDATE
@@ -485,6 +513,9 @@ def test_repair_invalid_candidate_self_certification() -> None:
         materializer=materializer,
         execution_command="pytest tests/test_witness.py",
         budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
     )
 
     assert receipt.status == RepairLoopStatus.REPAIR_INVALID_CANDIDATE
@@ -514,6 +545,9 @@ def test_repair_infra_failure_builder_crash() -> None:
         materializer=materializer,
         execution_command="pytest tests/test_witness.py",
         budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
     )
 
     assert receipt.status == RepairLoopStatus.REPAIR_INFRA_FAILURE
@@ -596,7 +630,7 @@ def test_derive_safe_repair_feedback_from_execution_facts() -> None:
         change_class=ChangeClass.BUG_FIX,
         failed_facts=facts,
         sanitizer=san,
-        originating_receipt_digest="0" * 64,
+        originating_receipt_digest="a" * 64,
         feedback_round=1,
         permitted_patch_region=["a.py"],
         provenance=EvidenceProvenance.LOCAL_EXECUTION,
@@ -733,6 +767,7 @@ def test_repair_loop_multi_round_execution_derived_feedback() -> None:
     initial_facts = FailedExecutionFacts(
         exit_code=42,
         failure_message="Initial defect reproduced",
+        sandbox_id="sbx-c0-initial",
         execution_digest="e" * 64,
     )
 
@@ -748,7 +783,9 @@ def test_repair_loop_multi_round_execution_derived_feedback() -> None:
         materializer=materializer,
         execution_command="pytest tests/test_witness.py",
         budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest="e" * 64,
         initial_failure_facts=initial_facts,
+        prior_sandbox_ids=["sbx-c0-initial"],
     )
 
     assert receipt.status == RepairLoopStatus.VERIFIED_AFTER_REPAIR
@@ -807,6 +844,9 @@ def test_repair_sandbox_budget_exhausted_pre_execution_gate() -> None:
         execution_command="pytest tests/test_witness.py",
         budget=budget,
         counters=counters,
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
     )
 
     assert receipt.status == RepairLoopStatus.REPAIR_BUDGET_EXHAUSTED
@@ -859,6 +899,9 @@ def test_repair_sandbox_budget_exhausted_multi_round() -> None:
         materializer=materializer,
         execution_command="pytest tests/test_witness.py",
         budget=budget,
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
     )
 
     assert receipt.status == RepairLoopStatus.REPAIR_BUDGET_EXHAUSTED
@@ -906,6 +949,9 @@ def test_repair_sandbox_budget_in_budget_success() -> None:
         materializer=materializer,
         execution_command="pytest tests/test_witness.py",
         budget=budget,
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
     )
 
     assert receipt.status == RepairLoopStatus.VERIFIED_AFTER_REPAIR
@@ -1011,3 +1057,381 @@ def test_clean_implementation_preflight_untracked_fails() -> None:
 
         with pytest.raises(CleanImplementationError, match="Dirty working tree state detected"):
             verify_clean_implementation_preflight(repo)
+
+
+def test_clean_implementation_preflight_dirty_tracked_env_fails() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"], cwd=repo, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        env_file = repo / ".env"
+        env_file.write_text("API_KEY=initial_value\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".env"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "track .env"], cwd=repo, check=True, capture_output=True
+        )
+
+        # Modify tracked .env
+        env_file.write_text("API_KEY=modified_value\n", encoding="utf-8")
+
+        with pytest.raises(CleanImplementationError, match="Dirty working tree state detected"):
+            verify_clean_implementation_preflight(repo)
+
+
+def test_clean_implementation_preflight_staged_env_fails() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"], cwd=repo, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        (repo / "file.txt").write_text("initial\n", encoding="utf-8")
+        subprocess.run(["git", "add", "file.txt"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+
+        # Stage a new .env file
+        (repo / ".env").write_text("SECRET=123\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".env"], cwd=repo, check=True, capture_output=True)
+
+        with pytest.raises(CleanImplementationError, match="Dirty working tree state detected"):
+            verify_clean_implementation_preflight(repo)
+
+
+def test_clean_implementation_preflight_untracked_non_ignored_env_fails() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"], cwd=repo, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        (repo / "file.txt").write_text("initial\n", encoding="utf-8")
+        subprocess.run(["git", "add", "file.txt"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+
+        # Create untracked .env without .gitignore
+        (repo / ".env").write_text("UNTRACKED_SECRET=abc\n", encoding="utf-8")
+
+        with pytest.raises(CleanImplementationError, match="Dirty working tree state detected"):
+            verify_clean_implementation_preflight(repo)
+
+
+def test_clean_implementation_preflight_clean_ignored_credentials() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"], cwd=repo, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        # Commit .gitignore ignoring .env
+        (repo / ".gitignore").write_text(".env\n", encoding="utf-8")
+        (repo / "file.txt").write_text("initial\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "add", ".gitignore", "file.txt"], cwd=repo, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "init with gitignore"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+
+        # Place local .env outside tracked tree, ignored by git
+        (repo / ".env").write_text("NEBIUS_API_KEY=real_local_key\n", encoding="utf-8")
+
+        # Must succeed without error because git status --porcelain is clean
+        sha = verify_clean_implementation_preflight(repo)
+        assert len(sha) in (40, 64)
+
+
+# =============================================================================
+# DEFECT 1 REGRESSION TESTS: Initial failure evidence fail-closed
+# =============================================================================
+
+
+def test_repair_loop_missing_initial_facts_fails_closed() -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    adapter = ScriptableSandboxAdapter([0])
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+
+    def builder_fn(ctx: BuilderRepairContextEnvelope) -> CandidateSnapshot:
+        raise AssertionError("Builder should not be called when initial facts are missing")
+
+    # 1. Missing initial_failure_facts
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=builder_fn,
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=None,
+    )
+    assert receipt.status == RepairLoopStatus.INCONCLUSIVE
+    assert receipt.preliminary_verdict == PreliminaryVerdict.INCONCLUSIVE
+    assert receipt.grants_pass is False
+    assert receipt.total_rounds == 0
+    assert "Missing initial failure facts" in (receipt.failure_reason or "")
+
+    # 2. Missing originating_receipt_digest
+    receipt2 = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=builder_fn,
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=None,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+    )
+    assert receipt2.status == RepairLoopStatus.INCONCLUSIVE
+    assert receipt2.grants_pass is False
+    assert receipt2.total_rounds == 0
+    assert "Missing or invalid originating_receipt_digest" in (receipt2.failure_reason or "")
+
+    # 3. Dummy originating_receipt_digest
+    receipt3 = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=builder_fn,
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest="0" * 64,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+    )
+    assert receipt3.status == RepairLoopStatus.INCONCLUSIVE
+    assert receipt3.grants_pass is False
+    assert receipt3.total_rounds == 0
+
+
+def test_failed_execution_facts_rejects_successful_execution() -> None:
+    # 1. Direct constructor with exit_code=0 without justification
+    with pytest.raises(RepairFeedbackIntegrityError, match="exit_code=0 cannot be accepted"):
+        FailedExecutionFacts(
+            exit_code=0,
+            failure_message="",
+            sandbox_id="sbx-test",
+            execution_digest="a" * 64,
+        )
+
+    # 2. from_execution with exit_code=0 without justification
+    with pytest.raises(RepairFeedbackIntegrityError, match="successful execution"):
+        FailedExecutionFacts.from_execution(
+            exit_code=0,
+            failure_indicator="Nothing failed",
+            sandbox_id="sbx-test",
+            execution_digest="a" * 64,
+        )
+
+    # 3. from_witness_result with outcome=PASS
+    witness_pass = SimpleNamespace(
+        witness_id="wit-test",
+        sandbox_id="sbx-test",
+        exit_code=0,
+        outcome=WitnessOutcome.PASS,
+        result_digest="b" * 64,
+    )
+    with pytest.raises(RepairFeedbackIntegrityError, match="successful witness result"):
+        FailedExecutionFacts.from_witness_result(witness_pass)
+
+    # 4. from_reproduction_receipt with grants_pass=True
+    receipt_pass = SimpleNamespace(
+        receipt_id="RVR-test-pass",
+        repaired_candidate_id="cand-test",
+        sandbox_id="sbx-test",
+        exit_code=0,
+        witness_outcome=WitnessOutcome.PASS,
+        preliminary_verdict=PreliminaryVerdict.VERIFIED,
+        is_causally_verified=True,
+        grants_pass=True,
+        duration_seconds=1.0,
+        receipt_digest="c" * 64,
+    )
+    with pytest.raises(RepairFeedbackIntegrityError, match="passing reproduction receipt"):
+        FailedExecutionFacts.from_reproduction_receipt(receipt_pass)
+
+
+def test_failed_execution_facts_exit_code_zero_with_deterministic_failure() -> None:
+    # Deterministic failure justification allows exit_code=0
+    facts = FailedExecutionFacts(
+        exit_code=0,
+        failure_message="Exit 0 but behavioral invariant violated",
+        sandbox_id="sbx-test",
+        execution_digest="d" * 64,
+        deterministic_failure_justification="Silent failure: output contained forbidden token",
+    )
+    assert facts.exit_code == 0
+    assert facts.deterministic_failure_justification is not None
+
+    san = DisclosureSanitizer()
+    fb = derive_safe_repair_feedback(
+        candidate_id="cand-01",
+        requirement_id="REQ-01",
+        change_class=ChangeClass.BUG_FIX,
+        failed_facts=facts,
+        sanitizer=san,
+        originating_receipt_digest="d" * 64,
+        feedback_round=1,
+        permitted_patch_region=["a.py"],
+        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+    )
+    assert "Silent failure" in fb.observed_behavior
+    assert fb.originating_receipt_digest == "d" * 64
+
+
+def test_repair_loop_incomplete_or_mismatched_execution_identity_fails_closed() -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    adapter = ScriptableSandboxAdapter([0])
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+
+    def builder_fn(ctx: BuilderRepairContextEnvelope) -> CandidateSnapshot:
+        raise AssertionError("Builder should not be called on identity mismatch")
+
+    # 1. Digest mismatch: initial_failure_facts.execution_digest != originating_receipt_digest
+    mismatched_facts = FailedExecutionFacts(
+        exit_code=1,
+        failure_message="Error",
+        sandbox_id="sbx-c0-initial",
+        execution_digest="1" * 64,
+    )
+    receipt1 = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=builder_fn,
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest="2" * 64,
+        initial_failure_facts=mismatched_facts,
+    )
+    assert receipt1.status == RepairLoopStatus.INCONCLUSIVE
+    assert "Mismatched execution identity" in (receipt1.failure_reason or "")
+
+    # 2. Sandbox mismatch: initial_cand.sandbox_identity != initial_failure_facts.sandbox_id
+    mismatched_sbx_facts = FailedExecutionFacts(
+        exit_code=1,
+        failure_message="Error",
+        sandbox_id="sbx-different",
+        execution_digest=ORIGINATING_C0_DIGEST,
+    )
+    receipt2 = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=builder_fn,
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=mismatched_sbx_facts,
+    )
+    assert receipt2.status == RepairLoopStatus.INCONCLUSIVE
+    assert "Mismatched sandbox identity" in (receipt2.failure_reason or "")
+
+
+def test_repair_loop_failed_reproduction_feedback_across_multiple_rounds() -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    # 2 rounds of failure (exit 1, exit 1)
+    adapter = ScriptableSandboxAdapter([1, 1])
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+
+    captured_orig_digests: list[str] = []
+
+    def builder_fn(ctx: BuilderRepairContextEnvelope) -> CandidateSnapshot:
+        captured_orig_digests.append(ctx.repair_feedback.originating_receipt_digest)
+        tree = R1_TREE if ctx.repair_round == 1 else R2_TREE
+        patch = R1_PATCH if ctx.repair_round == 1 else R2_PATCH
+        p_digest = R1_PATCH_DIGEST if ctx.repair_round == 1 else R2_PATCH_DIGEST
+        return CandidateSnapshot(
+            candidate_id=f"cand-attempt-r{ctx.repair_round}",
+            source_identity=SAMPLE_SOURCE,
+            candidate_tree_digest=tree,
+            patch_digest=p_digest,
+            patch_text=patch,
+            files_added=(),
+            files_modified=("a.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=frozen_contract.contract_digest,
+            context_digest=ctx.repair_context_digest,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=builder_fn,
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
+    )
+
+    assert receipt.status == RepairLoopStatus.REPAIR_BUDGET_EXHAUSTED
+    assert len(captured_orig_digests) == 2
+    # Round 1 originated from initial receipt digest
+    assert captured_orig_digests[0] == ORIGINATING_C0_DIGEST
+    # Round 2 originated from Round 1's reproduction receipt digest
+    assert captured_orig_digests[1] == receipt.reproduction_receipt_digests[0]
+    assert captured_orig_digests[1] != ORIGINATING_C0_DIGEST
