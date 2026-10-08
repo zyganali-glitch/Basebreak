@@ -7,10 +7,10 @@
 - **Causal Slice Status**: `TESTED_NECESSARY_SUBSET`
 - **Search Completeness**: `EXHAUSTIVE_BOUNDED`
 - **Evidence Provenance**: `LIVE_NEBIUS`
-- **Verification Timestamp**: `2026-10-08T06:42:45.808984+00:00`
+- **Verification Timestamp**: `2026-10-08T07:29:51.804205+00:00`
 
 ## Verification Identity
-- **Basebreak Implementation SHA:** `9b0546359dfe5f46647d86ba4e71e404c3db2e1c`
+- **Basebreak Implementation SHA:** `ca2fe46867a83641c22c47375da966fc701d5878`
 - **Target Repository:** `https://github.com/zyganali-glitch/basebreak-demo-target.git`
 - **Target Base Commit:** `40ff923a134a21d8e357deb7a7988571cd396b56`
 - **Canonical Base Tree:** `f81f6faa0c7572f9941570bbce376fadc10f39a3`
@@ -36,9 +36,9 @@
 ### Evaluated Subsets in Real Nebius Sandboxes
 | Subset ID | Retained Hunks | Subtracted Hunks | Outcome | Exit Code | Sandbox ID | Execution Digest |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `subset-4ff1bdc5b` | 2 hunks | 0 hunks | `PASS` | `0` | `sbx-7587afad085f46d1` | `9c6dd852308efbf2...` |
-| `subset-bd0769cf7` | 1 hunks | 1 hunks | `PASS` | `0` | `sbx-e0050d80987948ff` | `6a3fa37948bf18af...` |
-| `subset-df86e7a1e` | 1 hunks | 1 hunks | `FAIL` | `1` | `sbx-d295b22c2da94a4a` | `0012d67da83fa79c...` |
+| `subset-4ff1bdc5b` | 2 hunks | 0 hunks | `PASS` | `0` | `sbx-b2d1317ce8d44f76` | `e8b1e3dbf3b1c989...` |
+| `subset-bd0769cf7` | 1 hunks | 1 hunks | `PASS` | `0` | `sbx-4e6f4c47e392468b` | `b2feb50275885876...` |
+| `subset-df86e7a1e` | 1 hunks | 1 hunks | `FAIL` | `1` | `sbx-96ebe259fa714734` | `c0b139d612c35ef9...` |
 
 ## Cryptographic Custody Chain (Unbroken Custody)
 | Artifact / Entity | Identifier / Digest |
@@ -46,11 +46,11 @@
 | Requirement ID | `REQ-6E7F6FF7` |
 | Frozen Contract | `c22049489f5832b20087356ae3983f26e3c2bd869b6693b6d7ee981d6fb48e9b` |
 | Witness ID | `wit-req-6e7f6ff7` |
-| Witness Seal | `e4c232de52d2f08626106bdc4a6861ae0d5880ad2a669d30aad01ed07b618e01` |
-| Witness Lock | `e4c232de52d2f08626106bdc4a6861ae0d5880ad2a669d30aad01ed07b618e01` |
+| Witness Seal | `345d138baebe5fdc2fa5b7b6bc0eac9fa6b34cecc517462d053becf0716567e0` |
+| Witness Lock | `345d138baebe5fdc2fa5b7b6bc0eac9fa6b34cecc517462d053becf0716567e0` |
 | Runtime Config Digest | `53082db901dbb22116c9f9b7b8a55c4681a80462c867e989cc2e78b9e5f47aa0` |
-| Selected Slice Digest | `3f05ef7f9cf2843c5ffa3d4785eacd5134d987273d2ab2c89bf4b4d9b6c6b527` |
-| **Causal Slice Receipt** | **`29be683bb805f77fb0a0c241a3622ec19d404a43acea54d89bb2718c5c4a3725`** |
+| Selected Slice Digest | `56f7d5c7972b4b13f202f76904b04c8b1bca4aae4ba03f9b037b6cd6077dd24b` |
+| **Causal Slice Receipt** | **`d75fa9e685cc5fddfa017c2fe58cb5079060d7a9e7961f702ac24df6a85f2016`** |
 
 ## Authority Boundary & Non-Self-Certification
 - **Authoritative**: `False`

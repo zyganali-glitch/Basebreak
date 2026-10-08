@@ -87,13 +87,13 @@ Judge claim:
   - `ExecutionCacheKey`, store, lookup, and entries strictly bind deterministic `runtime_config_digest`;
   - `create_causal_slice_receipt_from_result` mechanically derives authentic receipts directly from `result.evaluated_subsets`; caller-invented sequences forbidden;
   - Comprehensive adversarial test suite in `tests/causal/test_p12_adversarial.py` (42 tests, cases A through O);
-  - Fresh LIVE_NEBIUS demonstration executed against real Nebius Token Factory Sandboxes: BASE=FAIL, FULL=PASS, IRRELEVANT=FAIL, CAUSAL=PASS; genuine proof in `docs/P12_LIVE_CLOSURE_PROOF.md`; receipt `29be683bb805f77fb0a0c241a3622ec19d404a43acea54d89bb2718c5c4a3725`;
+  - Fresh LIVE_NEBIUS demonstration executed against real Nebius Token Factory Sandboxes: BASE=FAIL, FULL=PASS, IRRELEVANT=FAIL, CAUSAL=PASS; genuine proof in `docs/P12_LIVE_CLOSURE_PROOF.md`; receipt `d75fa9e685cc5fddfa017c2fe58cb5079060d7a9e7961f702ac24df6a85f2016`; bound to implementation SHA `ca2fe46867a83641c22c47375da966fc701d5878`;
   - P-12 batch is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-13+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
 `b8164588c560b12a2599238f05632eb33441a4d0` (independently VERIFIED / PASS at P-12.01).
-Last fresh live-tested implementation SHA: `9b0546359dfe5f46647d86ba4e71e404c3db2e1c`.
+Last fresh live-tested implementation SHA: `ca2fe46867a83641c22c47375da966fc701d5878`.
 
 ## Blocking live gate vs active task
 
