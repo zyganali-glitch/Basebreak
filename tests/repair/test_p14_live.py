@@ -22,6 +22,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import dotenv
 import pytest
 
 from basebreak.adapters.nebius.client import (
@@ -110,6 +111,13 @@ def _make_bug_fix_contract(req_id: str = "REQ-P14-REPAIR-01") -> FrozenContract:
 @pytest.mark.live
 def test_p14_live_sealed_repair_loop() -> None:
     """Execute end-to-end sealed repair loop demonstration in Nebius Token Factory Sandboxes."""
+    env_file = Path(".env")
+    if env_file.is_file():
+        try:
+            dotenv.load_dotenv(dotenv_path=env_file)
+        except Exception:
+            pass
+
     api_key = os.environ.get("NEBIUS_API_KEY")
     if not api_key:
         pytest.skip("NEBIUS_API_KEY not configured for live test")
