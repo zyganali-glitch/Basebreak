@@ -27,20 +27,58 @@ from basebreak.verifier.vacuity import VacuityCheckResult
 from basebreak.verifier.witness_result import WitnessOutcome
 
 
+class ChangeClassMismatchError(Exception):
+    """Raised when verifier is invoked with a contract of mismatched change class."""
+
+
 class CausalTransition(str, Enum):
     """Normalized taxonomy of two-world causal behavioral transitions.
 
     Explicitly maps every permutation of BASE and CANDIDATE execution outcomes
-    and integrity conditions.
+    and integrity conditions across all canonical change classes.
     """
 
     # Sole positive causal transition for BUG_FIX
     CAUSAL_BUG_FIX_VERIFIED = "CAUSAL_BUG_FIX_VERIFIED"
 
-    # Non-verified behavioral outcomes
+    # Positive transitions for expanded canonical change classes
+    FEATURE_VERIFIED = "FEATURE_VERIFIED"
+    SECURITY_FIX_VERIFIED = "SECURITY_FIX_VERIFIED"
+    REFACTOR_VERIFIED = "REFACTOR_VERIFIED"
+    PERFORMANCE_VERIFIED = "PERFORMANCE_VERIFIED"
+    DEP_API_CHANGE_VERIFIED = "DEP_API_CHANGE_VERIFIED"
+
+    # Three-world causal triplet transition
+    CAUSAL_TRIPLET_VERIFIED = "CAUSAL_TRIPLET_VERIFIED"
+
+    # Non-verified behavioral outcomes - BUG_FIX
     UNVERIFIED_TRIVIAL_PASS = "UNVERIFIED_TRIVIAL_PASS"
     UNVERIFIED_DEFECT_PERSISTS = "UNVERIFIED_DEFECT_PERSISTS"
     UNVERIFIED_REGRESSION = "UNVERIFIED_REGRESSION"
+
+    # Non-verified behavioral outcomes - FEATURE (P-13.01)
+    UNVERIFIED_FEATURE_ALREADY_PRESENT = "UNVERIFIED_FEATURE_ALREADY_PRESENT"
+    UNVERIFIED_FEATURE_NOT_IMPLEMENTED = "UNVERIFIED_FEATURE_NOT_IMPLEMENTED"
+    UNVERIFIED_FEATURE_REGRESSION = "UNVERIFIED_FEATURE_REGRESSION"
+
+    # Non-verified behavioral outcomes - SECURITY_FIX (P-13.02)
+    UNVERIFIED_VULNERABILITY_NOT_REPRODUCED = "UNVERIFIED_VULNERABILITY_NOT_REPRODUCED"
+    UNVERIFIED_EXPLOIT_PERSISTS = "UNVERIFIED_EXPLOIT_PERSISTS"
+    UNVERIFIED_SECURITY_FIX_REGRESSION = "UNVERIFIED_SECURITY_FIX_REGRESSION"
+
+    # Non-verified behavioral outcomes - REFACTOR (P-13.03)
+    UNVERIFIED_BEHAVIOR_CHANGED = "UNVERIFIED_BEHAVIOR_CHANGED"
+    UNVERIFIED_EXIT_SEMANTICS_CHANGED = "UNVERIFIED_EXIT_SEMANTICS_CHANGED"
+    UNVERIFIED_BASE_FAILED = "UNVERIFIED_BASE_FAILED"
+
+    # Non-verified behavioral outcomes - PERFORMANCE (P-13.04)
+    UNVERIFIED_PERFORMANCE_PARITY_FAILED = "UNVERIFIED_PERFORMANCE_PARITY_FAILED"
+    UNVERIFIED_PERFORMANCE_DELTA_NOT_MET = "UNVERIFIED_PERFORMANCE_DELTA_NOT_MET"
+    UNVERIFIED_PERFORMANCE_NOISY_OR_INCONCLUSIVE = "UNVERIFIED_PERFORMANCE_NOISY_OR_INCONCLUSIVE"
+
+    # Non-verified behavioral outcomes - DEP_API_CHANGE (P-13.05)
+    UNVERIFIED_NEW_CONTRACT_FAILED = "UNVERIFIED_NEW_CONTRACT_FAILED"
+    UNVERIFIED_REGRESSION_DETECTED = "UNVERIFIED_REGRESSION_DETECTED"
 
     # Non-verified execution/infrastructure outcomes
     NON_VERIFIED_TIMEOUT = "NON_VERIFIED_TIMEOUT"
@@ -48,9 +86,9 @@ class CausalTransition(str, Enum):
     NON_VERIFIED_VACUOUS = "NON_VERIFIED_VACUOUS"
     NON_VERIFIED_INVALID_PRECONDITION = "NON_VERIFIED_INVALID_PRECONDITION"
     NON_VERIFIED_TAMPERING_OR_INTEGRITY_FAILURE = "NON_VERIFIED_TAMPERING_OR_INTEGRITY_FAILURE"
+    NON_VERIFIED_CRASH_OR_UNHANDLED_EXCEPTION = "NON_VERIFIED_CRASH_OR_UNHANDLED_EXCEPTION"
 
-    # Three-world causal triplet transitions
-    CAUSAL_TRIPLET_VERIFIED = "CAUSAL_TRIPLET_VERIFIED"
+    # Three-world causal triplet non-verified transitions
     UNVERIFIED_COUNTERFACTUAL_INEFFECTIVE = "UNVERIFIED_COUNTERFACTUAL_INEFFECTIVE"
     NON_VERIFIED_INVALID_COUNTERFACTUAL = "NON_VERIFIED_INVALID_COUNTERFACTUAL"
 
@@ -78,14 +116,19 @@ class ReconciliationFact:
         if not isinstance(self.rationale, str) or not self.rationale.strip():
             raise ValueError("rationale must be a non-empty string")
 
-        # Invariant: is_causally_verified iff transition is CAUSAL_BUG_FIX_VERIFIED
-        # or CAUSAL_TRIPLET_VERIFIED and verdict is VERIFIED
+        # Invariant: is_causally_verified iff transition is one of the canonical
+        # verified transitions and verdict is VERIFIED
+        positive_verified_transitions = (
+            CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            CausalTransition.CAUSAL_TRIPLET_VERIFIED,
+            CausalTransition.FEATURE_VERIFIED,
+            CausalTransition.SECURITY_FIX_VERIFIED,
+            CausalTransition.REFACTOR_VERIFIED,
+            CausalTransition.PERFORMANCE_VERIFIED,
+            CausalTransition.DEP_API_CHANGE_VERIFIED,
+        )
         expected_verified = (
-            self.transition
-            in (
-                CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
-                CausalTransition.CAUSAL_TRIPLET_VERIFIED,
-            )
+            self.transition in positive_verified_transitions
             and self.verdict == PreliminaryVerdict.VERIFIED
         )
         if self.is_causally_verified != expected_verified:
