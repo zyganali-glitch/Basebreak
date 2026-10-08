@@ -432,6 +432,7 @@ def run_sealed_repair_loop(
     provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
     counterfactual_check: bool = False,
     counterfactual_outcome: WitnessOutcome | None = None,
+    counters: RepairLoopCounters | None = None,
 ) -> RepairLoopReceipt:
     """Orchestrate a sealed repair loop within explicit budget ceilings.
 
@@ -442,7 +443,7 @@ def run_sealed_repair_loop(
     san = sanitizer or DisclosureSanitizer(
         known_witness_ids=(sealed_record.witness_id,),
     )
-    counters = RepairLoopCounters()
+    counters = counters if counters is not None else RepairLoopCounters()
 
     seen_patch_digests: set[str] = {initial_candidate.patch_digest}
     all_sandbox_ids: set[str] = set(prior_sandbox_ids or ())
@@ -617,6 +618,30 @@ def run_sealed_repair_loop(
                 reproduction_receipt_digests=reproduction_receipt_digests,
                 counters=counters.to_dict(),
                 failure_reason=f"Builder execution raised error: {exc}",
+                provenance=provenance,
+            )
+
+        if cfg.max_token_budget is not None and counters.tokens_used > cfg.max_token_budget:
+            return create_repair_loop_receipt(
+                repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+                initial_candidate_id=initial_candidate.candidate_id,
+                initial_patch_digest=initial_candidate.patch_digest,
+                initial_tree_digest=initial_candidate.candidate_tree_digest,
+                final_candidate_id=final_candidate_id,
+                final_patch_digest=final_patch_digest,
+                final_tree_digest=final_tree_digest,
+                status=RepairLoopStatus.REPAIR_BUDGET_EXHAUSTED,
+                preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+                is_causally_verified=False,
+                grants_pass=False,
+                total_rounds=round_idx - 1,
+                lineage_digests=lineage_digests,
+                feedback_digests=feedback_digests,
+                reproduction_receipt_digests=reproduction_receipt_digests,
+                counters=counters.to_dict(),
+                failure_reason=(
+                    f"Token budget exceeded ({counters.tokens_used} > {cfg.max_token_budget})"
+                ),
                 provenance=provenance,
             )
 
