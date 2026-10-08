@@ -20,6 +20,7 @@ from basebreak.causal.cache import (
 from basebreak.causal.minimizer import (
     BoundedSubsetMinimizer,
 )
+from basebreak.causal.slice import SubsetExecutionFact, create_subset_execution_fact
 from basebreak.domain.source import CommitRevision, SourceIdentity
 from basebreak.domain.verdict import EvidenceProvenance
 from basebreak.evidence.artifact import compute_bytes_digest
@@ -282,10 +283,15 @@ class TestMinimizerCacheIntegration:
         cache = DeterministicExecutionCache()
         call_count = 0
 
-        def mock_callback(sub: Any, sc: Any) -> WitnessOutcome:
+        def mock_callback(sub: Any, sc: Any) -> SubsetExecutionFact:
             nonlocal call_count
             call_count += 1
-            return WitnessOutcome.PASS
+            return create_subset_execution_fact(
+                subset=sub,
+                scope=sc,
+                outcome=WitnessOutcome.PASS,
+                exit_code=0,
+            )
 
         # Run 1: Cold cache -> calls callback
         minimizer1 = BoundedSubsetMinimizer(execution_callback=mock_callback, cache=cache)

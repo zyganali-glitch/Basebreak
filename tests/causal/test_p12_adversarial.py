@@ -36,6 +36,7 @@ Covers all 27 required adversarial and edge-case scenarios:
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any
 
 import pytest
 
@@ -62,15 +63,21 @@ from basebreak.causal.slice import (
     NonFormalProofDisclaimer,
     SliceAuthorityError,
     SliceIdentityMismatchError,
+    SliceScopeTamperingError,
     SliceSearchCompleteness,
+    SubsetExecutionFact,
     TestedPatchSubset,
+    compute_runtime_config_digest,
     create_bounded_causal_slice,
     create_causal_slice_scope,
+    create_subset_execution_fact,
 )
 from basebreak.causal.slice_receipt import (
     CausalSliceReceipt,
+    SliceReceiptIntegrityError,
     SliceReceiptTamperingError,
     create_causal_slice_receipt,
+    create_causal_slice_receipt_from_result,
 )
 from basebreak.causal.subtraction import (
     EmptySubtractionError,
@@ -166,6 +173,19 @@ def _make_snapshot(
     )
 
 
+def _make_fact(
+    sub: TestedPatchSubset,
+    scope: Any,
+    outcome: WitnessOutcome,
+) -> SubsetExecutionFact:
+    return create_subset_execution_fact(
+        subset=sub,
+        scope=scope,
+        outcome=outcome,
+        exit_code=0 if outcome == WitnessOutcome.PASS else 1,
+    )
+
+
 class TestP12AdversarialCoverage:
     """Complete 27-scenario adversarial and boundary verification suite for P-12."""
 
@@ -173,7 +193,7 @@ class TestP12AdversarialCoverage:
         """1. Candidate with 1 hunk: base failed, full candidate passes."""
         snap = _make_snapshot(SINGLE_HUNK_PATCH)
         minimizer = BoundedSubsetMinimizer(
-            execution_callback=lambda sub, scope: WitnessOutcome.PASS
+            execution_callback=lambda sub, scope: _make_fact(sub, scope, WitnessOutcome.PASS)
         )
         res = minimizer.minimize(
             snapshot=snap,
@@ -197,8 +217,12 @@ class TestP12AdversarialCoverage:
         h0 = units[0].hunk_id
         h1 = units[1].hunk_id
 
-        def eval_cb(sub: TestedPatchSubset, scope: object) -> WitnessOutcome:
-            return WitnessOutcome.PASS if h0 in sub.retained_hunk_ids else WitnessOutcome.FAIL
+        def eval_cb(sub: TestedPatchSubset, scope: object) -> SubsetExecutionFact:
+            return _make_fact(
+                sub,
+                scope,
+                WitnessOutcome.PASS if h0 in sub.retained_hunk_ids else WitnessOutcome.FAIL,
+            )
 
         minimizer = BoundedSubsetMinimizer(execution_callback=eval_cb)
         res = minimizer.minimize(
@@ -218,8 +242,12 @@ class TestP12AdversarialCoverage:
         """3. Candidate with 2 hunks: both hunks required together; neither passes alone."""
         snap = _make_snapshot(TWO_HUNK_PATCH)
 
-        def eval_cb(sub: TestedPatchSubset, scope: object) -> WitnessOutcome:
-            return WitnessOutcome.PASS if len(sub.retained_hunk_ids) == 2 else WitnessOutcome.FAIL
+        def eval_cb(sub: TestedPatchSubset, scope: object) -> SubsetExecutionFact:
+            return _make_fact(
+                sub,
+                scope,
+                WitnessOutcome.PASS if len(sub.retained_hunk_ids) == 2 else WitnessOutcome.FAIL,
+            )
 
         minimizer = BoundedSubsetMinimizer(execution_callback=eval_cb)
         res = minimizer.minimize(
@@ -238,8 +266,8 @@ class TestP12AdversarialCoverage:
         """4. Candidate with 2 hunks: Hunk 1 alone passes, Hunk 2 alone passes."""
         snap = _make_snapshot(TWO_HUNK_PATCH)
 
-        def eval_cb(sub: TestedPatchSubset, scope: object) -> WitnessOutcome:
-            return WitnessOutcome.PASS
+        def eval_cb(sub: TestedPatchSubset, scope: object) -> SubsetExecutionFact:
+            return _make_fact(sub, scope, WitnessOutcome.PASS)
 
         minimizer = BoundedSubsetMinimizer(execution_callback=eval_cb)
         res = minimizer.minimize(
@@ -259,15 +287,15 @@ class TestP12AdversarialCoverage:
         units = BoundedSubsetMinimizer.derive_patch_units(snap)
         h0, h1 = units[0].hunk_id, units[1].hunk_id
 
-        def eval_cb(sub: TestedPatchSubset, scope: object) -> WitnessOutcome:
+        def eval_cb(sub: TestedPatchSubset, scope: object) -> SubsetExecutionFact:
             retained = set(sub.retained_hunk_ids)
             if len(retained) == 3:
-                return WitnessOutcome.PASS
+                return _make_fact(sub, scope, WitnessOutcome.PASS)
             if retained in ({h0}, {h1}):
-                return WitnessOutcome.PASS
+                return _make_fact(sub, scope, WitnessOutcome.PASS)
             if retained == {h0, h1}:
-                return WitnessOutcome.FAIL
-            return WitnessOutcome.FAIL
+                return _make_fact(sub, scope, WitnessOutcome.FAIL)
+            return _make_fact(sub, scope, WitnessOutcome.FAIL)
 
         minimizer = BoundedSubsetMinimizer(execution_callback=eval_cb)
         res = minimizer.minimize(
@@ -286,15 +314,15 @@ class TestP12AdversarialCoverage:
         units = BoundedSubsetMinimizer.derive_patch_units(snap)
         h0, h1 = units[0].hunk_id, units[1].hunk_id
 
-        def eval_cb(sub: TestedPatchSubset, scope: object) -> WitnessOutcome:
+        def eval_cb(sub: TestedPatchSubset, scope: object) -> SubsetExecutionFact:
             retained = set(sub.retained_hunk_ids)
             if len(retained) == 3:
-                return WitnessOutcome.PASS
+                return _make_fact(sub, scope, WitnessOutcome.PASS)
             if retained in ({h0}, {h1}):
-                return WitnessOutcome.PASS
+                return _make_fact(sub, scope, WitnessOutcome.PASS)
             if retained == {h0, h1}:
-                return WitnessOutcome.FAIL
-            return WitnessOutcome.FAIL
+                return _make_fact(sub, scope, WitnessOutcome.FAIL)
+            return _make_fact(sub, scope, WitnessOutcome.FAIL)
 
         minimizer = BoundedSubsetMinimizer(execution_callback=eval_cb)
         res = minimizer.minimize(
@@ -313,7 +341,7 @@ class TestP12AdversarialCoverage:
         snap = _make_snapshot(THREE_HUNK_PATCH)
         budget = SliceSearchBudget(max_iterations=1, max_subsets_tested=1)
         minimizer = BoundedSubsetMinimizer(
-            execution_callback=lambda sub, scope: WitnessOutcome.PASS,
+            execution_callback=lambda sub, scope: _make_fact(sub, scope, WitnessOutcome.PASS),
             budget=budget,
         )
         res = minimizer.minimize(
@@ -331,10 +359,10 @@ class TestP12AdversarialCoverage:
         """8. Ambiguous bounded slice: proper subset encounters TIMEOUT/ERROR."""
         snap = _make_snapshot(TWO_HUNK_PATCH)
 
-        def eval_cb(sub: TestedPatchSubset, scope: object) -> WitnessOutcome:
+        def eval_cb(sub: TestedPatchSubset, scope: object) -> SubsetExecutionFact:
             if len(sub.retained_hunk_ids) == 2:
-                return WitnessOutcome.PASS
-            return WitnessOutcome.TIMEOUT
+                return _make_fact(sub, scope, WitnessOutcome.PASS)
+            return _make_fact(sub, scope, WitnessOutcome.TIMEOUT)
 
         minimizer = BoundedSubsetMinimizer(execution_callback=eval_cb)
         res = minimizer.minimize(
@@ -352,8 +380,12 @@ class TestP12AdversarialCoverage:
         """9. No reduction possible: every proper subset strictly fails under witness."""
         snap = _make_snapshot(THREE_HUNK_PATCH)
 
-        def eval_cb(sub: TestedPatchSubset, scope: object) -> WitnessOutcome:
-            return WitnessOutcome.PASS if len(sub.retained_hunk_ids) == 3 else WitnessOutcome.FAIL
+        def eval_cb(sub: TestedPatchSubset, scope: object) -> SubsetExecutionFact:
+            return _make_fact(
+                sub,
+                scope,
+                WitnessOutcome.PASS if len(sub.retained_hunk_ids) == 3 else WitnessOutcome.FAIL,
+            )
 
         minimizer = BoundedSubsetMinimizer(execution_callback=eval_cb)
         res = minimizer.minimize(
@@ -391,7 +423,7 @@ class TestP12AdversarialCoverage:
         """11. Counterfactual ERROR: full candidate encounters ERROR (ERROR != FAIL)."""
         snap = _make_snapshot(SINGLE_HUNK_PATCH)
         minimizer = BoundedSubsetMinimizer(
-            execution_callback=lambda sub, scope: WitnessOutcome.ERROR
+            execution_callback=lambda sub, scope: _make_fact(sub, scope, WitnessOutcome.ERROR)
         )
         res = minimizer.minimize(
             snapshot=snap,
@@ -407,7 +439,7 @@ class TestP12AdversarialCoverage:
         """12. Counterfactual TIMEOUT: full candidate encounters TIMEOUT (TIMEOUT != FAIL)."""
         snap = _make_snapshot(SINGLE_HUNK_PATCH)
         minimizer = BoundedSubsetMinimizer(
-            execution_callback=lambda sub, scope: WitnessOutcome.TIMEOUT
+            execution_callback=lambda sub, scope: _make_fact(sub, scope, WitnessOutcome.TIMEOUT)
         )
         res = minimizer.minimize(
             snapshot=snap,
@@ -735,6 +767,12 @@ class TestP12AdversarialCoverage:
             scope=scope,
             tested_subset=sub,
         )
+        fact = create_subset_execution_fact(
+            subset=sub,
+            scope=scope,
+            outcome=WitnessOutcome.PASS,
+            exit_code=0,
+        )
         receipt = create_causal_slice_receipt(
             requirement_id=REQ_ID,
             frozen_contract_digest=FROZEN_CONTRACT,
@@ -747,6 +785,9 @@ class TestP12AdversarialCoverage:
             candidate_patch_digest=snap.patch_digest,
             slice_artifact=slice_art,
             search_budget=SliceSearchBudget(),
+            completeness=slice_art.completeness,
+            execution_facts=(fact,),
+            tested_subsets=(sub,),
         )
 
         data = receipt.to_dict()
@@ -785,7 +826,7 @@ class TestP12AdversarialCoverage:
         """26. Discovering multiple minimal subsets prevents claiming unique minimality."""
         snap = _make_snapshot(TWO_HUNK_PATCH)
         minimizer = BoundedSubsetMinimizer(
-            execution_callback=lambda sub, scope: WitnessOutcome.PASS
+            execution_callback=lambda sub, scope: _make_fact(sub, scope, WitnessOutcome.PASS)
         )
         res = minimizer.minimize(
             snapshot=snap,
@@ -805,8 +846,12 @@ class TestP12AdversarialCoverage:
         units = BoundedSubsetMinimizer.derive_patch_units(snap)
         h0 = units[0].hunk_id
 
-        def eval_cb(sub: TestedPatchSubset, scope: object) -> WitnessOutcome:
-            return WitnessOutcome.PASS if h0 in sub.retained_hunk_ids else WitnessOutcome.FAIL
+        def eval_cb(sub: TestedPatchSubset, scope: object) -> SubsetExecutionFact:
+            return _make_fact(
+                sub,
+                scope,
+                WitnessOutcome.PASS if h0 in sub.retained_hunk_ids else WitnessOutcome.FAIL,
+            )
 
         minimizer_1 = BoundedSubsetMinimizer(execution_callback=eval_cb)
         res_1 = minimizer_1.minimize(
@@ -839,3 +884,555 @@ class TestP12AdversarialCoverage:
         assert [e.subset.subset_id for e in res_1.evaluated_subsets] == [
             e.subset.subset_id for e in res_2.evaluated_subsets
         ]
+
+
+class TestP12RepairAdversarialSuite:
+    """Focused adversarial tests A through O for P-12 surgical repair."""
+
+    def test_case_a_different_runtime_config_no_cache_reuse(self) -> None:
+        """A. Same subset/command but different runtime_config_digest => no cache reuse."""
+        snap = _make_snapshot(SINGLE_HUNK_PATCH)
+        scope = create_causal_slice_scope(
+            snapshot=snap,
+            frozen_contract_digest=FROZEN_CONTRACT,
+            sealed_witness_digest=SEALED_WITNESS,
+            requirement_id=REQ_ID,
+        )
+        parsed = parse_candidate_patch(SINGLE_HUNK_PATCH)
+        h0 = parsed.files[0].hunks[0].hunk_id
+        sub = create_tested_patch_subset_from_hunks(parsed, (h0,))
+
+        config_1 = compute_runtime_config_digest({"timeout_seconds": 30, "python": "3.11"})
+        config_2 = compute_runtime_config_digest({"timeout_seconds": 60, "python": "3.11"})
+        assert config_1 != config_2
+
+        cache = DeterministicExecutionCache()
+        entry = cache.store(
+            subset=sub,
+            scope=scope,
+            outcome=WitnessOutcome.PASS,
+            runtime_config_digest=config_1,
+            exit_code=0,
+        )
+        assert entry.key.runtime_config_digest == config_1
+
+        miss = cache.lookup(
+            subset=sub,
+            scope=scope,
+            runtime_config_digest=config_2,
+        )
+        assert miss.hit is False
+        assert miss.entry is None
+        assert miss.rejection_reason in (
+            CacheRejectionReason.MISSING_ENTRY,
+            CacheRejectionReason.RUNTIME_CONFIG_MISMATCH,
+        )
+
+    def test_case_b_caller_attempts_receipt_outcome_pass_while_real_record_fail(self) -> None:
+        """B. Caller attempts receipt PASS while real minimizer record is FAIL => rejected."""
+        snap = _make_snapshot(SINGLE_HUNK_PATCH)
+        minimizer = BoundedSubsetMinimizer(
+            execution_callback=lambda sub, scope: _make_fact(sub, scope, WitnessOutcome.FAIL)
+        )
+        res = minimizer.minimize(
+            snapshot=snap,
+            frozen_contract_digest=FROZEN_CONTRACT,
+            sealed_witness_digest=SEALED_WITNESS,
+            requirement_id=REQ_ID,
+            base_outcome=WitnessOutcome.FAIL,
+        )
+        assert res.status == CausalSliceStatus.INCONCLUSIVE_INTERACTION
+
+        scope = create_causal_slice_scope(
+            snapshot=snap,
+            frozen_contract_digest=FROZEN_CONTRACT,
+            sealed_witness_digest=SEALED_WITNESS,
+            requirement_id=REQ_ID,
+        )
+        parsed = parse_candidate_patch(SINGLE_HUNK_PATCH)
+        h0 = parsed.files[0].hunks[0].hunk_id
+        sub = create_tested_patch_subset_from_hunks(parsed, (h0,))
+        slice_art = create_bounded_causal_slice(
+            slice_id="slice-001",
+            scope=scope,
+            tested_subset=sub,
+            status=res.status,
+            completeness=res.completeness,
+        )
+        actual_fact = res.evaluated_subsets[0].execution_fact
+
+        with pytest.raises(
+            SliceIdentityMismatchError,
+            match=r"evaluated_outcomes\[0\] mismatch",
+        ):
+            create_causal_slice_receipt(
+                requirement_id=REQ_ID,
+                frozen_contract_digest=FROZEN_CONTRACT,
+                sealed_witness_digest=SEALED_WITNESS,
+                witness_id="wit-001",
+                source_locator=REPO_LOCATOR,
+                source_commit_id=BASE_COMMIT,
+                candidate_id=snap.candidate_id,
+                candidate_tree_digest=CAND_TREE,
+                candidate_patch_digest=snap.patch_digest,
+                slice_artifact=slice_art,
+                search_budget=res.search_budget,
+                completeness=res.completeness,
+                execution_facts=(actual_fact,),
+                tested_subsets=(sub,),
+                evaluated_outcomes=(WitnessOutcome.PASS,),
+            )
+
+    def test_case_c_caller_swaps_execution_records_between_two_subsets(self) -> None:
+        """C. Caller swaps execution records between two subsets => rejected."""
+        snap = _make_snapshot(TWO_HUNK_PATCH)
+        scope = create_causal_slice_scope(
+            snapshot=snap,
+            frozen_contract_digest=FROZEN_CONTRACT,
+            sealed_witness_digest=SEALED_WITNESS,
+            requirement_id=REQ_ID,
+        )
+        parsed = parse_candidate_patch(TWO_HUNK_PATCH)
+        h0 = parsed.files[0].hunks[0].hunk_id
+        h1 = parsed.files[0].hunks[1].hunk_id
+        sub_0 = create_tested_patch_subset_from_hunks(parsed, (h0,))
+        sub_1 = create_tested_patch_subset_from_hunks(parsed, (h1,))
+
+        fact_0 = create_subset_execution_fact(
+            subset=sub_0, scope=scope, outcome=WitnessOutcome.PASS, exit_code=0
+        )
+        fact_1 = create_subset_execution_fact(
+            subset=sub_1, scope=scope, outcome=WitnessOutcome.FAIL, exit_code=1
+        )
+
+        slice_art = create_bounded_causal_slice(
+            slice_id="slice-swap",
+            scope=scope,
+            tested_subset=sub_0,
+            status=CausalSliceStatus.TESTED_NECESSARY_SUBSET,
+            completeness=SliceSearchCompleteness.EXHAUSTIVE_BOUNDED,
+        )
+
+        with pytest.raises(SliceIdentityMismatchError, match=r"(?i)subset id mismatch"):
+            create_causal_slice_receipt(
+                requirement_id=REQ_ID,
+                frozen_contract_digest=FROZEN_CONTRACT,
+                sealed_witness_digest=SEALED_WITNESS,
+                witness_id="wit-001",
+                source_locator=REPO_LOCATOR,
+                source_commit_id=BASE_COMMIT,
+                candidate_id=snap.candidate_id,
+                candidate_tree_digest=CAND_TREE,
+                candidate_patch_digest=snap.patch_digest,
+                slice_artifact=slice_art,
+                search_budget=SliceSearchBudget(),
+                completeness=slice_art.completeness,
+                execution_facts=(fact_1, fact_0),
+                tested_subsets=(sub_0, sub_1),
+            )
+
+    def test_case_d_execution_fact_uses_different_sealed_witness(self) -> None:
+        """D. Execution fact uses different sealed witness => rejected."""
+        snap = _make_snapshot(SINGLE_HUNK_PATCH)
+        parsed = parse_candidate_patch(SINGLE_HUNK_PATCH)
+        h0 = parsed.files[0].hunks[0].hunk_id
+        sub = create_tested_patch_subset_from_hunks(parsed, (h0,))
+
+        tampered_scope = create_causal_slice_scope(
+            snapshot=snap,
+            frozen_contract_digest=FROZEN_CONTRACT,
+            sealed_witness_digest="9" * 64,
+            requirement_id=REQ_ID,
+        )
+        foreign_fact = create_subset_execution_fact(
+            subset=sub, scope=tampered_scope, outcome=WitnessOutcome.PASS, exit_code=0
+        )
+
+        minimizer = BoundedSubsetMinimizer(execution_callback=lambda _s, _sc: foreign_fact)
+        with pytest.raises(SliceIdentityMismatchError):
+            minimizer.minimize(
+                snapshot=snap,
+                frozen_contract_digest=FROZEN_CONTRACT,
+                sealed_witness_digest=SEALED_WITNESS,
+                requirement_id=REQ_ID,
+                base_outcome=WitnessOutcome.FAIL,
+            )
+
+    def test_case_e_execution_fact_uses_different_frozen_contract(self) -> None:
+        """E. Execution fact uses different frozen contract => rejected."""
+        snap = _make_snapshot(SINGLE_HUNK_PATCH)
+        parsed = parse_candidate_patch(SINGLE_HUNK_PATCH)
+        h0 = parsed.files[0].hunks[0].hunk_id
+        sub = create_tested_patch_subset_from_hunks(parsed, (h0,))
+
+        tampered_snap = _make_snapshot(SINGLE_HUNK_PATCH, frozen_contract="8" * 64)
+        tampered_scope = create_causal_slice_scope(
+            snapshot=tampered_snap,
+            frozen_contract_digest="8" * 64,
+            sealed_witness_digest=SEALED_WITNESS,
+            requirement_id=REQ_ID,
+        )
+        foreign_fact = create_subset_execution_fact(
+            subset=sub, scope=tampered_scope, outcome=WitnessOutcome.PASS, exit_code=0
+        )
+
+        minimizer = BoundedSubsetMinimizer(execution_callback=lambda _s, _sc: foreign_fact)
+        with pytest.raises(SliceIdentityMismatchError):
+            minimizer.minimize(
+                snapshot=snap,
+                frozen_contract_digest=FROZEN_CONTRACT,
+                sealed_witness_digest=SEALED_WITNESS,
+                requirement_id=REQ_ID,
+                base_outcome=WitnessOutcome.FAIL,
+            )
+
+    def test_case_f_execution_fact_uses_different_scope_or_subset_digest(self) -> None:
+        """F. Execution fact uses different scope/subset digest => rejected."""
+        snap = _make_snapshot(SINGLE_HUNK_PATCH)
+        parsed = parse_candidate_patch(SINGLE_HUNK_PATCH)
+        h0 = parsed.files[0].hunks[0].hunk_id
+        sub = create_tested_patch_subset_from_hunks(parsed, (h0,))
+        scope = create_causal_slice_scope(
+            snapshot=snap,
+            frozen_contract_digest=FROZEN_CONTRACT,
+            sealed_witness_digest=SEALED_WITNESS,
+            requirement_id=REQ_ID,
+        )
+        fact = create_subset_execution_fact(
+            subset=sub, scope=scope, outcome=WitnessOutcome.PASS, exit_code=0
+        )
+
+        with pytest.raises((SliceIdentityMismatchError, SliceScopeTamperingError)):
+            replace(fact, scope_digest="0" * 64)
+
+    def test_case_g_execution_fact_uses_different_candidate_or_tree_identity(self) -> None:
+        """G. Execution fact uses different candidate/tree identity => rejected."""
+        snap = _make_snapshot(SINGLE_HUNK_PATCH)
+        foreign_snap = _make_snapshot(SINGLE_HUNK_PATCH, candidate_id="cand-FOREIGN-999")
+        foreign_scope = create_causal_slice_scope(
+            snapshot=foreign_snap,
+            frozen_contract_digest=FROZEN_CONTRACT,
+            sealed_witness_digest=SEALED_WITNESS,
+            requirement_id=REQ_ID,
+        )
+        parsed = parse_candidate_patch(SINGLE_HUNK_PATCH)
+        h0 = parsed.files[0].hunks[0].hunk_id
+        sub = create_tested_patch_subset_from_hunks(parsed, (h0,))
+        foreign_fact = create_subset_execution_fact(
+            subset=sub, scope=foreign_scope, outcome=WitnessOutcome.PASS, exit_code=0
+        )
+
+        minimizer = BoundedSubsetMinimizer(execution_callback=lambda _s, _sc: foreign_fact)
+        with pytest.raises(SliceIdentityMismatchError):
+            minimizer.minimize(
+                snapshot=snap,
+                frozen_contract_digest=FROZEN_CONTRACT,
+                sealed_witness_digest=SEALED_WITNESS,
+                requirement_id=REQ_ID,
+                base_outcome=WitnessOutcome.FAIL,
+            )
+
+    def test_case_h_evaluated_subset_count_order_mismatch(self) -> None:
+        """H. Evaluated-subset count/order mismatch => rejected."""
+        snap = _make_snapshot(SINGLE_HUNK_PATCH)
+        scope = create_causal_slice_scope(
+            snapshot=snap,
+            frozen_contract_digest=FROZEN_CONTRACT,
+            sealed_witness_digest=SEALED_WITNESS,
+            requirement_id=REQ_ID,
+        )
+        parsed = parse_candidate_patch(SINGLE_HUNK_PATCH)
+        h0 = parsed.files[0].hunks[0].hunk_id
+        sub = create_tested_patch_subset_from_hunks(parsed, (h0,))
+        fact = create_subset_execution_fact(
+            subset=sub, scope=scope, outcome=WitnessOutcome.PASS, exit_code=0
+        )
+        slice_art = create_bounded_causal_slice(
+            slice_id="slice-001",
+            scope=scope,
+            tested_subset=sub,
+            status=CausalSliceStatus.TESTED_NECESSARY_SUBSET,
+            completeness=SliceSearchCompleteness.EXHAUSTIVE_BOUNDED,
+        )
+
+        with pytest.raises(
+            (SliceIdentityMismatchError, SliceReceiptIntegrityError), match="Count mismatch"
+        ):
+            create_causal_slice_receipt(
+                requirement_id=REQ_ID,
+                frozen_contract_digest=FROZEN_CONTRACT,
+                sealed_witness_digest=SEALED_WITNESS,
+                witness_id="wit-001",
+                source_locator=REPO_LOCATOR,
+                source_commit_id=BASE_COMMIT,
+                candidate_id=snap.candidate_id,
+                candidate_tree_digest=CAND_TREE,
+                candidate_patch_digest=snap.patch_digest,
+                slice_artifact=slice_art,
+                search_budget=SliceSearchBudget(),
+                completeness=slice_art.completeness,
+                execution_facts=(fact,),
+                tested_subsets=(sub, sub),
+            )
+
+        with pytest.raises(
+            (SliceIdentityMismatchError, SliceReceiptIntegrityError), match="Count mismatch"
+        ):
+            create_causal_slice_receipt(
+                requirement_id=REQ_ID,
+                frozen_contract_digest=FROZEN_CONTRACT,
+                sealed_witness_digest=SEALED_WITNESS,
+                witness_id="wit-001",
+                source_locator=REPO_LOCATOR,
+                source_commit_id=BASE_COMMIT,
+                candidate_id=snap.candidate_id,
+                candidate_tree_digest=CAND_TREE,
+                candidate_patch_digest=snap.patch_digest,
+                slice_artifact=slice_art,
+                search_budget=SliceSearchBudget(),
+                completeness=slice_art.completeness,
+                execution_facts=(fact,),
+                tested_subsets=(sub,),
+                evaluated_outcomes=(WitnessOutcome.PASS, WitnessOutcome.FAIL),
+            )
+
+    def test_case_i_receipt_status_differs_from_bounded_minimizer_result(self) -> None:
+        """I. Receipt status differs from BoundedMinimizerResult => rejected."""
+        snap = _make_snapshot(SINGLE_HUNK_PATCH)
+        minimizer = BoundedSubsetMinimizer(
+            execution_callback=lambda sub, scope: _make_fact(sub, scope, WitnessOutcome.PASS)
+        )
+        res = minimizer.minimize(
+            snapshot=snap,
+            frozen_contract_digest=FROZEN_CONTRACT,
+            sealed_witness_digest=SEALED_WITNESS,
+            requirement_id=REQ_ID,
+            base_outcome=WitnessOutcome.FAIL,
+        )
+        assert res.status == CausalSliceStatus.TESTED_NECESSARY_SUBSET
+
+        receipt = create_causal_slice_receipt_from_result(
+            result=res,
+            witness_id="wit-001",
+        )
+        assert receipt.status == res.status
+
+        with pytest.raises(SliceIdentityMismatchError, match="status mismatch"):
+            replace(receipt, status=CausalSliceStatus.INVALID_SUBSET)
+
+    def test_case_j_receipt_completeness_differs_from_bounded_minimizer_result(self) -> None:
+        """J. Receipt completeness differs from BoundedMinimizerResult => rejected."""
+        snap = _make_snapshot(SINGLE_HUNK_PATCH)
+        minimizer = BoundedSubsetMinimizer(
+            execution_callback=lambda sub, scope: _make_fact(sub, scope, WitnessOutcome.PASS)
+        )
+        res = minimizer.minimize(
+            snapshot=snap,
+            frozen_contract_digest=FROZEN_CONTRACT,
+            sealed_witness_digest=SEALED_WITNESS,
+            requirement_id=REQ_ID,
+            base_outcome=WitnessOutcome.FAIL,
+        )
+        receipt = create_causal_slice_receipt_from_result(
+            result=res,
+            witness_id="wit-001",
+        )
+        assert receipt.completeness == res.completeness
+
+        with pytest.raises(SliceIdentityMismatchError, match="completeness mismatch"):
+            create_causal_slice_receipt(
+                requirement_id=REQ_ID,
+                frozen_contract_digest=FROZEN_CONTRACT,
+                sealed_witness_digest=SEALED_WITNESS,
+                witness_id="wit-001",
+                source_locator=receipt.source_locator,
+                source_commit_id=receipt.source_commit_id,
+                candidate_id=receipt.candidate_id,
+                candidate_tree_digest=receipt.candidate_tree_digest,
+                candidate_patch_digest=receipt.candidate_patch_digest,
+                slice_artifact=receipt.slice_artifact,
+                search_budget=receipt.search_budget,
+                completeness=SliceSearchCompleteness.PARTIAL_ABORTED,
+                execution_facts=receipt.execution_facts,
+                tested_subsets=receipt.tested_subsets,
+            )
+
+    def test_case_k_cached_structured_execution_fact_retains_original_provenance(self) -> None:
+        """K. Cached structured execution fact retains original provenance."""
+        snap = _make_snapshot(SINGLE_HUNK_PATCH)
+        scope = create_causal_slice_scope(
+            snapshot=snap,
+            frozen_contract_digest=FROZEN_CONTRACT,
+            sealed_witness_digest=SEALED_WITNESS,
+            requirement_id=REQ_ID,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        parsed = parse_candidate_patch(SINGLE_HUNK_PATCH)
+        h0 = parsed.files[0].hunks[0].hunk_id
+        sub = create_tested_patch_subset_from_hunks(parsed, (h0,))
+
+        cache = DeterministicExecutionCache()
+        entry = cache.store(
+            subset=sub,
+            scope=scope,
+            outcome=WitnessOutcome.PASS,
+            exit_code=0,
+        )
+        hit = cache.lookup(subset=sub, scope=scope)
+        assert hit.hit is True
+        assert hit.entry is not None
+        cached_fact = hit.entry.to_execution_fact()
+        assert cached_fact.provenance == EvidenceProvenance.LOCAL_EXECUTION
+        assert hit.entry.execution_fact is not None
+        assert cached_fact.execution_digest == hit.entry.execution_fact.execution_digest
+
+        res = cache.lookup_by_key(entry.key, requested_provenance=EvidenceProvenance.LIVE_NEBIUS)
+        assert res.hit is False
+        assert res.rejection_reason in (
+            CacheRejectionReason.FORBIDDEN_PROVENANCE_SUBSTITUTION,
+            CacheRejectionReason.PROVENANCE_MISMATCH,
+        )
+
+        with pytest.raises(ForbiddenProvenanceSubstitutionError):
+            cache.lookup(
+                subset=sub,
+                scope=scope,
+                requested_provenance=EvidenceProvenance.LIVE_NEBIUS,
+            )
+
+    def test_case_l_error_timeout_cannot_transform_into_behavioral_fail(self) -> None:
+        """L. ERROR/TIMEOUT cannot be transformed into behavioral FAIL."""
+        snap = _make_snapshot(SINGLE_HUNK_PATCH)
+        minimizer_err = BoundedSubsetMinimizer(
+            execution_callback=lambda sub, scope: _make_fact(sub, scope, WitnessOutcome.ERROR)
+        )
+        res_err = minimizer_err.minimize(
+            snapshot=snap,
+            frozen_contract_digest=FROZEN_CONTRACT,
+            sealed_witness_digest=SEALED_WITNESS,
+            requirement_id=REQ_ID,
+            base_outcome=WitnessOutcome.FAIL,
+        )
+        assert res_err.status == CausalSliceStatus.INVALID_SUBSET
+        assert res_err.evaluated_subsets[0].outcome == WitnessOutcome.ERROR
+        # Verify it was not transformed into behavioral FAIL
+        outcome_val = res_err.evaluated_subsets[0].outcome.value
+        assert outcome_val != WitnessOutcome.FAIL.value
+
+        minimizer_to = BoundedSubsetMinimizer(
+            execution_callback=lambda sub, scope: _make_fact(sub, scope, WitnessOutcome.TIMEOUT)
+        )
+        res_to = minimizer_to.minimize(
+            snapshot=snap,
+            frozen_contract_digest=FROZEN_CONTRACT,
+            sealed_witness_digest=SEALED_WITNESS,
+            requirement_id=REQ_ID,
+            base_outcome=WitnessOutcome.FAIL,
+        )
+        assert res_to.status == CausalSliceStatus.INVALID_SUBSET
+        assert res_to.evaluated_subsets[0].outcome == WitnessOutcome.TIMEOUT
+        outcome_to_val = res_to.evaluated_subsets[0].outcome.value
+        assert outcome_to_val != WitnessOutcome.FAIL.value
+
+    def test_case_m_tampered_execution_or_result_digest_fails_closed(self) -> None:
+        """M. Tampered execution/result digest fails closed."""
+        snap = _make_snapshot(SINGLE_HUNK_PATCH)
+        scope = create_causal_slice_scope(
+            snapshot=snap,
+            frozen_contract_digest=FROZEN_CONTRACT,
+            sealed_witness_digest=SEALED_WITNESS,
+            requirement_id=REQ_ID,
+        )
+        parsed = parse_candidate_patch(SINGLE_HUNK_PATCH)
+        h0 = parsed.files[0].hunks[0].hunk_id
+        sub = create_tested_patch_subset_from_hunks(parsed, (h0,))
+        fact = create_subset_execution_fact(
+            subset=sub, scope=scope, outcome=WitnessOutcome.PASS, exit_code=0
+        )
+
+        with pytest.raises(
+            (SliceReceiptIntegrityError, SliceScopeTamperingError),
+            match="execution_digest mismatch",
+        ):
+            replace(fact, execution_digest="0" * 64)
+
+        with pytest.raises(
+            (SliceReceiptIntegrityError, SliceScopeTamperingError),
+            match="execution_digest mismatch",
+        ):
+            replace(fact, outcome=WitnessOutcome.FAIL)
+
+    def test_case_n_naked_witness_outcome_rejected(self) -> None:
+        """N. Naked WitnessOutcome is no longer sufficient for authentic minimizer evidence."""
+        snap = _make_snapshot(SINGLE_HUNK_PATCH)
+        minimizer = BoundedSubsetMinimizer(
+            execution_callback=lambda _s, _sc: WitnessOutcome.PASS  # type: ignore[arg-type,return-value]
+        )
+        with pytest.raises(TypeError, match="naked WitnessOutcome is no longer sufficient"):
+            minimizer.minimize(
+                snapshot=snap,
+                frozen_contract_digest=FROZEN_CONTRACT,
+                sealed_witness_digest=SEALED_WITNESS,
+                requirement_id=REQ_ID,
+                base_outcome=WitnessOutcome.FAIL,
+            )
+
+    def test_case_o_deterministic_identical_inputs_produce_identical_identities(self) -> None:
+        """O. Identical inputs/runtime produce identical relevant evidence identities."""
+        snap = _make_snapshot(SINGLE_HUNK_PATCH)
+        cfg = {"python_version": "3.11", "runner": "pytest"}
+        cfg_digest = compute_runtime_config_digest(cfg)
+
+        def eval_cb(sub: TestedPatchSubset, scope: Any) -> SubsetExecutionFact:
+            return create_subset_execution_fact(
+                subset=sub,
+                scope=scope,
+                outcome=WitnessOutcome.PASS,
+                runtime_config_digest=cfg_digest,
+                exit_code=0,
+                created_at_utc="2026-10-08T00:00:00Z",
+            )
+
+        minimizer_1 = BoundedSubsetMinimizer(
+            execution_callback=eval_cb,
+            runtime_config_digest=cfg_digest,
+        )
+        res_1 = minimizer_1.minimize(
+            snapshot=snap,
+            frozen_contract_digest=FROZEN_CONTRACT,
+            sealed_witness_digest=SEALED_WITNESS,
+            requirement_id=REQ_ID,
+            base_outcome=WitnessOutcome.FAIL,
+            created_at_utc="2026-10-08T00:00:00Z",
+        )
+        receipt_1 = create_causal_slice_receipt_from_result(
+            result=res_1,
+            witness_id="wit-001",
+            created_at_utc="2026-10-08T00:00:00Z",
+        )
+
+        minimizer_2 = BoundedSubsetMinimizer(
+            execution_callback=eval_cb,
+            runtime_config_digest=cfg_digest,
+        )
+        res_2 = minimizer_2.minimize(
+            snapshot=snap,
+            frozen_contract_digest=FROZEN_CONTRACT,
+            sealed_witness_digest=SEALED_WITNESS,
+            requirement_id=REQ_ID,
+            base_outcome=WitnessOutcome.FAIL,
+            created_at_utc="2026-10-08T00:00:00Z",
+        )
+        receipt_2 = create_causal_slice_receipt_from_result(
+            result=res_2,
+            witness_id="wit-001",
+            created_at_utc="2026-10-08T00:00:00Z",
+        )
+
+        assert res_1.status == res_2.status
+        assert res_1.runtime_config_digest == res_2.runtime_config_digest == cfg_digest
+        assert receipt_1.receipt_digest == receipt_2.receipt_digest
+        assert (
+            receipt_1.execution_facts[0].execution_digest
+            == receipt_2.execution_facts[0].execution_digest
+        )

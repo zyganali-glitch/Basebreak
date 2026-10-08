@@ -46,7 +46,13 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from basebreak.causal.slice import CausalSliceScope, TestedPatchSubset
+from basebreak.causal.slice import (
+    LOCAL_TEST_RUNTIME_CONFIG_DIGEST,
+    CausalSliceScope,
+    SubsetExecutionFact,
+    TestedPatchSubset,
+    create_subset_execution_fact,
+)
 from basebreak.domain.verdict import EvidenceProvenance
 from basebreak.verifier.witness_result import WitnessOutcome
 
@@ -80,6 +86,7 @@ class CacheRejectionReason(str, Enum):
     DELTA_MISMATCH = "DELTA_MISMATCH"
     REQUIREMENT_MISMATCH = "REQUIREMENT_MISMATCH"
     COMMAND_MISMATCH = "COMMAND_MISMATCH"
+    RUNTIME_CONFIG_MISMATCH = "RUNTIME_CONFIG_MISMATCH"
     PROVENANCE_MISMATCH = "PROVENANCE_MISMATCH"
     FORBIDDEN_PROVENANCE_SUBSTITUTION = "FORBIDDEN_PROVENANCE_SUBSTITUTION"
     TAMPERED_ENTRY = "TAMPERED_ENTRY"
@@ -114,6 +121,7 @@ class ExecutionCacheKey:
     requirement_id: str
     execution_command: tuple[str, ...]
     provenance: EvidenceProvenance
+    runtime_config_digest: str
     key_digest: str
 
     def __post_init__(self) -> None:
@@ -159,6 +167,19 @@ class ExecutionCacheKey:
             raise TypeError(
                 f"provenance must be EvidenceProvenance, got {type(self.provenance).__name__}"
             )
+        if not isinstance(self.runtime_config_digest, str) or not _HEX_64_PATTERN.match(
+            self.runtime_config_digest
+        ):
+            raise ValueError(
+                f"runtime_config_digest must be 64 hex chars: {self.runtime_config_digest!r}"
+            )
+        if (
+            self.provenance == EvidenceProvenance.LIVE_NEBIUS
+            and self.runtime_config_digest == LOCAL_TEST_RUNTIME_CONFIG_DIGEST
+        ):
+            raise ForbiddenProvenanceSubstitutionError(
+                "LOCAL_TEST_RUNTIME_CONFIG_DIGEST cannot satisfy LIVE_NEBIUS evidence"
+            )
         if not isinstance(self.key_digest, str) or not _HEX_64_PATTERN.match(self.key_digest):
             raise ValueError(f"key_digest must be 64 hex chars: {self.key_digest!r}")
 
@@ -177,6 +198,7 @@ class ExecutionCacheKey:
             "provenance": self.provenance.value,
             "retained_patch_digest": self.retained_patch_digest,
             "requirement_id": self.requirement_id,
+            "runtime_config_digest": self.runtime_config_digest,
             "sealed_witness_digest": self.sealed_witness_digest,
             "source_commit_id": self.source_commit_id,
             "source_locator": self.source_locator,
@@ -203,6 +225,7 @@ def create_execution_cache_key(
     requirement_id: str,
     execution_command: Sequence[str] | str,
     provenance: EvidenceProvenance,
+    runtime_config_digest: str = LOCAL_TEST_RUNTIME_CONFIG_DIGEST,
 ) -> ExecutionCacheKey:
     """Construct an authentic ExecutionCacheKey with verified SHA-256 digest."""
     cmd_tuple: tuple[str, ...]
@@ -211,6 +234,8 @@ def create_execution_cache_key(
     else:
         cmd_tuple = tuple(str(c) for c in execution_command)
 
+    rc_digest = runtime_config_digest.strip().lower()
+
     payload = {
         "candidate_tree_digest": candidate_tree_digest.strip().lower(),
         "execution_command": list(cmd_tuple),
@@ -218,6 +243,7 @@ def create_execution_cache_key(
         "provenance": provenance.value,
         "retained_patch_digest": retained_patch_digest.strip().lower(),
         "requirement_id": requirement_id.strip(),
+        "runtime_config_digest": rc_digest,
         "sealed_witness_digest": sealed_witness_digest.strip().lower(),
         "source_commit_id": source_commit_id.strip().lower(),
         "source_locator": source_locator.strip(),
@@ -238,6 +264,7 @@ def create_execution_cache_key(
         requirement_id=requirement_id.strip(),
         execution_command=cmd_tuple,
         provenance=provenance,
+        runtime_config_digest=rc_digest,
         key_digest=digest,
     )
 
@@ -274,6 +301,7 @@ class ExecutionCacheEntry:
     provenance: EvidenceProvenance
     created_at_utc: str
     entry_digest: str
+    execution_fact: SubsetExecutionFact | None = None
     is_authoritative: bool = False
     grants_pass: bool = False
     is_causally_verified: bool = False
@@ -308,6 +336,19 @@ class ExecutionCacheEntry:
                 f"and key ({self.key.provenance.value})"
             )
 
+        if self.execution_fact is not None:
+            if not isinstance(self.execution_fact, SubsetExecutionFact):
+                fact_type = type(self.execution_fact).__name__
+                raise TypeError(f"execution_fact must be SubsetExecutionFact, got {fact_type}")
+            if self.execution_fact.provenance != self.provenance:
+                raise ForbiddenProvenanceSubstitutionError(
+                    "Cached execution_fact provenance must match entry provenance"
+                )
+            if self.execution_fact.runtime_config_digest != self.key.runtime_config_digest:
+                raise CacheTamperingError(
+                    "execution_fact runtime_config_digest must match key runtime_config_digest"
+                )
+
         # Cryptographic verification
         computed = compute_cache_entry_digest(self._build_payload())
         if self.entry_digest != computed:
@@ -319,6 +360,9 @@ class ExecutionCacheEntry:
         return {
             "created_at_utc": self.created_at_utc,
             "duration_seconds": round(float(self.duration_seconds), 4),
+            "execution_fact_digest": self.execution_fact.execution_digest
+            if self.execution_fact
+            else "",
             "exit_code": self.exit_code,
             "key": self.key.to_dict(),
             "outcome": self.outcome.value,
@@ -336,6 +380,31 @@ class ExecutionCacheEntry:
         d["is_causally_verified"] = self.is_causally_verified
         return d
 
+    def to_execution_fact(
+        self,
+        *,
+        subset: TestedPatchSubset | None = None,
+        scope: CausalSliceScope | None = None,
+    ) -> SubsetExecutionFact:
+        """Derive or return authentic structured SubsetExecutionFact from cached entry."""
+        if self.execution_fact is not None:
+            return self.execution_fact
+        if subset is None or scope is None:
+            raise ValueError("subset and scope are required when execution_fact is None")
+        return create_subset_execution_fact(
+            subset=subset,
+            scope=scope,
+            outcome=self.outcome,
+            runtime_config_digest=self.key.runtime_config_digest,
+            execution_command=self.key.execution_command,
+            exit_code=self.exit_code,
+            stdout_digest=self.stdout_digest,
+            stderr_digest=self.stderr_digest,
+            duration_seconds=self.duration_seconds,
+            provenance=self.provenance,
+            created_at_utc=self.created_at_utc,
+        )
+
 
 def create_execution_cache_entry(
     *,
@@ -347,12 +416,14 @@ def create_execution_cache_entry(
     result_digest: str = "0" * 64,
     duration_seconds: float = 0.0,
     created_at_utc: str | None = None,
+    execution_fact: SubsetExecutionFact | None = None,
 ) -> ExecutionCacheEntry:
     """Create an authentic ExecutionCacheEntry bound to key."""
     timestamp = created_at_utc or datetime.now(timezone.utc).isoformat()
     payload = {
         "created_at_utc": timestamp,
         "duration_seconds": round(float(duration_seconds), 4),
+        "execution_fact_digest": execution_fact.execution_digest if execution_fact else "",
         "exit_code": exit_code,
         "key": key.to_dict(),
         "outcome": outcome.value,
@@ -374,6 +445,7 @@ def create_execution_cache_entry(
         provenance=key.provenance,
         created_at_utc=timestamp,
         entry_digest=digest,
+        execution_fact=execution_fact,
         is_authoritative=False,
         grants_pass=False,
         is_causally_verified=False,
@@ -443,11 +515,13 @@ class DeterministicExecutionCache:
         scope: CausalSliceScope,
         outcome: WitnessOutcome,
         execution_command: Sequence[str] | str = ("pytest",),
+        runtime_config_digest: str = LOCAL_TEST_RUNTIME_CONFIG_DIGEST,
         exit_code: int | None = 0,
         stdout_digest: str = "0" * 64,
         stderr_digest: str = "0" * 64,
         result_digest: str = "0" * 64,
         duration_seconds: float = 0.0,
+        fact: SubsetExecutionFact | None = None,
     ) -> ExecutionCacheEntry:
         """Construct and store cache entry directly from subset and scope."""
         key = create_execution_cache_key(
@@ -462,6 +536,19 @@ class DeterministicExecutionCache:
             requirement_id=scope.requirement_id,
             execution_command=execution_command,
             provenance=scope.provenance,
+            runtime_config_digest=runtime_config_digest,
+        )
+        exec_fact = fact or create_subset_execution_fact(
+            subset=subset,
+            scope=scope,
+            outcome=outcome,
+            runtime_config_digest=runtime_config_digest,
+            execution_command=execution_command,
+            exit_code=exit_code,
+            stdout_digest=stdout_digest,
+            stderr_digest=stderr_digest,
+            duration_seconds=duration_seconds,
+            provenance=scope.provenance,
         )
         entry = create_execution_cache_entry(
             key=key,
@@ -469,8 +556,47 @@ class DeterministicExecutionCache:
             exit_code=exit_code,
             stdout_digest=stdout_digest,
             stderr_digest=stderr_digest,
-            result_digest=result_digest,
+            result_digest=exec_fact.execution_digest
+            if result_digest == "0" * 64
+            else result_digest,
             duration_seconds=duration_seconds,
+            execution_fact=exec_fact,
+        )
+        self.store_entry(entry)
+        return entry
+
+    def store_fact(
+        self,
+        fact: SubsetExecutionFact,
+        *,
+        subset: TestedPatchSubset,
+        scope: CausalSliceScope,
+    ) -> ExecutionCacheEntry:
+        """Store an authentic SubsetExecutionFact directly."""
+        key = create_execution_cache_key(
+            source_locator=scope.source_locator,
+            source_commit_id=scope.source_commit_id,
+            source_subpath=scope.source_subpath,
+            candidate_tree_digest=scope.candidate_tree_digest,
+            retained_patch_digest=subset.retained_patch_digest,
+            subtracted_delta_digest=subset.subtracted_delta_digest,
+            frozen_contract_digest=scope.frozen_contract_digest,
+            sealed_witness_digest=scope.sealed_witness_digest,
+            requirement_id=scope.requirement_id,
+            execution_command=fact.execution_command,
+            provenance=fact.provenance,
+            runtime_config_digest=fact.runtime_config_digest,
+        )
+        entry = create_execution_cache_entry(
+            key=key,
+            outcome=fact.outcome,
+            exit_code=fact.exit_code,
+            stdout_digest=fact.stdout_digest,
+            stderr_digest=fact.stderr_digest,
+            result_digest=fact.execution_digest,
+            duration_seconds=fact.duration_seconds,
+            created_at_utc=fact.created_at_utc or None,
+            execution_fact=fact,
         )
         self.store_entry(entry)
         return entry
@@ -597,7 +723,19 @@ class DeterministicExecutionCache:
             self._audit_log.append(res)
             return res
 
-        # Identity check 8: Strict Provenance Preservation Law
+        # Identity check 8: Runtime configuration digest
+        if entry.key.runtime_config_digest != key.runtime_config_digest:
+            self._rejections += 1
+            res = CacheLookupResult(
+                hit=False,
+                entry=None,
+                rejection_reason=CacheRejectionReason.RUNTIME_CONFIG_MISMATCH,
+                message="Runtime configuration digest mismatch between lookup key and cache entry",
+            )
+            self._audit_log.append(res)
+            return res
+
+        # Identity check 9: Strict Provenance Preservation Law
         # Lower authority cannot satisfy higher authority:
         # e.g. FIXTURE cannot satisfy LIVE_NEBIUS; LOCAL_EXECUTION cannot satisfy LIVE_NEBIUS.
         if (
@@ -631,7 +769,7 @@ class DeterministicExecutionCache:
             self._audit_log.append(res)
             return res
 
-        # All 11 identity dimensions match deterministically
+        # All deterministic identity dimensions match
         self._hits += 1
         res = CacheLookupResult(
             hit=True,
@@ -648,6 +786,7 @@ class DeterministicExecutionCache:
         subset: TestedPatchSubset,
         scope: CausalSliceScope,
         execution_command: Sequence[str] | str = ("pytest",),
+        runtime_config_digest: str = LOCAL_TEST_RUNTIME_CONFIG_DIGEST,
         requested_provenance: EvidenceProvenance | None = None,
     ) -> CacheLookupResult:
         """Convenience lookup directly from subset and scope."""
@@ -663,6 +802,7 @@ class DeterministicExecutionCache:
             requirement_id=scope.requirement_id,
             execution_command=execution_command,
             provenance=requested_provenance or scope.provenance,
+            runtime_config_digest=runtime_config_digest,
         )
         return self.lookup_by_key(key, requested_provenance=requested_provenance)
 

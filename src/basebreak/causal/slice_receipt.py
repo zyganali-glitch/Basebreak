@@ -43,8 +43,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from basebreak.causal.minimizer import SliceSearchBudget
+from basebreak.causal.minimizer import BoundedMinimizerResult, SliceSearchBudget
 from basebreak.causal.slice import (
+    LOCAL_TEST_RUNTIME_CONFIG_DIGEST,
     BoundedCausalSlice,
     CausalSliceError,
     CausalSliceStatus,
@@ -53,9 +54,12 @@ from basebreak.causal.slice import (
     SliceAuthorityError,
     SliceIdentityMismatchError,
     SliceSearchCompleteness,
+    SubsetExecutionFact,
     TestedPatchSubset,
+    create_bounded_causal_slice,
     create_canonical_disclaimer,
     verify_slice_integrity,
+    verify_subset_execution_fact_integrity,
 )
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 
@@ -115,6 +119,8 @@ class CausalSliceReceipt:
     tested_subsets: tuple[TestedPatchSubset, ...]
     evaluated_outcomes: tuple[str, ...]
     counterfactual_delta_digests: tuple[str, ...]
+    execution_facts: tuple[SubsetExecutionFact, ...]
+    runtime_config_digest: str
     status: CausalSliceStatus
     completeness: SliceSearchCompleteness
     provenance: EvidenceProvenance
@@ -184,6 +190,12 @@ class CausalSliceReceipt:
             raise SliceReceiptIntegrityError(
                 f"candidate_patch_digest must be 64 hex chars: {self.candidate_patch_digest!r}"
             )
+        if not isinstance(self.runtime_config_digest, str) or not _HEX_64_PATTERN.match(
+            self.runtime_config_digest
+        ):
+            raise SliceReceiptIntegrityError(
+                f"runtime_config_digest must be 64 hex chars: {self.runtime_config_digest!r}"
+            )
 
         if not isinstance(self.slice_artifact, BoundedCausalSlice):
             art_type = type(self.slice_artifact).__name__
@@ -203,6 +215,126 @@ class CausalSliceReceipt:
             )
         if not isinstance(self.disclaimer, NonFormalProofDisclaimer):
             raise DisclaimerMissingError("disclaimer must be NonFormalProofDisclaimer")
+
+        if self.provenance == EvidenceProvenance.LIVE_NEBIUS and (
+            self.runtime_config_digest == LOCAL_TEST_RUNTIME_CONFIG_DIGEST
+        ):
+            raise SliceReceiptIntegrityError(
+                "LOCAL_TEST_RUNTIME_CONFIG_DIGEST cannot satisfy LIVE_NEBIUS provenance"
+            )
+
+        # Count alignment
+        if len(self.tested_subsets) != len(self.execution_facts):
+            raise SliceReceiptIntegrityError(
+                f"Count mismatch: tested_subsets count ({len(self.tested_subsets)}) "
+                f"!= execution_facts count ({len(self.execution_facts)})"
+            )
+        if len(self.tested_subsets) != len(self.evaluated_outcomes):
+            raise SliceReceiptIntegrityError(
+                f"Count mismatch: tested_subsets count ({len(self.tested_subsets)}) "
+                f"!= evaluated_outcomes count ({len(self.evaluated_outcomes)})"
+            )
+        if len(self.tested_subsets) != len(self.counterfactual_delta_digests):
+            raise SliceReceiptIntegrityError(
+                f"Count mismatch: tested_subsets count ({len(self.tested_subsets)}) "
+                f"!= counterfactual_delta_digests count ({len(self.counterfactual_delta_digests)})"
+            )
+
+        # Subset to execution fact 1-to-1 mechanical binding
+        for i, (subset, fact, outcome_str, delta_digest) in enumerate(
+            zip(
+                self.tested_subsets,
+                self.execution_facts,
+                self.evaluated_outcomes,
+                self.counterfactual_delta_digests,
+                strict=True,
+            )
+        ):
+            if not isinstance(fact, SubsetExecutionFact):
+                raise TypeError(
+                    f"execution_facts[{i}] must be SubsetExecutionFact, got {type(fact).__name__}"
+                )
+            if not verify_subset_execution_fact_integrity(fact):
+                raise SliceReceiptTamperingError(
+                    f"execution_facts[{i}] failed cryptographic integrity verification"
+                )
+
+            if fact.subset_id != subset.subset_id:
+                raise SliceIdentityMismatchError(
+                    f"Subset ID mismatch at index {i}: fact has {fact.subset_id!r}, "
+                    f"subset has {subset.subset_id!r}"
+                )
+            if fact.retained_patch_digest != subset.retained_patch_digest:
+                raise SliceIdentityMismatchError(
+                    f"retained_patch_digest mismatch at index {i}: fact has "
+                    f"{fact.retained_patch_digest}, subset has {subset.retained_patch_digest}"
+                )
+            if fact.subtracted_delta_digest != subset.subtracted_delta_digest:
+                raise SliceIdentityMismatchError(
+                    f"subtracted_delta_digest mismatch at index {i}: fact has "
+                    f"{fact.subtracted_delta_digest}, subset has {subset.subtracted_delta_digest}"
+                )
+            if delta_digest != subset.subtracted_delta_digest:
+                raise SliceIdentityMismatchError(
+                    f"counterfactual_delta_digests[{i}] mismatch: expected "
+                    f"{subset.subtracted_delta_digest}, got {delta_digest}"
+                )
+            if outcome_str != fact.outcome.value:
+                raise SliceIdentityMismatchError(
+                    f"evaluated_outcomes[{i}] mismatch: claimed {outcome_str!r}, "
+                    f"but actual execution fact outcome is {fact.outcome.value!r}"
+                )
+
+            # Binding fact to scope and receipt identity
+            if fact.scope_digest != self.slice_artifact.scope.scope_digest:
+                raise SliceIdentityMismatchError(
+                    f"scope_digest mismatch at index {i}: fact has {fact.scope_digest}, "
+                    f"slice scope has {self.slice_artifact.scope.scope_digest}"
+                )
+            if fact.frozen_contract_digest != self.frozen_contract_digest:
+                raise SliceIdentityMismatchError(
+                    f"frozen_contract_digest mismatch at index {i}: fact has "
+                    f"{fact.frozen_contract_digest}, receipt has {self.frozen_contract_digest}"
+                )
+            if fact.sealed_witness_digest != self.sealed_witness_digest:
+                raise SliceIdentityMismatchError(
+                    f"sealed_witness_digest mismatch at index {i}: fact has "
+                    f"{fact.sealed_witness_digest}, receipt has {self.sealed_witness_digest}"
+                )
+            if fact.requirement_id != self.requirement_id:
+                raise SliceIdentityMismatchError(
+                    f"requirement_id mismatch at index {i}: fact has {fact.requirement_id}, "
+                    f"receipt has {self.requirement_id}"
+                )
+            if fact.candidate_id != self.candidate_id:
+                raise SliceIdentityMismatchError(
+                    f"candidate_id mismatch at index {i}: fact has {fact.candidate_id}, "
+                    f"receipt has {self.candidate_id}"
+                )
+            if fact.tree_digest != self.candidate_tree_digest:
+                raise SliceIdentityMismatchError(
+                    f"candidate_tree_digest mismatch at index {i}: fact has {fact.tree_digest}, "
+                    f"receipt has {self.candidate_tree_digest}"
+                )
+            if fact.runtime_config_digest != self.runtime_config_digest:
+                raise SliceIdentityMismatchError(
+                    f"runtime_config_digest mismatch at index {i}: fact has "
+                    f"{fact.runtime_config_digest}, receipt has {self.runtime_config_digest}"
+                )
+
+            # Provenance cannot be upgraded
+            if self.provenance == EvidenceProvenance.LIVE_NEBIUS and (
+                fact.provenance != EvidenceProvenance.LIVE_NEBIUS
+            ):
+                raise SliceReceiptIntegrityError(
+                    f"Provenance upgrade forbidden: receipt claims LIVE_NEBIUS but "
+                    f"execution_facts[{i}] has {fact.provenance.value}"
+                )
+            if fact.provenance != self.provenance:
+                raise SliceReceiptIntegrityError(
+                    f"Provenance mismatch at index {i}: fact has {fact.provenance.value}, "
+                    f"receipt has {self.provenance.value}"
+                )
 
         # Identity binding verification against the slice artifact
         if self.slice_artifact.scope.frozen_contract_digest != self.frozen_contract_digest:
@@ -245,6 +377,16 @@ class CausalSliceReceipt:
                 f"status mismatch: receipt has {self.status.value}, "
                 f"slice has {self.slice_artifact.status.value}"
             )
+        if self.slice_artifact.completeness != self.completeness:
+            raise SliceIdentityMismatchError(
+                f"completeness mismatch: receipt has {self.completeness.value}, "
+                f"slice has {self.slice_artifact.completeness.value}"
+            )
+        if self.slice_artifact.scope.provenance != self.provenance:
+            raise SliceIdentityMismatchError(
+                f"provenance mismatch: receipt has {self.provenance.value}, "
+                f"slice scope has {self.slice_artifact.scope.provenance.value}"
+            )
 
         # Cryptographic integrity check
         payload = self._build_payload()
@@ -264,9 +406,11 @@ class CausalSliceReceipt:
             "created_at_utc": self.created_at_utc,
             "disclaimer": self.disclaimer.to_dict(),
             "evaluated_outcomes": list(self.evaluated_outcomes),
+            "execution_facts": [f.to_dict() for f in self.execution_facts],
             "frozen_contract_digest": self.frozen_contract_digest,
             "provenance": self.provenance.value,
             "requirement_id": self.requirement_id,
+            "runtime_config_digest": self.runtime_config_digest,
             "schema_version": self.schema_version,
             "sealed_witness_digest": self.sealed_witness_digest,
             "search_budget": {
@@ -330,6 +474,10 @@ class CausalSliceReceipt:
             tested_subs = tuple(
                 TestedPatchSubset.from_dict(s) for s in data.get("tested_subsets", ())
             )
+            exec_facts = tuple(
+                SubsetExecutionFact.from_dict(f) for f in data.get("execution_facts", ())
+            )
+            runtime_cfg = str(data.get("runtime_config_digest", LOCAL_TEST_RUNTIME_CONFIG_DIGEST))
 
             return cls(
                 requirement_id=str(data["requirement_id"]),
@@ -349,6 +497,8 @@ class CausalSliceReceipt:
                 counterfactual_delta_digests=tuple(
                     str(d) for d in data.get("counterfactual_delta_digests", ())
                 ),
+                execution_facts=exec_facts,
+                runtime_config_digest=runtime_cfg,
                 status=CausalSliceStatus(str(data["status"])),
                 completeness=SliceSearchCompleteness(str(data["completeness"])),
                 provenance=EvidenceProvenance(str(data["provenance"])),
@@ -388,6 +538,8 @@ class CausalSliceReceipt:
             f"- **Status**: `{self.status.value}`",
             f"- **Search Completeness**: `{self.completeness.value}`",
             f"- **Provenance**: `{self.provenance.value}`",
+            f"- **Runtime Config**: `{self.runtime_config_digest}`",
+            f"- **Execution Facts Bound**: {len(self.execution_facts)}",
             f"- **Created At**: `{self.created_at_utc}`",
             "",
             "## Cryptographic Custody Chain",
@@ -443,9 +595,11 @@ def create_causal_slice_receipt(
     candidate_patch_digest: str,
     slice_artifact: BoundedCausalSlice,
     search_budget: SliceSearchBudget,
+    execution_facts: Sequence[SubsetExecutionFact] = (),
+    runtime_config_digest: str = LOCAL_TEST_RUNTIME_CONFIG_DIGEST,
     tested_subsets: Sequence[TestedPatchSubset] = (),
-    evaluated_outcomes: Sequence[str] = (),
-    counterfactual_delta_digests: Sequence[str] = (),
+    evaluated_outcomes: Sequence[str] | None = None,
+    counterfactual_delta_digests: Sequence[str] | None = None,
     status: CausalSliceStatus = CausalSliceStatus.TESTED_NECESSARY_SUBSET,
     completeness: SliceSearchCompleteness = SliceSearchCompleteness.EXHAUSTIVE_BOUNDED,
     provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
@@ -456,18 +610,31 @@ def create_causal_slice_receipt(
     timestamp = created_at_utc or datetime.now(timezone.utc).isoformat()
     disc = disclaimer or slice_artifact.disclaimer or create_canonical_disclaimer()
 
+    outcomes = (
+        tuple(evaluated_outcomes)
+        if evaluated_outcomes is not None
+        else tuple(f.outcome.value for f in execution_facts)
+    )
+    deltas = (
+        tuple(counterfactual_delta_digests)
+        if counterfactual_delta_digests is not None
+        else tuple(s.subtracted_delta_digest for s in tested_subsets)
+    )
+
     payload = {
         "candidate_id": candidate_id,
         "candidate_patch_digest": candidate_patch_digest,
         "candidate_tree_digest": candidate_tree_digest,
         "completeness": completeness.value,
-        "counterfactual_delta_digests": list(counterfactual_delta_digests),
+        "counterfactual_delta_digests": list(deltas),
         "created_at_utc": timestamp,
         "disclaimer": disc.to_dict(),
-        "evaluated_outcomes": list(evaluated_outcomes),
+        "evaluated_outcomes": list(outcomes),
+        "execution_facts": [f.to_dict() for f in execution_facts],
         "frozen_contract_digest": frozen_contract_digest,
         "provenance": provenance.value,
         "requirement_id": requirement_id,
+        "runtime_config_digest": runtime_config_digest,
         "schema_version": CAUSAL_SLICE_RECEIPT_SCHEMA_VERSION,
         "sealed_witness_digest": sealed_witness_digest,
         "search_budget": {
@@ -500,8 +667,10 @@ def create_causal_slice_receipt(
         slice_artifact=slice_artifact,
         search_budget=search_budget,
         tested_subsets=tuple(tested_subsets),
-        evaluated_outcomes=tuple(evaluated_outcomes),
-        counterfactual_delta_digests=tuple(counterfactual_delta_digests),
+        evaluated_outcomes=outcomes,
+        counterfactual_delta_digests=deltas,
+        execution_facts=tuple(execution_facts),
+        runtime_config_digest=runtime_config_digest,
         status=status,
         completeness=completeness,
         provenance=provenance,
@@ -513,6 +682,85 @@ def create_causal_slice_receipt(
         grants_pass=False,
         is_causally_verified=False,
         claims_global_minimality=False,
+    )
+
+
+def create_causal_slice_receipt_from_result(
+    result: BoundedMinimizerResult,
+    *,
+    witness_id: str,
+    disclaimer: NonFormalProofDisclaimer | None = None,
+    created_at_utc: str | None = None,
+) -> CausalSliceReceipt:
+    """Canonical factory to derive an authentic CausalSliceReceipt from BoundedMinimizerResult.
+
+    Mechanically derives evaluated subsets, execution facts, outcomes, and counterfactual deltas
+    directly from result.evaluated_subsets.
+    """
+    if not isinstance(result, BoundedMinimizerResult):
+        raise TypeError(f"result must be BoundedMinimizerResult, got {type(result).__name__}")
+    if not isinstance(witness_id, str) or not witness_id.strip():
+        raise SliceReceiptIntegrityError("witness_id must be a non-empty string")
+
+    tested_subsets = tuple(rec.subset for rec in result.evaluated_subsets)
+    execution_facts = tuple(rec.execution_fact for rec in result.evaluated_subsets)
+    evaluated_outcomes = tuple(rec.execution_fact.outcome.value for rec in result.evaluated_subsets)
+    counterfactual_delta_digests = tuple(
+        rec.subset.subtracted_delta_digest for rec in result.evaluated_subsets
+    )
+
+    disc = disclaimer or result.disclaimer
+    slice_art = result.slice_artifact
+    if slice_art is None:
+        subset = result.minimal_subset or (tested_subsets[0] if tested_subsets else None)
+        if subset is None:
+            raise SliceReceiptIntegrityError(
+                "Cannot derive slice receipt from result with no evaluated subsets or artifact"
+            )
+        slice_art = create_bounded_causal_slice(
+            slice_id=f"slice-{subset.retained_patch_digest[:16]}",
+            scope=result.scope,
+            tested_subset=subset,
+            status=result.status,
+            completeness=result.completeness,
+            summary_label=result.summary_label,
+            disclaimer=disc,
+        )
+
+    if slice_art.status != result.status:
+        raise SliceIdentityMismatchError(
+            f"Receipt status must match minimizer result: "
+            f"{result.status.value} != {slice_art.status.value}"
+        )
+    if slice_art.completeness != result.completeness:
+        raise SliceIdentityMismatchError(
+            f"Receipt completeness must match minimizer result: "
+            f"{result.completeness.value} != {slice_art.completeness.value}"
+        )
+
+    return create_causal_slice_receipt(
+        requirement_id=result.scope.requirement_id,
+        frozen_contract_digest=result.scope.frozen_contract_digest,
+        sealed_witness_digest=result.scope.sealed_witness_digest,
+        witness_id=witness_id,
+        source_locator=result.scope.source_locator,
+        source_commit_id=result.scope.source_commit_id,
+        source_subpath=result.scope.source_subpath,
+        candidate_id=result.scope.candidate_id,
+        candidate_tree_digest=result.scope.candidate_tree_digest,
+        candidate_patch_digest=result.scope.candidate_patch_digest,
+        slice_artifact=slice_art,
+        search_budget=result.search_budget,
+        execution_facts=execution_facts,
+        runtime_config_digest=result.runtime_config_digest,
+        tested_subsets=tested_subsets,
+        evaluated_outcomes=evaluated_outcomes,
+        counterfactual_delta_digests=counterfactual_delta_digests,
+        status=result.status,
+        completeness=result.completeness,
+        provenance=result.scope.provenance,
+        disclaimer=disc,
+        created_at_utc=created_at_utc,
     )
 
 
@@ -567,6 +815,7 @@ __all__ = [
     "SliceReceiptTamperingError",
     "compute_slice_receipt_digest",
     "create_causal_slice_receipt",
+    "create_causal_slice_receipt_from_result",
     "validate_upstream_evidence_compatibility",
     "verify_slice_receipt_integrity",
 ]

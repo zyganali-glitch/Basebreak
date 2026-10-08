@@ -21,6 +21,7 @@ import pytest
 from basebreak.builder.capture import CandidateSnapshot
 from basebreak.causal.minimizer import SliceSearchBudget
 from basebreak.causal.slice import (
+    LOCAL_TEST_RUNTIME_CONFIG_DIGEST,
     BoundedCausalSlice,
     CausalSliceStatus,
     DisclaimerMissingError,
@@ -30,6 +31,7 @@ from basebreak.causal.slice import (
     TestedPatchSubset,
     create_bounded_causal_slice,
     create_causal_slice_scope,
+    create_subset_execution_fact,
 )
 from basebreak.causal.slice_receipt import (
     CAUSAL_SLICE_RECEIPT_SCHEMA_VERSION,
@@ -44,6 +46,7 @@ from basebreak.causal.subtraction import SubtractionStrategyType
 from basebreak.domain.source import CommitRevision, SourceIdentity
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.evidence.artifact import compute_bytes_digest
+from basebreak.verifier.witness_result import WitnessOutcome
 
 FROZEN_CONTRACT_DIGEST = "1" * 64
 SEALED_WITNESS_DIGEST = "2" * 64
@@ -120,6 +123,12 @@ def _build_valid_receipt() -> CausalSliceReceipt:
         max_depth=3,
         allow_model_ordering=False,
     )
+    fact = create_subset_execution_fact(
+        subset=slice_art.tested_subset,
+        scope=slice_art.scope,
+        outcome=WitnessOutcome.PASS,
+        exit_code=0,
+    )
     return create_causal_slice_receipt(
         requirement_id="REQ-AUTH-001",
         frozen_contract_digest=FROZEN_CONTRACT_DIGEST,
@@ -133,6 +142,8 @@ def _build_valid_receipt() -> CausalSliceReceipt:
         candidate_patch_digest=slice_art.scope.candidate_patch_digest,
         slice_artifact=slice_art,
         search_budget=budget,
+        execution_facts=(fact,),
+        runtime_config_digest=LOCAL_TEST_RUNTIME_CONFIG_DIGEST,
         tested_subsets=(slice_art.tested_subset,),
         evaluated_outcomes=("PASS",),
         counterfactual_delta_digests=("e" * 64,),
@@ -194,6 +205,8 @@ class TestCausalSliceReceipt:
                 tested_subsets=receipt.tested_subsets,
                 evaluated_outcomes=receipt.evaluated_outcomes,
                 counterfactual_delta_digests=receipt.counterfactual_delta_digests,
+                execution_facts=receipt.execution_facts,
+                runtime_config_digest=receipt.runtime_config_digest,
                 status=receipt.status,
                 completeness=receipt.completeness,
                 provenance=receipt.provenance,
@@ -224,6 +237,8 @@ class TestCausalSliceReceipt:
                 tested_subsets=receipt.tested_subsets,
                 evaluated_outcomes=receipt.evaluated_outcomes,
                 counterfactual_delta_digests=receipt.counterfactual_delta_digests,
+                execution_facts=receipt.execution_facts,
+                runtime_config_digest=receipt.runtime_config_digest,
                 status=receipt.status,
                 completeness=receipt.completeness,
                 provenance=receipt.provenance,
@@ -258,7 +273,7 @@ class TestCausalSliceReceipt:
             replace(receipt, candidate_patch_digest="9" * 64)
 
         # Mutating evaluated_outcomes
-        with pytest.raises(SliceReceiptTamperingError):
+        with pytest.raises((SliceReceiptTamperingError, SliceIdentityMismatchError)):
             replace(receipt, evaluated_outcomes=("FAIL",))
 
         # Mutating receipt_digest directly

@@ -29,23 +29,28 @@ Invariants Enforced:
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from basebreak.builder.capture import CandidateSnapshot
 from basebreak.causal.slice import (
+    LOCAL_TEST_RUNTIME_CONFIG_DIGEST,
     BoundedCausalSlice,
     CausalSliceScope,
     CausalSliceStatus,
     ModelSliceProposal,
     NonFormalProofDisclaimer,
     SliceAuthorityError,
+    SliceIdentityMismatchError,
+    SliceScopeTamperingError,
     SliceSearchCompleteness,
+    SubsetExecutionFact,
     TestedPatchSubset,
     create_bounded_causal_slice,
     create_canonical_disclaimer,
     create_causal_slice_scope,
     validate_no_prohibited_terms,
+    verify_subset_execution_fact_integrity,
 )
 from basebreak.causal.subtraction import (
     EmptySubtractionError,
@@ -152,10 +157,43 @@ class SubsetEvaluationRecord:
     """Deterministic record of an executed subset under the sealed witness."""
 
     subset: TestedPatchSubset
-    outcome: WitnessOutcome
+    execution_fact: SubsetExecutionFact
     is_cached: bool = False
     evaluation_order: int = 0
     rejection_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.subset, TestedPatchSubset):
+            raise TypeError(f"subset must be TestedPatchSubset, got {type(self.subset).__name__}")
+        if not isinstance(self.execution_fact, SubsetExecutionFact):
+            fact_type = type(self.execution_fact).__name__
+            raise TypeError(f"execution_fact must be SubsetExecutionFact, got {fact_type}")
+        if self.execution_fact.subset_id != self.subset.subset_id:
+            raise SliceIdentityMismatchError(
+                f"SubsetEvaluationRecord subset_id mismatch: "
+                f"fact has {self.execution_fact.subset_id!r}, "
+                f"subset has {self.subset.subset_id!r}"
+            )
+        if self.execution_fact.retained_patch_digest != self.subset.retained_patch_digest:
+            raise SliceIdentityMismatchError(
+                "SubsetEvaluationRecord retained_patch_digest mismatch: fact has "
+                f"{self.execution_fact.retained_patch_digest}, "
+                f"subset has {self.subset.retained_patch_digest}"
+            )
+        if self.execution_fact.subtracted_delta_digest != self.subset.subtracted_delta_digest:
+            raise SliceIdentityMismatchError(
+                "SubsetEvaluationRecord subtracted_delta_digest mismatch: fact has "
+                f"{self.execution_fact.subtracted_delta_digest}, "
+                f"subset has {self.subset.subtracted_delta_digest}"
+            )
+        if not verify_subset_execution_fact_integrity(self.execution_fact):
+            raise SliceScopeTamperingError(
+                f"execution_fact failed integrity check: {self.execution_fact.execution_digest}"
+            )
+
+    @property
+    def outcome(self) -> WitnessOutcome:
+        return self.execution_fact.outcome
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +209,8 @@ class BoundedMinimizerResult:
     summary_label: str
     scope: CausalSliceScope
     disclaimer: NonFormalProofDisclaimer
+    search_budget: SliceSearchBudget = field(default_factory=SliceSearchBudget)
+    runtime_config_digest: str = LOCAL_TEST_RUNTIME_CONFIG_DIGEST
     slice_artifact: BoundedCausalSlice | None = None
     is_authoritative: bool = False
     grants_pass: bool = False
@@ -326,15 +366,23 @@ class BoundedSubsetMinimizer:
     def __init__(
         self,
         *,
-        execution_callback: Callable[[TestedPatchSubset, CausalSliceScope], WitnessOutcome],
+        execution_callback: Callable[[TestedPatchSubset, CausalSliceScope], SubsetExecutionFact]
+        | None = None,
         cache: Any | None = None,
         budget: SliceSearchBudget | None = None,
+        runtime_config_digest: str = LOCAL_TEST_RUNTIME_CONFIG_DIGEST,
+        execution_command: Sequence[str] | str = ("pytest",),
     ) -> None:
-        if not callable(execution_callback):
+        if execution_callback is not None and not callable(execution_callback):
             raise TypeError("execution_callback must be callable")
         self.execution_callback = execution_callback
         self.cache = cache
         self.budget = budget or SliceSearchBudget()
+        self.runtime_config_digest = runtime_config_digest.strip().lower()
+        if isinstance(execution_command, str):
+            self.execution_command: tuple[str, ...] = tuple(execution_command.split())
+        else:
+            self.execution_command = tuple(str(c) for c in execution_command)
 
     @classmethod
     def derive_patch_units(cls, snapshot: CandidateSnapshot) -> tuple[PatchUnit, ...]:
@@ -350,6 +398,71 @@ class BoundedSubsetMinimizer:
         units.sort(key=lambda u: (u.file_path, u.hunk_index, u.old_start))
         return tuple(units)
 
+    def _validate_execution_fact(
+        self,
+        fact: SubsetExecutionFact,
+        *,
+        subset: TestedPatchSubset,
+        scope: CausalSliceScope,
+    ) -> None:
+        """Mechanically validate that returned execution fact matches requested subset and scope."""
+        if fact.subset_id != subset.subset_id:
+            raise SliceIdentityMismatchError(
+                f"Execution fact subset_id mismatch: {fact.subset_id!r} != {subset.subset_id!r}"
+            )
+        if fact.retained_patch_digest != subset.retained_patch_digest:
+            raise SliceIdentityMismatchError(
+                f"Execution fact retained_patch_digest mismatch: "
+                f"{fact.retained_patch_digest} != {subset.retained_patch_digest}"
+            )
+        if fact.subtracted_delta_digest != subset.subtracted_delta_digest:
+            raise SliceIdentityMismatchError(
+                f"Execution fact subtracted_delta_digest mismatch: "
+                f"{fact.subtracted_delta_digest} != {subset.subtracted_delta_digest}"
+            )
+        if fact.scope_digest != scope.scope_digest:
+            raise SliceIdentityMismatchError(
+                f"Execution fact scope_digest mismatch: {fact.scope_digest} != {scope.scope_digest}"
+            )
+        if fact.frozen_contract_digest != scope.frozen_contract_digest:
+            raise SliceIdentityMismatchError(
+                f"Execution fact frozen_contract_digest mismatch: "
+                f"{fact.frozen_contract_digest} != {scope.frozen_contract_digest}"
+            )
+        if fact.sealed_witness_digest != scope.sealed_witness_digest:
+            raise SliceIdentityMismatchError(
+                f"Execution fact sealed_witness_digest mismatch: "
+                f"{fact.sealed_witness_digest} != {scope.sealed_witness_digest}"
+            )
+        if fact.requirement_id != scope.requirement_id:
+            raise SliceIdentityMismatchError(
+                f"Execution fact requirement_id mismatch: "
+                f"{fact.requirement_id} != {scope.requirement_id}"
+            )
+        if fact.candidate_id != scope.candidate_id:
+            raise SliceIdentityMismatchError(
+                f"Execution fact candidate_id mismatch: {fact.candidate_id} != {scope.candidate_id}"
+            )
+        if fact.tree_digest != scope.candidate_tree_digest:
+            raise SliceIdentityMismatchError(
+                f"Execution fact tree_digest mismatch: "
+                f"{fact.tree_digest} != {scope.candidate_tree_digest}"
+            )
+        if fact.runtime_config_digest != self.runtime_config_digest:
+            raise SliceIdentityMismatchError(
+                f"Execution fact runtime_config_digest mismatch: "
+                f"{fact.runtime_config_digest} != {self.runtime_config_digest}"
+            )
+        if fact.provenance != scope.provenance:
+            raise SliceIdentityMismatchError(
+                f"Execution fact provenance mismatch: "
+                f"{fact.provenance.value} != {scope.provenance.value}"
+            )
+        if not verify_subset_execution_fact_integrity(fact):
+            raise SliceScopeTamperingError(
+                f"Execution fact failed integrity verification: {fact.execution_digest}"
+            )
+
     def _evaluate_subset(
         self,
         subset: TestedPatchSubset,
@@ -359,29 +472,50 @@ class BoundedSubsetMinimizer:
         """Evaluate a single subset, utilizing cache when available and valid."""
         # Check cache if provided
         if self.cache is not None:
-            cached_res = self.cache.lookup(subset=subset, scope=scope)
+            cached_res = self.cache.lookup(
+                subset=subset,
+                scope=scope,
+                execution_command=self.execution_command,
+                runtime_config_digest=self.runtime_config_digest,
+                requested_provenance=scope.provenance,
+            )
             if cached_res.hit and cached_res.entry is not None:
+                cached_fact = cached_res.entry.to_execution_fact(subset=subset, scope=scope)
+                self._validate_execution_fact(cached_fact, subset=subset, scope=scope)
                 return SubsetEvaluationRecord(
                     subset=subset,
-                    outcome=cached_res.entry.outcome,
+                    execution_fact=cached_fact,
                     is_cached=True,
                     evaluation_order=eval_order,
                 )
 
+        if self.execution_callback is None:
+            raise MinimizerError("No execution_callback provided and cache missed")
+
         # Run fresh execution via callback
-        outcome = self.execution_callback(subset, scope)
-        if not isinstance(outcome, WitnessOutcome):
+        raw_result = self.execution_callback(subset, scope)
+        if isinstance(raw_result, WitnessOutcome):
             raise TypeError(
-                f"execution_callback returned {type(outcome).__name__}, expected WitnessOutcome"
+                f"execution_callback returned naked WitnessOutcome ({raw_result.value}); "
+                "naked WitnessOutcome is no longer sufficient for authentic production "
+                "evidence. Must return a verified SubsetExecutionFact."
             )
+        if not isinstance(raw_result, SubsetExecutionFact):
+            raise TypeError(
+                f"execution_callback returned {type(raw_result).__name__}, "
+                "expected SubsetExecutionFact"
+            )
+
+        fact = raw_result
+        self._validate_execution_fact(fact, subset=subset, scope=scope)
 
         # Record in cache if available
         if self.cache is not None:
-            self.cache.store(subset=subset, scope=scope, outcome=outcome)
+            self.cache.store_fact(fact=fact, subset=subset, scope=scope)
 
         return SubsetEvaluationRecord(
             subset=subset,
-            outcome=outcome,
+            execution_fact=fact,
             is_cached=False,
             evaluation_order=eval_order,
         )
@@ -397,6 +531,7 @@ class BoundedSubsetMinimizer:
         model_proposal: ModelSliceProposal | None = None,
         provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
         disclaimer: NonFormalProofDisclaimer | None = None,
+        created_at_utc: str | None = None,
     ) -> BoundedMinimizerResult:
         """Execute bounded hunk minimization over candidate snapshot.
 
@@ -410,6 +545,14 @@ class BoundedSubsetMinimizer:
         7. Detect interactions, non-monotonic behaviors, and multiple sufficient subsets.
         8. Construct BoundedCausalSlice artifact and return authentic result.
         """
+        if provenance == EvidenceProvenance.LIVE_NEBIUS and (
+            self.runtime_config_digest == LOCAL_TEST_RUNTIME_CONFIG_DIGEST
+        ):
+            raise MinimizerError(
+                "LOCAL_TEST_RUNTIME_CONFIG_DIGEST cannot satisfy LIVE_NEBIUS evidence; "
+                "an authentic runtime_config_digest must be provided"
+            )
+
         disc = disclaimer or create_canonical_disclaimer()
         scope = create_causal_slice_scope(
             snapshot=snapshot,
@@ -474,6 +617,8 @@ class BoundedSubsetMinimizer:
                 summary_label=f"full candidate outcome is {full_eval.outcome.value}, not PASS",
                 scope=scope,
                 disclaimer=disc,
+                search_budget=self.budget,
+                runtime_config_digest=self.runtime_config_digest,
                 slice_artifact=None,
             )
 
@@ -490,6 +635,7 @@ class BoundedSubsetMinimizer:
                 completeness=SliceSearchCompleteness.EXHAUSTIVE_BOUNDED,
                 summary_label="single hunk candidate is tested necessary subset under witness",
                 disclaimer=disc,
+                created_at_utc=created_at_utc,
             )
             return BoundedMinimizerResult(
                 status=CausalSliceStatus.TESTED_NECESSARY_SUBSET,
@@ -501,6 +647,8 @@ class BoundedSubsetMinimizer:
                 summary_label="single hunk candidate is tested necessary subset under witness",
                 scope=scope,
                 disclaimer=disc,
+                search_budget=self.budget,
+                runtime_config_digest=self.runtime_config_digest,
                 slice_artifact=single_slice_art,
             )
 
@@ -682,6 +830,7 @@ class BoundedSubsetMinimizer:
                 completeness=final_completeness,
                 summary_label=final_label,
                 disclaimer=disc,
+                created_at_utc=created_at_utc,
             )
 
         return BoundedMinimizerResult(
@@ -694,6 +843,8 @@ class BoundedSubsetMinimizer:
             summary_label=final_label,
             scope=scope,
             disclaimer=disc,
+            search_budget=self.budget,
+            runtime_config_digest=self.runtime_config_digest,
             slice_artifact=slice_art,
             is_authoritative=False,
             grants_pass=False,

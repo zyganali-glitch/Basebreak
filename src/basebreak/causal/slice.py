@@ -1178,3 +1178,323 @@ def verify_slice_integrity(slice_artifact: BoundedCausalSlice) -> bool:
         return computed == slice_artifact.slice_digest
     except Exception:
         return False
+
+
+# --- Runtime Configuration & Structured Subset Execution Fact ---
+
+LOCAL_TEST_RUNTIME_CONFIG_DIGEST: str = (
+    "2a63e9b11029e9d6d333f225eb59275cb79dafe2f3dc10e054457cb1d06ff352"
+)
+
+
+def compute_runtime_config_digest(config: Mapping[str, Any] | str) -> str:
+    """Compute deterministic SHA-256 digest of canonical runtime configuration."""
+    if isinstance(config, str):
+        config_clean = config.strip().lower()
+        if _HEX_64_PATTERN.match(config_clean):
+            return config_clean
+        return hashlib.sha256(config.encode("utf-8")).hexdigest()
+    if isinstance(config, Mapping):
+        canonical_bytes = json.dumps(
+            config, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        return hashlib.sha256(canonical_bytes).hexdigest()
+    raise TypeError(f"config must be Mapping or str, got {type(config).__name__}")
+
+
+def compute_subset_execution_digest(payload: Mapping[str, Any]) -> str:
+    """Compute deterministic SHA-256 digest of canonical subset execution payload."""
+    canonical_bytes = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return hashlib.sha256(canonical_bytes).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class SubsetExecutionFact:
+    """Deterministic, cryptographically bound execution fact for a tested patch subset.
+
+    Binds:
+    - exact tested subset ID
+    - retained patch digest
+    - subtracted delta digest
+    - exact causal-slice scope digest
+    - frozen contract digest
+    - sealed witness digest
+    - requirement ID
+    - candidate identity
+    - candidate/source tree identity
+    - execution command and command digest
+    - runtime configuration digest
+    - execution/sandbox identity
+    - outcome (WitnessOutcome)
+    - exit code where available
+    - evidence provenance
+    - deterministic execution/result digest
+
+    Invariants:
+    - is_authoritative: strictly False
+    - grants_pass: strictly False
+    - is_causally_verified: strictly False
+    - ERROR and TIMEOUT remain distinct from behavioral FAIL
+    """
+
+    subset_id: str
+    retained_patch_digest: str
+    subtracted_delta_digest: str
+    scope_digest: str
+    frozen_contract_digest: str
+    sealed_witness_digest: str
+    requirement_id: str
+    candidate_id: str
+    tree_digest: str
+    execution_command: tuple[str, ...]
+    execution_command_digest: str
+    runtime_config_digest: str
+    sandbox_id: str
+    outcome: WitnessOutcome
+    exit_code: int | None
+    provenance: EvidenceProvenance
+    execution_digest: str
+    stdout_digest: str = "0" * 64
+    stderr_digest: str = "0" * 64
+    duration_seconds: float = 0.0
+    created_at_utc: str = ""
+    is_authoritative: bool = False
+    grants_pass: bool = False
+    is_causally_verified: bool = False
+
+    def __post_init__(self) -> None:
+        if self.is_authoritative is not False:
+            raise SliceAuthorityError(
+                "SubsetExecutionFact cannot assert authority: is_authoritative must be False"
+            )
+        if self.grants_pass is not False:
+            raise SliceAuthorityError(
+                "SubsetExecutionFact cannot grant pass: grants_pass must be False"
+            )
+        if self.is_causally_verified is not False:
+            raise SliceAuthorityError(
+                "SubsetExecutionFact cannot assert verification: is_causally_verified must be False"
+            )
+
+        _validate_non_empty_identifier(self.subset_id, "subset_id")
+        _validate_hex_digest(self.retained_patch_digest, "retained_patch_digest", 64)
+        _validate_hex_digest(self.subtracted_delta_digest, "subtracted_delta_digest", 64)
+        _validate_hex_digest(self.scope_digest, "scope_digest", 64)
+        _validate_hex_digest(self.frozen_contract_digest, "frozen_contract_digest", 64)
+        _validate_hex_digest(self.sealed_witness_digest, "sealed_witness_digest", 64)
+        _validate_non_empty_identifier(self.requirement_id, "requirement_id")
+        _validate_non_empty_identifier(self.candidate_id, "candidate_id")
+        _validate_hex_digest(self.tree_digest, "tree_digest", (40, 64))
+        _validate_hex_digest(self.execution_command_digest, "execution_command_digest", 64)
+        _validate_hex_digest(self.runtime_config_digest, "runtime_config_digest", 64)
+        _validate_non_empty_identifier(self.sandbox_id, "sandbox_id")
+
+        if not isinstance(self.outcome, WitnessOutcome):
+            raise TypeError(f"outcome must be WitnessOutcome, got {type(self.outcome).__name__}")
+        if not isinstance(self.provenance, EvidenceProvenance):
+            raise TypeError(
+                f"provenance must be EvidenceProvenance, got {type(self.provenance).__name__}"
+            )
+
+        if self.provenance == EvidenceProvenance.LIVE_NEBIUS and (
+            self.runtime_config_digest == LOCAL_TEST_RUNTIME_CONFIG_DIGEST
+        ):
+            raise ValueError(
+                "LOCAL_TEST_RUNTIME_CONFIG_DIGEST cannot satisfy LIVE_NEBIUS provenance"
+            )
+
+        _validate_hex_digest(self.stdout_digest, "stdout_digest", 64)
+        _validate_hex_digest(self.stderr_digest, "stderr_digest", 64)
+        _validate_hex_digest(self.execution_digest, "execution_digest", 64)
+
+        if (
+            isinstance(self.duration_seconds, bool)
+            or not isinstance(self.duration_seconds, (int, float))
+            or self.duration_seconds < 0.0
+        ):
+            raise ValueError("duration_seconds must be a non-negative number")
+
+        # Cryptographic tamper verification
+        computed = compute_subset_execution_digest(self._build_payload())
+        if self.execution_digest != computed:
+            raise SliceScopeTamperingError(
+                f"execution_digest mismatch: expected {self.execution_digest}, computed {computed}"
+            )
+
+    def _build_payload(self) -> dict[str, Any]:
+        return {
+            "candidate_id": self.candidate_id,
+            "created_at_utc": self.created_at_utc,
+            "duration_seconds": round(float(self.duration_seconds), 4),
+            "execution_command": list(self.execution_command),
+            "execution_command_digest": self.execution_command_digest,
+            "exit_code": self.exit_code,
+            "frozen_contract_digest": self.frozen_contract_digest,
+            "outcome": self.outcome.value,
+            "provenance": self.provenance.value,
+            "retained_patch_digest": self.retained_patch_digest,
+            "requirement_id": self.requirement_id,
+            "runtime_config_digest": self.runtime_config_digest,
+            "sandbox_id": self.sandbox_id,
+            "scope_digest": self.scope_digest,
+            "sealed_witness_digest": self.sealed_witness_digest,
+            "stderr_digest": self.stderr_digest,
+            "stdout_digest": self.stdout_digest,
+            "subtracted_delta_digest": self.subtracted_delta_digest,
+            "subset_id": self.subset_id,
+            "tree_digest": self.tree_digest,
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        d = self._build_payload()
+        d["execution_digest"] = self.execution_digest
+        d["grants_pass"] = self.grants_pass
+        d["is_authoritative"] = self.is_authoritative
+        d["is_causally_verified"] = self.is_causally_verified
+        return d
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> SubsetExecutionFact:
+        if not isinstance(data, Mapping):
+            raise SliceScopeTamperingError(f"Expected mapping, got {type(data).__name__}")
+        if data.get("is_authoritative") is True:
+            raise SliceAuthorityError("is_authoritative cannot be True")
+        if data.get("grants_pass") is True:
+            raise SliceAuthorityError("grants_pass cannot be True")
+        if data.get("is_causally_verified") is True:
+            raise SliceAuthorityError("is_causally_verified cannot be True")
+
+        cmd = data.get("execution_command", ())
+        cmd_tuple = tuple(str(c) for c in cmd) if isinstance(cmd, Sequence) else (str(cmd),)
+        return cls(
+            subset_id=str(data["subset_id"]),
+            retained_patch_digest=str(data["retained_patch_digest"]),
+            subtracted_delta_digest=str(data["subtracted_delta_digest"]),
+            scope_digest=str(data["scope_digest"]),
+            frozen_contract_digest=str(data["frozen_contract_digest"]),
+            sealed_witness_digest=str(data["sealed_witness_digest"]),
+            requirement_id=str(data["requirement_id"]),
+            candidate_id=str(data["candidate_id"]),
+            tree_digest=str(data["tree_digest"]),
+            execution_command=cmd_tuple,
+            execution_command_digest=str(data["execution_command_digest"]),
+            runtime_config_digest=str(data["runtime_config_digest"]),
+            sandbox_id=str(data["sandbox_id"]),
+            outcome=WitnessOutcome(str(data["outcome"])),
+            exit_code=data.get("exit_code"),
+            provenance=EvidenceProvenance(str(data["provenance"])),
+            execution_digest=str(data["execution_digest"]),
+            stdout_digest=str(data.get("stdout_digest", "0" * 64)),
+            stderr_digest=str(data.get("stderr_digest", "0" * 64)),
+            duration_seconds=float(data.get("duration_seconds", 0.0)),
+            created_at_utc=str(data.get("created_at_utc", "")),
+            is_authoritative=False,
+            grants_pass=False,
+            is_causally_verified=False,
+        )
+
+
+def create_subset_execution_fact(
+    *,
+    subset: TestedPatchSubset,
+    scope: CausalSliceScope,
+    outcome: WitnessOutcome,
+    runtime_config_digest: str = LOCAL_TEST_RUNTIME_CONFIG_DIGEST,
+    execution_command: Sequence[str] | str = ("pytest",),
+    execution_command_digest: str | None = None,
+    tree_digest: str | None = None,
+    sandbox_id: str = "sandbox-verifier-local",
+    exit_code: int | None = 0,
+    stdout_digest: str = "0" * 64,
+    stderr_digest: str = "0" * 64,
+    duration_seconds: float = 0.0,
+    provenance: EvidenceProvenance | None = None,
+    created_at_utc: str | None = None,
+) -> SubsetExecutionFact:
+    """Construct an authentic, cryptographically bound SubsetExecutionFact."""
+    cmd_tuple: tuple[str, ...]
+    if isinstance(execution_command, str):
+        cmd_tuple = tuple(execution_command.split())
+    else:
+        cmd_tuple = tuple(str(c) for c in execution_command)
+
+    if execution_command_digest is None:
+        cmd_payload = json.dumps(list(cmd_tuple), separators=(",", ":")).encode("utf-8")
+        cmd_digest = hashlib.sha256(cmd_payload).hexdigest()
+    else:
+        cmd_digest = execution_command_digest.strip().lower()
+
+    resolved_tree = (tree_digest or scope.candidate_tree_digest).strip().lower()
+    resolved_prov = provenance or scope.provenance
+    timestamp = created_at_utc or datetime.now(timezone.utc).isoformat()
+
+    payload = {
+        "candidate_id": scope.candidate_id,
+        "created_at_utc": timestamp,
+        "duration_seconds": round(float(duration_seconds), 4),
+        "execution_command": list(cmd_tuple),
+        "execution_command_digest": cmd_digest,
+        "exit_code": exit_code,
+        "frozen_contract_digest": scope.frozen_contract_digest,
+        "outcome": outcome.value,
+        "provenance": resolved_prov.value,
+        "retained_patch_digest": subset.retained_patch_digest,
+        "requirement_id": scope.requirement_id,
+        "runtime_config_digest": runtime_config_digest.strip().lower(),
+        "sandbox_id": sandbox_id.strip(),
+        "scope_digest": scope.scope_digest,
+        "sealed_witness_digest": scope.sealed_witness_digest,
+        "stderr_digest": stderr_digest.strip().lower(),
+        "stdout_digest": stdout_digest.strip().lower(),
+        "subtracted_delta_digest": subset.subtracted_delta_digest,
+        "subset_id": subset.subset_id,
+        "tree_digest": resolved_tree,
+    }
+    exec_digest = compute_subset_execution_digest(payload)
+
+    return SubsetExecutionFact(
+        subset_id=subset.subset_id,
+        retained_patch_digest=subset.retained_patch_digest,
+        subtracted_delta_digest=subset.subtracted_delta_digest,
+        scope_digest=scope.scope_digest,
+        frozen_contract_digest=scope.frozen_contract_digest,
+        sealed_witness_digest=scope.sealed_witness_digest,
+        requirement_id=scope.requirement_id,
+        candidate_id=scope.candidate_id,
+        tree_digest=resolved_tree,
+        execution_command=cmd_tuple,
+        execution_command_digest=cmd_digest,
+        runtime_config_digest=runtime_config_digest.strip().lower(),
+        sandbox_id=sandbox_id.strip(),
+        outcome=outcome,
+        exit_code=exit_code,
+        provenance=resolved_prov,
+        execution_digest=exec_digest,
+        stdout_digest=stdout_digest.strip().lower(),
+        stderr_digest=stderr_digest.strip().lower(),
+        duration_seconds=duration_seconds,
+        created_at_utc=timestamp,
+        is_authoritative=False,
+        grants_pass=False,
+        is_causally_verified=False,
+    )
+
+
+def verify_subset_execution_fact_integrity(fact: SubsetExecutionFact) -> bool:
+    """Verify cryptographic integrity of SubsetExecutionFact."""
+    if not isinstance(fact, SubsetExecutionFact):
+        return False
+    if fact.is_authoritative is not False:
+        return False
+    if fact.grants_pass is not False:
+        return False
+    if fact.is_causally_verified is not False:
+        return False
+    try:
+        payload = fact._build_payload()
+        computed = compute_subset_execution_digest(payload)
+        return computed == fact.execution_digest
+    except Exception:
+        return False

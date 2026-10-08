@@ -13,16 +13,33 @@ from basebreak.causal.minimizer import (
     SliceSearchBudget,
 )
 from basebreak.causal.slice import (
+    CausalSliceScope,
     CausalSliceStatus,
     ModelSliceProposal,
     SliceAuthorityError,
     SliceSearchCompleteness,
+    SubsetExecutionFact,
     TestedPatchSubset,
+    create_subset_execution_fact,
 )
 from basebreak.domain.source import CommitRevision, SourceIdentity
 from basebreak.domain.verdict import EvidenceProvenance
 from basebreak.evidence.artifact import compute_bytes_digest
 from basebreak.verifier.witness_result import WitnessOutcome
+
+
+def _make_fact(
+    sub: TestedPatchSubset,
+    scope: CausalSliceScope,
+    outcome: WitnessOutcome,
+) -> SubsetExecutionFact:
+    return create_subset_execution_fact(
+        subset=sub,
+        scope=scope,
+        outcome=outcome,
+        exit_code=0 if outcome == WitnessOutcome.PASS else 1,
+    )
+
 
 FROZEN_CONTRACT = "a" * 64
 SEALED_WITNESS = "b" * 64
@@ -104,8 +121,8 @@ class TestBoundedMinimizationExecution:
     def test_single_hunk_patch_is_tested_necessary_subset(self) -> None:
         snap = _make_snapshot(SINGLE_HUNK_PATCH)
 
-        def mock_callback(sub: TestedPatchSubset, scope: Any) -> WitnessOutcome:
-            return WitnessOutcome.PASS
+        def mock_callback(sub: TestedPatchSubset, scope: Any) -> SubsetExecutionFact:
+            return _make_fact(sub, scope, WitnessOutcome.PASS)
 
         minimizer = BoundedSubsetMinimizer(execution_callback=mock_callback)
         result = minimizer.minimize(
@@ -132,10 +149,10 @@ class TestBoundedMinimizationExecution:
 
         # Hunk 0 is the necessary fix (passes whenever hunk 0 is present)
         # Hunk 1 is irrelevant (fails if only hunk 1 is present)
-        def mock_callback(sub: TestedPatchSubset, scope: Any) -> WitnessOutcome:
+        def mock_callback(sub: TestedPatchSubset, scope: Any) -> SubsetExecutionFact:
             if h0 in sub.retained_hunk_ids:
-                return WitnessOutcome.PASS
-            return WitnessOutcome.FAIL
+                return _make_fact(sub, scope, WitnessOutcome.PASS)
+            return _make_fact(sub, scope, WitnessOutcome.FAIL)
 
         minimizer = BoundedSubsetMinimizer(execution_callback=mock_callback)
         result = minimizer.minimize(
@@ -159,10 +176,10 @@ class TestBoundedMinimizationExecution:
         h1 = units[1].hunk_id
 
         # Both hunks are required together (neither alone passes)
-        def mock_callback(sub: TestedPatchSubset, scope: Any) -> WitnessOutcome:
+        def mock_callback(sub: TestedPatchSubset, scope: Any) -> SubsetExecutionFact:
             if h0 in sub.retained_hunk_ids and h1 in sub.retained_hunk_ids:
-                return WitnessOutcome.PASS
-            return WitnessOutcome.FAIL
+                return _make_fact(sub, scope, WitnessOutcome.PASS)
+            return _make_fact(sub, scope, WitnessOutcome.FAIL)
 
         minimizer = BoundedSubsetMinimizer(execution_callback=mock_callback)
         result = minimizer.minimize(
@@ -181,8 +198,8 @@ class TestBoundedMinimizationExecution:
         snap = _make_snapshot(TWO_HUNK_PATCH)
 
         # Either hunk alone passes!
-        def mock_callback(sub: TestedPatchSubset, scope: Any) -> WitnessOutcome:
-            return WitnessOutcome.PASS
+        def mock_callback(sub: TestedPatchSubset, scope: Any) -> SubsetExecutionFact:
+            return _make_fact(sub, scope, WitnessOutcome.PASS)
 
         minimizer = BoundedSubsetMinimizer(execution_callback=mock_callback)
         result = minimizer.minimize(
@@ -203,12 +220,12 @@ class TestBoundedMinimizationExecution:
         # First evaluation (full candidate) passes, subsequent evaluations not run due to budget
         call_count = 0
 
-        def mock_callback(sub: TestedPatchSubset, scope: Any) -> WitnessOutcome:
+        def mock_callback(sub: TestedPatchSubset, scope: Any) -> SubsetExecutionFact:
             nonlocal call_count
             call_count += 1
             if len(sub.retained_hunk_ids) == 2:
-                return WitnessOutcome.PASS
-            return WitnessOutcome.FAIL
+                return _make_fact(sub, scope, WitnessOutcome.PASS)
+            return _make_fact(sub, scope, WitnessOutcome.FAIL)
 
         # Budget allows max 1 subset test (only full candidate will run)
         budget = SliceSearchBudget(max_iterations=1, max_subsets_tested=1)
@@ -227,8 +244,8 @@ class TestBoundedMinimizationExecution:
     def test_base_outcome_not_fail_rejected(self) -> None:
         snap = _make_snapshot(SINGLE_HUNK_PATCH)
 
-        def mock_callback(sub: TestedPatchSubset, scope: Any) -> WitnessOutcome:
-            return WitnessOutcome.PASS
+        def mock_callback(sub: TestedPatchSubset, scope: Any) -> SubsetExecutionFact:
+            return _make_fact(sub, scope, WitnessOutcome.PASS)
 
         minimizer = BoundedSubsetMinimizer(execution_callback=mock_callback)
         result = minimizer.minimize(
@@ -245,8 +262,8 @@ class TestBoundedMinimizationExecution:
     def test_full_candidate_error_or_timeout_not_collapsed_to_fail(self) -> None:
         snap = _make_snapshot(SINGLE_HUNK_PATCH)
 
-        def mock_callback(sub: TestedPatchSubset, scope: Any) -> WitnessOutcome:
-            return WitnessOutcome.TIMEOUT
+        def mock_callback(sub: TestedPatchSubset, scope: Any) -> SubsetExecutionFact:
+            return _make_fact(sub, scope, WitnessOutcome.TIMEOUT)
 
         minimizer = BoundedSubsetMinimizer(execution_callback=mock_callback)
         result = minimizer.minimize(
@@ -280,14 +297,14 @@ class TestBoundedMinimizationExecution:
 
         tested_orders: list[tuple[str, ...]] = []
 
-        def mock_callback(sub: TestedPatchSubset, scope: Any) -> WitnessOutcome:
+        def mock_callback(sub: TestedPatchSubset, scope: Any) -> SubsetExecutionFact:
             tested_orders.append(sub.retained_hunk_ids)
             # Full candidate passes, h1 alone fails, h0 alone passes
             if set(sub.retained_hunk_ids) == {h0, h1}:
-                return WitnessOutcome.PASS
+                return _make_fact(sub, scope, WitnessOutcome.PASS)
             if sub.retained_hunk_ids == (h0,):
-                return WitnessOutcome.PASS
-            return WitnessOutcome.FAIL
+                return _make_fact(sub, scope, WitnessOutcome.PASS)
+            return _make_fact(sub, scope, WitnessOutcome.FAIL)
 
         minimizer = BoundedSubsetMinimizer(execution_callback=mock_callback)
         result = minimizer.minimize(

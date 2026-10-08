@@ -316,12 +316,14 @@ class TestP0502ClosureGate:
         assert whoami_handle.lifecycle_state != SandboxLifecycleState.DISPOSED
 
     # Gate 5: Timeout/error handling
-    def test_gate_timeout_and_error_handling(self) -> None:
+    def test_gate_timeout_and_error_handling(self, monkeypatch: pytest.MonkeyPatch) -> None:
         adapter = NebiusSandboxAdapter(config=SandboxClientConfig(api_key="k", project_id="p"))
         with pytest.raises(SandboxConfigError, match="timeout_seconds"):
             adapter.execute_command(DEFAULT_SANDBOX_IMAGE, "echo hi", timeout_seconds=999)
 
         # Missing credential fails closed
+        monkeypatch.delenv("NEBIUS_API_KEY", raising=False)
+        monkeypatch.delenv("CONTREE_TOKEN", raising=False)
         adapter_no_cred = NebiusSandboxAdapter(
             config=SandboxClientConfig(api_key=None, project_id=None)
         )
