@@ -1,0 +1,392 @@
+"""Bounded failure feedback schema and contracts for sealed repair.
+
+P-14.01: Define bounded failure-feedback schema.
+
+Core Invariants:
+1. Provider-neutral deterministic contracts for verifier -> Builder repair feedback.
+2. Carries only minimally necessary failure facts (requirement_id, change_class,
+   failed_condition, observed_behavior, expected_behavior, sanitized counterexample,
+   permitted patch regions).
+3. Explicit disclosure classification: marked with DisclosureClassification.SAFE_TO_DISCLOSE.
+4. Zero verdict authority:
+   is_authoritative = False
+   grants_pass = False
+   is_causally_verified = False
+   Caller-asserted authority fails closed.
+5. Cryptographic integrity: feedback_digest is computed over canonical JSON bytes;
+   tampering fails closed.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any
+
+from basebreak.domain.semantics import ChangeClass
+from basebreak.domain.verdict import EvidenceProvenance
+
+REPAIR_FEEDBACK_SCHEMA_VERSION: str = "1.0.0"
+
+_HEX_40_OR_64_PATTERN = re.compile(r"^([0-9a-f]{40}|[0-9a-f]{64})$")
+_HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_\-\.:/]+$")
+
+
+class RepairFeedbackError(Exception):
+    """Base exception for all repair feedback errors."""
+
+
+class RepairFeedbackIntegrityError(RepairFeedbackError):
+    """Raised when repair feedback facts violate domain constraints or format."""
+
+
+class RepairFeedbackAuthorityError(RepairFeedbackError):
+    """Raised when feedback object claims unauthorized verdict or certification authority."""
+
+
+class RepairFeedbackTamperingError(RepairFeedbackError):
+    """Raised when repair feedback facts do not match the cryptographic feedback digest."""
+
+
+class RepairFeedbackDisclosureError(RepairFeedbackError):
+    """Raised when feedback contains forbidden or unsafe disclosure items."""
+
+
+class DisclosureClassification(str, Enum):
+    """Deterministic disclosure classification for verifier-emitted feedback."""
+
+    SAFE_TO_DISCLOSE = "SAFE_TO_DISCLOSE"
+    REDACTED = "REDACTED"
+    FORBIDDEN = "FORBIDDEN"
+
+
+class FailureConditionCategory(str, Enum):
+    """Deterministic categorization of verifier failure conditions."""
+
+    BEHAVIORAL_ASSERTION_FAILED = "BEHAVIORAL_ASSERTION_FAILED"
+    STATE_TRANSITION_FAILED = "STATE_TRANSITION_FAILED"
+    SECURITY_NOT_BLOCKED = "SECURITY_NOT_BLOCKED"
+    REFACTOR_BEHAVIOR_DIVERGED = "REFACTOR_BEHAVIOR_DIVERGED"
+    PERFORMANCE_UNIMPROVED = "PERFORMANCE_UNIMPROVED"
+    DEP_API_REGRESSION = "DEP_API_REGRESSION"
+    UNEXPECTED_TERMINATION = "UNEXPECTED_TERMINATION"
+    NON_BEHAVIORAL_FAILURE = "NON_BEHAVIORAL_FAILURE"
+
+
+def _validate_non_empty_str(val: str, field_name: str) -> None:
+    if not isinstance(val, str):
+        raise TypeError(f"{field_name} must be str, got {type(val).__name__}")
+    if not val.strip():
+        raise RepairFeedbackIntegrityError(f"{field_name} must not be empty or whitespace-only")
+
+
+def _validate_hex_digest(digest: str, field_name: str, allow_40: bool = False) -> None:
+    _validate_non_empty_str(digest, field_name)
+    pat = _HEX_40_OR_64_PATTERN if allow_40 else _HEX_64_PATTERN
+    if not pat.match(digest):
+        expected = "40 or 64" if allow_40 else "64"
+        raise RepairFeedbackIntegrityError(
+            f"{field_name} must be a {expected} hex character string, got {digest!r}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SanitizedCounterexample:
+    """Bounded, sanitized counterexample details safe for Builder disclosure.
+
+    Contains no witness code, no private assertion code, no secret values, and no
+    verifier internal paths.
+    """
+
+    input_summary: str
+    expected_output_summary: str
+    actual_output_summary: str
+    input_category: str = ""
+    exit_code: int | None = None
+    is_sanitized: bool = True
+    classification: DisclosureClassification = DisclosureClassification.SAFE_TO_DISCLOSE
+
+    def __post_init__(self) -> None:
+        _validate_non_empty_str(self.input_summary, "input_summary")
+        _validate_non_empty_str(self.expected_output_summary, "expected_output_summary")
+        _validate_non_empty_str(self.actual_output_summary, "actual_output_summary")
+        if not isinstance(self.input_category, str):
+            raise TypeError(f"input_category must be str, got {type(self.input_category).__name__}")
+        if self.exit_code is not None and not isinstance(self.exit_code, int):
+            raise TypeError(f"exit_code must be int or None, got {type(self.exit_code).__name__}")
+        if not self.is_sanitized:
+            raise RepairFeedbackDisclosureError(
+                "SanitizedCounterexample cannot have is_sanitized=False"
+            )
+        if self.classification != DisclosureClassification.SAFE_TO_DISCLOSE:
+            cls_name = self.classification.value
+            raise RepairFeedbackDisclosureError(
+                f"SanitizedCounterexample classification must be SAFE_TO_DISCLOSE, got {cls_name}"
+            )
+
+    def to_canonical_dict(self) -> dict[str, Any]:
+        """Convert to canonical dictionary representation for hashing."""
+        return {
+            "actual_output_summary": self.actual_output_summary,
+            "classification": self.classification.value,
+            "exit_code": self.exit_code,
+            "expected_output_summary": self.expected_output_summary,
+            "input_category": self.input_category,
+            "input_summary": self.input_summary,
+            "is_sanitized": self.is_sanitized,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SafeRepairFeedback:
+    """Bounded failure feedback emitted by verifier to guide Builder repair.
+
+    Possesses ZERO verdict authority and cannot grant verification or PASS.
+    """
+
+    feedback_id: str
+    candidate_id: str
+    requirement_id: str
+    change_class: ChangeClass
+    failed_condition: FailureConditionCategory
+    observed_behavior: str
+    expected_behavior: str
+    permitted_patch_region: tuple[str, ...]
+    provenance: EvidenceProvenance
+    originating_receipt_digest: str
+    feedback_round: int
+    feedback_digest: str
+    counterexample: SanitizedCounterexample | None = None
+    schema_version: str = REPAIR_FEEDBACK_SCHEMA_VERSION
+    is_authoritative: bool = False
+    grants_pass: bool = False
+    is_causally_verified: bool = False
+    disclosure_classification: DisclosureClassification = DisclosureClassification.SAFE_TO_DISCLOSE
+
+    def __post_init__(self) -> None:
+        _validate_non_empty_str(self.feedback_id, "feedback_id")
+        _validate_non_empty_str(self.candidate_id, "candidate_id")
+        _validate_non_empty_str(self.requirement_id, "requirement_id")
+        if not isinstance(self.change_class, ChangeClass):
+            raise TypeError(
+                f"change_class must be ChangeClass, got {type(self.change_class).__name__}"
+            )
+        if not isinstance(self.failed_condition, FailureConditionCategory):
+            fc_type = type(self.failed_condition).__name__
+            raise TypeError(f"failed_condition must be FailureConditionCategory, got {fc_type}")
+        _validate_non_empty_str(self.observed_behavior, "observed_behavior")
+        _validate_non_empty_str(self.expected_behavior, "expected_behavior")
+
+        if not isinstance(self.permitted_patch_region, tuple):
+            if isinstance(self.permitted_patch_region, Sequence):
+                object.__setattr__(
+                    self, "permitted_patch_region", tuple(self.permitted_patch_region)
+                )
+            else:
+                seq_type = type(self.permitted_patch_region).__name__
+                raise TypeError(
+                    f"permitted_patch_region must be a sequence of strings, got {seq_type}"
+                )
+        for path in self.permitted_patch_region:
+            _validate_non_empty_str(path, "permitted_patch_region element")
+
+        if not isinstance(self.provenance, EvidenceProvenance):
+            raise TypeError(
+                f"provenance must be EvidenceProvenance, got {type(self.provenance).__name__}"
+            )
+        _validate_hex_digest(self.originating_receipt_digest, "originating_receipt_digest")
+
+        if not isinstance(self.feedback_round, int) or self.feedback_round < 1:
+            raise RepairFeedbackIntegrityError(
+                f"feedback_round must be a positive integer, got {self.feedback_round!r}"
+            )
+
+        _validate_hex_digest(self.feedback_digest, "feedback_digest")
+
+        if self.counterexample is not None and not isinstance(
+            self.counterexample, SanitizedCounterexample
+        ):
+            ce_type = type(self.counterexample).__name__
+            raise TypeError(
+                f"counterexample must be SanitizedCounterexample or None, got {ce_type}"
+            )
+
+        # STRICT ZERO-AUTHORITY ENFORCEMENT
+        if self.is_authoritative:
+            raise RepairFeedbackAuthorityError(
+                "SafeRepairFeedback cannot have is_authoritative=True; feedback has zero authority"
+            )
+        if self.grants_pass:
+            raise RepairFeedbackAuthorityError(
+                "SafeRepairFeedback cannot have grants_pass=True; feedback cannot grant pass"
+            )
+        if self.is_causally_verified:
+            raise RepairFeedbackAuthorityError(
+                "SafeRepairFeedback cannot have is_causally_verified=True"
+            )
+        if self.disclosure_classification != DisclosureClassification.SAFE_TO_DISCLOSE:
+            cls_name = self.disclosure_classification.value
+            raise RepairFeedbackDisclosureError(
+                f"SafeRepairFeedback must have SAFE_TO_DISCLOSE classification, got {cls_name}"
+            )
+
+
+def build_canonical_repair_feedback_payload(
+    *,
+    schema_version: str,
+    feedback_id: str,
+    candidate_id: str,
+    requirement_id: str,
+    change_class: ChangeClass,
+    failed_condition: FailureConditionCategory,
+    observed_behavior: str,
+    expected_behavior: str,
+    permitted_patch_region: tuple[str, ...],
+    provenance: EvidenceProvenance,
+    originating_receipt_digest: str,
+    feedback_round: int,
+    counterexample: SanitizedCounterexample | None = None,
+    disclosure_classification: DisclosureClassification = (
+        DisclosureClassification.SAFE_TO_DISCLOSE
+    ),
+    is_authoritative: bool = False,
+    grants_pass: bool = False,
+    is_causally_verified: bool = False,
+) -> dict[str, Any]:
+    """Construct deterministic canonical payload dictionary for repair feedback hashing."""
+    ce_dict = counterexample.to_canonical_dict() if counterexample is not None else None
+    return {
+        "candidate_id": candidate_id,
+        "change_class": change_class.value,
+        "counterexample": ce_dict,
+        "disclosure_classification": disclosure_classification.value,
+        "expected_behavior": expected_behavior,
+        "failed_condition": failed_condition.value,
+        "feedback_id": feedback_id,
+        "feedback_round": feedback_round,
+        "grants_pass": grants_pass,
+        "is_authoritative": is_authoritative,
+        "is_causally_verified": is_causally_verified,
+        "observed_behavior": observed_behavior,
+        "originating_receipt_digest": originating_receipt_digest,
+        "permitted_patch_region": sorted(permitted_patch_region),
+        "provenance": provenance.value,
+        "requirement_id": requirement_id,
+        "schema_version": schema_version,
+    }
+
+
+def compute_repair_feedback_digest(payload: Mapping[str, Any]) -> str:
+    """Compute deterministic SHA-256 digest from canonical JSON representation."""
+    canonical_json = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+
+
+def create_safe_repair_feedback(
+    *,
+    feedback_id: str,
+    candidate_id: str,
+    requirement_id: str,
+    change_class: ChangeClass,
+    failed_condition: FailureConditionCategory,
+    observed_behavior: str,
+    expected_behavior: str,
+    originating_receipt_digest: str,
+    feedback_round: int,
+    provenance: EvidenceProvenance,
+    permitted_patch_region: Sequence[str] = (),
+    counterexample: SanitizedCounterexample | None = None,
+) -> SafeRepairFeedback:
+    """Deterministic factory constructing a SafeRepairFeedback with verified digest."""
+    sorted_permitted = tuple(sorted(permitted_patch_region))
+
+    payload = build_canonical_repair_feedback_payload(
+        schema_version=REPAIR_FEEDBACK_SCHEMA_VERSION,
+        feedback_id=feedback_id,
+        candidate_id=candidate_id,
+        requirement_id=requirement_id,
+        change_class=change_class,
+        failed_condition=failed_condition,
+        observed_behavior=observed_behavior,
+        expected_behavior=expected_behavior,
+        permitted_patch_region=sorted_permitted,
+        provenance=provenance,
+        originating_receipt_digest=originating_receipt_digest,
+        feedback_round=feedback_round,
+        counterexample=counterexample,
+        disclosure_classification=DisclosureClassification.SAFE_TO_DISCLOSE,
+        is_authoritative=False,
+        grants_pass=False,
+        is_causally_verified=False,
+    )
+    digest = compute_repair_feedback_digest(payload)
+
+    return SafeRepairFeedback(
+        feedback_id=feedback_id,
+        candidate_id=candidate_id,
+        requirement_id=requirement_id,
+        change_class=change_class,
+        failed_condition=failed_condition,
+        observed_behavior=observed_behavior,
+        expected_behavior=expected_behavior,
+        permitted_patch_region=sorted_permitted,
+        provenance=provenance,
+        originating_receipt_digest=originating_receipt_digest,
+        feedback_round=feedback_round,
+        feedback_digest=digest,
+        counterexample=counterexample,
+        schema_version=REPAIR_FEEDBACK_SCHEMA_VERSION,
+        is_authoritative=False,
+        grants_pass=False,
+        is_causally_verified=False,
+        disclosure_classification=DisclosureClassification.SAFE_TO_DISCLOSE,
+    )
+
+
+def verify_repair_feedback_integrity(feedback: SafeRepairFeedback) -> bool:
+    """Verify cryptographic integrity and authority boundaries of repair feedback.
+
+    Fails closed (returns False or raises exception on tampering/authority violations).
+    """
+    if feedback.is_authoritative or feedback.grants_pass or feedback.is_causally_verified:
+        raise RepairFeedbackAuthorityError("Repair feedback cannot possess verdict authority")
+
+    if feedback.disclosure_classification != DisclosureClassification.SAFE_TO_DISCLOSE:
+        return False
+
+    payload = build_canonical_repair_feedback_payload(
+        schema_version=feedback.schema_version,
+        feedback_id=feedback.feedback_id,
+        candidate_id=feedback.candidate_id,
+        requirement_id=feedback.requirement_id,
+        change_class=feedback.change_class,
+        failed_condition=feedback.failed_condition,
+        observed_behavior=feedback.observed_behavior,
+        expected_behavior=feedback.expected_behavior,
+        permitted_patch_region=feedback.permitted_patch_region,
+        provenance=feedback.provenance,
+        originating_receipt_digest=feedback.originating_receipt_digest,
+        feedback_round=feedback.feedback_round,
+        counterexample=feedback.counterexample,
+        disclosure_classification=feedback.disclosure_classification,
+        is_authoritative=feedback.is_authoritative,
+        grants_pass=feedback.grants_pass,
+        is_causally_verified=feedback.is_causally_verified,
+    )
+    computed_digest = compute_repair_feedback_digest(payload)
+    if feedback.feedback_digest != computed_digest:
+        raise RepairFeedbackTamperingError(
+            f"Feedback digest mismatch: recorded {feedback.feedback_digest!r} "
+            f"!= computed {computed_digest!r}"
+        )
+    return True
