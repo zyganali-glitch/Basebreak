@@ -98,14 +98,14 @@ Judge claim:
     - Fresh disposable verifier sandbox (`sbx-0c743ca733104380` distinct from `sbx-a556a6b6518a424b`, fail-closed pre-execution sandbox budget checked) executed sealed witness -> Exit 0 (`WITNESS_PASS`);
     - Terminal loop receipt `RLR-bbff0b7675cb` emitted with status `VERIFIED_AFTER_REPAIR`, preliminary verdict `VERIFIED`, `is_causally_verified=True`, `grants_pass=True`, `is_authoritative=False` (zero verdict authority invariant);
     - Cryptographic receipt digest: `4e99428941d9e4e46baba39f9a1872f59e69c868298e7e80caca459f5876870e`;
-    - Bound to exact Basebreak implementation SHA: `dcfa538459340ae5adbd0e001ecf5aaa87971fb5`;
+    - Bound to exact Basebreak implementation SHA: `dcfa538459340ae5adbd0e001ecf5aaa87971fb5` (prior live proof); trust-boundary surgical repair committed at SHA `8ae49cec4f483cf9695357abec4602ff479976fb`;
     - Documented in `docs/P14_LIVE_CLOSURE_PROOF.md`;
   - P-14 batch is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-15+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
 `0045ad89394758bb6c128b846945f2e7e8b2b955` (independently VERIFIED / PASS at P-13 closure).
-Last fresh live-tested implementation SHA: `dcfa538459340ae5adbd0e001ecf5aaa87971fb5`.
+Current executor candidate implementation SHA: `8ae49cec4f483cf9695357abec4602ff479976fb`.
 
 ## Blocking live gate vs active task
 
