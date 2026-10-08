@@ -32,17 +32,19 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from basebreak.builder.capture import CandidateCaptureError, CandidateSnapshot
 from basebreak.compiler.freeze import FrozenContract
-from basebreak.domain.source import SourceIdentity
+from basebreak.domain.source import CommitRevision, SourceIdentity
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.repair.context import (
     BuilderRepairContextEnvelope,
@@ -50,9 +52,8 @@ from basebreak.repair.context import (
     verify_builder_repair_context_integrity,
 )
 from basebreak.repair.feedback import (
-    FailureConditionCategory,
-    create_safe_repair_feedback,
-    verify_repair_feedback_integrity,
+    FailedExecutionFacts,
+    derive_safe_repair_feedback,
 )
 from basebreak.repair.lineage import (
     CandidateIdentityReuseError,
@@ -106,6 +107,68 @@ class RepairBudgetExceededError(RepairLoopError):
 
 class RepairLoopReceiptTamperingError(RepairLoopError):
     """Raised when repair loop receipt integrity check fails."""
+
+
+class CleanImplementationError(RepairLoopError):
+    """Raised when repository state is dirty or invalid for live verification."""
+
+
+def verify_clean_implementation_preflight(repo_root: Path | str | None = None) -> str:
+    """Fail-fast deterministic preflight verifying clean git implementation identity.
+
+    Guarantees:
+    1. HEAD is a full, valid 40 or 64-char commit SHA.
+    2. Working tree and index are clean (no modified, staged, or untracked changes).
+    3. The execution identity is determined deterministically before any live calls.
+    4. Dirty/uncommitted source state cannot produce LIVE_NEBIUS closure evidence.
+    """
+    root_str = str(repo_root) if repo_root is not None else None
+
+    # 1. Resolve HEAD commit SHA
+    try:
+        proc_rev = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root_str,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        head_sha = proc_rev.stdout.strip()
+    except Exception as exc:
+        raise CleanImplementationError(f"Failed to resolve HEAD commit: {exc}") from exc
+
+    # Validate commit revision format
+    try:
+        revision = CommitRevision(head_sha)
+    except Exception as exc:
+        raise CleanImplementationError(f"Invalid HEAD commit revision: {exc}") from exc
+
+    # 2. Check git status for clean working tree and index
+    try:
+        proc_status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=root_str,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        raw_status = proc_status.stdout
+    except Exception as exc:
+        raise CleanImplementationError(f"Failed to check git status: {exc}") from exc
+
+    dirty_lines = [
+        line.strip()
+        for line in raw_status.splitlines()
+        if line.strip() and not line.strip().endswith(".env")
+    ]
+    if dirty_lines:
+        raise CleanImplementationError(
+            f"Dirty working tree state detected ({len(dirty_lines)} dirty entries):\n"
+            + "\n".join(dirty_lines)
+            + "\nUncommitted changes cannot produce LIVE_NEBIUS closure evidence."
+        )
+
+    return revision.commit_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -433,6 +496,7 @@ def run_sealed_repair_loop(
     counterfactual_check: bool = False,
     counterfactual_outcome: WitnessOutcome | None = None,
     counters: RepairLoopCounters | None = None,
+    initial_failure_facts: FailedExecutionFacts | None = None,
 ) -> RepairLoopReceipt:
     """Orchestrate a sealed repair loop within explicit budget ceilings.
 
@@ -453,6 +517,16 @@ def run_sealed_repair_loop(
 
     current_candidate = initial_candidate
     current_receipt_digest = originating_receipt_digest or "0" * 64
+    current_failed_facts = initial_failure_facts or FailedExecutionFacts(
+        exit_code=1,
+        failure_message="Behavioral assertion failed during candidate execution",
+        sandbox_id=(
+            initial_candidate.sandbox_identity.sandbox_id
+            if initial_candidate.sandbox_identity
+            else None
+        ),
+        execution_digest=originating_receipt_digest or ("0" * 64),
+    )
 
     final_candidate_id: str | None = None
     final_patch_digest: str | None = None
@@ -487,12 +561,23 @@ def run_sealed_repair_loop(
                 provenance=provenance,
             )
 
-        # 2. Extract sanitized safe failure feedback
-        raw_observed = "Behavioral verification check failed"
-        raw_expected = "Pass sealed verification witness"
+        # 2. Extract sanitized safe failure feedback derived from actual failed execution
+        req_stmt = (
+            frozen_contract.requirements[0].statement if frozen_contract.requirements else None
+        )
         try:
-            san_observed = san.sanitize_text(raw_observed)
-            san_expected = san.sanitize_text(raw_expected)
+            feedback = derive_safe_repair_feedback(
+                candidate_id=current_candidate.candidate_id,
+                requirement_id=sealed_record.requirement_id,
+                change_class=frozen_contract.change_class,
+                failed_facts=current_failed_facts,
+                sanitizer=san,
+                originating_receipt_digest=current_receipt_digest,
+                feedback_round=round_idx,
+                permitted_patch_region=list(current_candidate.files_modified),
+                provenance=provenance,
+                requirement_statement=req_stmt,
+            )
         except UnsafeDisclosureError as exc:
             return create_repair_loop_receipt(
                 repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
@@ -515,21 +600,6 @@ def run_sealed_repair_loop(
                 provenance=provenance,
             )
 
-        feedback_id = f"FB-R{round_idx}-{uuid.uuid4().hex[:8]}"
-        feedback = create_safe_repair_feedback(
-            feedback_id=feedback_id,
-            candidate_id=current_candidate.candidate_id,
-            requirement_id=sealed_record.requirement_id,
-            change_class=frozen_contract.change_class,
-            failed_condition=FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED,
-            observed_behavior=san_observed,
-            expected_behavior=san_expected,
-            originating_receipt_digest=current_receipt_digest,
-            feedback_round=round_idx,
-            provenance=provenance,
-            permitted_patch_region=list(current_candidate.files_modified),
-        )
-        verify_repair_feedback_integrity(feedback)
         feedback_digests.append(feedback.feedback_digest)
 
         # 3. Create fresh Builder repair context envelope
@@ -806,6 +876,29 @@ def run_sealed_repair_loop(
         )
 
         # 6. Execute fresh independent verifier reproduction
+        # Pre-execution budget gate: sandbox executions ceiling (DEFECT B)
+        if counters.sandbox_executions_used >= cfg.max_sandbox_executions:
+            return create_repair_loop_receipt(
+                repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+                initial_candidate_id=initial_candidate.candidate_id,
+                initial_patch_digest=initial_candidate.patch_digest,
+                initial_tree_digest=initial_candidate.candidate_tree_digest,
+                final_candidate_id=final_candidate_id,
+                final_patch_digest=final_patch_digest,
+                final_tree_digest=final_tree_digest,
+                status=RepairLoopStatus.REPAIR_BUDGET_EXHAUSTED,
+                preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+                is_causally_verified=False,
+                grants_pass=False,
+                total_rounds=round_idx,
+                lineage_digests=lineage_digests,
+                feedback_digests=feedback_digests,
+                reproduction_receipt_digests=reproduction_receipt_digests,
+                counters=counters.to_dict(),
+                failure_reason="Sandbox executions budget exhausted",
+                provenance=provenance,
+            )
+
         if counters.verifier_executions_used >= cfg.max_verifier_executions:
             return create_repair_loop_receipt(
                 repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
@@ -921,6 +1014,7 @@ def run_sealed_repair_loop(
         # Candidate did not pass; prepare for next round
         current_candidate = repaired_cand_snapshot
         current_receipt_digest = reproduction_receipt.receipt_digest
+        current_failed_facts = FailedExecutionFacts.from_reproduction_receipt(reproduction_receipt)
 
     # All rounds exhausted without pass
     return create_repair_loop_receipt(

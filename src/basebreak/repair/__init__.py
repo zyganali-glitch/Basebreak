@@ -25,6 +25,7 @@ from basebreak.repair.context import (
 )
 from basebreak.repair.engine import (
     REPAIR_LOOP_RECEIPT_SCHEMA_VERSION,
+    CleanImplementationError,
     RepairBudgetExceededError,
     RepairLoopBudget,
     RepairLoopCounters,
@@ -36,10 +37,12 @@ from basebreak.repair.engine import (
     compute_repair_loop_receipt_digest,
     create_repair_loop_receipt,
     run_sealed_repair_loop,
+    verify_clean_implementation_preflight,
     verify_repair_loop_receipt_integrity,
 )
 from basebreak.repair.feedback import (
     DisclosureClassification,
+    FailedExecutionFacts,
     FailureConditionCategory,
     RepairFeedbackAuthorityError,
     RepairFeedbackDisclosureError,
@@ -51,6 +54,7 @@ from basebreak.repair.feedback import (
     build_canonical_repair_feedback_payload,
     compute_repair_feedback_digest,
     create_safe_repair_feedback,
+    derive_safe_repair_feedback,
     verify_repair_feedback_integrity,
 )
 from basebreak.repair.lineage import (
@@ -95,9 +99,11 @@ __all__: list[str] = [
     "CandidateLineageMismatchError",
     "CandidateLineageRecord",
     "CandidateLineageTamperingError",
+    "CleanImplementationError",
     "DisclosureClassification",
     "DisclosureSanitizer",
     "DisclosureSanitizerError",
+    "FailedExecutionFacts",
     "FailureConditionCategory",
     "REPAIRED_RECEIPT_SCHEMA_VERSION",
     "REPAIR_LOOP_RECEIPT_SCHEMA_VERSION",
@@ -145,10 +151,12 @@ __all__: list[str] = [
     "create_repair_loop_receipt",
     "create_repaired_verification_receipt",
     "create_safe_repair_feedback",
+    "derive_safe_repair_feedback",
     "execute_repaired_verifier_reproduction",
     "run_sealed_repair_loop",
     "verify_builder_repair_context_integrity",
     "verify_candidate_lineage_integrity",
+    "verify_clean_implementation_preflight",
     "verify_repair_feedback_integrity",
     "verify_repair_loop_receipt_integrity",
     "verify_repaired_receipt_integrity",

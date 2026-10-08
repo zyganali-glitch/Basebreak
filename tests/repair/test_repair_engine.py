@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import subprocess
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -18,20 +21,29 @@ from basebreak.compiler.semantics import (
     ChangeSemanticsClassification,
     DeterministicClassificationFact,
 )
-from basebreak.domain.execution import SandboxIdentity
+from basebreak.domain.execution import SandboxIdentity, TerminationStatus
 from basebreak.domain.source import CommitRevision, SourceIdentity
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.evidence.artifact import compute_bytes_digest
 from basebreak.repair.context import BuilderRepairContextEnvelope
 from basebreak.repair.engine import (
+    CleanImplementationError,
     RepairLoopBudget,
+    RepairLoopCounters,
     RepairLoopReceipt,
     RepairLoopReceiptTamperingError,
     RepairLoopStatus,
     create_repair_loop_receipt,
     run_sealed_repair_loop,
+    verify_clean_implementation_preflight,
     verify_repair_loop_receipt_integrity,
 )
+from basebreak.repair.feedback import (
+    FailedExecutionFacts,
+    FailureConditionCategory,
+    derive_safe_repair_feedback,
+)
+from basebreak.repair.sanitizer import DisclosureSanitizer
 from basebreak.verifier.sandbox import VerifierSandboxManager
 from basebreak.verifier.witness_lock import ImmutableWitnessLock, create_witness_lock
 from basebreak.verifier.witness_store import (
@@ -560,3 +572,442 @@ def test_receipt_tamper_detection() -> None:
     )
     with pytest.raises(RepairLoopReceiptTamperingError):
         verify_repair_loop_receipt_integrity(tampered)
+
+
+# =============================================================================
+# DEFECT A REGRESSION TESTS: Real failure feedback is execution-derived
+# =============================================================================
+
+
+def test_derive_safe_repair_feedback_from_execution_facts() -> None:
+    san = DisclosureSanitizer(known_witness_ids=("wit-01",))
+    facts = FailedExecutionFacts(
+        exit_code=1,
+        termination_status=TerminationStatus.COMPLETED,
+        failure_message="AssertionError detected",
+        sandbox_id="sbx-c0-test",
+        execution_digest="a" * 64,
+        condition_category=FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED,
+        duration_seconds=1.23,
+    )
+    feedback = derive_safe_repair_feedback(
+        candidate_id="cand-test-01",
+        requirement_id="REQ-01",
+        change_class=ChangeClass.BUG_FIX,
+        failed_facts=facts,
+        sanitizer=san,
+        originating_receipt_digest="0" * 64,
+        feedback_round=1,
+        permitted_patch_region=["a.py"],
+        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        requirement_statement="When quiet flag is set, output must be empty",
+    )
+    assert feedback.candidate_id == "cand-test-01"
+    assert feedback.requirement_id == "REQ-01"
+    assert feedback.failed_condition == FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED
+    assert "exit code 1" in feedback.observed_behavior
+    assert "AssertionError detected" in feedback.observed_behavior
+    assert "quiet flag is set" in feedback.expected_behavior
+    assert feedback.originating_receipt_digest == "a" * 64
+    assert feedback.counterexample is None  # Never fabricated!
+    assert feedback.is_authoritative is False
+    assert feedback.grants_pass is False
+
+
+def test_derive_safe_repair_feedback_no_counterexample_fabrication() -> None:
+    san = DisclosureSanitizer(known_witness_ids=("wit-01",))
+    # Incomplete counterexample data (missing actual output)
+    facts = FailedExecutionFacts(
+        exit_code=2,
+        failure_message="Error in output",
+        counterexample_input="payload_input",
+        counterexample_actual="",  # Empty!
+        counterexample_expected="expected_output",
+    )
+    feedback = derive_safe_repair_feedback(
+        candidate_id="cand-test-02",
+        requirement_id="REQ-01",
+        change_class=ChangeClass.BUG_FIX,
+        failed_facts=facts,
+        sanitizer=san,
+        originating_receipt_digest="b" * 64,
+        feedback_round=1,
+        permitted_patch_region=["a.py"],
+        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+    )
+    assert feedback.counterexample is None  # Fail closed against partial/fabricated counterexample
+
+
+def test_derive_safe_repair_feedback_with_verified_counterexample() -> None:
+    san = DisclosureSanitizer(known_witness_ids=("wit-01",))
+    facts = FailedExecutionFacts(
+        exit_code=1,
+        failure_message="AssertionError",
+        counterexample_input="quiet=True",
+        counterexample_actual="QUIET: test",
+        counterexample_expected="empty string",
+    )
+    feedback = derive_safe_repair_feedback(
+        candidate_id="cand-test-03",
+        requirement_id="REQ-01",
+        change_class=ChangeClass.BUG_FIX,
+        failed_facts=facts,
+        sanitizer=san,
+        originating_receipt_digest="c" * 64,
+        feedback_round=1,
+        permitted_patch_region=["a.py"],
+        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+    )
+    assert feedback.counterexample is not None
+    assert feedback.counterexample.input_summary == "quiet=True"
+    assert feedback.counterexample.actual_output_summary == "QUIET: test"
+    assert feedback.counterexample.expected_output_summary == "empty string"
+    assert feedback.counterexample.is_sanitized is True
+
+
+def test_derive_safe_repair_feedback_sanitization_defense() -> None:
+    san = DisclosureSanitizer(known_witness_ids=("wit-01",))
+    # Failure facts inadvertently containing witness ID token
+    facts = FailedExecutionFacts(
+        exit_code=1,
+        failure_message="Failed in wit-01 execution",
+    )
+    feedback = derive_safe_repair_feedback(
+        candidate_id="cand-test-04",
+        requirement_id="REQ-01",
+        change_class=ChangeClass.BUG_FIX,
+        failed_facts=facts,
+        sanitizer=san,
+        originating_receipt_digest="d" * 64,
+        feedback_round=1,
+        permitted_patch_region=["a.py"],
+        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+    )
+    assert "wit-01" not in feedback.observed_behavior
+    assert "[REDACTED_WITNESS]" in feedback.observed_behavior
+
+
+def test_repair_loop_multi_round_execution_derived_feedback() -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    # Round 1 fails (exit 1), Round 2 passes (exit 0)
+    adapter = ScriptableSandboxAdapter([1, 0])
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+
+    captured_feedback_observed: list[str] = []
+    captured_orig_digests: list[str] = []
+
+    def builder_fn(ctx: BuilderRepairContextEnvelope) -> CandidateSnapshot:
+        captured_feedback_observed.append(ctx.repair_feedback.observed_behavior)
+        captured_orig_digests.append(ctx.repair_feedback.originating_receipt_digest)
+        if ctx.repair_round == 1:
+            return CandidateSnapshot(
+                candidate_id="cand-attempt-r1",
+                source_identity=SAMPLE_SOURCE,
+                candidate_tree_digest=R1_TREE,
+                patch_digest=R1_PATCH_DIGEST,
+                patch_text=R1_PATCH,
+                files_added=(),
+                files_modified=("a.py",),
+                files_deleted=(),
+                builder_authored_tests=(),
+                frozen_contract_digest=frozen_contract.contract_digest,
+                context_digest=ctx.repair_context_digest,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            )
+        return CandidateSnapshot(
+            candidate_id="cand-attempt-r2",
+            source_identity=SAMPLE_SOURCE,
+            candidate_tree_digest=R2_TREE,
+            patch_digest=R2_PATCH_DIGEST,
+            patch_text=R2_PATCH,
+            files_added=(),
+            files_modified=("a.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=frozen_contract.contract_digest,
+            context_digest=ctx.repair_context_digest,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+
+    initial_facts = FailedExecutionFacts(
+        exit_code=42,
+        failure_message="Initial defect reproduced",
+        execution_digest="e" * 64,
+    )
+
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=builder_fn,
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=2),
+        initial_failure_facts=initial_facts,
+    )
+
+    assert receipt.status == RepairLoopStatus.VERIFIED_AFTER_REPAIR
+    assert len(captured_feedback_observed) == 2
+    # Round 1 feedback is derived from initial_facts
+    assert "exit code 42" in captured_feedback_observed[0]
+    assert "Initial defect reproduced" in captured_feedback_observed[0]
+    assert captured_orig_digests[0] == "e" * 64
+    # Round 2 feedback is derived from Round 1 reproduction receipt
+    assert "exit code 1" in captured_feedback_observed[1]
+    assert "Reproduction outcome: FAIL" in captured_feedback_observed[1]
+    assert captured_orig_digests[1] == receipt.reproduction_receipt_digests[0]
+
+
+# =============================================================================
+# DEFECT B REGRESSION TESTS: Sandbox execution budget is fail-closed
+# =============================================================================
+
+
+def test_repair_sandbox_budget_exhausted_pre_execution_gate() -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    adapter = ScriptableSandboxAdapter([0])
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+
+    def builder_fn(ctx: BuilderRepairContextEnvelope) -> CandidateSnapshot:
+        return CandidateSnapshot(
+            candidate_id="cand-repaired-r1",
+            source_identity=SAMPLE_SOURCE,
+            candidate_tree_digest=R1_TREE,
+            patch_digest=R1_PATCH_DIGEST,
+            patch_text=R1_PATCH,
+            files_added=(),
+            files_modified=("a.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=frozen_contract.contract_digest,
+            context_digest=ctx.repair_context_digest,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+
+    # Pre-exhaust the sandbox executions budget
+    counters = RepairLoopCounters(sandbox_executions_used=2)
+    budget = RepairLoopBudget(max_sandbox_executions=2, max_repair_rounds=2)
+
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=builder_fn,
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=budget,
+        counters=counters,
+    )
+
+    assert receipt.status == RepairLoopStatus.REPAIR_BUDGET_EXHAUSTED
+    assert receipt.failure_reason == "Sandbox executions budget exhausted"
+    assert receipt.grants_pass is False
+    assert receipt.is_causally_verified is False
+    # Zero sandboxes created because pre-execution gate failed closed
+    assert len(adapter.created_sandboxes) == 0
+    assert receipt.counters["sandbox_executions_used"] == 2
+
+
+def test_repair_sandbox_budget_exhausted_multi_round() -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    # Round 1 reproduction fails (exit 1)
+    adapter = ScriptableSandboxAdapter([1])
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+
+    def builder_fn(ctx: BuilderRepairContextEnvelope) -> CandidateSnapshot:
+        tree = R1_TREE if ctx.repair_round == 1 else R2_TREE
+        patch = R1_PATCH if ctx.repair_round == 1 else R2_PATCH
+        p_digest = R1_PATCH_DIGEST if ctx.repair_round == 1 else R2_PATCH_DIGEST
+        return CandidateSnapshot(
+            candidate_id=f"cand-attempt-r{ctx.repair_round}",
+            source_identity=SAMPLE_SOURCE,
+            candidate_tree_digest=tree,
+            patch_digest=p_digest,
+            patch_text=patch,
+            files_added=(),
+            files_modified=("a.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=frozen_contract.contract_digest,
+            context_digest=ctx.repair_context_digest,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+
+    # Allow exactly 1 sandbox execution across up to 2 rounds
+    budget = RepairLoopBudget(max_sandbox_executions=1, max_repair_rounds=2)
+
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=builder_fn,
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=budget,
+    )
+
+    assert receipt.status == RepairLoopStatus.REPAIR_BUDGET_EXHAUSTED
+    assert receipt.failure_reason == "Sandbox executions budget exhausted"
+    assert receipt.grants_pass is False
+    assert receipt.is_causally_verified is False
+    # Exactly 1 sandbox was used in round 1; round 2 was blocked before launch
+    assert len(adapter.created_sandboxes) == 1
+    assert receipt.counters["sandbox_executions_used"] == 1
+
+
+def test_repair_sandbox_budget_in_budget_success() -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    adapter = ScriptableSandboxAdapter([0])
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+
+    def builder_fn(ctx: BuilderRepairContextEnvelope) -> CandidateSnapshot:
+        return CandidateSnapshot(
+            candidate_id="cand-repaired-r1",
+            source_identity=SAMPLE_SOURCE,
+            candidate_tree_digest=R1_TREE,
+            patch_digest=R1_PATCH_DIGEST,
+            patch_text=R1_PATCH,
+            files_added=(),
+            files_modified=("a.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=frozen_contract.contract_digest,
+            context_digest=ctx.repair_context_digest,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+
+    budget = RepairLoopBudget(max_sandbox_executions=2, max_repair_rounds=2)
+
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=builder_fn,
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=budget,
+    )
+
+    assert receipt.status == RepairLoopStatus.VERIFIED_AFTER_REPAIR
+    assert receipt.grants_pass is True
+    assert receipt.counters["sandbox_executions_used"] == 1
+    assert len(adapter.created_sandboxes) == 1
+
+
+# =============================================================================
+# DEFECT C REGRESSION TESTS: Clean implementation identity preflight
+# =============================================================================
+
+
+def test_clean_implementation_preflight_clean() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"], cwd=repo, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        (repo / "file.txt").write_text("initial\n", encoding="utf-8")
+        subprocess.run(["git", "add", "file.txt"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+
+        sha = verify_clean_implementation_preflight(repo)
+        assert len(sha) in (40, 64)
+
+
+def test_clean_implementation_preflight_dirty_tracked_fails() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"], cwd=repo, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        (repo / "file.txt").write_text("initial\n", encoding="utf-8")
+        subprocess.run(["git", "add", "file.txt"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+
+        # Modify tracked file without committing
+        (repo / "file.txt").write_text("modified\n", encoding="utf-8")
+
+        with pytest.raises(CleanImplementationError, match="Dirty working tree state detected"):
+            verify_clean_implementation_preflight(repo)
+
+
+def test_clean_implementation_preflight_staged_fails() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"], cwd=repo, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        (repo / "file.txt").write_text("initial\n", encoding="utf-8")
+        subprocess.run(["git", "add", "file.txt"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+
+        # Stage a new file without committing
+        (repo / "staged.txt").write_text("staged\n", encoding="utf-8")
+        subprocess.run(["git", "add", "staged.txt"], cwd=repo, check=True, capture_output=True)
+
+        with pytest.raises(CleanImplementationError, match="Dirty working tree state detected"):
+            verify_clean_implementation_preflight(repo)
+
+
+def test_clean_implementation_preflight_untracked_fails() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"], cwd=repo, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        (repo / "file.txt").write_text("initial\n", encoding="utf-8")
+        subprocess.run(["git", "add", "file.txt"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+
+        # Add untracked file
+        (repo / "untracked.py").write_text("print(1)\n", encoding="utf-8")
+
+        with pytest.raises(CleanImplementationError, match="Dirty working tree state detected"):
+            verify_clean_implementation_preflight(repo)

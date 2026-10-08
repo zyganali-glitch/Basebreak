@@ -22,11 +22,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from basebreak.domain.execution import TerminationStatus
 from basebreak.domain.semantics import ChangeClass
 from basebreak.domain.verdict import EvidenceProvenance
 
@@ -92,6 +94,107 @@ def _validate_hex_digest(digest: str, field_name: str, allow_40: bool = False) -
         expected = "40 or 64" if allow_40 else "64"
         raise RepairFeedbackIntegrityError(
             f"{field_name} must be a {expected} hex character string, got {digest!r}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class FailedExecutionFacts:
+    """Deterministic, provider-neutral facts from a failed candidate execution.
+
+    Used to derive bounded, sanitized failure feedback for Builder repair.
+    Contains zero private witness source, assertions, or vault secrets.
+    """
+
+    exit_code: int | None = None
+    termination_status: TerminationStatus = TerminationStatus.COMPLETED
+    failure_message: str = ""
+    sandbox_id: str | None = None
+    execution_digest: str | None = None
+    condition_category: FailureConditionCategory = (
+        FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED
+    )
+    duration_seconds: float | None = None
+    counterexample_input: str | None = None
+    counterexample_actual: str | None = None
+    counterexample_expected: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.exit_code is not None and not isinstance(self.exit_code, int):
+            raise TypeError("exit_code must be an integer or None")
+        if not isinstance(self.termination_status, TerminationStatus):
+            raise TypeError("termination_status must be a TerminationStatus")
+        if not isinstance(self.condition_category, FailureConditionCategory):
+            raise TypeError("condition_category must be a FailureConditionCategory")
+        if self.duration_seconds is not None and (
+            isinstance(self.duration_seconds, bool)
+            or not isinstance(self.duration_seconds, (int, float))
+        ):
+            raise TypeError("duration_seconds must be a float or None")
+
+    @classmethod
+    def from_reproduction_receipt(cls, receipt: Any) -> FailedExecutionFacts:
+        """Derive failed execution facts from a failed RepairedVerificationReceipt."""
+        witness_outcome = getattr(receipt, "witness_outcome", None)
+        outcome_str = (
+            getattr(witness_outcome, "value", str(witness_outcome)) if witness_outcome else "FAIL"
+        )
+        category = FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED
+        if outcome_str in ("TIMEOUT", "ERROR"):
+            category = FailureConditionCategory.UNEXPECTED_TERMINATION
+        return cls(
+            exit_code=getattr(receipt, "exit_code", None),
+            failure_message=f"Reproduction outcome: {outcome_str}",
+            sandbox_id=getattr(receipt, "sandbox_id", None),
+            execution_digest=getattr(receipt, "receipt_digest", None),
+            condition_category=category,
+            duration_seconds=getattr(receipt, "duration_seconds", None),
+        )
+
+    @classmethod
+    def from_witness_result(cls, result: Any) -> FailedExecutionFacts:
+        """Derive failed execution facts from a NormalizedWitnessResult."""
+        outcome = getattr(result, "outcome", None)
+        outcome_str = getattr(outcome, "value", str(outcome)) if outcome else "FAIL"
+        category = FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED
+        if outcome_str in ("TIMEOUT", "ERROR"):
+            category = FailureConditionCategory.UNEXPECTED_TERMINATION
+        term_status = getattr(result, "termination_status", TerminationStatus.COMPLETED)
+        return cls(
+            exit_code=getattr(result, "exit_code", None),
+            termination_status=term_status,
+            failure_message=f"Witness outcome: {outcome_str}",
+            sandbox_id=getattr(result, "sandbox_id", None),
+            execution_digest=getattr(result, "result_digest", None),
+            condition_category=category,
+            duration_seconds=getattr(result, "duration_seconds", None),
+        )
+
+    @classmethod
+    def from_execution(
+        cls,
+        *,
+        exit_code: int | None,
+        failure_indicator: str = "",
+        sandbox_id: str | None = None,
+        execution_digest: str | None = None,
+        condition_category: FailureConditionCategory = (
+            FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED
+        ),
+        duration_seconds: float | None = None,
+        counterexample_input: str | None = None,
+        counterexample_actual: str | None = None,
+        counterexample_expected: str | None = None,
+    ) -> FailedExecutionFacts:
+        return cls(
+            exit_code=exit_code,
+            failure_message=failure_indicator,
+            sandbox_id=sandbox_id,
+            execution_digest=execution_digest,
+            condition_category=condition_category,
+            duration_seconds=duration_seconds,
+            counterexample_input=counterexample_input,
+            counterexample_actual=counterexample_actual,
+            counterexample_expected=counterexample_expected,
         )
 
 
@@ -390,3 +493,108 @@ def verify_repair_feedback_integrity(feedback: SafeRepairFeedback) -> bool:
             f"!= computed {computed_digest!r}"
         )
     return True
+
+
+def derive_safe_repair_feedback(
+    *,
+    candidate_id: str,
+    requirement_id: str,
+    change_class: ChangeClass,
+    failed_facts: FailedExecutionFacts,
+    sanitizer: Any,
+    originating_receipt_digest: str,
+    feedback_round: int,
+    permitted_patch_region: Sequence[str] = (),
+    provenance: EvidenceProvenance,
+    requirement_statement: str | None = None,
+) -> SafeRepairFeedback:
+    """Derive bounded, sanitized failure feedback from actual failed execution facts.
+
+    Enforces:
+    1. Originates strictly from deterministic execution facts (exit_code, status,
+       sanitized failure indicator).
+    2. Originating execution identity and receipt digest are bound and traceable.
+    3. Hidden witness source, assertion text, private paths, and vault data are
+       sanitized and inaccessible.
+    4. Missing counterexample evidence is NEVER fabricated (counterexample=None).
+    5. Zero verdict authority (is_authoritative=False, grants_pass=False).
+    """
+    if not isinstance(failed_facts, FailedExecutionFacts):
+        raise TypeError(
+            f"failed_facts must be a FailedExecutionFacts instance, "
+            f"got {type(failed_facts).__name__}"
+        )
+
+    # 1. Derive observed behavior from actual execution facts
+    if failed_facts.termination_status == TerminationStatus.TIMED_OUT:
+        cond_category = FailureConditionCategory.UNEXPECTED_TERMINATION
+        dur_info = (
+            f" after {failed_facts.duration_seconds:.2f}s"
+            if failed_facts.duration_seconds is not None
+            else ""
+        )
+        raw_observed = f"Execution timed out{dur_info} (status=TIMED_OUT)"
+    elif failed_facts.exit_code is not None:
+        cond_category = failed_facts.condition_category
+        detail = f" with {failed_facts.failure_message}" if failed_facts.failure_message else ""
+        raw_observed = f"Execution failed with non-zero exit code {failed_facts.exit_code}{detail}"
+    else:
+        cond_category = failed_facts.condition_category
+        detail = f" with {failed_facts.failure_message}" if failed_facts.failure_message else ""
+        raw_observed = (
+            f"Execution failed with status {failed_facts.termination_status.value}{detail}"
+        )
+
+    # 2. Derive expected behavior from requirement/contract
+    if requirement_statement and requirement_statement.strip():
+        raw_expected = (
+            f"Process must exit with status 0 satisfying requirement: "
+            f"{requirement_statement.strip()}"
+        )
+    else:
+        raw_expected = "Process must exit with status 0 satisfying specification"
+
+    # 3. Mechanically sanitize observed and expected text
+    san_observed = sanitizer.sanitize_text(raw_observed)
+    san_expected = sanitizer.sanitize_text(raw_expected)
+
+    # 4. Handle counterexample without fabrication
+    ce: SanitizedCounterexample | None = None
+    if (
+        failed_facts.counterexample_input is not None
+        and failed_facts.counterexample_actual is not None
+        and failed_facts.counterexample_expected is not None
+        and failed_facts.counterexample_input.strip()
+        and failed_facts.counterexample_actual.strip()
+        and failed_facts.counterexample_expected.strip()
+    ):
+        san_input = sanitizer.sanitize_text(failed_facts.counterexample_input.strip())
+        san_actual = sanitizer.sanitize_text(failed_facts.counterexample_actual.strip())
+        san_expected_out = sanitizer.sanitize_text(failed_facts.counterexample_expected.strip())
+        ce = SanitizedCounterexample(
+            input_summary=san_input,
+            actual_output_summary=san_actual,
+            expected_output_summary=san_expected_out,
+            exit_code=failed_facts.exit_code,
+        )
+
+    # 5. Bind execution identity / digest
+    effective_orig_digest = failed_facts.execution_digest or originating_receipt_digest
+
+    feedback_id = f"FB-R{feedback_round}-{uuid.uuid4().hex[:8]}"
+    feedback = create_safe_repair_feedback(
+        feedback_id=feedback_id,
+        candidate_id=candidate_id,
+        requirement_id=requirement_id,
+        change_class=change_class,
+        failed_condition=cond_category,
+        observed_behavior=san_observed,
+        expected_behavior=san_expected,
+        originating_receipt_digest=effective_orig_digest,
+        feedback_round=feedback_round,
+        provenance=provenance,
+        permitted_patch_region=list(permitted_patch_region),
+        counterexample=ce,
+    )
+    verify_repair_feedback_integrity(feedback)
+    return feedback

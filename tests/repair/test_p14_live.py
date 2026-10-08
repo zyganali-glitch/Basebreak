@@ -51,7 +51,12 @@ from basebreak.repair.engine import (
     RepairLoopReceipt,
     RepairLoopStatus,
     run_sealed_repair_loop,
+    verify_clean_implementation_preflight,
     verify_repair_loop_receipt_integrity,
+)
+from basebreak.repair.feedback import (
+    FailedExecutionFacts,
+    FailureConditionCategory,
 )
 from basebreak.security.protected_surfaces import (
     get_canonical_basebreak_protected_manifest,
@@ -126,11 +131,8 @@ def test_p14_live_sealed_repair_loop() -> None:
     if not project_id:
         pytest.skip("NEBIUS_PROJECT_ID not configured for live test")
 
-    # Record clean implementation commit SHA before test
-    impl_sha_proc = subprocess.run(
-        ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
-    )
-    impl_sha = impl_sha_proc.stdout.strip()
+    # Fail-fast deterministic preflight: verify clean git implementation identity (DEFECT C)
+    impl_sha = verify_clean_implementation_preflight()
     assert len(impl_sha) == 40, f"Expected 40-char SHA, got {impl_sha!r}"
 
     adapter = NebiusSandboxAdapter(
@@ -277,6 +279,18 @@ def test_p14_live_sealed_repair_loop() -> None:
         finally:
             adapter.teardown_sandbox(sbx_c0)
 
+        # Derive authentic failed execution facts from Candidate 0 execution (DEFECT A)
+        c0_exec_digest = hashlib.sha256(
+            f"c0-exec-{sbx_c0_id}-{c0_exit_code}".encode("utf-8")
+        ).hexdigest()
+        initial_failure_facts = FailedExecutionFacts(
+            exit_code=c0_exit_code,
+            failure_message="AssertionError detected during verification execution",
+            sandbox_id=sbx_c0_id,
+            execution_digest=c0_exec_digest,
+            condition_category=FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED,
+        )
+
         # -------------------------------------------------------------------------
         # STEP 2: Configure Initial Candidate Snapshot (Candidate 0)
         # -------------------------------------------------------------------------
@@ -326,7 +340,11 @@ def test_p14_live_sealed_repair_loop() -> None:
             assert "res_normal" not in ctx_repr
             assert sbx_c0_id not in ctx_repr
 
+            # Verify feedback is execution-derived (DEFECT A)
             assert ctx.repair_feedback is not None
+            assert str(c0_exit_code) in ctx.repair_feedback.observed_behavior
+            assert "AssertionError" in ctx.repair_feedback.observed_behavior
+            assert ctx.repair_feedback.originating_receipt_digest == c0_exec_digest
             assert "witness_test_code" not in ctx.repair_feedback.observed_behavior
             assert "test_witness_repair.py" not in ctx.repair_feedback.permitted_patch_region
 
@@ -496,10 +514,11 @@ def test_p14_live_sealed_repair_loop() -> None:
             materializer=materializer,
             execution_command="python3 tests/test_witness_repair.py",
             budget=RepairLoopBudget(max_repair_rounds=2),
-            originating_receipt_digest=hashlib.sha256(b"rcpt-initial-fail-candidate-0").hexdigest(),
+            originating_receipt_digest=c0_exec_digest,
             prior_sandbox_ids=[sbx_c0_id],
             provenance=EvidenceProvenance.LIVE_NEBIUS,
             counters=repair_counters,
+            initial_failure_facts=initial_failure_facts,
         )
 
         # -------------------------------------------------------------------------
