@@ -6,9 +6,9 @@
 
 ---
 
-## 1. Current Live Revalidation Identity (`22a03c8e729b9da463d5dde5104e580209d21044`)
+## 1. Current Live Revalidation Identity (`62b24c69a819c0ddcf15b455a237568059949107`)
 
-- **Basebreak Implementation SHA:** `22a03c8e729b9da463d5dde5104e580209d21044`
+- **Basebreak Implementation SHA:** `62b24c69a819c0ddcf15b455a237568059949107`
 - **Execution Mode:** `LIVE_NEBIUS` (Genuine Nebius Token Factory Sandboxes & Nemotron Inference)
 - **Target Repository Locator:** `https://github.com/zyganali-glitch/basebreak-demo-target.git`
 - **Target BASE Commit SHA:** `40ff923a134a21d8e357deb7a7988571cd396b56`
@@ -25,7 +25,7 @@
 | :--- | :--- |
 | **Phase** | **P-14 Sealed Repair Loop** |
 | **Execution Mode** | **`LIVE_NEBIUS`** (Genuine Nebius Token Factory Sandboxes & Nemotron AI) |
-| **Preflight Integrity** | **`PASSED`** (Clean git tree enforced before execution; SHA `22a03c8e729b9da463d5dde5104e580209d21044`) |
+| **Preflight Integrity** | **`PASSED`** (Clean git tree enforced before execution; SHA `62b24c69a819c0ddcf15b455a237568059949107`) |
 | **Initial Candidate (C0) Verification** | **`FAIL`** (Exit Code: 1, `AssertionError`) |
 | **Execution-Derived Failure Feedback** | **`PASSED`** (Derived from Candidate 0 execution exit code 1 and error facts; traceable origin) |
 | **Builder Repair Invocations** | **`1`** (Real Nebius Nemotron Model Call) |
@@ -37,7 +37,7 @@
 | **Causally Verified** | **`True`** |
 | **Grants Pass** | **`True`** |
 | **Loop Receipt Authority** | **`is_authoritative = False`** (Zero verdict authority invariant) |
-| **Cryptographic Receipt Digest** | **`4e9e67f704f9432adfe2fe84feb3ecbfa50ed414996e935306cd9477fd8462e6`** |
+| **Cryptographic Receipt Digest** | **`933e0acbd4bed1197c84d49139dd9773c94aab516ad5ecb4f46e8e3fd87dd9f1`** |
 
 ---
 
@@ -45,16 +45,16 @@
 
 ### 3.1 Initial Broken Candidate (Candidate 0) Live Failure
 - **Candidate ID:** `cand-live-buggy-c0`
-- **Sandbox ID:** `sbx-07673a48efc44fe8`
+- **Sandbox ID:** `sbx-ac5211f0113b423e`
 - **Patch Digest:** `01460a62e3d809c077cf69f9db21f1ee7ea60eacce896155553d50c1b00603ad`
 - **Tree Digest:** `6e47368ca1ea5a43dd808368832916aeccafa657`
 - **Command:** `python3 tests/test_witness_repair.py`
 - **Exit Code:** `1`
 - **Observed Behavior:** `AssertionError: Defect: got 'QUIET: payload_string'`
-- **Teardown Fact:** Sandbox `sbx-07673a48efc44fe8` torn down cleanly.
+- **Teardown Fact:** Sandbox `sbx-ac5211f0113b423e` torn down cleanly.
 
 ### 3.2 Execution-Derived Bounded Failure Feedback
-- **Feedback Digest:** `1e04f844c77502d21151f34584fa40b8887906d16380c3c68733483f8a2cf33d`
+- **Feedback Digest:** `dda915cb74ed36ce573a0a3083ed1c2edd10d8cfce05db11ac3b6b387ebcd482`
 - **Originating Execution Fact:** Derived directly from Candidate 0 execution (`exit_code=1`, `failure_message="AssertionError detected during verification execution"`).
 - **Condition Category:** `FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED`
 - **Sanitization Invariant:** Zero hidden witness code leaked, no internal verifier paths, no credentials.
@@ -66,23 +66,23 @@
 - **Model Adapter:** `NebiusModelClient` (Token Factory completions)
 - **Configured Model:** `nvidia/Nemotron-3_5-Lightning`
 - **Returned Model:** `nvidia/Nemotron-3_5-Lightning`
-- **Request ID:** `chatcmpl-3495a8cc`
+- **Request ID:** `chatcmpl-31e64fda`
 - **Finish Reason:** `stop`
-- **Token Usage:** `prompt_tokens=431`, `completion_tokens=998`, `total_tokens=1429`
-- **Inference Duration:** `4.0128s`
+- **Token Usage:** `prompt_tokens=431`, `completion_tokens=839`, `total_tokens=1270`
+- **Inference Duration:** `3.644s`
 - **Secrecy Proof:** Prompt contains only permitted requirement, base code, parent patch, sanitized execution-derived failure feedback, and budget. Mechanical assertions confirmed zero disclosure of witness source, assertion text, witness paths, vault secrets, verifier sandbox IDs, or credentials.
 - **Model Output:** Valid python repair for `src/demo_target/cli.py` returning `""` when `quiet=True`.
 - **Materialization:** Applied in fresh local workspace against clean base commit `40ff923a134a21d8e357deb7a7988571cd396b56`.
-- **Repaired Candidate ID:** `cand-live-repaired-r1-d68c93f0`
-- **Lineage Digest:** `4eafdf6d1334b58cc74bfa2d16236da1c0aec53198c878280606abed5c192e3f`
+- **Repaired Candidate ID:** `cand-live-repaired-r1-0c4aeba1`
+- **Lineage Digest:** `0c7a8079b820e314f831439a68ca03c30e694850967c62ad9698c51e49f21188`
 - **Repaired Patch Digest:** `2d5dc4640352458323e973643e3a2215ec61d7a5a40996ba08a85516b625536e` (New exact hash)
 - **Repaired Tree Digest:** `31f7ab50a5e0da6da9160ce47bdc5daf71072216` (New bit-for-bit tree matching correct specification)
 - **Anti-Stagnation Rule:** `repaired_patch_digest != parent` and `repaired_tree_digest != parent`.
 
 ### 3.4 Fresh Independent Verifier Reproduction
-- **Reproduction Receipt Digest:** `1d43f37239ff7c6d466ed2f39d6b41a350613b304c726bc4da5ba84e35af23fc`
-- **Reproduction Sandbox ID:** `sbx-e1e0d65df77747a5`
-- **Sandbox Distinctness:** `sbx-07673a48efc44fe8 != sbx-e1e0d65df77747a5` (`PASSED`, zero sandbox reuse)
+- **Reproduction Receipt Digest:** `a75d856737d2a13792ae7cb2e64e0e9395d92a7d3dc4b39fb872734385e6ef8b`
+- **Reproduction Sandbox ID:** `sbx-c87ecbf51df74a0a`
+- **Sandbox Distinctness:** `sbx-ac5211f0113b423e != sbx-c87ecbf51df74a0a` (`PASSED`, zero sandbox reuse)
 - **Witness Deployment:** Sealed witness deployed directly from `TrustedWitnessVault` / `ImmutableWitnessLock` (`wit-repair-live-01`).
 - **Command:** `python3 tests/test_witness_repair.py`
 - **Exit Code:** `0`
@@ -90,8 +90,8 @@
 - **Non-Inheritance Rule:** Repaired candidate evaluated from scratch against base, not by inheriting prior state.
 
 ### 3.5 Terminal Repair Loop Receipt
-- **Repair Receipt ID:** `RLR-b9084e05ac01`
-- **Receipt Digest:** `4e9e67f704f9432adfe2fe84feb3ecbfa50ed414996e935306cd9477fd8462e6`
+- **Repair Receipt ID:** `RLR-60aab51cd27e`
+- **Receipt Digest:** `933e0acbd4bed1197c84d49139dd9773c94aab516ad5ecb4f46e8e3fd87dd9f1`
 - **Terminal Status:** `RepairLoopStatus.VERIFIED_AFTER_REPAIR`
 - **Preliminary Verdict:** `PreliminaryVerdict.VERIFIED`
 - **Causally Verified:** `True`
@@ -101,8 +101,8 @@
   - `builder_attempts_used`: `1`
   - `verifier_executions_used`: `1`
   - `sandbox_executions_used`: `1`
-  - `tokens_used`: `1429`
-  - `elapsed_seconds`: `15.6431`
+  - `tokens_used`: `1270`
+  - `elapsed_seconds`: `16.6263`
   - `repair_rounds_completed`: `1`
 
 ---
@@ -112,15 +112,43 @@
 All emitted receipts and records passed deterministic cryptographic verification:
 1. `verify_repair_loop_receipt_integrity(receipt)` returned `True`.
 2. Mechanical proof confirms hidden witness secrecy was maintained throughout the AI Builder repair call.
-3. Strict isolation between sandboxes (anti-sandbox-reuse verified: `sbx-07673a48efc44fe8 != sbx-e1e0d65df77747a5`).
+3. Strict isolation between sandboxes (anti-sandbox-reuse verified: `sbx-ac5211f0113b423e != sbx-c87ecbf51df74a0a`).
 4. Lineage integrity verified with anti-stagnation and anti-id-reuse enforcement.
 5. All sandboxes were cleanly and deterministically torn down.
 
 ---
 
-## 5. Prior Historical LIVE_NEBIUS Executions
+## 5. Billing Observations & Cost Realism
 
-### 5.1 Historical Execution on SHA `de563754148ad5364609127d3079d8d6294c7823`
+- **Pre-Execution Promotional Balance:** USD $25.00 (and USD $0.93 trial credit observed; promotional safety floor of USD $5.00 preserved).
+- **Inference Token Consumption:** 431 prompt tokens, 839 completion tokens (total 1,270 tokens).
+- **Estimated Inference Cost:** ~$0.00059 (at ~$0.20/1M prompt and ~$0.60/1M completion tokens).
+- **Sandbox Execution Cost:** Free during Nebius beta ($0.00).
+- **Total Estimated Single-Cycle Cost:** < USD $0.001 (fraction of one cent).
+- **Post-Execution Account Observation:** Web console displays balance rounded to 2 decimal places ($25.00 intact). Personal money spent: USD $0.00. No card charges, no paid subscriptions, and no pay-as-you-go continuation triggered.
+
+---
+
+## 6. Prior Historical LIVE_NEBIUS Executions
+
+### 6.1 Historical Execution on SHA `22a03c8e729b9da463d5dde5104e580209d21044`
+- **Basebreak Implementation SHA:** `22a03c8e729b9da463d5dde5104e580209d21044`
+- **Execution Date:** 2026-10-09
+- **Repair Receipt ID:** `RLR-b9084e05ac01`
+- **Receipt Digest:** `4e9e67f704f9432adfe2fe84feb3ecbfa50ed414996e935306cd9477fd8462e6`
+- **Candidate 0 Sandbox ID:** `sbx-07673a48efc44fe8` (Exit Code: 1, `AssertionError`)
+- **Candidate 1 Sandbox ID:** `sbx-e1e0d65df77747a5` (Exit Code: 0, `WITNESS_PASS`)
+- **Model Request ID:** `chatcmpl-3495a8cc`
+- **Token Usage:** `prompt_tokens=431`, `completion_tokens=998`, `total_tokens=1429`
+- **Duration:** `4.0128s`
+- **Feedback Digest:** `1e04f844c77502d21151f34584fa40b8887906d16380c3c68733483f8a2cf33d`
+- **Lineage Digest:** `4eafdf6d1334b58cc74bfa2d16236da1c0aec53198c878280606abed5c192e3f`
+- **Reproduction Receipt Digest:** `1d43f37239ff7c6d466ed2f39d6b41a350613b304c726bc4da5ba84e35af23fc`
+- **Status:** `RepairLoopStatus.VERIFIED_AFTER_REPAIR`
+- **Preliminary Verdict:** `PreliminaryVerdict.VERIFIED`
+- **Receipt Authority:** `is_authoritative = False`
+
+### 6.2 Historical Execution on SHA `de563754148ad5364609127d3079d8d6294c7823`
 - **Basebreak Implementation SHA:** `de563754148ad5364609127d3079d8d6294c7823`
 - **Execution Date:** 2026-10-09
 - **Repair Receipt ID:** `RLR-894a0ec47c20`
@@ -137,7 +165,7 @@ All emitted receipts and records passed deterministic cryptographic verification
 - **Preliminary Verdict:** `PreliminaryVerdict.VERIFIED`
 - **Receipt Authority:** `is_authoritative = False`
 
-### 5.2 Historical Execution on SHA `dcfa538459340ae5adbd0e001ecf5aaa87971fb5`
+### 6.3 Historical Execution on SHA `dcfa538459340ae5adbd0e001ecf5aaa87971fb5`
 - **Basebreak Implementation SHA:** `dcfa538459340ae5adbd0e001ecf5aaa87971fb5`
 - **Execution Date:** 2026-10-09
 - **Repair Receipt ID:** `RLR-bbff0b7675cb`
