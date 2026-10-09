@@ -483,17 +483,40 @@ def classify_risk(features: RiskFeatureSet) -> RiskClassification:
 
 
 def verify_risk_classification_integrity(classification: RiskClassification) -> None:
-    """Verify cryptographic integrity of RiskClassification record.
+    """Verify cryptographic and deterministic derivation integrity of RiskClassification record.
 
-    Raises RiskTamperingError if digest does not match recomputed SHA-256.
+    Raises:
+        InvalidRiskInputError: If input is not a RiskClassification.
+        RiskTamperingError: If declared digest does not match recomputed SHA-256,
+            or if the classification risk level, elevation reasons, or digest
+            contradict deterministic derivation from the underlying RiskFeatureSet.
     """
     if not isinstance(classification, RiskClassification):
         raise InvalidRiskInputError(
             f"classification must be RiskClassification, got {type(classification).__name__}"
         )
+
+    # 1. Cryptographic self-consistency check
     recomputed = compute_risk_digest(classification.to_dict())
     if classification.classification_digest != recomputed:
         dec = classification.classification_digest
         raise RiskTamperingError(
             f"Risk classification digest mismatch: declared {dec}, recomputed {recomputed}"
+        )
+
+    # 2. Independent derivation check from validated feature set
+    expected = classify_risk(classification.features)
+    if classification.risk_level != expected.risk_level:
+        raise RiskTamperingError(
+            f"Risk level {classification.risk_level.value} contradicts deterministic derivation "
+            f"{expected.risk_level.value} from features"
+        )
+    if classification.elevation_reasons != expected.elevation_reasons:
+        raise RiskTamperingError(
+            "Elevation reasons contradict deterministic derivation from features"
+        )
+    if classification.classification_digest != expected.classification_digest:
+        raise RiskTamperingError(
+            f"Classification digest {classification.classification_digest} contradicts "
+            f"deterministic derivation {expected.classification_digest} from features"
         )

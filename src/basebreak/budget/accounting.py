@@ -487,8 +487,14 @@ class BudgetLedger:
         elapsed_seconds: float = 0.0,
         financial_cost: FinancialCostEstimate | None = None,
         has_unknown_cost: bool = False,
+        reservation_id: str | None = None,
     ) -> None:
-        """Record an observed execution event with strict deduplication and limit checking."""
+        """Record an observed execution event with transactional guarantees and limit checking.
+
+        All inputs, limits, reservations, and projected financial costs are verified
+        BEFORE mutating any ledger state. If an operation is rejected, consumption,
+        reservations, and recorded operation IDs remain strictly unchanged.
+        """
         if not operation_id or not operation_id.strip():
             raise InvalidAccountingValueError("operation_id must be a non-empty string")
         if operation_id in self.consumption.recorded_operation_ids:
@@ -520,15 +526,67 @@ class BudgetLedger:
         if math.isnan(elapsed_seconds) or math.isinf(elapsed_seconds):
             raise InvalidAccountingValueError("elapsed_seconds cannot be NaN or Infinite")
 
+        if financial_cost is not None and not isinstance(financial_cost, FinancialCostEstimate):
+            raise InvalidAccountingValueError(
+                f"financial_cost must be FinancialCostEstimate, got {type(financial_cost).__name__}"
+            )
+
+        # Inconsistent token counts check
+        if total_tokens > 0 and (input_tokens > 0 or output_tokens > 0):
+            if total_tokens != input_tokens + output_tokens:
+                raise InvalidAccountingValueError(
+                    f"Inconsistent token counts: total_tokens ({total_tokens}) != "
+                    f"input_tokens ({input_tokens}) + output_tokens ({output_tokens})"
+                )
+
         # Resolve total tokens
         effective_tokens = total_tokens
         if effective_tokens == 0 and (input_tokens > 0 or output_tokens > 0):
             effective_tokens = input_tokens + output_tokens
 
-        # Check limits BEFORE applying
-        if self.limits.max_total_tokens is not None:
-            if self.consumption.total_tokens + effective_tokens > self.limits.max_total_tokens:
-                curr_tok = self.consumption.total_tokens + effective_tokens
+        # Active reservation lookup and isolation
+        rel_res_tokens = 0
+        rel_res_sbx = 0
+        rel_res_ver = 0
+        rel_res_cr = 0
+        if reservation_id is not None:
+            if reservation_id not in self.reservations:
+                raise ReservationError(f"No reservation found with ID {reservation_id!r}")
+            res = self.reservations[reservation_id]
+            if res.status != ReservationStatus.PENDING:
+                raise ReservationError(
+                    f"Cannot associate operation with reservation in status {res.status.value}"
+                )
+            rel_res_tokens = res.reserved_tokens
+            rel_res_sbx = res.reserved_sandboxes
+            rel_res_ver = res.reserved_verifier_executions
+            rel_res_cr = res.reserved_counterrun_executions
+
+        # Active reservations belonging to OTHER pending reservations cannot be bypassed
+        other_reserved_tokens = max(0, self.get_active_reserved_tokens() - rel_res_tokens)
+        other_reserved_sbx = max(0, self.get_active_reserved_sandboxes() - rel_res_sbx)
+        other_reserved_ver = max(0, self.get_active_reserved_verifier_executions() - rel_res_ver)
+        other_reserved_cr = max(0, self.get_active_reserved_counterruns() - rel_res_cr)
+
+        # CHECK ALL LIMITS BEFORE APPLYING ANY MUTATIONS
+        if self.limits.max_input_tokens is not None and input_tokens > 0:
+            if self.consumption.input_tokens + input_tokens > self.limits.max_input_tokens:
+                curr_in = self.consumption.input_tokens + input_tokens
+                max_in = self.limits.max_input_tokens
+                raise BudgetExhaustedError(f"Input token limit exceeded: {curr_in} > {max_in}")
+
+        if self.limits.max_output_tokens is not None and output_tokens > 0:
+            if self.consumption.output_tokens + output_tokens > self.limits.max_output_tokens:
+                curr_out = self.consumption.output_tokens + output_tokens
+                max_out = self.limits.max_output_tokens
+                raise BudgetExhaustedError(f"Output token limit exceeded: {curr_out} > {max_out}")
+
+        if self.limits.max_total_tokens is not None and effective_tokens > 0:
+            if (
+                self.consumption.total_tokens + other_reserved_tokens + effective_tokens
+                > self.limits.max_total_tokens
+            ):
+                curr_tok = self.consumption.total_tokens + other_reserved_tokens + effective_tokens
                 max_tok = self.limits.max_total_tokens
                 raise BudgetExhaustedError(f"Token limit exceeded: {curr_tok} > {max_tok}")
 
@@ -551,10 +609,12 @@ class BudgetLedger:
 
         if self.limits.max_sandbox_executions is not None and sandbox_executions > 0:
             if (
-                self.consumption.sandbox_executions + sandbox_executions
+                self.consumption.sandbox_executions + other_reserved_sbx + sandbox_executions
                 > self.limits.max_sandbox_executions
             ):
-                curr_se = self.consumption.sandbox_executions + sandbox_executions
+                curr_se = (
+                    self.consumption.sandbox_executions + other_reserved_sbx + sandbox_executions
+                )
                 max_se = self.limits.max_sandbox_executions
                 raise BudgetExhaustedError(
                     f"Sandbox execution limit exceeded: {curr_se} > {max_se}"
@@ -562,10 +622,12 @@ class BudgetLedger:
 
         if self.limits.max_verifier_executions is not None and verifier_executions > 0:
             if (
-                self.consumption.verifier_executions + verifier_executions
+                self.consumption.verifier_executions + other_reserved_ver + verifier_executions
                 > self.limits.max_verifier_executions
             ):
-                curr_ve = self.consumption.verifier_executions + verifier_executions
+                curr_ve = (
+                    self.consumption.verifier_executions + other_reserved_ver + verifier_executions
+                )
                 max_ve = self.limits.max_verifier_executions
                 raise BudgetExhaustedError(
                     f"Verifier execution limit exceeded: {curr_ve} > {max_ve}"
@@ -573,16 +635,40 @@ class BudgetLedger:
 
         if self.limits.max_counterrun_executions is not None and counterrun_executions > 0:
             if (
-                self.consumption.counterrun_executions + counterrun_executions
+                self.consumption.counterrun_executions + other_reserved_cr + counterrun_executions
                 > self.limits.max_counterrun_executions
             ):
-                curr_ce = self.consumption.counterrun_executions + counterrun_executions
+                curr_ce = (
+                    self.consumption.counterrun_executions
+                    + other_reserved_cr
+                    + counterrun_executions
+                )
                 max_ce = self.limits.max_counterrun_executions
                 raise BudgetExhaustedError(
                     f"Counterrun execution limit exceeded: {curr_ce} > {max_ce}"
                 )
 
-        # Apply updates
+        if self.limits.max_elapsed_seconds is not None and elapsed_seconds > 0:
+            if self.consumption.elapsed_seconds + elapsed_seconds > self.limits.max_elapsed_seconds:
+                curr_time = self.consumption.elapsed_seconds + elapsed_seconds
+                max_time = self.limits.max_elapsed_seconds
+                raise BudgetExhaustedError(
+                    f"Time limit exceeded: {curr_time:.2f}s > {max_time:.2f}s"
+                )
+
+        if financial_cost is not None and financial_cost.estimated_usd is not None:
+            current_cost = self.consumption.estimated_cost_usd or 0.0
+            projected_cost = current_cost + financial_cost.estimated_usd
+            if (
+                self.limits.max_estimated_cost_usd is not None
+                and projected_cost > self.limits.max_estimated_cost_usd
+            ):
+                max_usd = self.limits.max_estimated_cost_usd
+                raise BudgetExhaustedError(
+                    f"Financial cost limit exceeded: ${projected_cost:.4f} > ${max_usd:.4f}"
+                )
+
+        # ALL CHECKS PASSED: APPLY TRANSACTIONAL MUTATIONS
         self.consumption.input_tokens += input_tokens
         self.consumption.output_tokens += output_tokens
         self.consumption.total_tokens += effective_tokens
@@ -601,18 +687,9 @@ class BudgetLedger:
         if financial_cost is not None:
             if financial_cost.estimated_usd is not None:
                 current_cost = self.consumption.estimated_cost_usd or 0.0
-                new_cost = current_cost + financial_cost.estimated_usd
-                self.consumption.estimated_cost_usd = new_cost
+                self.consumption.estimated_cost_usd = current_cost + financial_cost.estimated_usd
                 if financial_cost.estimated_usd > 0.0:
                     self.consumption.is_verified_zero_cost = False
-                if (
-                    self.limits.max_estimated_cost_usd is not None
-                    and new_cost > self.limits.max_estimated_cost_usd
-                ):
-                    max_usd = self.limits.max_estimated_cost_usd
-                    raise BudgetExhaustedError(
-                        f"Financial cost limit exceeded: ${new_cost:.4f} > ${max_usd:.4f}"
-                    )
             elif not financial_cost.is_verified_zero_cost:
                 self.consumption.has_unknown_financial_cost = True
                 self.consumption.is_verified_zero_cost = False

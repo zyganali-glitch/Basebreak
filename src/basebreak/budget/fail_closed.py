@@ -207,8 +207,14 @@ def preflight_budget_admission(
     obligations: MandatoryVerificationObligations,
     *,
     min_required_seconds: float = 10.0,
+    requires_financial_authorization: bool = False,
+    is_cost_consuming: bool = False,
 ) -> BudgetGateResult:
-    """Preflight check determining whether available budget can support mandatory verification."""
+    """Preflight check determining whether available budget can support mandatory verification.
+
+    Fails closed if hard capacities are unconfigured/unbounded, resources are insufficient,
+    or financial exposure is unknown/unverifiable.
+    """
     if not isinstance(ledger, BudgetLedger):
         raise InvalidGateInputError(f"ledger must be BudgetLedger, got {type(ledger).__name__}")
     if not isinstance(depth, VerificationDepth):
@@ -251,9 +257,17 @@ def preflight_budget_admission(
 
     unexecuted: list[UnexecutedObligation] = []
     shortfall_reasons: list[str] = []
+    is_unverifiable = False
 
-    # Check sandbox executions limit
-    if ledger.limits.max_sandbox_executions is not None:
+    # Check sandbox executions limit (must be explicitly configured and sufficient)
+    if ledger.limits.max_sandbox_executions is None:
+        if required_sbx > 0:
+            shortfall_reasons.append(
+                f"Unverifiable budget: max_sandbox_executions must be explicitly configured "
+                f"(requires at least {required_sbx})"
+            )
+            is_unverifiable = True
+    else:
         available_sbx = ledger.limits.max_sandbox_executions - (
             ledger.consumption.sandbox_executions + ledger.get_active_reserved_sandboxes()
         )
@@ -264,8 +278,15 @@ def preflight_budget_admission(
                 f"available {available_sbx} (limit {limit_sbx})"
             )
 
-    # Check verifier executions limit
-    if ledger.limits.max_verifier_executions is not None:
+    # Check verifier executions limit (must be explicitly configured and sufficient)
+    if ledger.limits.max_verifier_executions is None:
+        if required_exec > 0:
+            shortfall_reasons.append(
+                f"Unverifiable budget: max_verifier_executions must be explicitly configured "
+                f"(requires at least {required_exec})"
+            )
+            is_unverifiable = True
+    else:
         available_ver = ledger.limits.max_verifier_executions - (
             ledger.consumption.verifier_executions
             + ledger.get_active_reserved_verifier_executions()
@@ -286,8 +307,35 @@ def preflight_budget_admission(
                 f"remaining {ledger.limits.max_elapsed_seconds - elapsed:.1f}s"
             )
 
-    # If capacity is deficient, build fail-closed INSUFFICIENT_RESERVATION receipt
+    # Check financial exposure & authorization
+    has_unknown = ledger.consumption.has_unknown_financial_cost
+    is_zero = ledger.consumption.is_verified_zero_cost
+    if has_unknown and not is_zero:
+        shortfall_reasons.append(
+            "Unknown financial exposure: ledger contains unknown cost and cannot certify bounds"
+        )
+        is_unverifiable = True
+
+    if requires_financial_authorization or is_cost_consuming:
+        if ledger.consumption.has_unknown_financial_cost:
+            shortfall_reasons.append(
+                "Missing trustworthy financial cost facts for cost-consuming operation"
+            )
+            is_unverifiable = True
+        elif ledger.limits.max_estimated_cost_usd is None:
+            shortfall_reasons.append(
+                "Unknown financial exposure: cost-consuming operation requires "
+                "explicitly configured max_estimated_cost_usd"
+            )
+            is_unverifiable = True
+
+    # If capacity is deficient or unverifiable, build fail-closed receipt
     if shortfall_reasons:
+        gate_status = (
+            BudgetGateStatus.UNVERIFIABLE_BUDGET
+            if is_unverifiable
+            else BudgetGateStatus.INSUFFICIENT_RESERVATION
+        )
         for action in depth.mandatory_actions:
             unexecuted.append(
                 UnexecutedObligation(
@@ -321,7 +369,7 @@ def preflight_budget_admission(
 
         unexecuted_tuple = tuple(unexecuted)
         raw_payload = {
-            "gate_status": BudgetGateStatus.INSUFFICIENT_RESERVATION.value,
+            "gate_status": gate_status.value,
             "grants_pass": False,
             "is_authoritative": False,
             "is_causally_verified": False,
@@ -335,7 +383,7 @@ def preflight_budget_admission(
 
         return BudgetGateResult(
             schema_version=FAIL_CLOSED_SCHEMA_VERSION,
-            gate_status=BudgetGateStatus.INSUFFICIENT_RESERVATION,
+            gate_status=gate_status,
             preliminary_verdict=PreliminaryVerdict.BLOCKED,
             is_causally_verified=False,
             grants_pass=False,

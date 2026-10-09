@@ -56,7 +56,9 @@ def test_preflight_admission_success_when_budget_sufficient() -> None:
 def test_preflight_admission_denied_when_sandboxes_insufficient() -> None:
     """Preflight check must fail closed if sandboxes are insufficient."""
     # Depth requires at least 2 sandboxes, but budget ceiling is 1
-    ledger = BudgetLedger(limits=ResourceLimits(max_sandbox_executions=1))
+    ledger = BudgetLedger(
+        limits=ResourceLimits(max_sandbox_executions=1, max_verifier_executions=10)
+    )
     features = extract_risk_features(
         change_class=ChangeClass.BUG_FIX, changed_files=("src/calc.py",)
     )
@@ -76,7 +78,13 @@ def test_preflight_admission_denied_when_sandboxes_insufficient() -> None:
 
 def test_preflight_admission_denied_when_time_insufficient() -> None:
     """Preflight check must fail closed if remaining elapsed seconds is below requirement."""
-    ledger = BudgetLedger(limits=ResourceLimits(max_elapsed_seconds=5.0))
+    ledger = BudgetLedger(
+        limits=ResourceLimits(
+            max_sandbox_executions=10,
+            max_verifier_executions=10,
+            max_elapsed_seconds=5.0,
+        )
+    )
     # Preflight requires min 10.0 seconds
     features = extract_risk_features(
         change_class=ChangeClass.BUG_FIX, changed_files=("src/calc.py",)
@@ -172,7 +180,9 @@ def test_adversarial_pass_grant_on_rejection_forbidden() -> None:
 
 def test_tamper_detection_on_budget_gate_receipt() -> None:
     """Tampering with BudgetGateResult digest must raise BudgetGateTamperingError."""
-    ledger = BudgetLedger(limits=ResourceLimits(max_sandbox_executions=1))
+    ledger = BudgetLedger(
+        limits=ResourceLimits(max_sandbox_executions=1, max_verifier_executions=10)
+    )
     features = extract_risk_features(
         change_class=ChangeClass.BUG_FIX, changed_files=("src/calc.py",)
     )
@@ -195,3 +205,49 @@ def test_tamper_detection_on_budget_gate_receipt() -> None:
 
     with pytest.raises(BudgetGateTamperingError, match="digest mismatch"):
         verify_budget_gate_result_integrity(tampered)
+
+
+def test_preflight_admission_denied_when_limits_unconfigured_default() -> None:
+    """Defect D: Default unconfigured ResourceLimits must fail closed with UNVERIFIABLE_BUDGET."""
+    ledger = BudgetLedger(limits=ResourceLimits())
+    features = extract_risk_features(
+        change_class=ChangeClass.BUG_FIX, changed_files=("src/calc.py",)
+    )
+    classification = classify_risk(features)
+    depth = resolve_verification_depth(classification)
+    obligations = resolve_mandatory_obligations(classification)
+
+    result = preflight_budget_admission(ledger, depth, obligations)
+    assert result.gate_status == BudgetGateStatus.UNVERIFIABLE_BUDGET
+    assert result.preliminary_verdict == PreliminaryVerdict.BLOCKED
+    assert result.grants_pass is False
+    assert any("Unverifiable budget" in u.reason for u in result.unexecuted_obligations)
+    verify_budget_gate_result_integrity(result)
+
+
+def test_preflight_admission_denied_when_unknown_financial_exposure() -> None:
+    """Defect D: Cost-consuming operation without financial limits must be rejected."""
+    ledger = BudgetLedger(
+        limits=ResourceLimits(
+            max_sandbox_executions=10,
+            max_verifier_executions=10,
+            max_estimated_cost_usd=None,
+        )
+    )
+    features = extract_risk_features(
+        change_class=ChangeClass.BUG_FIX, changed_files=("src/calc.py",)
+    )
+    classification = classify_risk(features)
+    depth = resolve_verification_depth(classification)
+    obligations = resolve_mandatory_obligations(classification)
+
+    result = preflight_budget_admission(
+        ledger,
+        depth,
+        obligations,
+        requires_financial_authorization=True,
+    )
+    assert result.gate_status == BudgetGateStatus.UNVERIFIABLE_BUDGET
+    assert result.preliminary_verdict == PreliminaryVerdict.BLOCKED
+    assert any("financial exposure" in u.reason for u in result.unexecuted_obligations)
+    verify_budget_gate_result_integrity(result)

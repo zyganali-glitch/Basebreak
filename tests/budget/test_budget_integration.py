@@ -180,14 +180,18 @@ def test_end_to_end_high_risk_multi_hunk_security_workflow() -> None:
     assert obligations.slicing_mandatory is True
 
     # 4. Budget insufficient: operator only provided 3 sandboxes (needs at least 6)
-    ledger_tight = BudgetLedger(limits=ResourceLimits(max_sandbox_executions=3))
+    ledger_tight = BudgetLedger(
+        limits=ResourceLimits(max_sandbox_executions=3, max_verifier_executions=10)
+    )
     admission_tight = preflight_budget_admission(ledger_tight, depth, obligations)
     assert admission_tight.gate_status == BudgetGateStatus.INSUFFICIENT_RESERVATION
     assert admission_tight.preliminary_verdict == PreliminaryVerdict.BLOCKED
     assert admission_tight.grants_pass is False
 
     # 5. Sufficient budget: operator provides 10 sandboxes
-    ledger_generous = BudgetLedger(limits=ResourceLimits(max_sandbox_executions=10))
+    ledger_generous = BudgetLedger(
+        limits=ResourceLimits(max_sandbox_executions=10, max_verifier_executions=10)
+    )
     admission_ok = preflight_budget_admission(ledger_generous, depth, obligations)
     assert admission_ok.gate_status == BudgetGateStatus.ADMITTED
 

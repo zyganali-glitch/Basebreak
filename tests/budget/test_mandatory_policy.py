@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import pytest
 
+from basebreak.budget.depth_policy import (
+    VerificationAction,
+    resolve_verification_depth,
+)
 from basebreak.budget.mandatory_policy import (
     MandatoryObligationViolationError,
     MandatoryPolicyTamperingError,
@@ -13,8 +17,10 @@ from basebreak.budget.mandatory_policy import (
     verify_mandatory_obligations_integrity,
 )
 from basebreak.budget.risk_features import (
+    RiskClassification,
     RiskLevel,
     classify_risk,
+    compute_risk_digest,
     extract_risk_features,
 )
 from basebreak.compiler.semantics import ChangeClass
@@ -190,3 +196,66 @@ def test_tamper_detection_on_mandatory_obligations() -> None:
     )
     with pytest.raises(MandatoryPolicyTamperingError, match="digest mismatch"):
         verify_mandatory_obligations_integrity(tampered)
+
+
+def test_regression_defect_b_mandatory_obligations_consistency() -> None:
+    """Regression test for Defect B: Depth policy and mandatory obligations agree on counterrun."""
+    # 1. MEDIUM BUG_FIX must require counterrun in both depth policy and mandatory obligations
+    f_med_bug = extract_risk_features(
+        change_class=ChangeClass.BUG_FIX,
+        changed_files=("src/a.py", "src/b.py", "src/c.py"),
+    )
+    c_med_bug = classify_risk(f_med_bug)
+    assert c_med_bug.risk_level == RiskLevel.MEDIUM
+
+    depth_med_bug = resolve_verification_depth(c_med_bug)
+    ob_med_bug = resolve_mandatory_obligations(c_med_bug)
+    assert VerificationAction.COUNTERFACTUAL_EXECUTION in depth_med_bug.mandatory_actions
+    assert ob_med_bug.counterrun_mandatory is True
+    assert any(
+        f"MEDIUM risk {ChangeClass.BUG_FIX.value}" in r for r in ob_med_bug.counterrun_reasons
+    )
+
+    # 2. HIGH non-BUG_FIX (REFACTOR, PERFORMANCE, DEP_API_CHANGE) must require counterrun in both
+    for cc in (ChangeClass.REFACTOR, ChangeClass.PERFORMANCE, ChangeClass.DEP_API_CHANGE):
+        f_high = extract_risk_features(
+            change_class=cc,
+            has_untrusted_metadata=True,
+        )
+        c_high = classify_risk(f_high)
+        assert c_high.risk_level == RiskLevel.HIGH
+
+        depth_high = resolve_verification_depth(c_high)
+        ob_high = resolve_mandatory_obligations(c_high)
+        assert VerificationAction.COUNTERFACTUAL_EXECUTION in depth_high.mandatory_actions
+        assert ob_high.counterrun_mandatory is True
+        assert any(f"HIGH risk {cc.value}" in r for r in ob_high.counterrun_reasons)
+
+
+def test_adversarial_downgrade_rejected_in_mandatory_policy() -> None:
+    """resolve_mandatory_obligations must reject forged/downgraded classifications."""
+    # SECURITY_FIX should be HIGH risk.
+    features = extract_risk_features(change_class=ChangeClass.SECURITY_FIX)
+
+    # Adversary tries to forge a classification claiming LOW risk with
+    # a validly computed digest for forged record
+    forged_dict = {
+        "classification_digest": "",
+        "elevation_reasons": ["Forged clean change"],
+        "features": features.to_dict(),
+        "is_authoritative": False,
+        "risk_level": RiskLevel.LOW.value,
+        "schema_version": "1.0.0",
+    }
+    forged_digest = compute_risk_digest(forged_dict)
+    forged_classification = RiskClassification(
+        schema_version="1.0.0",
+        risk_level=RiskLevel.LOW,
+        elevation_reasons=("Forged clean change",),
+        features=features,
+        classification_digest=forged_digest,
+        is_authoritative=False,
+    )
+
+    with pytest.raises(MandatoryPolicyTamperingError, match="Risk level LOW contradicts"):
+        resolve_mandatory_obligations(forged_classification)

@@ -18,42 +18,54 @@ from basebreak.budget.risk_features import (
     RiskFeatureSet,
     RiskLevel,
     classify_risk,
+    compute_risk_digest,
     extract_risk_features,
 )
 from basebreak.compiler.semantics import ChangeClass
 
+VALID_POLICY_MATRIX = [
+    (ChangeClass.BUG_FIX, RiskLevel.LOW, 1, 10),
+    (ChangeClass.BUG_FIX, RiskLevel.MEDIUM, 4, 100),
+    (ChangeClass.BUG_FIX, RiskLevel.HIGH, 12, 600),
+    (ChangeClass.FEATURE, RiskLevel.LOW, 1, 10),
+    (ChangeClass.FEATURE, RiskLevel.MEDIUM, 4, 100),
+    (ChangeClass.FEATURE, RiskLevel.HIGH, 12, 600),
+    (ChangeClass.REFACTOR, RiskLevel.LOW, 1, 10),
+    (ChangeClass.REFACTOR, RiskLevel.MEDIUM, 4, 100),
+    (ChangeClass.REFACTOR, RiskLevel.HIGH, 12, 600),
+    (ChangeClass.PERFORMANCE, RiskLevel.MEDIUM, 1, 10),
+    (ChangeClass.PERFORMANCE, RiskLevel.HIGH, 12, 600),
+    (ChangeClass.DEP_API_CHANGE, RiskLevel.MEDIUM, 1, 10),
+    (ChangeClass.DEP_API_CHANGE, RiskLevel.HIGH, 12, 600),
+    (ChangeClass.SECURITY_FIX, RiskLevel.HIGH, 1, 10),
+]
 
-@pytest.mark.parametrize("change_class", list(ChangeClass))
-@pytest.mark.parametrize("risk_level", list(RiskLevel))
+
+@pytest.mark.parametrize(
+    "change_class,target_risk_level,files_count,lines_count",
+    VALID_POLICY_MATRIX,
+)
 def test_policy_matrix_all_classes_and_levels(
-    change_class: ChangeClass, risk_level: RiskLevel
+    change_class: ChangeClass,
+    target_risk_level: RiskLevel,
+    files_count: int,
+    lines_count: int,
 ) -> None:
-    """Every combination of (ChangeClass, RiskLevel) must produce a valid VerificationDepth.
+    """Every valid combination of (ChangeClass, RiskLevel) must produce a valid VerificationDepth.
 
     Core Invariant: BASE_EXECUTION and CANDIDATE_EXECUTION are strictly MANDATORY in every case.
     """
-    # Create synthetic classification for this combination
     features = RiskFeatureSet(
         change_class=change_class,
-        changed_files_count=1
-        if risk_level == RiskLevel.LOW
-        else (4 if risk_level == RiskLevel.MEDIUM else 12),
+        changed_files_count=files_count,
+        changed_lines_count=lines_count,
     )
-    raw_classification = classify_risk(features)
+    classification = classify_risk(features)
+    assert classification.risk_level == target_risk_level
 
-    # Force the specific target risk level for the test cell
-    synth_classification = RiskClassification(
-        schema_version=raw_classification.schema_version,
-        risk_level=risk_level,
-        features=features,
-        elevation_reasons=raw_classification.elevation_reasons,
-        classification_digest=raw_classification.classification_digest,
-        is_authoritative=False,
-    )
-
-    depth = resolve_verification_depth(synth_classification)
+    depth = resolve_verification_depth(classification)
     assert depth.schema_version == DEPTH_POLICY_SCHEMA_VERSION
-    assert depth.risk_level == risk_level
+    assert depth.risk_level == target_risk_level
     assert depth.change_class == change_class
 
     # Basebreak Thesis Invariant: Two-world execution is ALWAYS mandatory
@@ -70,80 +82,152 @@ def test_policy_matrix_all_classes_and_levels(
 
 def test_semantic_specific_mandatory_actions() -> None:
     """Semantic-specific verification requirements must be strictly preserved across all levels."""
-    for level in (RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH):
-        # REFACTOR requires EQUIVALENCE_VERIFICATION
-        ref_feat = RiskFeatureSet(change_class=ChangeClass.REFACTOR)
-        ref_class = RiskClassification(
-            schema_version=DEPTH_POLICY_SCHEMA_VERSION,
-            risk_level=level,
-            features=ref_feat,
-            elevation_reasons=("Test",),
-            classification_digest="0" * 64,
-            is_authoritative=False,
+    # REFACTOR at LOW, MEDIUM, HIGH requires EQUIVALENCE_VERIFICATION
+    for fc, lc in [(1, 10), (4, 100), (12, 600)]:
+        feats = RiskFeatureSet(
+            change_class=ChangeClass.REFACTOR,
+            changed_files_count=fc,
+            changed_lines_count=lc,
         )
-        ref_depth = resolve_verification_depth(ref_class)
-        assert VerificationAction.EQUIVALENCE_VERIFICATION in ref_depth.mandatory_actions
+        depth = resolve_verification_depth(classify_risk(feats))
+        assert VerificationAction.EQUIVALENCE_VERIFICATION in depth.mandatory_actions
 
-        # PERFORMANCE requires PERFORMANCE_MEASUREMENT
-        perf_feat = RiskFeatureSet(change_class=ChangeClass.PERFORMANCE)
-        perf_class = RiskClassification(
-            schema_version=DEPTH_POLICY_SCHEMA_VERSION,
-            risk_level=level,
-            features=perf_feat,
-            elevation_reasons=("Test",),
-            classification_digest="0" * 64,
-            is_authoritative=False,
+    # PERFORMANCE at MEDIUM, HIGH requires PERFORMANCE_MEASUREMENT
+    for fc, lc in [(1, 10), (12, 600)]:
+        feats = RiskFeatureSet(
+            change_class=ChangeClass.PERFORMANCE,
+            changed_files_count=fc,
+            changed_lines_count=lc,
         )
-        perf_depth = resolve_verification_depth(perf_class)
-        assert VerificationAction.PERFORMANCE_MEASUREMENT in perf_depth.mandatory_actions
+        depth = resolve_verification_depth(classify_risk(feats))
+        assert VerificationAction.PERFORMANCE_MEASUREMENT in depth.mandatory_actions
 
-        # DEP_API_CHANGE requires DEPENDENCY_MIGRATION_CHECK
-        dep_feat = RiskFeatureSet(change_class=ChangeClass.DEP_API_CHANGE)
-        dep_class = RiskClassification(
-            schema_version=DEPTH_POLICY_SCHEMA_VERSION,
-            risk_level=level,
-            features=dep_feat,
-            elevation_reasons=("Test",),
-            classification_digest="0" * 64,
-            is_authoritative=False,
+    # DEP_API_CHANGE at MEDIUM, HIGH requires DEPENDENCY_MIGRATION_CHECK
+    for fc, lc in [(1, 10), (12, 600)]:
+        feats = RiskFeatureSet(
+            change_class=ChangeClass.DEP_API_CHANGE,
+            changed_files_count=fc,
+            changed_lines_count=lc,
         )
-        dep_depth = resolve_verification_depth(dep_class)
-        assert VerificationAction.DEPENDENCY_MIGRATION_CHECK in dep_depth.mandatory_actions
+        depth = resolve_verification_depth(classify_risk(feats))
+        assert VerificationAction.DEPENDENCY_MIGRATION_CHECK in depth.mandatory_actions
 
 
 def test_depth_monotonicity_across_risk_levels() -> None:
     """For any change class, HIGH risk must require >= mandatory checks than LOW/MEDIUM."""
-    for cc in ChangeClass:
-        feats = RiskFeatureSet(change_class=cc)
-        depths = {}
-        for level in (RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH):
-            classification = RiskClassification(
-                schema_version=DEPTH_POLICY_SCHEMA_VERSION,
-                risk_level=level,
-                features=feats,
-                elevation_reasons=("Test",),
-                classification_digest="0" * 64,
-                is_authoritative=False,
+    # Classes spanning LOW, MEDIUM, HIGH
+    for cc in (ChangeClass.BUG_FIX, ChangeClass.FEATURE, ChangeClass.REFACTOR):
+        d_low = resolve_verification_depth(
+            classify_risk(RiskFeatureSet(change_class=cc, changed_files_count=1))
+        )
+        d_med = resolve_verification_depth(
+            classify_risk(
+                RiskFeatureSet(change_class=cc, changed_files_count=4, changed_lines_count=100)
             )
-            depths[level] = resolve_verification_depth(classification)
+        )
+        d_high = resolve_verification_depth(
+            classify_risk(
+                RiskFeatureSet(change_class=cc, changed_files_count=12, changed_lines_count=600)
+            )
+        )
 
-        low = depths[RiskLevel.LOW]
-        med = depths[RiskLevel.MEDIUM]
-        high = depths[RiskLevel.HIGH]
-
-        # Mandatory actions subset property: low <= med <= high
-        assert set(low.mandatory_actions).issubset(set(med.mandatory_actions))
-        assert set(med.mandatory_actions).issubset(set(high.mandatory_actions))
-
-        # Resource ceilings monotonicity
+        assert set(d_low.mandatory_actions).issubset(set(d_med.mandatory_actions))
+        assert set(d_med.mandatory_actions).issubset(set(d_high.mandatory_actions))
         assert (
-            low.min_sandboxes_required <= med.min_sandboxes_required <= high.min_sandboxes_required
+            d_low.min_sandboxes_required
+            <= d_med.min_sandboxes_required
+            <= d_high.min_sandboxes_required
         )
         assert (
-            low.min_verifier_executions_required
-            <= med.min_verifier_executions_required
-            <= high.min_verifier_executions_required
+            d_low.min_verifier_executions_required
+            <= d_med.min_verifier_executions_required
+            <= d_high.min_verifier_executions_required
         )
+
+    # Classes starting at MEDIUM (PERFORMANCE, DEP_API_CHANGE)
+    for cc in (ChangeClass.PERFORMANCE, ChangeClass.DEP_API_CHANGE):
+        d_med = resolve_verification_depth(
+            classify_risk(RiskFeatureSet(change_class=cc, changed_files_count=1))
+        )
+        d_high = resolve_verification_depth(
+            classify_risk(
+                RiskFeatureSet(change_class=cc, changed_files_count=12, changed_lines_count=600)
+            )
+        )
+        assert set(d_med.mandatory_actions).issubset(set(d_high.mandatory_actions))
+        assert d_med.min_sandboxes_required <= d_high.min_sandboxes_required
+        assert d_med.min_verifier_executions_required <= d_high.min_verifier_executions_required
+
+
+def test_adversarial_classification_downgrade_rejected() -> None:
+    """Caller-fabricated downgraded risk classification records must fail closed."""
+    # 1. SECURITY_FIX downgraded to LOW even when caller computes valid digest for fake record
+    sec_features = RiskFeatureSet(change_class=ChangeClass.SECURITY_FIX, changed_files_count=1)
+    legit_sec = classify_risk(sec_features)
+    assert legit_sec.risk_level == RiskLevel.HIGH
+
+    raw_sec_downgrade = {
+        "classification_digest": "",
+        "elevation_reasons": list(legit_sec.elevation_reasons),
+        "features": sec_features.to_dict(),
+        "is_authoritative": False,
+        "risk_level": RiskLevel.LOW.value,
+        "schema_version": legit_sec.schema_version,
+    }
+    signed_sec_downgrade = RiskClassification(
+        schema_version=legit_sec.schema_version,
+        risk_level=RiskLevel.LOW,  # Forged downgrade
+        features=sec_features,
+        elevation_reasons=legit_sec.elevation_reasons,
+        classification_digest=compute_risk_digest(raw_sec_downgrade),
+        is_authoritative=False,
+    )
+    with pytest.raises(
+        DepthPolicyTamperingError,
+        match="Risk level LOW contradicts deterministic derivation HIGH",
+    ):
+        resolve_verification_depth(signed_sec_downgrade)
+
+    # 2. Corrupt digest without recomputation
+    tampered_digest = RiskClassification(
+        schema_version=legit_sec.schema_version,
+        risk_level=legit_sec.risk_level,
+        features=sec_features,
+        elevation_reasons=legit_sec.elevation_reasons,
+        classification_digest="a" * 64,  # Corrupt digest
+        is_authoritative=False,
+    )
+    with pytest.raises(DepthPolicyTamperingError, match="digest mismatch"):
+        resolve_verification_depth(tampered_digest)
+
+    # 3. Large blast radius downgraded to LOW with signed digest
+    wide_features = RiskFeatureSet(
+        change_class=ChangeClass.BUG_FIX, changed_files_count=15, changed_lines_count=800
+    )
+    legit_wide = classify_risk(wide_features)
+    assert legit_wide.risk_level == RiskLevel.HIGH
+
+    raw_wide_downgrade = {
+        "classification_digest": "",
+        "elevation_reasons": list(legit_wide.elevation_reasons),
+        "features": wide_features.to_dict(),
+        "is_authoritative": False,
+        "risk_level": RiskLevel.LOW.value,
+        "schema_version": legit_wide.schema_version,
+    }
+    signed_wide_downgrade = RiskClassification(
+        schema_version=legit_wide.schema_version,
+        risk_level=RiskLevel.LOW,
+        features=wide_features,
+        elevation_reasons=legit_wide.elevation_reasons,
+        classification_digest=compute_risk_digest(raw_wide_downgrade),
+        is_authoritative=False,
+    )
+    with pytest.raises(
+        DepthPolicyTamperingError,
+        match="Risk level LOW contradicts deterministic derivation HIGH",
+    ):
+        resolve_verification_depth(signed_wide_downgrade)
 
 
 def test_skipped_checks_tracking() -> None:

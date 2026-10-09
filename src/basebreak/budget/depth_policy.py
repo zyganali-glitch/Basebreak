@@ -31,8 +31,10 @@ from typing import Any
 
 from basebreak.budget.risk_features import (
     RiskClassification,
+    RiskFeatureError,
     RiskLevel,
     canonical_risk_bytes,
+    verify_risk_classification_integrity,
 )
 from basebreak.compiler.semantics import ChangeClass
 
@@ -197,6 +199,13 @@ def resolve_verification_depth(
         raise InvalidDepthPolicyError(
             f"classification must be RiskClassification, got {type(classification).__name__}"
         )
+
+    try:
+        verify_risk_classification_integrity(classification)
+    except RiskFeatureError as exc:
+        raise DepthPolicyTamperingError(
+            f"Risk classification integrity verification failed: {exc}"
+        ) from exc
 
     risk_level = classification.risk_level
     change_class = classification.features.change_class

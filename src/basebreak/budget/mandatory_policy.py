@@ -28,10 +28,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from basebreak.budget.depth_policy import (
+    VerificationAction,
+    resolve_verification_depth,
+)
 from basebreak.budget.risk_features import (
     RiskClassification,
+    RiskFeatureError,
     RiskLevel,
     canonical_risk_bytes,
+    verify_risk_classification_integrity,
 )
 from basebreak.compiler.freeze import FrozenContract
 from basebreak.compiler.semantics import ChangeClass
@@ -118,6 +124,14 @@ def resolve_mandatory_obligations(
         raise InvalidMandatoryPolicyInputError(
             f"classification must be RiskClassification, got {type(classification).__name__}"
         )
+
+    try:
+        verify_risk_classification_integrity(classification)
+    except RiskFeatureError as exc:
+        raise MandatoryPolicyTamperingError(
+            f"Risk classification integrity verification failed: {exc}"
+        ) from exc
+
     if (
         isinstance(patch_hunk_count, bool)
         or not isinstance(patch_hunk_count, int)
@@ -126,6 +140,8 @@ def resolve_mandatory_obligations(
         raise InvalidMandatoryPolicyInputError(
             f"patch_hunk_count must be a non-negative int, got {patch_hunk_count!r}"
         )
+
+    depth = resolve_verification_depth(classification)
 
     risk_level = classification.risk_level
     features = classification.features
@@ -160,6 +176,33 @@ def resolve_mandatory_obligations(
                     f"Requirement {req.requirement_id} explicitly demands causal slicing"
                 )
                 break
+
+    # Depth policy alignment: no required action from depth policy may disappear
+    if VerificationAction.COUNTERFACTUAL_EXECUTION in depth.mandatory_actions:
+        if risk_level == RiskLevel.MEDIUM and change_class in (
+            ChangeClass.BUG_FIX,
+            ChangeClass.SECURITY_FIX,
+        ):
+            cr_reasons.append(
+                f"MEDIUM risk {change_class.value} mandates counterrun for "
+                "behavioral defect verification under depth policy"
+            )
+        elif risk_level == RiskLevel.HIGH:
+            cr_reasons.append(
+                f"HIGH risk {change_class.value} mandates counterrun "
+                "verification under depth policy"
+            )
+        else:
+            cr_reasons.append(
+                f"Verification depth mandates counterrun execution for "
+                f"{change_class.value} at {risk_level.value} risk"
+            )
+
+    if VerificationAction.CAUSAL_SLICING in depth.mandatory_actions:
+        slice_reasons.append(
+            f"Verification depth mandates causal slicing for "
+            f"{change_class.value} at {risk_level.value} risk"
+        )
 
     # Policy triggers for Counterrun
     if risk_level == RiskLevel.HIGH and change_class in (ChangeClass.BUG_FIX, ChangeClass.FEATURE):
@@ -205,11 +248,22 @@ def resolve_mandatory_obligations(
             "Touches protected surfaces with multiple hunks: causal slicing mandatory"
         )
 
-    counterrun_mandatory = len(cr_reasons) > 0
-    slicing_mandatory = len(slice_reasons) > 0
+    # Deduplicate reasons preserving order
+    cr_reasons_clean: list[str] = []
+    for r in cr_reasons:
+        if r not in cr_reasons_clean:
+            cr_reasons_clean.append(r)
 
-    cr_tuple = tuple(cr_reasons)
-    slice_tuple = tuple(slice_reasons)
+    slice_reasons_clean: list[str] = []
+    for r in slice_reasons:
+        if r not in slice_reasons_clean:
+            slice_reasons_clean.append(r)
+
+    counterrun_mandatory = len(cr_reasons_clean) > 0
+    slicing_mandatory = len(slice_reasons_clean) > 0
+
+    cr_tuple = tuple(cr_reasons_clean)
+    slice_tuple = tuple(slice_reasons_clean)
 
     raw_payload: dict[str, Any] = {
         "counterrun_mandatory": counterrun_mandatory,
