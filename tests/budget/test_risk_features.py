@@ -299,3 +299,62 @@ def test_tamper_detection() -> None:
             classification_digest=result.classification_digest,
             is_authoritative=True,  # Forbidden
         )
+
+
+def test_defect_1_inconsistent_risk_features_rejected() -> None:
+    """Defect 1: Inconsistent or manipulated risk features must fail closed at boundary."""
+    # 1. src/auth/login.py with empty security-path indicators must be rejected
+    with pytest.raises(
+        InvalidRiskInputError, match="Inconsistent risk features.*touched_security_sensitive_paths"
+    ):
+        RiskFeatureSet(
+            change_class=ChangeClass.BUG_FIX,
+            touched_paths=("src/auth/login.py",),
+            touched_security_sensitive_paths=(),  # Forged omission
+            changed_files_count=1,
+        )
+
+    # 2. Protected surface omitted from touched_protected_surfaces must be rejected
+    with pytest.raises(
+        InvalidRiskInputError, match="Inconsistent risk features.*touched_protected_surfaces"
+    ):
+        RiskFeatureSet(
+            change_class=ChangeClass.BUG_FIX,
+            touched_paths=("AGENTS.md",),
+            touched_protected_surfaces=(),  # Forged omission
+            changed_files_count=1,
+        )
+
+    # 3. changed_files_count contradicts touched_paths
+    with pytest.raises(InvalidRiskInputError, match="Incomplete change-scope facts"):
+        RiskFeatureSet(
+            change_class=ChangeClass.BUG_FIX,
+            touched_paths=(),
+            changed_files_count=5,  # Contradiction
+        )
+
+    with pytest.raises(InvalidRiskInputError, match="contradicts.*touched_paths count"):
+        RiskFeatureSet(
+            change_class=ChangeClass.BUG_FIX,
+            touched_paths=("src/calc.py",),
+            changed_files_count=3,  # Contradiction
+        )
+
+    # 4. Genuine zero-file scenario is valid and preserved
+    zero_files = RiskFeatureSet(
+        change_class=ChangeClass.BUG_FIX,
+        touched_paths=(),
+        changed_files_count=0,
+    )
+    assert zero_files.changed_files_count == 0
+    classification = classify_risk(zero_files)
+    assert classification.risk_level == RiskLevel.LOW
+
+    # 5. Regression: src/auth/login.py properly extracted is HIGH risk
+    auth_features = extract_risk_features(
+        change_class=ChangeClass.BUG_FIX,
+        changed_files=("src/auth/login.py",),
+    )
+    assert auth_features.touched_security_sensitive_paths == ("src/auth/login.py",)
+    auth_class = classify_risk(auth_features)
+    assert auth_class.risk_level == RiskLevel.HIGH

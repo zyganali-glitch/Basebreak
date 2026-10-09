@@ -15,7 +15,6 @@ from basebreak.budget.depth_policy import (
 )
 from basebreak.budget.risk_features import (
     RiskClassification,
-    RiskFeatureSet,
     RiskLevel,
     classify_risk,
     compute_risk_digest,
@@ -55,9 +54,10 @@ def test_policy_matrix_all_classes_and_levels(
 
     Core Invariant: BASE_EXECUTION and CANDIDATE_EXECUTION are strictly MANDATORY in every case.
     """
-    features = RiskFeatureSet(
+    files = tuple(f"src/file_{i}.py" for i in range(files_count))
+    features = extract_risk_features(
         change_class=change_class,
-        changed_files_count=files_count,
+        changed_files=files,
         changed_lines_count=lines_count,
     )
     classification = classify_risk(features)
@@ -84,9 +84,9 @@ def test_semantic_specific_mandatory_actions() -> None:
     """Semantic-specific verification requirements must be strictly preserved across all levels."""
     # REFACTOR at LOW, MEDIUM, HIGH requires EQUIVALENCE_VERIFICATION
     for fc, lc in [(1, 10), (4, 100), (12, 600)]:
-        feats = RiskFeatureSet(
+        feats = extract_risk_features(
             change_class=ChangeClass.REFACTOR,
-            changed_files_count=fc,
+            changed_files=tuple(f"src/file_{i}.py" for i in range(fc)),
             changed_lines_count=lc,
         )
         depth = resolve_verification_depth(classify_risk(feats))
@@ -94,9 +94,9 @@ def test_semantic_specific_mandatory_actions() -> None:
 
     # PERFORMANCE at MEDIUM, HIGH requires PERFORMANCE_MEASUREMENT
     for fc, lc in [(1, 10), (12, 600)]:
-        feats = RiskFeatureSet(
+        feats = extract_risk_features(
             change_class=ChangeClass.PERFORMANCE,
-            changed_files_count=fc,
+            changed_files=tuple(f"src/file_{i}.py" for i in range(fc)),
             changed_lines_count=lc,
         )
         depth = resolve_verification_depth(classify_risk(feats))
@@ -104,9 +104,9 @@ def test_semantic_specific_mandatory_actions() -> None:
 
     # DEP_API_CHANGE at MEDIUM, HIGH requires DEPENDENCY_MIGRATION_CHECK
     for fc, lc in [(1, 10), (12, 600)]:
-        feats = RiskFeatureSet(
+        feats = extract_risk_features(
             change_class=ChangeClass.DEP_API_CHANGE,
-            changed_files_count=fc,
+            changed_files=tuple(f"src/file_{i}.py" for i in range(fc)),
             changed_lines_count=lc,
         )
         depth = resolve_verification_depth(classify_risk(feats))
@@ -118,16 +118,24 @@ def test_depth_monotonicity_across_risk_levels() -> None:
     # Classes spanning LOW, MEDIUM, HIGH
     for cc in (ChangeClass.BUG_FIX, ChangeClass.FEATURE, ChangeClass.REFACTOR):
         d_low = resolve_verification_depth(
-            classify_risk(RiskFeatureSet(change_class=cc, changed_files_count=1))
+            classify_risk(extract_risk_features(change_class=cc, changed_files=("src/calc.py",)))
         )
         d_med = resolve_verification_depth(
             classify_risk(
-                RiskFeatureSet(change_class=cc, changed_files_count=4, changed_lines_count=100)
+                extract_risk_features(
+                    change_class=cc,
+                    changed_files=tuple(f"src/file_{i}.py" for i in range(4)),
+                    changed_lines_count=100,
+                )
             )
         )
         d_high = resolve_verification_depth(
             classify_risk(
-                RiskFeatureSet(change_class=cc, changed_files_count=12, changed_lines_count=600)
+                extract_risk_features(
+                    change_class=cc,
+                    changed_files=tuple(f"src/file_{i}.py" for i in range(12)),
+                    changed_lines_count=600,
+                )
             )
         )
 
@@ -147,11 +155,15 @@ def test_depth_monotonicity_across_risk_levels() -> None:
     # Classes starting at MEDIUM (PERFORMANCE, DEP_API_CHANGE)
     for cc in (ChangeClass.PERFORMANCE, ChangeClass.DEP_API_CHANGE):
         d_med = resolve_verification_depth(
-            classify_risk(RiskFeatureSet(change_class=cc, changed_files_count=1))
+            classify_risk(extract_risk_features(change_class=cc, changed_files=("src/calc.py",)))
         )
         d_high = resolve_verification_depth(
             classify_risk(
-                RiskFeatureSet(change_class=cc, changed_files_count=12, changed_lines_count=600)
+                extract_risk_features(
+                    change_class=cc,
+                    changed_files=tuple(f"src/file_{i}.py" for i in range(12)),
+                    changed_lines_count=600,
+                )
             )
         )
         assert set(d_med.mandatory_actions).issubset(set(d_high.mandatory_actions))
@@ -162,7 +174,9 @@ def test_depth_monotonicity_across_risk_levels() -> None:
 def test_adversarial_classification_downgrade_rejected() -> None:
     """Caller-fabricated downgraded risk classification records must fail closed."""
     # 1. SECURITY_FIX downgraded to LOW even when caller computes valid digest for fake record
-    sec_features = RiskFeatureSet(change_class=ChangeClass.SECURITY_FIX, changed_files_count=1)
+    sec_features = extract_risk_features(
+        change_class=ChangeClass.SECURITY_FIX, changed_files=("src/calc.py",)
+    )
     legit_sec = classify_risk(sec_features)
     assert legit_sec.risk_level == RiskLevel.HIGH
 
@@ -201,8 +215,10 @@ def test_adversarial_classification_downgrade_rejected() -> None:
         resolve_verification_depth(tampered_digest)
 
     # 3. Large blast radius downgraded to LOW with signed digest
-    wide_features = RiskFeatureSet(
-        change_class=ChangeClass.BUG_FIX, changed_files_count=15, changed_lines_count=800
+    wide_features = extract_risk_features(
+        change_class=ChangeClass.BUG_FIX,
+        changed_files=tuple(f"src/file_{i}.py" for i in range(15)),
+        changed_lines_count=800,
     )
     legit_wide = classify_risk(wide_features)
     assert legit_wide.risk_level == RiskLevel.HIGH

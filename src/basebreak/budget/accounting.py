@@ -267,6 +267,11 @@ class ResourceReservation:
     reserved_verifier_executions: int = 0
     reserved_counterrun_executions: int = 0
     reserved_seconds: float = 0.0
+    consumed_tokens: int = 0
+    consumed_sandboxes: int = 0
+    consumed_verifier_executions: int = 0
+    consumed_counterrun_executions: int = 0
+    consumed_seconds: float = 0.0
     status: ReservationStatus = ReservationStatus.PENDING
 
     def __post_init__(self) -> None:
@@ -277,25 +282,82 @@ class ResourceReservation:
             "reserved_sandboxes",
             "reserved_verifier_executions",
             "reserved_counterrun_executions",
+            "consumed_tokens",
+            "consumed_sandboxes",
+            "consumed_verifier_executions",
+            "consumed_counterrun_executions",
         ):
             val = getattr(self, name)
             if isinstance(val, bool) or not isinstance(val, int) or val < 0:
                 raise InvalidAccountingValueError(
                     f"{name} must be a non-negative integer, got {val!r}"
                 )
-        if (
-            isinstance(self.reserved_seconds, bool)
-            or not isinstance(self.reserved_seconds, (int, float))
-            or self.reserved_seconds < 0.0
-        ):
+        for name in ("reserved_seconds", "consumed_seconds"):
+            val = getattr(self, name)
+            if isinstance(val, bool) or not isinstance(val, (int, float)) or val < 0.0:
+                raise InvalidAccountingValueError(f"{name} must be non-negative, got {val!r}")
+            if math.isnan(val) or math.isinf(val):
+                raise InvalidAccountingValueError(f"{name} cannot be NaN or Infinite")
+
+        if self.consumed_tokens > self.reserved_tokens:
             raise InvalidAccountingValueError(
-                f"reserved_seconds must be non-negative, got {self.reserved_seconds!r}"
+                f"consumed_tokens ({self.consumed_tokens}) cannot exceed "
+                f"reserved_tokens ({self.reserved_tokens})"
             )
-        if math.isnan(self.reserved_seconds) or math.isinf(self.reserved_seconds):
-            raise InvalidAccountingValueError("reserved_seconds cannot be NaN or Infinite")
+        if self.consumed_sandboxes > self.reserved_sandboxes:
+            raise InvalidAccountingValueError(
+                f"consumed_sandboxes ({self.consumed_sandboxes}) cannot exceed "
+                f"reserved_sandboxes ({self.reserved_sandboxes})"
+            )
+        if self.consumed_verifier_executions > self.reserved_verifier_executions:
+            raise InvalidAccountingValueError(
+                f"consumed_verifier_executions ({self.consumed_verifier_executions}) cannot "
+                f"exceed reserved_verifier_executions ({self.reserved_verifier_executions})"
+            )
+        if self.consumed_counterrun_executions > self.reserved_counterrun_executions:
+            raise InvalidAccountingValueError(
+                f"consumed_counterrun_executions ({self.consumed_counterrun_executions}) "
+                f"cannot exceed reserved_counterrun_executions "
+                f"({self.reserved_counterrun_executions})"
+            )
+        if self.consumed_seconds > self.reserved_seconds:
+            raise InvalidAccountingValueError(
+                f"consumed_seconds ({self.consumed_seconds}) cannot exceed "
+                f"reserved_seconds ({self.reserved_seconds})"
+            )
+
+    @property
+    def remaining_tokens(self) -> int:
+        return max(0, self.reserved_tokens - self.consumed_tokens)
+
+    @property
+    def remaining_sandboxes(self) -> int:
+        return max(0, self.reserved_sandboxes - self.consumed_sandboxes)
+
+    @property
+    def remaining_verifier_executions(self) -> int:
+        return max(0, self.reserved_verifier_executions - self.consumed_verifier_executions)
+
+    @property
+    def remaining_counterrun_executions(self) -> int:
+        return max(0, self.reserved_counterrun_executions - self.consumed_counterrun_executions)
+
+    @property
+    def remaining_seconds(self) -> float:
+        return max(0.0, self.reserved_seconds - self.consumed_seconds)
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "consumed_counterrun_executions": self.consumed_counterrun_executions,
+            "consumed_sandboxes": self.consumed_sandboxes,
+            "consumed_seconds": round(self.consumed_seconds, 4),
+            "consumed_tokens": self.consumed_tokens,
+            "consumed_verifier_executions": self.consumed_verifier_executions,
+            "remaining_counterrun_executions": self.remaining_counterrun_executions,
+            "remaining_sandboxes": self.remaining_sandboxes,
+            "remaining_seconds": round(self.remaining_seconds, 4),
+            "remaining_tokens": self.remaining_tokens,
+            "remaining_verifier_executions": self.remaining_verifier_executions,
             "reservation_id": self.reservation_id,
             "reserved_counterrun_executions": self.reserved_counterrun_executions,
             "reserved_sandboxes": self.reserved_sandboxes,
@@ -326,28 +388,28 @@ class BudgetLedger:
 
     def get_active_reserved_tokens(self) -> int:
         return sum(
-            r.reserved_tokens
+            r.remaining_tokens
             for r in self.reservations.values()
             if r.status == ReservationStatus.PENDING
         )
 
     def get_active_reserved_sandboxes(self) -> int:
         return sum(
-            r.reserved_sandboxes
+            r.remaining_sandboxes
             for r in self.reservations.values()
             if r.status == ReservationStatus.PENDING
         )
 
     def get_active_reserved_verifier_executions(self) -> int:
         return sum(
-            r.reserved_verifier_executions
+            r.remaining_verifier_executions
             for r in self.reservations.values()
             if r.status == ReservationStatus.PENDING
         )
 
     def get_active_reserved_counterruns(self) -> int:
         return sum(
-            r.reserved_counterrun_executions
+            r.remaining_counterrun_executions
             for r in self.reservations.values()
             if r.status == ReservationStatus.PENDING
         )
@@ -452,6 +514,11 @@ class BudgetLedger:
             reserved_verifier_executions=res.reserved_verifier_executions,
             reserved_counterrun_executions=res.reserved_counterrun_executions,
             reserved_seconds=res.reserved_seconds,
+            consumed_tokens=res.consumed_tokens,
+            consumed_sandboxes=res.consumed_sandboxes,
+            consumed_verifier_executions=res.consumed_verifier_executions,
+            consumed_counterrun_executions=res.consumed_counterrun_executions,
+            consumed_seconds=res.consumed_seconds,
             status=ReservationStatus.COMMITTED,
         )
 
@@ -469,6 +536,11 @@ class BudgetLedger:
             reserved_verifier_executions=res.reserved_verifier_executions,
             reserved_counterrun_executions=res.reserved_counterrun_executions,
             reserved_seconds=res.reserved_seconds,
+            consumed_tokens=res.consumed_tokens,
+            consumed_sandboxes=res.consumed_sandboxes,
+            consumed_verifier_executions=res.consumed_verifier_executions,
+            consumed_counterrun_executions=res.consumed_counterrun_executions,
+            consumed_seconds=res.consumed_seconds,
             status=ReservationStatus.CANCELLED,
         )
 
@@ -557,10 +629,56 @@ class BudgetLedger:
                 raise ReservationError(
                     f"Cannot associate operation with reservation in status {res.status.value}"
                 )
-            rel_res_tokens = res.reserved_tokens
-            rel_res_sbx = res.reserved_sandboxes
-            rel_res_ver = res.reserved_verifier_executions
-            rel_res_cr = res.reserved_counterrun_executions
+
+            # Defect 2: Enforce reservation's own authorized capacity
+            if sandbox_executions > 0 and sandbox_executions > res.remaining_sandboxes:
+                raise BudgetExhaustedError(
+                    f"Reservation {reservation_id!r} sandbox capacity exceeded: "
+                    f"requested {sandbox_executions}, remaining {res.remaining_sandboxes} "
+                    f"(reserved {res.reserved_sandboxes})"
+                )
+            if verifier_executions > 0 and verifier_executions > res.remaining_verifier_executions:
+                raise BudgetExhaustedError(
+                    f"Reservation {reservation_id!r} verifier execution capacity exceeded: "
+                    f"requested {verifier_executions}, "
+                    f"remaining {res.remaining_verifier_executions} "
+                    f"(reserved {res.reserved_verifier_executions})"
+                )
+            if (
+                counterrun_executions > 0
+                and counterrun_executions > res.remaining_counterrun_executions
+            ):
+                raise BudgetExhaustedError(
+                    f"Reservation {reservation_id!r} counterrun execution capacity exceeded: "
+                    f"requested {counterrun_executions}, "
+                    f"remaining {res.remaining_counterrun_executions} "
+                    f"(reserved {res.reserved_counterrun_executions})"
+                )
+            if (
+                effective_tokens > 0
+                and res.reserved_tokens > 0
+                and effective_tokens > res.remaining_tokens
+            ):
+                raise BudgetExhaustedError(
+                    f"Reservation {reservation_id!r} token capacity exceeded: "
+                    f"requested {effective_tokens}, remaining {res.remaining_tokens} "
+                    f"(reserved {res.reserved_tokens})"
+                )
+            if (
+                elapsed_seconds > 0.0
+                and res.reserved_seconds > 0.0
+                and elapsed_seconds > res.remaining_seconds
+            ):
+                raise BudgetExhaustedError(
+                    f"Reservation {reservation_id!r} time capacity exceeded: "
+                    f"requested {elapsed_seconds:.2f}s, remaining {res.remaining_seconds:.2f}s "
+                    f"(reserved {res.reserved_seconds:.2f}s)"
+                )
+
+            rel_res_tokens = res.remaining_tokens
+            rel_res_sbx = res.remaining_sandboxes
+            rel_res_ver = res.remaining_verifier_executions
+            rel_res_cr = res.remaining_counterrun_executions
 
         # Active reservations belonging to OTHER pending reservations cannot be bypassed
         other_reserved_tokens = max(0, self.get_active_reserved_tokens() - rel_res_tokens)
@@ -668,7 +786,45 @@ class BudgetLedger:
                     f"Financial cost limit exceeded: ${projected_cost:.4f} > ${max_usd:.4f}"
                 )
 
+        # Defect 3: Resolve unknown financial cost
+        effective_has_unknown_cost = has_unknown_cost
+        if (
+            is_model_invocation
+            or effective_tokens > 0
+            or input_tokens > 0
+            or output_tokens > 0
+            or sandbox_executions > 0
+            or sandbox_creations > 0
+        ):
+            if financial_cost is None:
+                effective_has_unknown_cost = True
+
+        if financial_cost is not None:
+            if financial_cost.estimated_usd is None and not financial_cost.is_verified_zero_cost:
+                effective_has_unknown_cost = True
+
         # ALL CHECKS PASSED: APPLY TRANSACTIONAL MUTATIONS
+        if reservation_id is not None:
+            old_res = self.reservations[reservation_id]
+            self.reservations[reservation_id] = ResourceReservation(
+                reservation_id=old_res.reservation_id,
+                reserved_tokens=old_res.reserved_tokens,
+                reserved_sandboxes=old_res.reserved_sandboxes,
+                reserved_verifier_executions=old_res.reserved_verifier_executions,
+                reserved_counterrun_executions=old_res.reserved_counterrun_executions,
+                reserved_seconds=old_res.reserved_seconds,
+                consumed_tokens=old_res.consumed_tokens
+                + (effective_tokens if old_res.reserved_tokens > 0 else 0),
+                consumed_sandboxes=old_res.consumed_sandboxes + sandbox_executions,
+                consumed_verifier_executions=old_res.consumed_verifier_executions
+                + verifier_executions,
+                consumed_counterrun_executions=old_res.consumed_counterrun_executions
+                + counterrun_executions,
+                consumed_seconds=old_res.consumed_seconds
+                + (elapsed_seconds if old_res.reserved_seconds > 0.0 else 0.0),
+                status=old_res.status,
+            )
+
         self.consumption.input_tokens += input_tokens
         self.consumption.output_tokens += output_tokens
         self.consumption.total_tokens += effective_tokens
@@ -680,7 +836,7 @@ class BudgetLedger:
         self.consumption.counterrun_executions += counterrun_executions
         self.consumption.elapsed_seconds += elapsed_seconds
 
-        if has_unknown_cost:
+        if effective_has_unknown_cost:
             self.consumption.has_unknown_financial_cost = True
             self.consumption.is_verified_zero_cost = False
 
@@ -693,6 +849,8 @@ class BudgetLedger:
             elif not financial_cost.is_verified_zero_cost:
                 self.consumption.has_unknown_financial_cost = True
                 self.consumption.is_verified_zero_cost = False
+        else:
+            self.consumption.is_verified_zero_cost = False
 
         self.consumption.recorded_operation_ids.add(operation_id)
         self.consumption.validate()
@@ -725,24 +883,69 @@ class BudgetLedger:
         return cls(limits=limits)
 
     def sync_from_repair_loop_counters(self, counters: RepairLoopCounters) -> None:
-        """Synchronize observed consumption from RepairLoopCounters."""
+        """Synchronize observed consumption from RepairLoopCounters.
+
+        Enforces all applicable resource ceilings before mutating ledger state.
+        If any ceiling is exceeded, raises BudgetExhaustedError and leaves ledger
+        state bit-for-bit unchanged.
+        """
         if not isinstance(counters, RepairLoopCounters):
             raise InvalidAccountingValueError(
                 f"counters must be RepairLoopCounters, got {type(counters).__name__}"
             )
-        self.consumption.model_invocations = max(
-            self.consumption.model_invocations, counters.builder_attempts_used
-        )
-        self.consumption.verifier_executions = max(
-            self.consumption.verifier_executions, counters.verifier_executions_used
-        )
-        self.consumption.sandbox_executions = max(
-            self.consumption.sandbox_executions, counters.sandbox_executions_used
-        )
-        self.consumption.total_tokens = max(self.consumption.total_tokens, counters.tokens_used)
-        self.consumption.elapsed_seconds = max(
-            self.consumption.elapsed_seconds, counters.elapsed_seconds
-        )
+
+        proj_inv = max(self.consumption.model_invocations, counters.builder_attempts_used)
+        proj_ver = max(self.consumption.verifier_executions, counters.verifier_executions_used)
+        proj_sbx = max(self.consumption.sandbox_executions, counters.sandbox_executions_used)
+        proj_tok = max(self.consumption.total_tokens, counters.tokens_used)
+        proj_sec = max(self.consumption.elapsed_seconds, counters.elapsed_seconds)
+
+        if (
+            self.limits.max_model_invocations is not None
+            and proj_inv > self.limits.max_model_invocations
+        ):
+            raise BudgetExhaustedError(
+                f"Model invocation limit exceeded during sync: "
+                f"{proj_inv} > {self.limits.max_model_invocations}"
+            )
+
+        if (
+            self.limits.max_verifier_executions is not None
+            and proj_ver > self.limits.max_verifier_executions
+        ):
+            raise BudgetExhaustedError(
+                f"Verifier execution limit exceeded during sync: "
+                f"{proj_ver} > {self.limits.max_verifier_executions}"
+            )
+
+        if (
+            self.limits.max_sandbox_executions is not None
+            and proj_sbx > self.limits.max_sandbox_executions
+        ):
+            raise BudgetExhaustedError(
+                f"Sandbox execution limit exceeded during sync: "
+                f"{proj_sbx} > {self.limits.max_sandbox_executions}"
+            )
+
+        if self.limits.max_total_tokens is not None and proj_tok > self.limits.max_total_tokens:
+            raise BudgetExhaustedError(
+                f"Token limit exceeded during sync: {proj_tok} > {self.limits.max_total_tokens}"
+            )
+
+        if (
+            self.limits.max_elapsed_seconds is not None
+            and proj_sec > self.limits.max_elapsed_seconds
+        ):
+            raise BudgetExhaustedError(
+                f"Time limit exceeded during sync: "
+                f"{proj_sec:.2f}s > {self.limits.max_elapsed_seconds:.2f}s"
+            )
+
+        self.consumption.model_invocations = proj_inv
+        self.consumption.verifier_executions = proj_ver
+        self.consumption.sandbox_executions = proj_sbx
+        self.consumption.total_tokens = proj_tok
+        self.consumption.elapsed_seconds = proj_sec
         self.consumption.validate()
 
     def to_dict(self) -> dict[str, Any]:

@@ -75,6 +75,24 @@ _PUBLIC_API_PATTERNS = (
 )
 
 
+def is_security_sensitive_path(path: str) -> bool:
+    """Check if repository path matches known security-sensitive patterns."""
+    norm = path.replace("\\", "/").strip().lower()
+    return any(p.search(norm) is not None for p in _SECURITY_PATH_PATTERNS)
+
+
+def is_dependency_path(path: str) -> bool:
+    """Check if repository path matches known packaging or dependency files."""
+    norm = path.replace("\\", "/").strip().lower()
+    return any(p.search(norm) is not None for p in _DEPENDENCY_FILE_PATTERNS)
+
+
+def is_public_api_path(path: str) -> bool:
+    """Check if repository path matches known public API or module export files."""
+    norm = path.replace("\\", "/").strip().lower()
+    return any(p.search(norm) is not None for p in _PUBLIC_API_PATTERNS)
+
+
 class RiskLevel(str, Enum):
     """Deterministic risk levels for verification policy.
 
@@ -126,6 +144,76 @@ class InvalidRiskInputError(RiskFeatureError):
 
 class RiskTamperingError(RiskFeatureError):
     """Raised when risk classification digest does not match recomputed SHA-256."""
+
+
+def validate_risk_features_consistency(
+    features: RiskFeatureSet,
+    manifest: ProtectedSurfaceManifest | None = None,
+) -> None:
+    """Validate internal consistency of RiskFeatureSet against deterministic facts.
+
+    Fails closed if touched_paths contradicts changed_files_count, security indicators,
+    protected surface indicators, dependency indicators, or public API indicators.
+    """
+    if not isinstance(features, RiskFeatureSet):
+        raise InvalidRiskInputError(
+            f"features must be RiskFeatureSet, got {type(features).__name__}"
+        )
+
+    # 1. Contradiction between changed_files_count and touched_paths
+    if len(features.touched_paths) > 0:
+        if features.changed_files_count != len(features.touched_paths):
+            raise InvalidRiskInputError(
+                f"changed_files_count ({features.changed_files_count}) contradicts "
+                f"touched_paths count ({len(features.touched_paths)})"
+            )
+    else:
+        if features.changed_files_count > 0:
+            raise InvalidRiskInputError(
+                f"Incomplete change-scope facts: changed_files_count is "
+                f"{features.changed_files_count} but touched_paths is empty"
+            )
+
+    # 2. Recompute security-sensitive indicators
+    expected_sec = tuple(
+        sorted(set(p for p in features.touched_paths if is_security_sensitive_path(p)))
+    )
+    if features.touched_security_sensitive_paths != expected_sec:
+        raise InvalidRiskInputError(
+            f"Inconsistent risk features: declared touched_security_sensitive_paths "
+            f"{features.touched_security_sensitive_paths!r} contradicts deterministic "
+            f"derivation {expected_sec!r} from touched_paths"
+        )
+
+    # 3. Validate protected-surface indicators against canonical manifest
+    active_manifest = manifest or get_canonical_basebreak_protected_manifest()
+    expected_prot = tuple(
+        sorted(
+            set(p for p in features.touched_paths if is_path_protected(p, manifest=active_manifest))
+        )
+    )
+    if features.touched_protected_surfaces != expected_prot:
+        raise InvalidRiskInputError(
+            f"Inconsistent risk features: declared touched_protected_surfaces "
+            f"{features.touched_protected_surfaces!r} contradicts canonical "
+            f"protected manifest derivation {expected_prot!r}"
+        )
+
+    # 4. Dependency indicators
+    expected_deps = any(is_dependency_path(p) for p in features.touched_paths)
+    if expected_deps and not features.affects_dependencies:
+        raise InvalidRiskInputError(
+            "Inconsistent risk features: touched_paths contains packaging/dependency files "
+            "but affects_dependencies is False"
+        )
+
+    # 5. Public API indicators
+    expected_api = any(is_public_api_path(p) for p in features.touched_paths)
+    if expected_api and not features.affects_public_api:
+        raise InvalidRiskInputError(
+            "Inconsistent risk features: touched_paths contains public API files "
+            "but affects_public_api is False"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +277,8 @@ class RiskFeatureSet:
                     )
             if list(val) != sorted(set(val)):
                 raise InvalidRiskInputError(f"{attr_name} must be sorted without duplicates")
+
+        validate_risk_features_consistency(self)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize feature set to deterministic dictionary."""
@@ -270,24 +360,6 @@ def compute_risk_digest(payload: Mapping[str, Any]) -> str:
     """Compute SHA-256 digest over canonical payload excluding classification_digest."""
     clean = {k: v for k, v in payload.items() if k != "classification_digest"}
     return hashlib.sha256(canonical_risk_bytes(clean)).hexdigest()
-
-
-def is_security_sensitive_path(path: str) -> bool:
-    """Check if repository path matches known security-sensitive patterns."""
-    norm = path.replace("\\", "/").strip().lower()
-    return any(p.search(norm) is not None for p in _SECURITY_PATH_PATTERNS)
-
-
-def is_dependency_path(path: str) -> bool:
-    """Check if repository path matches known packaging or dependency files."""
-    norm = path.replace("\\", "/").strip().lower()
-    return any(p.search(norm) is not None for p in _DEPENDENCY_FILE_PATTERNS)
-
-
-def is_public_api_path(path: str) -> bool:
-    """Check if repository path matches known public API or module export files."""
-    norm = path.replace("\\", "/").strip().lower()
-    return any(p.search(norm) is not None for p in _PUBLIC_API_PATTERNS)
 
 
 def extract_risk_features(
@@ -409,6 +481,8 @@ def classify_risk(features: RiskFeatureSet) -> RiskClassification:
             f"features must be RiskFeatureSet, got {type(features).__name__}"
         )
 
+    validate_risk_features_consistency(features)
+
     reasons: list[str] = []
 
     # --- HIGH RISK EVALUATION ---
@@ -418,18 +492,37 @@ def classify_risk(features: RiskFeatureSet) -> RiskClassification:
         reasons.append("Contradictory classification signals detected: elevated to HIGH risk")
     if features.certainty == CertaintyLevel.UNKNOWN:
         reasons.append("Semantic certainty is UNKNOWN: fail-closed elevation to HIGH risk")
-    if features.touched_protected_surfaces:
-        reasons.append(
-            f"Touches {len(features.touched_protected_surfaces)} protected surface(s): "
-            + ", ".join(features.touched_protected_surfaces[:3])
+
+    # Protected surfaces check (with defense-in-depth inspection of touched_paths)
+    active_manifest = get_canonical_basebreak_protected_manifest()
+    prot_surfaces = tuple(
+        sorted(
+            set(features.touched_protected_surfaces)
+            | set(
+                p for p in features.touched_paths if is_path_protected(p, manifest=active_manifest)
+            )
         )
+    )
+    if prot_surfaces:
+        reasons.append(
+            f"Touches {len(prot_surfaces)} protected surface(s): " + ", ".join(prot_surfaces[:3])
+        )
+
     if features.change_class == ChangeClass.SECURITY_FIX:
         reasons.append("SECURITY_FIX changes are inherently HIGH risk")
-    if features.touched_security_sensitive_paths:
-        reasons.append(
-            f"Touches {len(features.touched_security_sensitive_paths)} security-sensitive path(s): "
-            + ", ".join(features.touched_security_sensitive_paths[:3])
+
+    # Security-sensitive paths check (with defense-in-depth inspection of touched_paths)
+    sec_paths = tuple(
+        sorted(
+            set(features.touched_security_sensitive_paths)
+            | set(p for p in features.touched_paths if is_security_sensitive_path(p))
         )
+    )
+    if sec_paths:
+        reasons.append(
+            f"Touches {len(sec_paths)} security-sensitive path(s): " + ", ".join(sec_paths[:3])
+        )
+
     if features.changed_files_count >= 10 or features.changed_lines_count >= 500:
         fc = features.changed_files_count
         lc = features.changed_lines_count

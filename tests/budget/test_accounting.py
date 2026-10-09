@@ -309,3 +309,270 @@ def test_unreserved_operation_cannot_bypass_active_reservation() -> None:
     )
     assert ledger.consumption.sandbox_executions == 4
     assert ledger.consumption.total_tokens == 900
+
+
+def test_defect_2_sync_from_counters_enforces_limits_and_atomic() -> None:
+    """Defect 2A: sync_from_repair_loop_counters enforces all limits before mutation."""
+    import time
+
+    ledger = BudgetLedger(
+        limits=ResourceLimits(
+            max_total_tokens=100,
+            max_sandbox_executions=2,
+            max_verifier_executions=2,
+            max_model_invocations=2,
+            max_elapsed_seconds=10.0,
+        )
+    )
+    ledger.record_operation("op-init", total_tokens=20, sandbox_executions=1, verifier_executions=1)
+    snapshot_before = ledger.to_dict()
+
+    # 1. P-14 counters report 1000 tokens against a 100-token ledger limit: reject without mutation
+    counters_excess_tokens = RepairLoopCounters(
+        tokens_used=1000,
+        sandbox_executions_used=1,
+        verifier_executions_used=1,
+        builder_attempts_used=1,
+    )
+    with pytest.raises(BudgetExhaustedError, match="Token limit exceeded during sync"):
+        ledger.sync_from_repair_loop_counters(counters_excess_tokens)
+    assert ledger.to_dict() == snapshot_before
+
+    # 2. Excess sandboxes: reject without mutation
+    counters_excess_sbx = RepairLoopCounters(
+        tokens_used=50,
+        sandbox_executions_used=5,
+        verifier_executions_used=1,
+        builder_attempts_used=1,
+    )
+    with pytest.raises(BudgetExhaustedError, match="Sandbox execution limit exceeded during sync"):
+        ledger.sync_from_repair_loop_counters(counters_excess_sbx)
+    assert ledger.to_dict() == snapshot_before
+
+    # 3. Excess verifiers: reject without mutation
+    counters_excess_ver = RepairLoopCounters(
+        tokens_used=50,
+        sandbox_executions_used=1,
+        verifier_executions_used=5,
+        builder_attempts_used=1,
+    )
+    with pytest.raises(BudgetExhaustedError, match="Verifier execution limit exceeded during sync"):
+        ledger.sync_from_repair_loop_counters(counters_excess_ver)
+    assert ledger.to_dict() == snapshot_before
+
+    # 4. Excess model invocations (builder attempts): reject without mutation
+    counters_excess_inv = RepairLoopCounters(
+        tokens_used=50,
+        sandbox_executions_used=1,
+        verifier_executions_used=1,
+        builder_attempts_used=5,
+    )
+    with pytest.raises(BudgetExhaustedError, match="Model invocation limit exceeded during sync"):
+        ledger.sync_from_repair_loop_counters(counters_excess_inv)
+    assert ledger.to_dict() == snapshot_before
+
+    # 5. Excess time: reject without mutation
+    counters_excess_time = RepairLoopCounters(
+        tokens_used=50,
+        sandbox_executions_used=1,
+        verifier_executions_used=1,
+        builder_attempts_used=1,
+        start_time=time.perf_counter() - 25.0,
+    )
+    with pytest.raises(BudgetExhaustedError, match="Time limit exceeded during sync"):
+        ledger.sync_from_repair_loop_counters(counters_excess_time)
+    assert ledger.to_dict() == snapshot_before
+
+    # 6. Valid synchronization within limits succeeds
+    counters_valid = RepairLoopCounters(
+        tokens_used=60,
+        sandbox_executions_used=2,
+        verifier_executions_used=2,
+        builder_attempts_used=2,
+    )
+    ledger.sync_from_repair_loop_counters(counters_valid)
+    assert ledger.consumption.total_tokens == 60
+    assert ledger.consumption.sandbox_executions == 2
+    assert ledger.consumption.verifier_executions == 2
+    assert ledger.consumption.model_invocations == 2
+
+
+def test_defect_2_reservation_capacity_enforced_and_atomic() -> None:
+    """Defect 2B: Operations associated with a reservation cannot exceed
+    reservation's authorized capacity.
+    """
+    ledger = BudgetLedger(
+        limits=ResourceLimits(
+            max_sandbox_executions=5,
+            max_verifier_executions=5,
+            max_total_tokens=2000,
+            max_elapsed_seconds=100.0,
+        )
+    )
+
+    # 1. Reserve 1 sandbox execution, then attempt 2 through that reservation:
+    # reject even if global capacity is 5
+    ledger.reserve("res-single", sandboxes=1, tokens=500)
+    snapshot_before = ledger.to_dict()
+
+    with pytest.raises(BudgetExhaustedError, match="sandbox capacity exceeded"):
+        ledger.record_operation("op-overflow", reservation_id="res-single", sandbox_executions=2)
+    assert ledger.to_dict() == snapshot_before
+
+    # 2. Multi-operation consumption within authorized capacity
+    ledger.reserve("res-multi", sandboxes=2, verifier_executions=2, tokens=600)
+    res_multi = ledger.reservations["res-multi"]
+    assert res_multi.remaining_sandboxes == 2
+    assert res_multi.remaining_tokens == 600
+
+    # Step 2a: first operation consumes 1 sandbox and 250 tokens
+    ledger.record_operation(
+        "op-multi-1",
+        reservation_id="res-multi",
+        sandbox_executions=1,
+        verifier_executions=1,
+        total_tokens=250,
+    )
+    assert ledger.reservations["res-multi"].remaining_sandboxes == 1
+    assert ledger.reservations["res-multi"].remaining_tokens == 350
+    assert ledger.consumption.sandbox_executions == 1
+    assert ledger.consumption.total_tokens == 250
+
+    # Step 2b: second operation consumes remaining 1 sandbox and 350 tokens
+    ledger.record_operation(
+        "op-multi-2",
+        reservation_id="res-multi",
+        sandbox_executions=1,
+        verifier_executions=1,
+        total_tokens=350,
+    )
+    assert ledger.reservations["res-multi"].remaining_sandboxes == 0
+    assert ledger.reservations["res-multi"].remaining_tokens == 0
+    assert ledger.consumption.sandbox_executions == 2
+    assert ledger.consumption.total_tokens == 600
+
+    # Step 2c: third operation attempts 1 more sandbox through exhausted reservation -> rejected!
+    snapshot_exhausted = ledger.to_dict()
+    with pytest.raises(BudgetExhaustedError, match="sandbox capacity exceeded"):
+        ledger.record_operation(
+            "op-multi-3",
+            reservation_id="res-multi",
+            sandbox_executions=1,
+        )
+    assert ledger.to_dict() == snapshot_exhausted
+
+    # 3. Committed and cancelled reservations cannot be reused
+    ledger.commit_reservation("res-multi")
+    with pytest.raises(
+        ReservationError, match="Cannot associate operation with reservation in status COMMITTED"
+    ):
+        ledger.record_operation(
+            "op-committed-fail", reservation_id="res-multi", sandbox_executions=1
+        )
+
+    ledger.reserve("res-to-cancel", sandboxes=1)
+    ledger.cancel_reservation("res-to-cancel")
+    with pytest.raises(
+        ReservationError, match="Cannot associate operation with reservation in status CANCELLED"
+    ):
+        ledger.record_operation(
+            "op-cancelled-fail", reservation_id="res-to-cancel", sandbox_executions=1
+        )
+
+
+def test_defect_3_cost_accounting_semantics() -> None:
+    """Defect 3: Accounting semantics distinguish unknown, verified zero,
+    and estimated positive costs.
+    """
+    from basebreak.budget.depth_policy import resolve_verification_depth
+    from basebreak.budget.fail_closed import BudgetGateStatus, preflight_budget_admission
+    from basebreak.budget.mandatory_policy import resolve_mandatory_obligations
+    from basebreak.budget.risk_features import classify_risk, extract_risk_features
+    from basebreak.compiler.semantics import CertaintyLevel, ChangeClass
+    from basebreak.domain.verdict import PreliminaryVerdict
+
+    # 1. Model invocation with financial_cost=None sets unknown financial cost and not verified zero
+    ledger_unknown = BudgetLedger(
+        limits=ResourceLimits(
+            max_model_invocations=5,
+            max_total_tokens=1000,
+            max_sandbox_executions=3,
+            max_verifier_executions=3,
+        )
+    )
+    ledger_unknown.record_operation("op-model-unknown", is_model_invocation=True, total_tokens=100)
+    assert ledger_unknown.consumption.has_unknown_financial_cost is True
+    assert ledger_unknown.consumption.is_verified_zero_cost is False
+    assert ledger_unknown.consumption.estimated_cost_usd is None
+
+    # Preflight budget admission rejects unknown financial exposure for cost-consuming operations
+    features = extract_risk_features(
+        change_class=ChangeClass.BUG_FIX,
+        certainty=CertaintyLevel.CONFIDENT,
+        changed_files=("src/core.py",),
+        changed_lines_count=10,
+    )
+    classification = classify_risk(features)
+    depth = resolve_verification_depth(classification)
+    obligations = resolve_mandatory_obligations(classification)
+
+    gate_result_unknown = preflight_budget_admission(
+        ledger_unknown,
+        depth,
+        obligations,
+        is_cost_consuming=True,
+    )
+    assert gate_result_unknown.gate_status == BudgetGateStatus.UNVERIFIABLE_BUDGET
+    assert gate_result_unknown.preliminary_verdict == PreliminaryVerdict.BLOCKED
+    assert gate_result_unknown.grants_pass is False
+    assert (
+        "Unknown financial exposure" in gate_result_unknown.rationale
+        or "Missing trustworthy financial cost facts" in gate_result_unknown.rationale
+    )
+
+    # 2. Explicitly verified zero-cost local execution remains supported and verified zero
+    ledger_zero = BudgetLedger(
+        limits=ResourceLimits(
+            max_sandbox_executions=3,
+            max_verifier_executions=3,
+        )
+    )
+    ledger_zero.record_operation(
+        "op-local-zero",
+        sandbox_executions=1,
+        verifier_executions=1,
+        financial_cost=FinancialCostEstimate(estimated_usd=0.0, is_verified_zero_cost=True),
+    )
+    assert ledger_zero.consumption.has_unknown_financial_cost is False
+    assert ledger_zero.consumption.is_verified_zero_cost is True
+    assert ledger_zero.consumption.estimated_cost_usd == 0.0
+
+    # 3. Known positive estimated cost is an estimate, not a provider invoice
+    ledger_estimated = BudgetLedger(
+        limits=ResourceLimits(
+            max_model_invocations=5,
+            max_total_tokens=1000,
+            max_sandbox_executions=3,
+            max_verifier_executions=3,
+            max_estimated_cost_usd=0.50,
+        )
+    )
+    ledger_estimated.record_operation(
+        "op-model-est",
+        is_model_invocation=True,
+        total_tokens=200,
+        financial_cost=FinancialCostEstimate(estimated_usd=0.035),
+    )
+    assert ledger_estimated.consumption.has_unknown_financial_cost is False
+    assert ledger_estimated.consumption.is_verified_zero_cost is False
+    assert ledger_estimated.consumption.estimated_cost_usd == 0.035
+
+    # Admitted when max_estimated_cost_usd is configured and covers estimated cost
+    gate_result_est = preflight_budget_admission(
+        ledger_estimated,
+        depth,
+        obligations,
+        is_cost_consuming=True,
+    )
+    assert gate_result_est.gate_status == BudgetGateStatus.ADMITTED
+    assert gate_result_est.preliminary_verdict == PreliminaryVerdict.INCONCLUSIVE
