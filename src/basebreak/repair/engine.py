@@ -1222,10 +1222,7 @@ def run_sealed_repair_loop(
                 provenance=provenance,
             )
 
-        all_sandbox_ids.add(reproduction_receipt.sandbox_id)
-        reproduction_receipt_digests.append(reproduction_receipt.receipt_digest)
-
-        # 7. Check reproduction verdict and deterministically classify outcome
+        # 7. Check reproduction receipt integrity before trusting it or recording its digest
         try:
             if not verify_repaired_receipt_integrity(reproduction_receipt):
                 raise RepairedReceiptTamperingError("Cryptographic digest mismatch")
@@ -1252,6 +1249,9 @@ def run_sealed_repair_loop(
                 ),
                 provenance=provenance,
             )
+
+        all_sandbox_ids.add(reproduction_receipt.sandbox_id)
+        reproduction_receipt_digests.append(reproduction_receipt.receipt_digest)
 
         # Happy path: reproduction granted PASS
         if reproduction_receipt.grants_pass:
@@ -1439,8 +1439,39 @@ def run_sealed_repair_loop(
                 provenance=provenance,
             )
 
-        # Case G: Genuine behavioral failure (WitnessOutcome.FAIL)
+        # Non-contradicted preliminary verdict cannot continue repair
+        # (e.g. NOT_RUN, PARTIALLY_VERIFIED)
+        if reproduction_receipt.preliminary_verdict != PreliminaryVerdict.CONTRADICTED:
+            return create_repair_loop_receipt(
+                repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+                initial_candidate_id=initial_candidate.candidate_id,
+                initial_patch_digest=initial_candidate.patch_digest,
+                initial_tree_digest=initial_candidate.candidate_tree_digest,
+                final_candidate_id=repaired_cand_snapshot.candidate_id,
+                final_patch_digest=repaired_cand_snapshot.patch_digest,
+                final_tree_digest=repaired_cand_snapshot.candidate_tree_digest,
+                status=RepairLoopStatus.INCONCLUSIVE,
+                preliminary_verdict=reproduction_receipt.preliminary_verdict,
+                is_causally_verified=False,
+                grants_pass=False,
+                total_rounds=round_idx,
+                lineage_digests=lineage_digests,
+                feedback_digests=feedback_digests,
+                reproduction_receipt_digests=reproduction_receipt_digests,
+                counters=counters.to_dict(),
+                failure_reason=(
+                    f"Reproduction outcome ({reproduction_receipt.witness_outcome.value}) with "
+                    f"verdict ({reproduction_receipt.preliminary_verdict.value}) cannot "
+                    "authorize repair; repair requires FAIL + CONTRADICTED"
+                ),
+                provenance=provenance,
+            )
+
+        # Case G: Genuine behavioral failure (WitnessOutcome.FAIL + PreliminaryVerdict.CONTRADICTED)
         # Continue repair only if more rounds are available under budget
+        assert reproduction_receipt.witness_outcome == WitnessOutcome.FAIL
+        assert reproduction_receipt.preliminary_verdict == PreliminaryVerdict.CONTRADICTED
+
         if round_idx < cfg.max_repair_rounds:
             try:
                 current_failed_facts = FailedExecutionFacts.from_reproduction_receipt(

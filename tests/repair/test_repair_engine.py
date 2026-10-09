@@ -2305,3 +2305,400 @@ def test_repair_loop_non_success_receipt_integrity_counters_and_authority() -> N
     assert receipt.counters["sandbox_executions_used"] == 1
     assert receipt.counters["builder_attempts_used"] == 1
     assert len(receipt.reproduction_receipt_digests) == 1
+
+
+def _mock_repro_receipt_for_call(
+    kwargs: dict[str, Any],
+    *,
+    witness_outcome: WitnessOutcome,
+    preliminary_verdict: PreliminaryVerdict,
+    exit_code: int = 1,
+    sandbox_id: str = "sbx-fresh-repro-001",
+) -> RepairedVerificationReceipt:
+    repaired_cand = kwargs["repaired_candidate"]
+    lineage = kwargs["lineage_record"]
+    sealed = kwargs["sealed_record"]
+    lock = kwargs["witness_lock"]
+    contract = kwargs["frozen_contract"]
+    return create_repaired_verification_receipt(
+        receipt_id=f"RVR-{repaired_cand.repaired_candidate_id}",
+        repaired_candidate_id=repaired_cand.repaired_candidate_id,
+        repaired_patch_digest=repaired_cand.repaired_patch_digest,
+        repaired_tree_digest=repaired_cand.repaired_tree_digest,
+        parent_candidate_id=lineage.parent_candidate_id,
+        lineage_digest=lineage.lineage_digest,
+        feedback_round=lineage.repair_round,
+        requirement_id=sealed.requirement_id,
+        change_class=contract.change_class,
+        frozen_contract_digest=contract.contract_digest,
+        witness_digest=sealed.seal_digest,
+        lock_digest=lock.lock_digest,
+        sandbox_id=sandbox_id,
+        witness_outcome=witness_outcome,
+        exit_code=exit_code,
+        duration_seconds=0.1,
+        preliminary_verdict=preliminary_verdict,
+        is_causally_verified=False,
+        grants_pass=False,
+        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+    )
+
+
+def test_repair_loop_reproduction_fail_not_run_does_not_continue_repair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+    adapter = ScriptableSandboxAdapter()
+
+    builder_calls = 0
+
+    def builder_fn(ctx: BuilderRepairContextEnvelope) -> CandidateSnapshot:
+        nonlocal builder_calls
+        builder_calls += 1
+        return CandidateSnapshot(
+            candidate_id=f"cand-attempt-r{ctx.repair_round}",
+            source_identity=SAMPLE_SOURCE,
+            candidate_tree_digest=R1_TREE,
+            patch_digest=R1_PATCH_DIGEST,
+            patch_text=R1_PATCH,
+            files_added=(),
+            files_modified=("a.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=frozen_contract.contract_digest,
+            context_digest=ctx.repair_context_digest,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+
+    def mock_repro(**kwargs: Any) -> RepairedVerificationReceipt:
+        return _mock_repro_receipt_for_call(
+            kwargs,
+            witness_outcome=WitnessOutcome.FAIL,
+            preliminary_verdict=PreliminaryVerdict.NOT_RUN,
+            exit_code=1,
+            sandbox_id="sbx-repro-not-run",
+        )
+
+    monkeypatch.setattr(
+        "basebreak.repair.engine.execute_repaired_verifier_reproduction",
+        mock_repro,
+    )
+
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=builder_fn,
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
+    )
+
+    # Invariants: FAIL + NOT_RUN must fail closed, must NOT continue repair
+    assert receipt.status == RepairLoopStatus.INCONCLUSIVE
+    assert receipt.preliminary_verdict == PreliminaryVerdict.NOT_RUN
+    assert receipt.grants_pass is False
+    assert receipt.is_causally_verified is False
+    assert receipt.is_authoritative is False
+    assert receipt.total_rounds == 1
+    assert builder_calls == 1
+    assert len(receipt.reproduction_receipt_digests) == 1
+    assert "not_run" in (receipt.failure_reason or "").lower()
+    assert verify_repair_loop_receipt_integrity(receipt) is True
+
+
+def test_repair_loop_reproduction_fail_inconclusive_does_not_continue_repair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+    adapter = ScriptableSandboxAdapter()
+
+    builder_calls = 0
+
+    def builder_fn(ctx: BuilderRepairContextEnvelope) -> CandidateSnapshot:
+        nonlocal builder_calls
+        builder_calls += 1
+        return CandidateSnapshot(
+            candidate_id=f"cand-attempt-r{ctx.repair_round}",
+            source_identity=SAMPLE_SOURCE,
+            candidate_tree_digest=R1_TREE,
+            patch_digest=R1_PATCH_DIGEST,
+            patch_text=R1_PATCH,
+            files_added=(),
+            files_modified=("a.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=frozen_contract.contract_digest,
+            context_digest=ctx.repair_context_digest,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+
+    def mock_repro(**kwargs: Any) -> RepairedVerificationReceipt:
+        return _mock_repro_receipt_for_call(
+            kwargs,
+            witness_outcome=WitnessOutcome.FAIL,
+            preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+            exit_code=1,
+            sandbox_id="sbx-repro-inconclusive",
+        )
+
+    monkeypatch.setattr(
+        "basebreak.repair.engine.execute_repaired_verifier_reproduction",
+        mock_repro,
+    )
+
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=builder_fn,
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
+    )
+
+    # Invariants: FAIL + INCONCLUSIVE must fail closed, must NOT continue repair
+    assert receipt.status == RepairLoopStatus.INCONCLUSIVE
+    assert receipt.preliminary_verdict == PreliminaryVerdict.INCONCLUSIVE
+    assert receipt.grants_pass is False
+    assert receipt.is_causally_verified is False
+    assert receipt.is_authoritative is False
+    assert receipt.total_rounds == 1
+    assert builder_calls == 1
+    assert len(receipt.reproduction_receipt_digests) == 1
+    assert "inconclusive" in (receipt.failure_reason or "").lower()
+    assert verify_repair_loop_receipt_integrity(receipt) is True
+
+
+def test_repair_loop_reproduction_fail_contradicted_may_continue_repair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+    adapter = ScriptableSandboxAdapter()
+
+    builder_calls = 0
+
+    def builder_fn(ctx: BuilderRepairContextEnvelope) -> CandidateSnapshot:
+        nonlocal builder_calls
+        builder_calls += 1
+        if ctx.repair_round == 1:
+            return CandidateSnapshot(
+                candidate_id="cand-attempt-r1",
+                source_identity=SAMPLE_SOURCE,
+                candidate_tree_digest=R1_TREE,
+                patch_digest=R1_PATCH_DIGEST,
+                patch_text=R1_PATCH,
+                files_added=(),
+                files_modified=("a.py",),
+                files_deleted=(),
+                builder_authored_tests=(),
+                frozen_contract_digest=frozen_contract.contract_digest,
+                context_digest=ctx.repair_context_digest,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            )
+        return CandidateSnapshot(
+            candidate_id="cand-attempt-r2",
+            source_identity=SAMPLE_SOURCE,
+            candidate_tree_digest=R2_TREE,
+            patch_digest=R2_PATCH_DIGEST,
+            patch_text=R2_PATCH,
+            files_added=(),
+            files_modified=("a.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=frozen_contract.contract_digest,
+            context_digest=ctx.repair_context_digest,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+
+    def mock_repro(**kwargs: Any) -> RepairedVerificationReceipt:
+        repaired_cand = kwargs["repaired_candidate"]
+        if repaired_cand.repaired_candidate_id == "cand-attempt-r1":
+            return _mock_repro_receipt_for_call(
+                kwargs,
+                witness_outcome=WitnessOutcome.FAIL,
+                preliminary_verdict=PreliminaryVerdict.CONTRADICTED,
+                exit_code=1,
+                sandbox_id="sbx-repro-r1",
+            )
+        lineage = kwargs["lineage_record"]
+        sealed = kwargs["sealed_record"]
+        lock = kwargs["witness_lock"]
+        contract = kwargs["frozen_contract"]
+        return create_repaired_verification_receipt(
+            receipt_id="RVR-cand-attempt-r2",
+            repaired_candidate_id=repaired_cand.repaired_candidate_id,
+            repaired_patch_digest=repaired_cand.repaired_patch_digest,
+            repaired_tree_digest=repaired_cand.repaired_tree_digest,
+            parent_candidate_id=lineage.parent_candidate_id,
+            lineage_digest=lineage.lineage_digest,
+            feedback_round=lineage.repair_round,
+            requirement_id=sealed.requirement_id,
+            change_class=contract.change_class,
+            frozen_contract_digest=contract.contract_digest,
+            witness_digest=sealed.seal_digest,
+            lock_digest=lock.lock_digest,
+            sandbox_id="sbx-repro-r2",
+            witness_outcome=WitnessOutcome.PASS,
+            exit_code=0,
+            duration_seconds=0.1,
+            preliminary_verdict=PreliminaryVerdict.VERIFIED,
+            is_causally_verified=True,
+            grants_pass=True,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+
+    monkeypatch.setattr(
+        "basebreak.repair.engine.execute_repaired_verifier_reproduction",
+        mock_repro,
+    )
+
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=builder_fn,
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
+    )
+
+    # Invariants: FAIL + CONTRADICTED permits continuing to Round 2
+    assert receipt.status == RepairLoopStatus.VERIFIED_AFTER_REPAIR
+    assert receipt.preliminary_verdict == PreliminaryVerdict.VERIFIED
+    assert receipt.grants_pass is True
+    assert receipt.is_causally_verified is True
+    assert receipt.is_authoritative is False
+    assert receipt.total_rounds == 2
+    assert builder_calls == 2
+    assert len(receipt.reproduction_receipt_digests) == 2
+    assert verify_repair_loop_receipt_integrity(receipt) is True
+
+
+def test_repair_loop_tampered_reproduction_receipt_fails_closed_without_promoting_digest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+    adapter = ScriptableSandboxAdapter()
+
+    builder_calls = 0
+
+    def builder_fn(ctx: BuilderRepairContextEnvelope) -> CandidateSnapshot:
+        nonlocal builder_calls
+        builder_calls += 1
+        return CandidateSnapshot(
+            candidate_id=f"cand-attempt-r{ctx.repair_round}",
+            source_identity=SAMPLE_SOURCE,
+            candidate_tree_digest=R1_TREE,
+            patch_digest=R1_PATCH_DIGEST,
+            patch_text=R1_PATCH,
+            files_added=(),
+            files_modified=("a.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=frozen_contract.contract_digest,
+            context_digest=ctx.repair_context_digest,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+
+    tampered_digest = "e" * 64
+
+    def mock_repro(**kwargs: Any) -> RepairedVerificationReceipt:
+        valid_receipt = _mock_repro_receipt_for_call(
+            kwargs,
+            witness_outcome=WitnessOutcome.FAIL,
+            preliminary_verdict=PreliminaryVerdict.CONTRADICTED,
+            exit_code=1,
+            sandbox_id="sbx-repro-tampered",
+        )
+        # Construct receipt with mismatched/tampered receipt_digest
+        return RepairedVerificationReceipt(
+            schema_version=valid_receipt.schema_version,
+            receipt_id=valid_receipt.receipt_id,
+            repaired_candidate_id=valid_receipt.repaired_candidate_id,
+            repaired_patch_digest=valid_receipt.repaired_patch_digest,
+            repaired_tree_digest=valid_receipt.repaired_tree_digest,
+            parent_candidate_id=valid_receipt.parent_candidate_id,
+            lineage_digest=valid_receipt.lineage_digest,
+            feedback_round=valid_receipt.feedback_round,
+            requirement_id=valid_receipt.requirement_id,
+            change_class=valid_receipt.change_class,
+            frozen_contract_digest=valid_receipt.frozen_contract_digest,
+            witness_digest=valid_receipt.witness_digest,
+            lock_digest=valid_receipt.lock_digest,
+            sandbox_id=valid_receipt.sandbox_id,
+            witness_outcome=valid_receipt.witness_outcome,
+            exit_code=valid_receipt.exit_code,
+            duration_seconds=valid_receipt.duration_seconds,
+            preliminary_verdict=valid_receipt.preliminary_verdict,
+            is_causally_verified=valid_receipt.is_causally_verified,
+            grants_pass=valid_receipt.grants_pass,
+            is_authoritative=False,
+            provenance=valid_receipt.provenance,
+            created_at=valid_receipt.created_at,
+            receipt_digest=tampered_digest,
+        )
+
+    monkeypatch.setattr(
+        "basebreak.repair.engine.execute_repaired_verifier_reproduction",
+        mock_repro,
+    )
+
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=builder_fn,
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
+    )
+
+    # Invariants: Tampered reproduction receipt must fail closed without promoting digest
+    assert receipt.status == RepairLoopStatus.INCONCLUSIVE
+    assert receipt.preliminary_verdict == PreliminaryVerdict.INCONCLUSIVE
+    assert receipt.grants_pass is False
+    assert receipt.is_causally_verified is False
+    assert receipt.is_authoritative is False
+    assert receipt.total_rounds == 1
+    assert builder_calls == 1  # Never invoked round 2
+    assert len(receipt.reproduction_receipt_digests) == 0
+    assert tampered_digest not in receipt.reproduction_receipt_digests
+    assert "cryptographic" in (receipt.failure_reason or "").lower()
+    assert verify_repair_loop_receipt_integrity(receipt) is True

@@ -101,25 +101,28 @@ Judge claim:
     - Cryptographic receipt digest: `357eac30e9642b86b89183ab6bf882112fab63f34e79b7ea0776cc78c2e38bf0`;
     - Bound to exact Basebreak implementation SHA: `de563754148ad5364609127d3079d8d6294c7823`; verified-evidence boundary repair applied;
     - Documented in `docs/P14_LIVE_CLOSURE_PROOF.md`;
-  - P-14.06 non-success termination classification repair applied: reproduction outcomes deterministically classified (ERROR, TIMEOUT, INVALID_PRECONDITION, INCONCLUSIVE, BLOCKED, and witness PASS with grants_pass=False); genuine behavioral FAIL continues repair loop; honest non-success terminal receipts emitted; zero unhandled feedback exceptions; 2,337 non-live tests passing;
-  - Prior LIVE_NEBIUS evidence bound to `de563754148ad5364609127d3079d8d6294c7823` preserved (not relabeled); zero billable live runs executed without renewed operator approval;
+  - P-14.06 non-success termination classification repair applied at SHA `eecc93860342432cf00d5f7e65f9ff721e65fe5a`: reproduction outcomes deterministically classified (ERROR, TIMEOUT, INVALID_PRECONDITION, INCONCLUSIVE, BLOCKED, and witness PASS with grants_pass=False); genuine behavioral FAIL continues repair loop; honest non-success terminal receipts emitted; zero unhandled feedback exceptions;
+  - P-14.06 surgical verdict-gate repair applied: repair loop continuation strictly restricted to `WitnessOutcome.FAIL` + `PreliminaryVerdict.CONTRADICTED` with pre-append cryptographic integrity verification; tampered reproduction receipts fail closed without promoting digests as verified evidence;
+  - Prior LIVE_NEBIUS evidence bound to `de563754148ad5364609127d3079d8d6294c7823` preserved (not relabeled); previous one-time authorization consumed; zero billable live runs executed without renewed operator approval; latest candidate implementation is labeled LIVE_NEBIUS NOT_RUN;
   - P-14 batch is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-15+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
 `0045ad89394758bb6c128b846945f2e7e8b2b955` (independently VERIFIED / PASS at P-13 closure).
-Current executor candidate implementation SHA: `de563754148ad5364609127d3079d8d6294c7823` (with P-14.06 non-success termination repair).
+Previous LIVE_NEBIUS-tested implementation SHA: `de563754148ad5364609127d3079d8d6294c7823`.
+Prior candidate SHA with verdict-gate drift: `eecc93860342432cf00d5f7e65f9ff721e65fe5a` (corrected from stale reference to `de563754148ad5364609127d3079d8d6294c7823`).
+Current executor candidate implementation: surgical verdict-gate repair candidate (LIVE_NEBIUS NOT_RUN).
 
 ## Blocking live gate vs active task
 
 ### Blocking live gate
-OPERATOR_AUTHORIZED_LIVE_EXECUTION_COMPLETED: Operator explicitly confirmed Token Factory balance ($0.93 trial credits + $25.00 Builder Program account balance, active billing card) and authorized ONE bounded P-14 live execution (with personal spend safety cap up to $1.00 and $5.00 safety floor preserved). The authorized live cycle executed cleanly and passed with LIVE_NEBIUS provenance on implementation SHA `de563754148ad5364609127d3079d8d6294c7823`.
+OPERATOR_AUTHORIZED_LIVE_EXECUTION_COMPLETED: Operator explicitly confirmed Token Factory balance ($0.93 trial credits + $25.00 Builder Program account balance, active billing card) and authorized ONE bounded P-14 live execution (with personal spend safety cap up to $1.00 and $5.00 safety floor preserved). The authorized live cycle executed cleanly and passed with LIVE_NEBIUS provenance on implementation SHA `de563754148ad5364609127d3079d8d6294c7823`. No new live execution authorized or performed for candidate repair; latest implementation is labeled LIVE_NEBIUS NOT_RUN.
 
 ### Current QA candidate
-P-14 Sealed Repair Loop Batch — P-14.01 through P-14.06 + Verified-Evidence Boundary Repair + Non-Success Termination Classification Repair + Live Closure Proof (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+P-14 Sealed Repair Loop Batch — P-14.01 through P-14.06 + Surgical Verdict-Gate Repair + Prior Live Closure Proof (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; latest implementation LIVE_NEBIUS NOT_RUN).
 
 ### Active exact task
-P-14 Sealed Repair Loop Batch — completed as executor candidate; live execution successfully demonstrated; honest non-success termination repaired. P-15+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+P-14 Sealed Repair Loop Batch — completed as executor candidate; live execution successfully demonstrated on `de563754...`; surgical verdict-gate repair applied. P-15+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 
 ## Parallelization boundary & rules
 - **Task status:** P-00 through P-13 all tasks and phases are independently VERIFIED / PASS. P-14.01 through P-14.06 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-15+ remain strictly NOT AUTHORIZED / NOT_RUN.
