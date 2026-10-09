@@ -57,6 +57,7 @@ from basebreak.repair.engine import (
 from basebreak.repair.feedback import (
     FailedExecutionFacts,
     FailureConditionCategory,
+    RepairFeedbackIntegrityError,
 )
 from basebreak.security.protected_surfaces import (
     get_canonical_basebreak_protected_manifest,
@@ -111,6 +112,84 @@ def _make_bug_fix_contract(req_id: str = "REQ-P14-REPAIR-01") -> FrozenContract:
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     object.__setattr__(contract, "contract_digest", digest)
     return contract
+
+
+def validate_and_derive_c0_failure_facts(
+    *,
+    result: Any,
+    sandbox_id: str,
+    source_id: SourceIdentity,
+    tree_digest: str,
+    patch_digest: str,
+    command: str = "python3 tests/test_witness_repair.py",
+) -> tuple[int, str, FailedExecutionFacts]:
+    """Validate Candidate 0 execution with strict exit-code authority.
+
+    Deterministic invariants:
+    1. Distinguish timeout: timeouts cannot be accepted as demonstrated witness failure.
+    2. Distinguish missing exit code: missing execution results cannot authorize repair.
+    3. Distinguish successful execution: exit_code=0 cannot authorize repair even if
+       the output text contains 'AssertionError'.
+    4. Distinguish execution infrastructure failure: nonzero exits other than expected
+       test runner failure (exit code 1) cannot be accepted as behavioral witness failure.
+    5. Require confirmed behavioral assertion failure: output must contain genuine 'AssertionError'.
+    6. Derive authentic execution digest bound to sandbox, source identity, patch digest,
+       tree digest, command, exit code, and captured stdout/stderr digests.
+    """
+    if getattr(result, "is_timeout", False) or getattr(result, "status", None) == "TIMEOUT":
+        raise RepairFeedbackIntegrityError(
+            "Candidate 0 execution timed out; timeouts cannot be accepted as "
+            "demonstrated witness failure"
+        )
+
+    if result.exit_code is None:
+        raise RepairFeedbackIntegrityError(
+            "Candidate 0 execution returned None exit code; "
+            "missing execution evidence cannot authorize repair"
+        )
+
+    if result.exit_code == 0:
+        raise RepairFeedbackIntegrityError(
+            "Candidate 0 execution succeeded with exit code 0; "
+            "successful execution cannot authorize repair"
+        )
+
+    if result.exit_code != 1:
+        raise RepairFeedbackIntegrityError(
+            f"Candidate 0 expected test runner exit code 1 (behavioral failure), "
+            f"got {result.exit_code}; infrastructure failures cannot authorize repair"
+        )
+
+    combined_output = (getattr(result, "stderr", "") or "") + (getattr(result, "stdout", "") or "")
+    if "AssertionError" not in combined_output:
+        raise RepairFeedbackIntegrityError(
+            "Candidate 0 failed without AssertionError behavioral failure evidence; "
+            "non-behavioral errors cannot authorize repair"
+        )
+
+    c0_exit_code = result.exit_code
+    stdout_text = getattr(result, "stdout", "") or ""
+    stderr_text = getattr(result, "stderr", "") or ""
+    stdout_digest = hashlib.sha256(stdout_text.encode("utf-8")).hexdigest()
+    stderr_digest = hashlib.sha256(stderr_text.encode("utf-8")).hexdigest()
+
+    c0_exec_digest = hashlib.sha256(
+        f"exec:{sandbox_id}:{source_id.locator}:{source_id.revision.commit_id}:"
+        f"{patch_digest}:{tree_digest}:{command}:{c0_exit_code}:"
+        f"{stdout_digest}:{stderr_digest}".encode("utf-8")
+    ).hexdigest()
+
+    duration = getattr(result, "duration_seconds", None)
+    initial_failure_facts = FailedExecutionFacts(
+        exit_code=c0_exit_code,
+        failure_message="AssertionError detected during verification execution",
+        sandbox_id=sandbox_id,
+        execution_digest=c0_exec_digest,
+        condition_category=FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED,
+        duration_seconds=duration,
+    )
+
+    return c0_exit_code, c0_exec_digest, initial_failure_facts
 
 
 @pytest.mark.live
@@ -273,22 +352,16 @@ def test_p14_live_sealed_repair_loop() -> None:
                 timeout_seconds=60,
                 disposable=True,
             )
-            c0_exit_code = res_test0.exit_code or 1
-            assert c0_exit_code != 0, f"Candidate 0 expected non-zero exit, got {c0_exit_code}"
-            assert "AssertionError" in (res_test0.stderr or res_test0.stdout)
         finally:
             adapter.teardown_sandbox(sbx_c0)
 
-        # Derive authentic failed execution facts from Candidate 0 execution (DEFECT A)
-        c0_exec_digest = hashlib.sha256(
-            f"c0-exec-{sbx_c0_id}-{c0_exit_code}".encode("utf-8")
-        ).hexdigest()
-        initial_failure_facts = FailedExecutionFacts(
-            exit_code=c0_exit_code,
-            failure_message="AssertionError detected during verification execution",
+        # Deterministically validate Candidate 0 failure facts with strict exit-code authority
+        c0_exit_code, c0_exec_digest, initial_failure_facts = validate_and_derive_c0_failure_facts(
+            result=res_test0,
             sandbox_id=sbx_c0_id,
-            execution_digest=c0_exec_digest,
-            condition_category=FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED,
+            source_id=source_id,
+            tree_digest=c0_tree_sha,
+            patch_digest=BUGGY_PATCH_DIGEST,
         )
 
         # -------------------------------------------------------------------------

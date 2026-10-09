@@ -2702,3 +2702,306 @@ def test_repair_loop_tampered_reproduction_receipt_fails_closed_without_promotin
     assert tampered_digest not in receipt.reproduction_receipt_digests
     assert "cryptographic" in (receipt.failure_reason or "").lower()
     assert verify_repair_loop_receipt_integrity(receipt) is True
+
+
+# --- Live Witness Exit-Code Authority & Non-Failure Rejection Tests ---
+
+
+def test_live_witness_exit_code_authority_rejects_exit_code_zero_with_assertion_error() -> None:
+    """exit_code=0 with 'AssertionError' text cannot authorize repair or reach Builder."""
+    from test_p14_live import (
+        BUGGY_PATCH_DIGEST,
+        validate_and_derive_c0_failure_facts,
+    )
+
+    # 1. Execution result has exit_code=0 despite AssertionError in output
+    fake_res_zero = SimpleNamespace(
+        exit_code=0,
+        stdout="Tests completed.\nAssertionError: unexpected defect in output",
+        stderr="AssertionError warning on line 42",
+        is_timeout=False,
+        duration_seconds=1.2,
+    )
+
+    # Must raise RepairFeedbackIntegrityError and reject exit code 0
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="Candidate 0 execution succeeded with exit code 0",
+    ):
+        validate_and_derive_c0_failure_facts(
+            result=fake_res_zero,
+            sandbox_id="sbx-test-c0",
+            source_id=SAMPLE_SOURCE,
+            tree_digest="f" * 40,
+            patch_digest=BUGGY_PATCH_DIGEST,
+        )
+
+    # 2. Direct FailedExecutionFacts with exit_code=0 and AssertionError is rejected
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="exit_code=0 cannot be accepted as evidence of failed execution",
+    ):
+        FailedExecutionFacts(
+            exit_code=0,
+            failure_message="AssertionError: Defect detected",
+            sandbox_id="sbx-test-c0",
+            execution_digest="a" * 64,
+        )
+
+    # 3. Prove that in run_sealed_repair_loop, exit_code=0 cannot authorize repair or reach Builder
+    builder_invoked = False
+
+    def spy_builder(ctx: BuilderRepairContextEnvelope) -> CandidateSnapshot:
+        nonlocal builder_invoked
+        builder_invoked = True
+        raise AssertionError("Builder/Nemotron must NEVER be reached on exit_code=0")
+
+    # If an exit_code=0 facts object existed with failing_outcome=None
+    # (created via __new__ to simulate unauthorized bypass)
+    bypass_facts = object.__new__(FailedExecutionFacts)
+    object.__setattr__(bypass_facts, "exit_code", 0)
+    object.__setattr__(bypass_facts, "termination_status", TerminationStatus.COMPLETED)
+    object.__setattr__(bypass_facts, "failure_message", "AssertionError")
+    object.__setattr__(bypass_facts, "sandbox_id", "sbx-c0-initial")
+    object.__setattr__(bypass_facts, "execution_digest", ORIGINATING_C0_DIGEST)
+    object.__setattr__(
+        bypass_facts, "condition_category", FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED
+    )
+    object.__setattr__(bypass_facts, "duration_seconds", 1.0)
+    object.__setattr__(bypass_facts, "counterexample_input", None)
+    object.__setattr__(bypass_facts, "counterexample_actual", None)
+    object.__setattr__(bypass_facts, "counterexample_expected", None)
+    object.__setattr__(bypass_facts, "deterministic_failure_justification", None)
+    object.__setattr__(bypass_facts, "failing_outcome", None)
+    object.__setattr__(bypass_facts, "verified_evidence", None)
+
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=spy_builder,
+        sandbox_manager=VerifierSandboxManager(),
+        sandbox_adapter=ScriptableSandboxAdapter([0]),
+        materializer=DynamicMaterializer(),
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=1),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=bypass_facts,
+    )
+    assert receipt.status == RepairLoopStatus.INCONCLUSIVE
+    assert (
+        "exit_code=0 without trusted, integrity-verified demonstrated behavioral failure evidence"
+        in (receipt.failure_reason or "")
+    )
+    assert builder_invoked is False
+
+
+def test_live_witness_exit_code_authority_rejects_missing_exit_code() -> None:
+    """Missing exit code (exit_code=None) cannot authorize repair or reach Builder."""
+    from test_p14_live import (
+        BUGGY_PATCH_DIGEST,
+        validate_and_derive_c0_failure_facts,
+    )
+
+    fake_res_none = SimpleNamespace(
+        exit_code=None,
+        stdout="Process was killed or did not report exit code\nAssertionError",
+        stderr="",
+        is_timeout=False,
+        duration_seconds=0.5,
+    )
+
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="returned None exit code; missing execution evidence cannot authorize repair",
+    ):
+        validate_and_derive_c0_failure_facts(
+            result=fake_res_none,
+            sandbox_id="sbx-test-c0",
+            source_id=SAMPLE_SOURCE,
+            tree_digest="f" * 40,
+            patch_digest=BUGGY_PATCH_DIGEST,
+        )
+
+    # Missing exit code in FailedExecutionFacts without failure indicator fails closed
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="FailedExecutionFacts cannot be constructed without evidence of execution failure",
+    ):
+        FailedExecutionFacts(
+            exit_code=None,
+            termination_status=TerminationStatus.COMPLETED,
+            failure_message="",
+            sandbox_id="sbx-test-c0",
+            execution_digest="a" * 64,
+        )
+
+
+def test_live_witness_exit_code_authority_rejects_timeout_execution() -> None:
+    """Timeout execution cannot authorize repair or reach Builder."""
+    from test_p14_live import (
+        BUGGY_PATCH_DIGEST,
+        validate_and_derive_c0_failure_facts,
+    )
+
+    # 1. is_timeout=True
+    fake_res_timeout = SimpleNamespace(
+        exit_code=1,  # even if exit_code was populated or truthy
+        stdout="Command timed out after 60s\nAssertionError",
+        stderr="",
+        is_timeout=True,
+        duration_seconds=60.0,
+    )
+
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="execution timed out; timeouts cannot be accepted as demonstrated witness failure",
+    ):
+        validate_and_derive_c0_failure_facts(
+            result=fake_res_timeout,
+            sandbox_id="sbx-test-c0",
+            source_id=SAMPLE_SOURCE,
+            tree_digest="f" * 40,
+            patch_digest=BUGGY_PATCH_DIGEST,
+        )
+
+    # 2. status="TIMEOUT"
+    fake_res_timeout_status = SimpleNamespace(
+        exit_code=None,
+        stdout="",
+        stderr="",
+        status="TIMEOUT",
+        is_timeout=False,
+        duration_seconds=60.0,
+    )
+
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="execution timed out; timeouts cannot be accepted as demonstrated witness failure",
+    ):
+        validate_and_derive_c0_failure_facts(
+            result=fake_res_timeout_status,
+            sandbox_id="sbx-test-c0",
+            source_id=SAMPLE_SOURCE,
+            tree_digest="f" * 40,
+            patch_digest=BUGGY_PATCH_DIGEST,
+        )
+
+    # 3. FailedExecutionFacts rejects collapsing TIMED_OUT into WitnessOutcome.FAIL
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="TIMED_OUT termination status cannot collapse into WitnessOutcome.FAIL",
+    ):
+        FailedExecutionFacts(
+            exit_code=None,
+            termination_status=TerminationStatus.TIMED_OUT,
+            failure_message="Timed out",
+            sandbox_id="sbx-test-c0",
+            execution_digest="a" * 64,
+            failing_outcome=WitnessOutcome.FAIL,
+        )
+
+
+def test_live_witness_exit_code_authority_rejects_infrastructure_failures() -> None:
+    """Non-assertion failures and infrastructure errors cannot authorize repair."""
+    from test_p14_live import (
+        BUGGY_PATCH_DIGEST,
+        validate_and_derive_c0_failure_facts,
+    )
+
+    # Infrastructure error (exit code 127 - command not found)
+    fake_res_cmd_not_found = SimpleNamespace(
+        exit_code=127,
+        stdout="",
+        stderr="/bin/sh: python3: not found",
+        is_timeout=False,
+        duration_seconds=0.1,
+    )
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="expected test runner exit code 1.*got 127",
+    ):
+        validate_and_derive_c0_failure_facts(
+            result=fake_res_cmd_not_found,
+            sandbox_id="sbx-test-c0",
+            source_id=SAMPLE_SOURCE,
+            tree_digest="f" * 40,
+            patch_digest=BUGGY_PATCH_DIGEST,
+        )
+
+    # Exit code 1 but no AssertionError (e.g. syntax error or import error)
+    fake_res_syntax_error = SimpleNamespace(
+        exit_code=1,
+        stdout="",
+        stderr="SyntaxError: invalid syntax in cli.py",
+        is_timeout=False,
+        duration_seconds=0.2,
+    )
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="failed without AssertionError behavioral failure evidence",
+    ):
+        validate_and_derive_c0_failure_facts(
+            result=fake_res_syntax_error,
+            sandbox_id="sbx-test-c0",
+            source_id=SAMPLE_SOURCE,
+            tree_digest="f" * 40,
+            patch_digest=BUGGY_PATCH_DIGEST,
+        )
+
+
+def test_live_witness_exit_code_authority_valid_failure_facts_binding() -> None:
+    """Genuine assertion failure produces verified facts with full cryptographic binding."""
+    from test_p14_live import (
+        BUGGY_PATCH_DIGEST,
+        validate_and_derive_c0_failure_facts,
+    )
+
+    fake_res_valid = SimpleNamespace(
+        exit_code=1,
+        stdout="",
+        stderr="AssertionError: Defect: got 'QUIET: payload_string'",
+        is_timeout=False,
+        duration_seconds=2.5,
+    )
+
+    exit_code, exec_digest, facts = validate_and_derive_c0_failure_facts(
+        result=fake_res_valid,
+        sandbox_id="sbx-test-c0",
+        source_id=SAMPLE_SOURCE,
+        tree_digest="a" * 40,
+        patch_digest=BUGGY_PATCH_DIGEST,
+        command="python3 tests/test_witness_repair.py",
+    )
+
+    assert exit_code == 1
+    assert facts.exit_code == 1
+    assert facts.execution_digest == exec_digest
+    assert len(exec_digest) == 64
+    assert facts.sandbox_id == "sbx-test-c0"
+    assert facts.condition_category == FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED
+    assert facts.duration_seconds == 2.5
+
+    # Changing any component of the execution changes the digest (anti-tamper binding)
+    _, exec_digest_diff_tree, _ = validate_and_derive_c0_failure_facts(
+        result=fake_res_valid,
+        sandbox_id="sbx-test-c0",
+        source_id=SAMPLE_SOURCE,
+        tree_digest="b" * 40,  # different tree
+        patch_digest=BUGGY_PATCH_DIGEST,
+        command="python3 tests/test_witness_repair.py",
+    )
+    assert exec_digest != exec_digest_diff_tree
+
+    _, exec_digest_diff_sbx, _ = validate_and_derive_c0_failure_facts(
+        result=fake_res_valid,
+        sandbox_id="sbx-different",  # different sandbox
+        source_id=SAMPLE_SOURCE,
+        tree_digest="a" * 40,
+        patch_digest=BUGGY_PATCH_DIGEST,
+        command="python3 tests/test_witness_repair.py",
+    )
+    assert exec_digest != exec_digest_diff_sbx
