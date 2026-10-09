@@ -67,9 +67,11 @@ from basebreak.repair.lineage import (
     create_candidate_lineage_record,
 )
 from basebreak.repair.reproduction import (
+    RepairedReceiptTamperingError,
     RepairedVerificationReceipt,
     VerifierSandboxReuseError,
     execute_repaired_verifier_reproduction,
+    verify_repaired_receipt_integrity,
 )
 from basebreak.repair.sanitizer import DisclosureSanitizer, UnsafeDisclosureError
 from basebreak.security.protected_surfaces import (
@@ -1223,7 +1225,35 @@ def run_sealed_repair_loop(
         all_sandbox_ids.add(reproduction_receipt.sandbox_id)
         reproduction_receipt_digests.append(reproduction_receipt.receipt_digest)
 
-        # 7. Check reproduction verdict
+        # 7. Check reproduction verdict and deterministically classify outcome
+        try:
+            if not verify_repaired_receipt_integrity(reproduction_receipt):
+                raise RepairedReceiptTamperingError("Cryptographic digest mismatch")
+        except Exception as exc:
+            return create_repair_loop_receipt(
+                repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+                initial_candidate_id=initial_candidate.candidate_id,
+                initial_patch_digest=initial_candidate.patch_digest,
+                initial_tree_digest=initial_candidate.candidate_tree_digest,
+                final_candidate_id=repaired_cand_snapshot.candidate_id,
+                final_patch_digest=repaired_cand_snapshot.patch_digest,
+                final_tree_digest=repaired_cand_snapshot.candidate_tree_digest,
+                status=RepairLoopStatus.INCONCLUSIVE,
+                preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+                is_causally_verified=False,
+                grants_pass=False,
+                total_rounds=round_idx,
+                lineage_digests=lineage_digests,
+                feedback_digests=feedback_digests,
+                reproduction_receipt_digests=reproduction_receipt_digests,
+                counters=counters.to_dict(),
+                failure_reason=(
+                    f"Reproduction receipt failed cryptographic integrity verification: {exc}"
+                ),
+                provenance=provenance,
+            )
+
+        # Happy path: reproduction granted PASS
         if reproduction_receipt.grants_pass:
             return create_repair_loop_receipt(
                 repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
@@ -1246,10 +1276,223 @@ def run_sealed_repair_loop(
                 provenance=provenance,
             )
 
-        # Candidate did not pass; prepare for next round
-        current_candidate = repaired_cand_snapshot
-        current_receipt_digest = reproduction_receipt.receipt_digest
-        current_failed_facts = FailedExecutionFacts.from_reproduction_receipt(reproduction_receipt)
+        # Non-success reproduction: deterministically classify the outcome
+        # Case A: Witness passed, but causal / counterfactual validation did NOT grant PASS
+        if reproduction_receipt.witness_outcome == WitnessOutcome.PASS:
+            terminal_status = (
+                RepairLoopStatus.REPAIR_REGRESSED
+                if reproduction_receipt.preliminary_verdict == PreliminaryVerdict.CONTRADICTED
+                else RepairLoopStatus.INCONCLUSIVE
+            )
+            return create_repair_loop_receipt(
+                repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+                initial_candidate_id=initial_candidate.candidate_id,
+                initial_patch_digest=initial_candidate.patch_digest,
+                initial_tree_digest=initial_candidate.candidate_tree_digest,
+                final_candidate_id=repaired_cand_snapshot.candidate_id,
+                final_patch_digest=repaired_cand_snapshot.patch_digest,
+                final_tree_digest=repaired_cand_snapshot.candidate_tree_digest,
+                status=terminal_status,
+                preliminary_verdict=reproduction_receipt.preliminary_verdict,
+                is_causally_verified=False,
+                grants_pass=False,
+                total_rounds=round_idx,
+                lineage_digests=lineage_digests,
+                feedback_digests=feedback_digests,
+                reproduction_receipt_digests=reproduction_receipt_digests,
+                counters=counters.to_dict(),
+                failure_reason=(
+                    "Repaired candidate passed witness execution but failed causal or "
+                    f"counterfactual check ({reproduction_receipt.preliminary_verdict.value}); "
+                    "cannot derive failure feedback from passing witness"
+                ),
+                provenance=provenance,
+            )
+
+        # Case B: Verifier execution error (infrastructure / harness crash)
+        if reproduction_receipt.witness_outcome == WitnessOutcome.ERROR:
+            return create_repair_loop_receipt(
+                repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+                initial_candidate_id=initial_candidate.candidate_id,
+                initial_patch_digest=initial_candidate.patch_digest,
+                initial_tree_digest=initial_candidate.candidate_tree_digest,
+                final_candidate_id=repaired_cand_snapshot.candidate_id,
+                final_patch_digest=repaired_cand_snapshot.patch_digest,
+                final_tree_digest=repaired_cand_snapshot.candidate_tree_digest,
+                status=RepairLoopStatus.REPAIR_INFRA_FAILURE,
+                preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+                is_causally_verified=False,
+                grants_pass=False,
+                total_rounds=round_idx,
+                lineage_digests=lineage_digests,
+                feedback_digests=feedback_digests,
+                reproduction_receipt_digests=reproduction_receipt_digests,
+                counters=counters.to_dict(),
+                failure_reason=(
+                    f"Verifier reproduction encountered execution error "
+                    f"(outcome={reproduction_receipt.witness_outcome.value})"
+                ),
+                provenance=provenance,
+            )
+
+        # Case C: Verifier timeout
+        if reproduction_receipt.witness_outcome == WitnessOutcome.TIMEOUT:
+            return create_repair_loop_receipt(
+                repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+                initial_candidate_id=initial_candidate.candidate_id,
+                initial_patch_digest=initial_candidate.patch_digest,
+                initial_tree_digest=initial_candidate.candidate_tree_digest,
+                final_candidate_id=repaired_cand_snapshot.candidate_id,
+                final_patch_digest=repaired_cand_snapshot.patch_digest,
+                final_tree_digest=repaired_cand_snapshot.candidate_tree_digest,
+                status=RepairLoopStatus.REPAIR_INFRA_FAILURE,
+                preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+                is_causally_verified=False,
+                grants_pass=False,
+                total_rounds=round_idx,
+                lineage_digests=lineage_digests,
+                feedback_digests=feedback_digests,
+                reproduction_receipt_digests=reproduction_receipt_digests,
+                counters=counters.to_dict(),
+                failure_reason=(
+                    f"Verifier reproduction timed out "
+                    f"(outcome={reproduction_receipt.witness_outcome.value})"
+                ),
+                provenance=provenance,
+            )
+
+        # Case D: Invalid precondition
+        if reproduction_receipt.witness_outcome == WitnessOutcome.INVALID_PRECONDITION:
+            return create_repair_loop_receipt(
+                repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+                initial_candidate_id=initial_candidate.candidate_id,
+                initial_patch_digest=initial_candidate.patch_digest,
+                initial_tree_digest=initial_candidate.candidate_tree_digest,
+                final_candidate_id=repaired_cand_snapshot.candidate_id,
+                final_patch_digest=repaired_cand_snapshot.patch_digest,
+                final_tree_digest=repaired_cand_snapshot.candidate_tree_digest,
+                status=RepairLoopStatus.INCONCLUSIVE,
+                preliminary_verdict=reproduction_receipt.preliminary_verdict,
+                is_causally_verified=False,
+                grants_pass=False,
+                total_rounds=round_idx,
+                lineage_digests=lineage_digests,
+                feedback_digests=feedback_digests,
+                reproduction_receipt_digests=reproduction_receipt_digests,
+                counters=counters.to_dict(),
+                failure_reason=(
+                    f"Verifier reproduction encountered invalid precondition "
+                    f"(outcome={reproduction_receipt.witness_outcome.value})"
+                ),
+                provenance=provenance,
+            )
+
+        # Case E: Inconclusive or Blocked preliminary verdict
+        if reproduction_receipt.preliminary_verdict in INCONCLUSIVE_OR_BLOCKED_VERDICTS:
+            return create_repair_loop_receipt(
+                repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+                initial_candidate_id=initial_candidate.candidate_id,
+                initial_patch_digest=initial_candidate.patch_digest,
+                initial_tree_digest=initial_candidate.candidate_tree_digest,
+                final_candidate_id=repaired_cand_snapshot.candidate_id,
+                final_patch_digest=repaired_cand_snapshot.patch_digest,
+                final_tree_digest=repaired_cand_snapshot.candidate_tree_digest,
+                status=RepairLoopStatus.INCONCLUSIVE,
+                preliminary_verdict=reproduction_receipt.preliminary_verdict,
+                is_causally_verified=False,
+                grants_pass=False,
+                total_rounds=round_idx,
+                lineage_digests=lineage_digests,
+                feedback_digests=feedback_digests,
+                reproduction_receipt_digests=reproduction_receipt_digests,
+                counters=counters.to_dict(),
+                failure_reason=(
+                    f"Verifier reproduction resulted in "
+                    f"{reproduction_receipt.preliminary_verdict.value} verdict"
+                ),
+                provenance=provenance,
+            )
+
+        # Case F: Non-failing or unsupported outcome (must be FAIL to continue repair)
+        if reproduction_receipt.witness_outcome != WitnessOutcome.FAIL:
+            return create_repair_loop_receipt(
+                repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+                initial_candidate_id=initial_candidate.candidate_id,
+                initial_patch_digest=initial_candidate.patch_digest,
+                initial_tree_digest=initial_candidate.candidate_tree_digest,
+                final_candidate_id=repaired_cand_snapshot.candidate_id,
+                final_patch_digest=repaired_cand_snapshot.patch_digest,
+                final_tree_digest=repaired_cand_snapshot.candidate_tree_digest,
+                status=RepairLoopStatus.INCONCLUSIVE,
+                preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+                is_causally_verified=False,
+                grants_pass=False,
+                total_rounds=round_idx,
+                lineage_digests=lineage_digests,
+                feedback_digests=feedback_digests,
+                reproduction_receipt_digests=reproduction_receipt_digests,
+                counters=counters.to_dict(),
+                failure_reason=(
+                    f"Unsupported or non-repairable witness outcome: "
+                    f"{reproduction_receipt.witness_outcome.value}"
+                ),
+                provenance=provenance,
+            )
+
+        # Case G: Genuine behavioral failure (WitnessOutcome.FAIL)
+        # Continue repair only if more rounds are available under budget
+        if round_idx < cfg.max_repair_rounds:
+            try:
+                current_failed_facts = FailedExecutionFacts.from_reproduction_receipt(
+                    reproduction_receipt
+                )
+            except RepairFeedbackError as exc:
+                return create_repair_loop_receipt(
+                    repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+                    initial_candidate_id=initial_candidate.candidate_id,
+                    initial_patch_digest=initial_candidate.patch_digest,
+                    initial_tree_digest=initial_candidate.candidate_tree_digest,
+                    final_candidate_id=repaired_cand_snapshot.candidate_id,
+                    final_patch_digest=repaired_cand_snapshot.patch_digest,
+                    final_tree_digest=repaired_cand_snapshot.candidate_tree_digest,
+                    status=RepairLoopStatus.REPAIR_FEEDBACK_UNSAFE,
+                    preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+                    is_causally_verified=False,
+                    grants_pass=False,
+                    total_rounds=round_idx,
+                    lineage_digests=lineage_digests,
+                    feedback_digests=feedback_digests,
+                    reproduction_receipt_digests=reproduction_receipt_digests,
+                    counters=counters.to_dict(),
+                    failure_reason=(
+                        f"Failed to derive safe repair feedback from reproduction receipt: {exc}"
+                    ),
+                    provenance=provenance,
+                )
+            except Exception as exc:
+                return create_repair_loop_receipt(
+                    repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+                    initial_candidate_id=initial_candidate.candidate_id,
+                    initial_patch_digest=initial_candidate.patch_digest,
+                    initial_tree_digest=initial_candidate.candidate_tree_digest,
+                    final_candidate_id=repaired_cand_snapshot.candidate_id,
+                    final_patch_digest=repaired_cand_snapshot.patch_digest,
+                    final_tree_digest=repaired_cand_snapshot.candidate_tree_digest,
+                    status=RepairLoopStatus.REPAIR_INFRA_FAILURE,
+                    preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+                    is_causally_verified=False,
+                    grants_pass=False,
+                    total_rounds=round_idx,
+                    lineage_digests=lineage_digests,
+                    feedback_digests=feedback_digests,
+                    reproduction_receipt_digests=reproduction_receipt_digests,
+                    counters=counters.to_dict(),
+                    failure_reason=f"Unexpected error deriving repair feedback: {exc}",
+                    provenance=provenance,
+                )
+
+            current_candidate = repaired_cand_snapshot
+            current_receipt_digest = reproduction_receipt.receipt_digest
 
     # All rounds exhausted without pass
     return create_repair_loop_receipt(

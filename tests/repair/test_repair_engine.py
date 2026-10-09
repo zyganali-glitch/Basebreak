@@ -98,13 +98,20 @@ class MockCommandResult:
     stderr: str = ""
     duration_seconds: float = 0.1
     is_timed_out: bool = False
+    is_failed_to_start: bool = False
+    is_cancelled: bool = False
 
 
 class ScriptableSandboxAdapter:
     """Mock sandbox adapter allowing programmatic responses per command/sandbox."""
 
-    def __init__(self, exit_codes: list[int] | None = None) -> None:
+    def __init__(
+        self,
+        exit_codes: list[int] | None = None,
+        results: list[MockCommandResult] | None = None,
+    ) -> None:
         self.exit_codes = exit_codes or [0]
+        self.results = list(results) if results is not None else None
         self.created_sandboxes: list[str] = []
         self.torn_down_sandboxes: list[str] = []
         self.executed_commands: list[str] = []
@@ -124,6 +131,10 @@ class ScriptableSandboxAdapter:
     ) -> MockCommandResult:
         self.executed_commands.append(command)
         if "printf" in command or "set -e" in command:
+            return MockCommandResult(exit_code=0)
+        if self.results is not None:
+            if self.results:
+                return self.results.pop(0)
             return MockCommandResult(exit_code=0)
         code = self.exit_codes.pop(0) if self.exit_codes else 0
         return MockCommandResult(
@@ -1977,3 +1988,320 @@ def test_repair_loop_failed_reproduction_feedback_across_multiple_rounds() -> No
     # Round 2 originated from Round 1's reproduction receipt digest
     assert captured_orig_digests[1] == receipt.reproduction_receipt_digests[0]
     assert captured_orig_digests[1] != ORIGINATING_C0_DIGEST
+
+
+def test_repair_loop_reproduction_error_returns_honest_terminal_receipt() -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    adapter = ScriptableSandboxAdapter(
+        results=[MockCommandResult(exit_code=2, stderr="Internal harness error")]
+    )
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=lambda ctx: CandidateSnapshot(
+            candidate_id="cand-attempt-r1",
+            source_identity=SAMPLE_SOURCE,
+            candidate_tree_digest=R1_TREE,
+            patch_digest=R1_PATCH_DIGEST,
+            patch_text=R1_PATCH,
+            files_added=(),
+            files_modified=("a.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=frozen_contract.contract_digest,
+            context_digest=ctx.repair_context_digest,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        ),
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
+    )
+
+    assert receipt.status == RepairLoopStatus.REPAIR_INFRA_FAILURE
+    assert receipt.preliminary_verdict == PreliminaryVerdict.INCONCLUSIVE
+    assert receipt.grants_pass is False
+    assert receipt.is_causally_verified is False
+    assert receipt.is_authoritative is False
+    assert receipt.total_rounds == 1
+    assert receipt.final_candidate_id == "cand-attempt-r1"
+    assert verify_repair_loop_receipt_integrity(receipt) is True
+
+
+def test_repair_loop_reproduction_timeout_returns_honest_terminal_receipt() -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    adapter = ScriptableSandboxAdapter(
+        results=[MockCommandResult(is_timed_out=True, stderr="Command timed out")]
+    )
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=lambda ctx: CandidateSnapshot(
+            candidate_id="cand-attempt-r1",
+            source_identity=SAMPLE_SOURCE,
+            candidate_tree_digest=R1_TREE,
+            patch_digest=R1_PATCH_DIGEST,
+            patch_text=R1_PATCH,
+            files_added=(),
+            files_modified=("a.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=frozen_contract.contract_digest,
+            context_digest=ctx.repair_context_digest,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        ),
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
+    )
+
+    assert receipt.status == RepairLoopStatus.REPAIR_INFRA_FAILURE
+    assert receipt.preliminary_verdict == PreliminaryVerdict.INCONCLUSIVE
+    assert receipt.grants_pass is False
+    assert receipt.is_causally_verified is False
+    assert receipt.is_authoritative is False
+    assert receipt.total_rounds == 1
+    assert verify_repair_loop_receipt_integrity(receipt) is True
+
+
+def test_repair_loop_reproduction_invalid_precondition_returns_honest_terminal_receipt() -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    adapter = ScriptableSandboxAdapter(
+        results=[MockCommandResult(exit_code=5, stdout="collected 0 items")]
+    )
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=lambda ctx: CandidateSnapshot(
+            candidate_id="cand-attempt-r1",
+            source_identity=SAMPLE_SOURCE,
+            candidate_tree_digest=R1_TREE,
+            patch_digest=R1_PATCH_DIGEST,
+            patch_text=R1_PATCH,
+            files_added=(),
+            files_modified=("a.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=frozen_contract.contract_digest,
+            context_digest=ctx.repair_context_digest,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        ),
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
+    )
+
+    assert receipt.status == RepairLoopStatus.INCONCLUSIVE
+    assert receipt.preliminary_verdict == PreliminaryVerdict.INCONCLUSIVE
+    assert receipt.grants_pass is False
+    assert receipt.is_causally_verified is False
+    assert receipt.is_authoritative is False
+    assert receipt.total_rounds == 1
+    assert verify_repair_loop_receipt_integrity(receipt) is True
+
+
+def test_repair_loop_witness_pass_counterfactual_fail_terminal_receipt() -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    # Candidate witness execution passes (exit 0)
+    adapter = ScriptableSandboxAdapter([0])
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=lambda ctx: CandidateSnapshot(
+            candidate_id="cand-attempt-r1",
+            source_identity=SAMPLE_SOURCE,
+            candidate_tree_digest=R1_TREE,
+            patch_digest=R1_PATCH_DIGEST,
+            patch_text=R1_PATCH,
+            files_added=(),
+            files_modified=("a.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=frozen_contract.contract_digest,
+            context_digest=ctx.repair_context_digest,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        ),
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
+        counterfactual_check=True,
+        counterfactual_outcome=WitnessOutcome.PASS,
+    )
+
+    assert receipt.status == RepairLoopStatus.REPAIR_REGRESSED
+    assert receipt.preliminary_verdict == PreliminaryVerdict.CONTRADICTED
+    assert receipt.grants_pass is False
+    assert receipt.is_causally_verified is False
+    assert receipt.is_authoritative is False
+    assert receipt.total_rounds == 1
+    assert "counterfactual" in (receipt.failure_reason or "").lower()
+    assert verify_repair_loop_receipt_integrity(receipt) is True
+
+
+def test_repair_loop_genuine_behavioral_fail_permits_next_repair_round() -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    # Round 1 fails behaviorally (exit 1), Round 2 passes (exit 0)
+    adapter = ScriptableSandboxAdapter([1, 0])
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+
+    builder_calls = 0
+
+    def builder_fn(ctx: BuilderRepairContextEnvelope) -> CandidateSnapshot:
+        nonlocal builder_calls
+        builder_calls += 1
+        if ctx.repair_round == 1:
+            return CandidateSnapshot(
+                candidate_id="cand-attempt-r1",
+                source_identity=SAMPLE_SOURCE,
+                candidate_tree_digest=R1_TREE,
+                patch_digest=R1_PATCH_DIGEST,
+                patch_text=R1_PATCH,
+                files_added=(),
+                files_modified=("a.py",),
+                files_deleted=(),
+                builder_authored_tests=(),
+                frozen_contract_digest=frozen_contract.contract_digest,
+                context_digest=ctx.repair_context_digest,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            )
+        return CandidateSnapshot(
+            candidate_id="cand-attempt-r2",
+            source_identity=SAMPLE_SOURCE,
+            candidate_tree_digest=R2_TREE,
+            patch_digest=R2_PATCH_DIGEST,
+            patch_text=R2_PATCH,
+            files_added=(),
+            files_modified=("a.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=frozen_contract.contract_digest,
+            context_digest=ctx.repair_context_digest,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=builder_fn,
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=2),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
+    )
+
+    assert receipt.status == RepairLoopStatus.VERIFIED_AFTER_REPAIR
+    assert receipt.preliminary_verdict == PreliminaryVerdict.VERIFIED
+    assert receipt.grants_pass is True
+    assert receipt.is_causally_verified is True
+    assert receipt.is_authoritative is False
+    assert receipt.total_rounds == 2
+    assert receipt.final_candidate_id == "cand-attempt-r2"
+    assert builder_calls == 2
+    assert len(receipt.lineage_digests) == 2
+    assert len(receipt.feedback_digests) == 2
+    assert len(receipt.reproduction_receipt_digests) == 2
+    assert receipt.counters["builder_attempts_used"] == 2
+    assert receipt.counters["verifier_executions_used"] == 2
+    assert verify_repair_loop_receipt_integrity(receipt) is True
+
+
+def test_repair_loop_non_success_receipt_integrity_counters_and_authority() -> None:
+    frozen_contract, sealed_record, witness_lock, initial_cand = _make_fixture_chain()
+    # Non-success condition: command exits with code 2 (ERROR)
+    adapter = ScriptableSandboxAdapter(
+        results=[MockCommandResult(exit_code=2, stderr="fatal error")]
+    )
+    materializer = DynamicMaterializer()
+    manager = VerifierSandboxManager()
+
+    receipt = run_sealed_repair_loop(
+        initial_candidate=initial_cand,
+        frozen_contract=frozen_contract,
+        source_identity=SAMPLE_SOURCE,
+        sealed_record=sealed_record,
+        witness_lock=witness_lock,
+        builder_repair_fn=lambda ctx: CandidateSnapshot(
+            candidate_id="cand-attempt-r1",
+            source_identity=SAMPLE_SOURCE,
+            candidate_tree_digest=R1_TREE,
+            patch_digest=R1_PATCH_DIGEST,
+            patch_text=R1_PATCH,
+            files_added=(),
+            files_modified=("a.py",),
+            files_deleted=(),
+            builder_authored_tests=(),
+            frozen_contract_digest=frozen_contract.contract_digest,
+            context_digest=ctx.repair_context_digest,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        ),
+        sandbox_manager=manager,
+        sandbox_adapter=adapter,
+        materializer=materializer,
+        execution_command="pytest tests/test_witness.py",
+        budget=RepairLoopBudget(max_repair_rounds=1),
+        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        initial_failure_facts=INITIAL_FAILED_FACTS,
+        prior_sandbox_ids=["sbx-c0-initial"],
+    )
+
+    # Invariants on non-success terminal receipt
+    assert verify_repair_loop_receipt_integrity(receipt) is True
+    assert receipt.is_authoritative is False
+    assert receipt.grants_pass is False
+    assert receipt.is_causally_verified is False
+    assert receipt.status != RepairLoopStatus.VERIFIED_AFTER_REPAIR
+    assert receipt.counters["verifier_executions_used"] == 1
+    assert receipt.counters["sandbox_executions_used"] == 1
+    assert receipt.counters["builder_attempts_used"] == 1
+    assert len(receipt.reproduction_receipt_digests) == 1
