@@ -90,39 +90,38 @@ Judge claim:
 - P-14.05 (Require fresh verifier reproduction for repaired candidate) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `6b5ed2c`.
 - P-14.06 (Cap repair rounds/cost and return honest non-success) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `cb3f6a8`.
 - P-14 Phase Closure (Sealed Repair Loop Live Verification Proof):
-  - Fresh LIVE_NEBIUS demonstration executed against real Nebius Token Factory Sandboxes and real Nemotron AI Builder:
-    - Initial candidate Candidate 0 failed exit 1 with AssertionError (`sbx-a0b87cbf31b04eaa`);
-    - Verifier extracted execution-derived safe failure feedback (`a398c9797a56110ec1ee7d03788d8183fe0661b8e2982330ecc1d5aada8d8d92`, derived from exit code 1 and error facts, traceable origin, zero hidden witness code disclosed, zero counterexample fabrication);
-    - Real Nemotron model client (`nvidia/Nemotron-3_5-Lightning`, request `chatcmpl-0ec89963`, 1492 tokens, 3.73s) received only permitted context, passed mechanical secrecy checks, and produced verified python repair for `src/demo_target/cli.py`;
-    - Builder materialized Candidate 1 (`cand-live-repaired-r1-2266ec2c`, lineage `764c9a2120967ebc39af1683adcc1255719dd35367fc87054f17ac7f77d58468`, patch `2d5dc4640352458323e973643e3a2215ec61d7a5a40996ba08a85516b625536e`, tree `31f7ab50a5e0da6da9160ce47bdc5daf71072216`);
-    - Fresh disposable verifier sandbox (`sbx-ba6113426b6b486b` distinct from `sbx-a0b87cbf31b04eaa`, fail-closed pre-execution sandbox budget checked) executed sealed witness -> Exit 0 (`WITNESS_PASS`);
-    - Reproduction receipt digest: `bd662d4139776d4d34d040520253f3db6209b64dd682a3138cb076fec9197d75`;
-    - Terminal loop receipt `RLR-894a0ec47c20` emitted with status `VERIFIED_AFTER_REPAIR`, preliminary verdict `VERIFIED`, `is_causally_verified=True`, `grants_pass=True`, `is_authoritative=False` (zero verdict authority invariant);
-    - Cryptographic receipt digest: `357eac30e9642b86b89183ab6bf882112fab63f34e79b7ea0776cc78c2e38bf0`;
-    - Bound to exact Basebreak implementation SHA: `de563754148ad5364609127d3079d8d6294c7823`; verified-evidence boundary repair applied;
+  - Fresh LIVE_NEBIUS revalidation demonstration executed against real Nebius Token Factory Sandboxes and real Nemotron AI Builder on exact implementation SHA `22a03c8e729b9da463d5dde5104e580209d21044`:
+    - Initial candidate Candidate 0 failed exit 1 with AssertionError (`sbx-07673a48efc44fe8`);
+    - Verifier extracted execution-derived safe failure feedback (`1e04f844c77502d21151f34584fa40b8887906d16380c3c68733483f8a2cf33d`, derived from exit code 1 and error facts, traceable origin, zero hidden witness code disclosed, zero counterexample fabrication);
+    - Real Nemotron model client (`nvidia/Nemotron-3_5-Lightning`, request `chatcmpl-3495a8cc`, 1429 tokens: 431 prompt, 998 completion, 4.01s) received only permitted context, passed mechanical secrecy checks, and produced verified python repair for `src/demo_target/cli.py`;
+    - Builder materialized Candidate 1 (`cand-live-repaired-r1-d68c93f0`, lineage `4eafdf6d1334b58cc74bfa2d16236da1c0aec53198c878280606abed5c192e3f`, patch `2d5dc4640352458323e973643e3a2215ec61d7a5a40996ba08a85516b625536e`, tree `31f7ab50a5e0da6da9160ce47bdc5daf71072216`);
+    - Fresh disposable verifier sandbox (`sbx-e1e0d65df77747a5` distinct from `sbx-07673a48efc44fe8`, fail-closed pre-execution sandbox budget checked) executed sealed witness -> Exit 0 (`WITNESS_PASS`);
+    - Reproduction receipt digest: `1d43f37239ff7c6d466ed2f39d6b41a350613b304c726bc4da5ba84e35af23fc`;
+    - Terminal loop receipt `RLR-b9084e05ac01` emitted with status `VERIFIED_AFTER_REPAIR`, preliminary verdict `VERIFIED`, `is_causally_verified=True`, `grants_pass=True`, `is_authoritative=False` (zero verdict authority invariant);
+    - Cryptographic receipt digest: `4e9e67f704f9432adfe2fe84feb3ecbfa50ed414996e935306cd9477fd8462e6`;
+    - Bound to exact Basebreak implementation SHA: `22a03c8e729b9da463d5dde5104e580209d21044`;
     - Documented in `docs/P14_LIVE_CLOSURE_PROOF.md`;
   - P-14.06 non-success termination classification repair applied at SHA `eecc93860342432cf00d5f7e65f9ff721e65fe5a`: reproduction outcomes deterministically classified (ERROR, TIMEOUT, INVALID_PRECONDITION, INCONCLUSIVE, BLOCKED, and witness PASS with grants_pass=False); genuine behavioral FAIL continues repair loop; honest non-success terminal receipts emitted; zero unhandled feedback exceptions;
-  - P-14.06 surgical verdict-gate repair applied: repair loop continuation strictly restricted to `WitnessOutcome.FAIL` + `PreliminaryVerdict.CONTRADICTED` with pre-append cryptographic integrity verification; tampered reproduction receipts fail closed without promoting digests as verified evidence;
-  - Prior LIVE_NEBIUS evidence bound to `de563754148ad5364609127d3079d8d6294c7823` preserved (not relabeled); previous one-time authorization consumed; zero billable live runs executed without renewed operator approval; latest candidate implementation is labeled LIVE_NEBIUS NOT_RUN;
+  - P-14.06 surgical verdict-gate repair applied at SHA `22a03c8e729b9da463d5dde5104e580209d21044`: repair loop continuation strictly restricted to `WitnessOutcome.FAIL` + `PreliminaryVerdict.CONTRADICTED` with pre-append cryptographic integrity verification; tampered reproduction receipts fail closed without promoting digests as verified evidence;
+  - Prior LIVE_NEBIUS evidence bound to `de563754148ad5364609127d3079d8d6294c7823` preserved in historical record;
   - P-14 batch is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-15+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
 `0045ad89394758bb6c128b846945f2e7e8b2b955` (independently VERIFIED / PASS at P-13 closure).
+Exact live-tested implementation SHA: `22a03c8e729b9da463d5dde5104e580209d21044`.
 Previous LIVE_NEBIUS-tested implementation SHA: `de563754148ad5364609127d3079d8d6294c7823`.
-Prior candidate SHA with verdict-gate drift: `eecc93860342432cf00d5f7e65f9ff721e65fe5a` (corrected from stale reference to `de563754148ad5364609127d3079d8d6294c7823`).
-Current executor candidate implementation: surgical verdict-gate repair candidate (LIVE_NEBIUS NOT_RUN).
 
 ## Blocking live gate vs active task
 
 ### Blocking live gate
-OPERATOR_AUTHORIZED_LIVE_EXECUTION_COMPLETED: Operator explicitly confirmed Token Factory balance ($0.93 trial credits + $25.00 Builder Program account balance, active billing card) and authorized ONE bounded P-14 live execution (with personal spend safety cap up to $1.00 and $5.00 safety floor preserved). The authorized live cycle executed cleanly and passed with LIVE_NEBIUS provenance on implementation SHA `de563754148ad5364609127d3079d8d6294c7823`. No new live execution authorized or performed for candidate repair; latest implementation is labeled LIVE_NEBIUS NOT_RUN.
+OPERATOR_AUTHORIZED_LIVE_EXECUTION_COMPLETED: Operator explicitly confirmed Token Factory balance ($0.93 trial credits + $25.00 Builder Program account balance, active billing card) and authorized ONE bounded P-14 live revalidation cycle. The authorized live cycle executed cleanly and passed with LIVE_NEBIUS provenance on implementation SHA `22a03c8e729b9da463d5dde5104e580209d21044` (receipt `4e9e67f704f9432adfe2fe84feb3ecbfa50ed414996e935306cd9477fd8462e6`).
 
 ### Current QA candidate
-P-14 Sealed Repair Loop Batch — P-14.01 through P-14.06 + Surgical Verdict-Gate Repair + Prior Live Closure Proof (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; latest implementation LIVE_NEBIUS NOT_RUN).
+P-14 Sealed Repair Loop Batch — P-14.01 through P-14.06 + Surgical Verdict-Gate Repair + Fresh Live Closure Proof bound to implementation SHA `22a03c8e729b9da463d5dde5104e580209d21044` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
 
 ### Active exact task
-P-14 Sealed Repair Loop Batch — completed as executor candidate; live execution successfully demonstrated on `de563754...`; surgical verdict-gate repair applied. P-15+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+P-14 Sealed Repair Loop Batch — completed as executor candidate; live revalidation successfully demonstrated on `22a03c8...`; surgical verdict-gate repair verified. P-15+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 
 ## Parallelization boundary & rules
 - **Task status:** P-00 through P-13 all tasks and phases are independently VERIFIED / PASS. P-14.01 through P-14.06 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-15+ remain strictly NOT AUTHORIZED / NOT_RUN.
