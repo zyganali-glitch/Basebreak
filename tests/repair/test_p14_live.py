@@ -126,17 +126,33 @@ def validate_and_derive_c0_failure_facts(
     """Validate Candidate 0 execution with strict exit-code authority.
 
     Deterministic invariants:
-    1. Distinguish timeout: timeouts cannot be accepted as demonstrated witness failure.
-    2. Distinguish missing exit code: missing execution results cannot authorize repair.
-    3. Distinguish successful execution: exit_code=0 cannot authorize repair even if
+    1. Distinguish cancellation: cancelled executions cannot be accepted as
+       demonstrated witness failure.
+    2. Distinguish timeout: timeouts cannot be accepted as demonstrated witness failure.
+    3. Distinguish missing exit code: missing execution results cannot authorize repair.
+    4. Distinguish successful execution: exit_code=0 cannot authorize repair even if
        the output text contains 'AssertionError'.
-    4. Distinguish execution infrastructure failure: nonzero exits other than expected
+    5. Distinguish execution infrastructure failure: nonzero exits other than expected
        test runner failure (exit code 1) cannot be accepted as behavioral witness failure.
-    5. Require confirmed behavioral assertion failure: output must contain genuine 'AssertionError'.
-    6. Derive authentic execution digest bound to sandbox, source identity, patch digest,
+    6. Require confirmed behavioral assertion failure: output must contain genuine 'AssertionError'.
+    7. Derive authentic execution digest bound to sandbox, source identity, patch digest,
        tree digest, command, exit code, and captured stdout/stderr digests.
     """
-    if getattr(result, "is_timeout", False) or getattr(result, "status", None) == "TIMEOUT":
+    if (
+        getattr(result, "is_cancelled", False)
+        or getattr(result, "provider_status", None) == "CANCELLED"
+        or getattr(result, "status", None) == "CANCELLED"
+    ):
+        raise RepairFeedbackIntegrityError(
+            "Candidate 0 execution was cancelled; cancelled executions cannot be accepted as "
+            "demonstrated witness failure"
+        )
+
+    if (
+        getattr(result, "is_timeout", False)
+        or getattr(result, "status", None) == "TIMEOUT"
+        or getattr(result, "provider_status", None) == "TIMEOUT"
+    ):
         raise RepairFeedbackIntegrityError(
             "Candidate 0 execution timed out; timeouts cannot be accepted as "
             "demonstrated witness failure"

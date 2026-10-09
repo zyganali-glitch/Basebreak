@@ -3005,3 +3005,178 @@ def test_live_witness_exit_code_authority_valid_failure_facts_binding() -> None:
         command="python3 tests/test_witness_repair.py",
     )
     assert exec_digest != exec_digest_diff_sbx
+
+
+def test_live_witness_exit_code_authority_rejects_cancelled_execution() -> None:
+    """Cancelled execution cannot authorize repair even with exit_code=1 and AssertionError."""
+    from test_p14_live import (
+        BUGGY_PATCH_DIGEST,
+        validate_and_derive_c0_failure_facts,
+    )
+
+    from basebreak.adapters.nebius.sandbox import NebiusSandboxExecutionResult
+    from basebreak.domain.execution import SandboxIdentity
+
+    # 1. is_cancelled=True with exit_code=1 and AssertionError text must fail closed
+    fake_res_cancelled = SimpleNamespace(
+        exit_code=1,
+        stdout="",
+        stderr="AssertionError: Defect: got 'QUIET: payload_string'",
+        is_cancelled=True,
+        is_timeout=False,
+        provider_status="COMPLETED",
+        duration_seconds=1.2,
+    )
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="execution was cancelled; cancelled executions cannot be accepted",
+    ):
+        validate_and_derive_c0_failure_facts(
+            result=fake_res_cancelled,
+            sandbox_id="sbx-test-c0",
+            source_id=SAMPLE_SOURCE,
+            tree_digest="f" * 40,
+            patch_digest=BUGGY_PATCH_DIGEST,
+        )
+
+    # 2. Explicit provider_status="CANCELLED" must fail closed even if is_cancelled=False
+    fake_res_prov_cancelled = SimpleNamespace(
+        exit_code=1,
+        stdout="",
+        stderr="AssertionError: Defect: got 'QUIET: payload_string'",
+        is_cancelled=False,
+        provider_status="CANCELLED",
+        is_timeout=False,
+        duration_seconds=1.2,
+    )
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="execution was cancelled; cancelled executions cannot be accepted",
+    ):
+        validate_and_derive_c0_failure_facts(
+            result=fake_res_prov_cancelled,
+            sandbox_id="sbx-test-c0",
+            source_id=SAMPLE_SOURCE,
+            tree_digest="f" * 40,
+            patch_digest=BUGGY_PATCH_DIGEST,
+        )
+
+    # 3. status="CANCELLED" must also fail closed
+    fake_res_status_cancelled = SimpleNamespace(
+        exit_code=1,
+        stdout="",
+        stderr="AssertionError: Defect: got 'QUIET: payload_string'",
+        is_cancelled=False,
+        status="CANCELLED",
+        is_timeout=False,
+        duration_seconds=1.2,
+    )
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="execution was cancelled; cancelled executions cannot be accepted",
+    ):
+        validate_and_derive_c0_failure_facts(
+            result=fake_res_status_cancelled,
+            sandbox_id="sbx-test-c0",
+            source_id=SAMPLE_SOURCE,
+            tree_digest="f" * 40,
+            patch_digest=BUGGY_PATCH_DIGEST,
+        )
+
+    # 4. NebiusSandboxExecutionResult with is_cancelled=True fails closed
+    sbx_ident = SandboxIdentity(
+        sandbox_id="sbx-test-c0",
+        description="test sandbox",
+    )
+    nebius_cancelled = NebiusSandboxExecutionResult(
+        sandbox_identity=sbx_ident,
+        operation_id="op-12345",
+        exit_code=1,
+        stdout="",
+        stderr="AssertionError: Defect",
+        duration_seconds=1.0,
+        result_image_uuid=None,
+        provider_status="CANCELLED",
+        is_completed=True,
+        is_timeout=False,
+        is_cancelled=True,
+    )
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="execution was cancelled; cancelled executions cannot be accepted",
+    ):
+        validate_and_derive_c0_failure_facts(
+            result=nebius_cancelled,
+            sandbox_id="sbx-test-c0",
+            source_id=SAMPLE_SOURCE,
+            tree_digest="f" * 40,
+            patch_digest=BUGGY_PATCH_DIGEST,
+        )
+
+
+def test_live_witness_exit_code_authority_accepts_provider_status_failed() -> None:
+    """Genuine completed exit_code=1 with AssertionError is accepted.
+
+    Ensures provider_status='FAILED' is not rejected as an infrastructure error.
+    """
+    from test_p14_live import (
+        BUGGY_PATCH_DIGEST,
+        validate_and_derive_c0_failure_facts,
+    )
+
+    from basebreak.adapters.nebius.sandbox import NebiusSandboxExecutionResult
+    from basebreak.domain.execution import SandboxIdentity
+
+    # 1. SimpleNamespace with provider_status="FAILED", exit_code=1, AssertionError
+    fake_res_failed_prov = SimpleNamespace(
+        exit_code=1,
+        stdout="",
+        stderr="AssertionError: Defect: got 'QUIET: payload_string'",
+        is_cancelled=False,
+        is_timeout=False,
+        provider_status="FAILED",
+        duration_seconds=2.0,
+    )
+    exit_code, exec_digest, facts = validate_and_derive_c0_failure_facts(
+        result=fake_res_failed_prov,
+        sandbox_id="sbx-test-c0",
+        source_id=SAMPLE_SOURCE,
+        tree_digest="a" * 40,
+        patch_digest=BUGGY_PATCH_DIGEST,
+        command="python3 tests/test_witness_repair.py",
+    )
+    assert exit_code == 1
+    assert facts.exit_code == 1
+    assert facts.execution_digest == exec_digest
+    assert facts.condition_category == FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED
+
+    # 2. NebiusSandboxExecutionResult with provider_status="FAILED"
+    sbx_ident = SandboxIdentity(
+        sandbox_id="sbx-test-c0",
+        description="test sandbox",
+    )
+    nebius_completed_fail = NebiusSandboxExecutionResult(
+        sandbox_identity=sbx_ident,
+        operation_id="op-67890",
+        exit_code=1,
+        stdout="",
+        stderr="AssertionError: Defect: got 'QUIET: payload_string'",
+        duration_seconds=2.0,
+        result_image_uuid=None,
+        provider_status="FAILED",
+        is_completed=True,
+        is_timeout=False,
+        is_cancelled=False,
+    )
+    exit_code_n, exec_digest_n, facts_n = validate_and_derive_c0_failure_facts(
+        result=nebius_completed_fail,
+        sandbox_id="sbx-test-c0",
+        source_id=SAMPLE_SOURCE,
+        tree_digest="a" * 40,
+        patch_digest=BUGGY_PATCH_DIGEST,
+        command="python3 tests/test_witness_repair.py",
+    )
+    assert exit_code_n == 1
+    assert facts_n.exit_code == 1
+    assert facts_n.execution_digest == exec_digest_n
+    assert facts_n.condition_category == FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED
