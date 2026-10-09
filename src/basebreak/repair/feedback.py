@@ -31,12 +31,42 @@ from typing import Any
 from basebreak.domain.execution import TerminationStatus
 from basebreak.domain.semantics import ChangeClass
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
+from basebreak.verifier.witness_result import WitnessOutcome
 
 REPAIR_FEEDBACK_SCHEMA_VERSION: str = "1.0.0"
 
 _HEX_40_OR_64_PATTERN = re.compile(r"^([0-9a-f]{40}|[0-9a-f]{64})$")
 _HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_\-\.:/]+$")
+
+VALID_FAILING_WITNESS_OUTCOMES: frozenset[WitnessOutcome] = frozenset(
+    {
+        WitnessOutcome.FAIL,
+        WitnessOutcome.ERROR,
+        WitnessOutcome.TIMEOUT,
+        WitnessOutcome.INVALID_PRECONDITION,
+    }
+)
+
+VALID_FAILING_VERDICTS: frozenset[PreliminaryVerdict] = frozenset(
+    {
+        PreliminaryVerdict.CONTRADICTED,
+        PreliminaryVerdict.INCONCLUSIVE,
+        PreliminaryVerdict.BLOCKED,
+    }
+)
+
+VALID_FAILING_OUTCOMES: frozenset[WitnessOutcome | PreliminaryVerdict] = (
+    VALID_FAILING_WITNESS_OUTCOMES | VALID_FAILING_VERDICTS
+)
+
+FORBIDDEN_PASSING_OUTCOMES: frozenset[WitnessOutcome | PreliminaryVerdict] = frozenset(
+    {
+        WitnessOutcome.PASS,
+        PreliminaryVerdict.VERIFIED,
+        PreliminaryVerdict.PARTIALLY_VERIFIED,
+    }
+)
 
 
 class RepairFeedbackError(Exception):
@@ -136,6 +166,7 @@ class FailedExecutionFacts:
     counterexample_actual: str | None = None
     counterexample_expected: str | None = None
     deterministic_failure_justification: str | None = None
+    failing_outcome: WitnessOutcome | PreliminaryVerdict | None = None
 
     def __post_init__(self) -> None:
         if self.exit_code is not None and not isinstance(self.exit_code, int):
@@ -162,17 +193,65 @@ class FailedExecutionFacts:
                     f"{self.execution_digest!r}"
                 )
 
-        # Requirement 4: Reject exit_code=0 as evidence of failed execution unless
-        # a separately validated deterministic failure outcome justifies it.
+        # Validate failing_outcome if provided
+        if self.failing_outcome is not None:
+            if not isinstance(self.failing_outcome, (WitnessOutcome, PreliminaryVerdict)):
+                raise RepairFeedbackIntegrityError(
+                    "failing_outcome must be a typed WitnessOutcome or PreliminaryVerdict enum "
+                    f"instance, got {type(self.failing_outcome).__name__} "
+                    f"({self.failing_outcome!r}). "
+                    "Arbitrary strings and fabricated outcome names cannot authorize repair."
+                )
+            if self.failing_outcome in FORBIDDEN_PASSING_OUTCOMES:
+                raise RepairFeedbackIntegrityError(
+                    f"Passing or partially passing outcome {self.failing_outcome.value!r} "
+                    "cannot justify failed execution."
+                )
+            if self.failing_outcome == PreliminaryVerdict.NOT_RUN:
+                raise RepairFeedbackIntegrityError(
+                    "Non-execution verdict NOT_RUN cannot justify failed execution."
+                )
+            if self.failing_outcome not in VALID_FAILING_OUTCOMES:
+                raise RepairFeedbackIntegrityError(
+                    f"Unsupported outcome {self.failing_outcome!r} cannot justify failed execution."
+                )
+
+        # Repair A: Reject exit_code=0 as evidence of failed execution unless backed
+        # by a genuine validated deterministic failing witness/verdict outcome bound
+        # to the same execution identity. Free-form justification text is not proof.
         if self.exit_code == 0:
-            if not (
-                self.deterministic_failure_justification
-                and self.deterministic_failure_justification.strip()
-            ):
+            if self.failing_outcome is None:
                 raise RepairFeedbackIntegrityError(
                     "exit_code=0 cannot be accepted as evidence of failed execution "
-                    "unless a separately validated deterministic failure outcome justifies it."
+                    "without a genuine validated deterministic failing witness/verdict outcome "
+                    "(WitnessOutcome or PreliminaryVerdict). Free-form justification text "
+                    "cannot authorize repair."
                 )
+            if self.execution_digest is None or is_dummy_or_invalid_digest(self.execution_digest):
+                raise RepairFeedbackIntegrityError(
+                    f"exit_code=0 requires a valid non-dummy execution_digest bound to the "
+                    f"deterministic failing outcome, got {self.execution_digest!r}"
+                )
+            if self.termination_status != TerminationStatus.COMPLETED:
+                raise RepairFeedbackIntegrityError(
+                    f"Contradictory execution state: exit_code=0 with "
+                    f"termination_status={self.termination_status.value}"
+                )
+            if self.failing_outcome == WitnessOutcome.TIMEOUT:
+                raise RepairFeedbackIntegrityError(
+                    "Contradictory execution state: exit_code=0 cannot be combined with "
+                    "WitnessOutcome.TIMEOUT"
+                )
+
+        # Contradiction check: TIMED_OUT status cannot collapse into WitnessOutcome.FAIL
+        if (
+            self.termination_status == TerminationStatus.TIMED_OUT
+            and self.failing_outcome == WitnessOutcome.FAIL
+        ):
+            raise RepairFeedbackIntegrityError(
+                "Contradictory execution state: TIMED_OUT termination status cannot collapse "
+                "into WitnessOutcome.FAIL"
+            )
 
         # Ensure that if exit_code is None and termination_status is COMPLETED,
         # there is explicit failure indication
@@ -180,10 +259,7 @@ class FailedExecutionFacts:
             self.exit_code is None
             and self.termination_status == TerminationStatus.COMPLETED
             and not (self.failure_message and self.failure_message.strip())
-            and not (
-                self.deterministic_failure_justification
-                and self.deterministic_failure_justification.strip()
-            )
+            and (self.failing_outcome is None or self.failing_outcome not in VALID_FAILING_OUTCOMES)
         ):
             raise RepairFeedbackIntegrityError(
                 "FailedExecutionFacts cannot be constructed without evidence of execution failure."
@@ -207,7 +283,7 @@ class FailedExecutionFacts:
                 "Malformed reproduction receipt: missing witness_outcome."
             )
         outcome_str = getattr(witness_outcome, "value", str(witness_outcome))
-        if outcome_str == "PASS":
+        if outcome_str == "PASS" or witness_outcome == WitnessOutcome.PASS:
             raise RepairFeedbackIntegrityError(
                 "Cannot derive failed execution facts from passing reproduction receipt "
                 "(witness_outcome=PASS)."
@@ -217,11 +293,24 @@ class FailedExecutionFacts:
                 "Cannot derive failed execution facts from verified reproduction receipt "
                 "(preliminary_verdict=VERIFIED)."
             )
+        if getattr(receipt, "preliminary_verdict", None) == PreliminaryVerdict.PARTIALLY_VERIFIED:
+            raise RepairFeedbackIntegrityError(
+                "Cannot derive failed execution facts from partially verified reproduction receipt "
+                "(preliminary_verdict=PARTIALLY_VERIFIED)."
+            )
+
+        if not isinstance(witness_outcome, WitnessOutcome):
+            raise RepairFeedbackIntegrityError(
+                f"Reproduction receipt witness_outcome must be a WitnessOutcome instance, "
+                f"got {type(witness_outcome).__name__}"
+            )
+        if witness_outcome not in VALID_FAILING_WITNESS_OUTCOMES:
+            raise RepairFeedbackIntegrityError(
+                f"Reproduction receipt has unsupported outcome: {witness_outcome!r}"
+            )
 
         exit_code = getattr(receipt, "exit_code", None)
-        justification: str | None = None
-        if exit_code == 0:
-            justification = f"Deterministic reproduction failure outcome validated: {outcome_str}"
+        justification = f"Deterministic reproduction failure outcome validated: {outcome_str}"
 
         category = FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED
         if outcome_str in ("TIMEOUT", "ERROR"):
@@ -247,6 +336,7 @@ class FailedExecutionFacts:
             condition_category=category,
             duration_seconds=getattr(receipt, "duration_seconds", None),
             deterministic_failure_justification=justification,
+            failing_outcome=witness_outcome,
         )
 
     @classmethod
@@ -262,16 +352,24 @@ class FailedExecutionFacts:
                 "Malformed witness result: missing outcome attribute."
             )
         outcome_str = getattr(outcome, "value", str(outcome))
-        if outcome_str == "PASS":
+        if outcome_str == "PASS" or outcome == WitnessOutcome.PASS:
             raise RepairFeedbackIntegrityError(
                 f"Cannot derive failed execution facts from successful witness result "
                 f"(outcome={outcome_str})."
             )
 
+        if not isinstance(outcome, WitnessOutcome):
+            raise RepairFeedbackIntegrityError(
+                f"Witness result outcome must be a WitnessOutcome instance, "
+                f"got {type(outcome).__name__}"
+            )
+        if outcome not in VALID_FAILING_WITNESS_OUTCOMES:
+            raise RepairFeedbackIntegrityError(
+                f"Witness result has unsupported outcome: {outcome!r}"
+            )
+
         exit_code = getattr(result, "exit_code", None)
-        justification: str | None = None
-        if exit_code == 0:
-            justification = f"Deterministic witness failure outcome validated: {outcome_str}"
+        justification = f"Deterministic witness failure outcome validated: {outcome_str}"
 
         category = FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED
         if outcome_str in ("TIMEOUT", "ERROR"):
@@ -299,6 +397,7 @@ class FailedExecutionFacts:
             condition_category=category,
             duration_seconds=getattr(result, "duration_seconds", None),
             deterministic_failure_justification=justification,
+            failing_outcome=outcome,
         )
 
     @classmethod
@@ -318,25 +417,50 @@ class FailedExecutionFacts:
         counterexample_expected: str | None = None,
         termination_status: TerminationStatus = TerminationStatus.COMPLETED,
         deterministic_failure_justification: str | None = None,
+        failing_outcome: WitnessOutcome | PreliminaryVerdict | None = None,
     ) -> FailedExecutionFacts:
-        if exit_code == 0 and not (
-            deterministic_failure_justification and deterministic_failure_justification.strip()
-        ):
-            raise RepairFeedbackIntegrityError(
-                "Cannot derive failed execution facts from successful execution (exit_code=0)."
-            )
+        if exit_code == 0:
+            if failing_outcome is None:
+                raise RepairFeedbackIntegrityError(
+                    "Cannot derive failed execution facts from successful execution (exit_code=0) "
+                    "without a genuine validated deterministic failing outcome "
+                    "(WitnessOutcome or PreliminaryVerdict). "
+                    "Free-form justification text cannot authorize repair."
+                )
+            if not isinstance(failing_outcome, (WitnessOutcome, PreliminaryVerdict)):
+                raise RepairFeedbackIntegrityError(
+                    "failing_outcome must be a typed WitnessOutcome or PreliminaryVerdict enum "
+                    f"instance, got {type(failing_outcome).__name__} ({failing_outcome!r}). "
+                    "Arbitrary strings and fabricated outcome names cannot authorize repair."
+                )
+            if failing_outcome in FORBIDDEN_PASSING_OUTCOMES:
+                raise RepairFeedbackIntegrityError(
+                    f"Passing or partially passing outcome {failing_outcome.value!r} "
+                    "cannot justify failed execution."
+                )
+            if failing_outcome == PreliminaryVerdict.NOT_RUN:
+                raise RepairFeedbackIntegrityError(
+                    "Non-execution verdict NOT_RUN cannot justify failed execution."
+                )
+            if failing_outcome not in VALID_FAILING_OUTCOMES:
+                raise RepairFeedbackIntegrityError(
+                    f"Unsupported outcome {failing_outcome!r} cannot justify failed execution."
+                )
+            if execution_digest is None or is_dummy_or_invalid_digest(execution_digest):
+                raise RepairFeedbackIntegrityError(
+                    "exit_code=0 requires a valid execution_digest bound to the "
+                    f"deterministic failing outcome, got {execution_digest!r}"
+                )
+
         if (
             exit_code is None
             and termination_status == TerminationStatus.COMPLETED
             and not (failure_indicator and failure_indicator.strip())
-            and not (
-                deterministic_failure_justification
-                and deterministic_failure_justification.strip()
-            )
+            and (failing_outcome is None or failing_outcome not in VALID_FAILING_OUTCOMES)
         ):
             raise RepairFeedbackIntegrityError(
                 "Cannot derive failed execution facts without non-zero exit code or "
-                "failure indicator."
+                "failure indicator or validated deterministic failing outcome."
             )
         if execution_digest is not None and is_dummy_or_invalid_digest(execution_digest):
             raise RepairFeedbackIntegrityError(
@@ -354,6 +478,7 @@ class FailedExecutionFacts:
             counterexample_actual=counterexample_actual,
             counterexample_expected=counterexample_expected,
             deterministic_failure_justification=deterministic_failure_justification,
+            failing_outcome=failing_outcome,
         )
 
 
@@ -703,24 +828,41 @@ def derive_safe_repair_feedback(
                 f"({originating_receipt_digest!r})"
             )
 
-    if failed_facts.exit_code == 0 and not (
-        failed_facts.deterministic_failure_justification
-        and failed_facts.deterministic_failure_justification.strip()
-    ):
-        raise RepairFeedbackIntegrityError(
-            "Cannot derive repair feedback from successful execution "
-            "(exit_code=0 without failure justification)."
-        )
+    if failed_facts.exit_code == 0:
+        if (
+            failed_facts.failing_outcome is None
+            or failed_facts.failing_outcome not in VALID_FAILING_OUTCOMES
+        ):
+            raise RepairFeedbackIntegrityError(
+                "Cannot derive repair feedback from execution with exit_code=0 "
+                "without a validated deterministic failing outcome bound to execution identity."
+            )
+        if failed_facts.execution_digest is None or is_dummy_or_invalid_digest(
+            failed_facts.execution_digest
+        ):
+            raise RepairFeedbackIntegrityError(
+                "Cannot derive repair feedback from execution with exit_code=0 "
+                "without a valid execution_digest bound to the deterministic failing outcome."
+            )
 
     # 1. Derive observed behavior from actual execution facts
     if failed_facts.exit_code == 0:
         cond_category = failed_facts.condition_category
+        assert failed_facts.failing_outcome is not None
+        outcome_val = (
+            failed_facts.failing_outcome.value
+            if hasattr(failed_facts.failing_outcome, "value")
+            else str(failed_facts.failing_outcome)
+        )
         detail = (
             f" ({failed_facts.deterministic_failure_justification.strip()})"
             if failed_facts.deterministic_failure_justification
             else ""
         )
-        raw_observed = f"Execution failed with deterministic failure outcome{detail}"
+        raw_observed = (
+            "Execution exited 0 with validated deterministic failing outcome: "
+            f"{outcome_val}{detail}"
+        )
     elif failed_facts.termination_status == TerminationStatus.TIMED_OUT:
         cond_category = FailureConditionCategory.UNEXPECTED_TERMINATION
         dur_info = (

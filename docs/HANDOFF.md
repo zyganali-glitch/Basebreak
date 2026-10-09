@@ -98,7 +98,7 @@ Judge claim:
     - Fresh disposable verifier sandbox (`sbx-0c743ca733104380` distinct from `sbx-a556a6b6518a424b`, fail-closed pre-execution sandbox budget checked) executed sealed witness -> Exit 0 (`WITNESS_PASS`);
     - Terminal loop receipt `RLR-bbff0b7675cb` emitted with status `VERIFIED_AFTER_REPAIR`, preliminary verdict `VERIFIED`, `is_causally_verified=True`, `grants_pass=True`, `is_authoritative=False` (zero verdict authority invariant);
     - Cryptographic receipt digest: `4e99428941d9e4e46baba39f9a1872f59e69c868298e7e80caca459f5876870e`;
-    - Bound to exact Basebreak implementation SHA: `dcfa538459340ae5adbd0e001ecf5aaa87971fb5` (prior live proof); trust-boundary surgical repair committed at SHA `8ae49cec4f483cf9695357abec4602ff479976fb`;
+    - Bound to exact Basebreak implementation SHA: `dcfa538459340ae5adbd0e001ecf5aaa87971fb5` (prior live proof); trust-boundary surgical repair committed at SHA `8ae49cec4f483cf9695357abec4602ff479976fb`; evidence authority repair applied (Repairs A & B);
     - Documented in `docs/P14_LIVE_CLOSURE_PROOF.md`;
   - P-14 batch is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 - P-15+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
@@ -110,13 +110,13 @@ Current executor candidate implementation SHA: `8ae49cec4f483cf9695357abec4602ff
 ## Blocking live gate vs active task
 
 ### Blocking live gate
-None. P-14 fresh LIVE_NEBIUS demonstration executed cleanly with exit code 0; awaiting independent QA evaluation.
+BLOCKED_BILLING_PREFLIGHT: Fresh LIVE_NEBIUS execution is NOT currently authorized because operator promotional balance verification has not been supplied. Local non-live verification active.
 
 ### Current QA candidate
-P-14 Sealed Repair Loop Batch — P-14.01 through P-14.06 + Live Closure Proof (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+P-14 Sealed Repair Loop Batch — P-14.01 through P-14.06 + Evidence Authority Repair (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
 
 ### Active exact task
-P-14 Sealed Repair Loop Batch — completed as executor candidate. P-15+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+P-14 Sealed Repair Loop Batch (Evidence Authority Repair) — completed as executor candidate; live execution blocked at billing preflight. P-15+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 
 ## Parallelization boundary & rules
 - **Task status:** P-00 through P-13 all tasks and phases are independently VERIFIED / PASS. P-14.01 through P-14.06 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-15+ remain strictly NOT AUTHORIZED / NOT_RUN.

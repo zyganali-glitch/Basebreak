@@ -52,6 +52,7 @@ from basebreak.repair.context import (
     verify_builder_repair_context_integrity,
 )
 from basebreak.repair.feedback import (
+    VALID_FAILING_OUTCOMES,
     FailedExecutionFacts,
     RepairFeedbackError,
     derive_safe_repair_feedback,
@@ -158,11 +159,7 @@ def verify_clean_implementation_preflight(repo_root: Path | str | None = None) -
     except Exception as exc:
         raise CleanImplementationError(f"Failed to check git status: {exc}") from exc
 
-    dirty_lines = [
-        line.strip()
-        for line in raw_status.splitlines()
-        if line.strip()
-    ]
+    dirty_lines = [line.strip() for line in raw_status.splitlines() if line.strip()]
     if dirty_lines:
         raise CleanImplementationError(
             f"Dirty working tree state detected ({len(dirty_lines)} dirty entries):\n"
@@ -595,10 +592,36 @@ def run_sealed_repair_loop(
 
     assert originating_receipt_digest is not None
 
-    if (
-        initial_failure_facts.execution_digest is not None
-        and initial_failure_facts.execution_digest != originating_receipt_digest
-    ):
+    # Repair B: Require a non-dummy execution identity inside the initial failed-execution evidence
+    if is_dummy_or_invalid_digest(initial_failure_facts.execution_digest):
+        return create_repair_loop_receipt(
+            repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+            initial_candidate_id=initial_candidate.candidate_id,
+            initial_patch_digest=initial_candidate.patch_digest,
+            initial_tree_digest=initial_candidate.candidate_tree_digest,
+            final_candidate_id=None,
+            final_patch_digest=None,
+            final_tree_digest=None,
+            status=RepairLoopStatus.INCONCLUSIVE,
+            preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+            is_causally_verified=False,
+            grants_pass=False,
+            total_rounds=0,
+            lineage_digests=lineage_digests,
+            feedback_digests=feedback_digests,
+            reproduction_receipt_digests=reproduction_receipt_digests,
+            counters=counters.to_dict(),
+            failure_reason=(
+                f"Missing or invalid execution_digest in initial_failure_facts: "
+                f"{initial_failure_facts.execution_digest!r}; "
+                "repair loop requires a non-dummy execution identity inside the "
+                "failed-execution evidence"
+            ),
+            provenance=provenance,
+        )
+
+    # Require exact correspondence with originating execution/receipt identity
+    if initial_failure_facts.execution_digest != originating_receipt_digest:
         return create_repair_loop_receipt(
             repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
             initial_candidate_id=initial_candidate.candidate_id,
@@ -655,37 +678,36 @@ def run_sealed_repair_loop(
             provenance=provenance,
         )
 
-    if (
-        initial_failure_facts.exit_code == 0
-        and not (
-            initial_failure_facts.deterministic_failure_justification
-            and initial_failure_facts.deterministic_failure_justification.strip()
-        )
-    ):
-        return create_repair_loop_receipt(
-            repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
-            initial_candidate_id=initial_candidate.candidate_id,
-            initial_patch_digest=initial_candidate.patch_digest,
-            initial_tree_digest=initial_candidate.candidate_tree_digest,
-            final_candidate_id=None,
-            final_patch_digest=None,
-            final_tree_digest=None,
-            status=RepairLoopStatus.INCONCLUSIVE,
-            preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
-            is_causally_verified=False,
-            grants_pass=False,
-            total_rounds=0,
-            lineage_digests=lineage_digests,
-            feedback_digests=feedback_digests,
-            reproduction_receipt_digests=reproduction_receipt_digests,
-            counters=counters.to_dict(),
-            failure_reason=(
-                "Initial execution facts indicate successful exit (exit_code=0) without "
-                "deterministic failure justification; cannot initiate repair loop for "
-                "successful execution"
-            ),
-            provenance=provenance,
-        )
+    # Repair A: Exit code 0 requires genuine validated deterministic failing outcome
+    if initial_failure_facts.exit_code == 0:
+        if (
+            initial_failure_facts.failing_outcome is None
+            or initial_failure_facts.failing_outcome not in VALID_FAILING_OUTCOMES
+        ):
+            return create_repair_loop_receipt(
+                repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+                initial_candidate_id=initial_candidate.candidate_id,
+                initial_patch_digest=initial_candidate.patch_digest,
+                initial_tree_digest=initial_candidate.candidate_tree_digest,
+                final_candidate_id=None,
+                final_patch_digest=None,
+                final_tree_digest=None,
+                status=RepairLoopStatus.INCONCLUSIVE,
+                preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+                is_causally_verified=False,
+                grants_pass=False,
+                total_rounds=0,
+                lineage_digests=lineage_digests,
+                feedback_digests=feedback_digests,
+                reproduction_receipt_digests=reproduction_receipt_digests,
+                counters=counters.to_dict(),
+                failure_reason=(
+                    "Initial execution facts indicate exit_code=0 without a genuine validated "
+                    "deterministic failing outcome bound to execution identity; "
+                    "cannot initiate repair loop for unproven failure"
+                ),
+                provenance=provenance,
+            )
 
     current_candidate = initial_candidate
     current_receipt_digest = originating_receipt_digest

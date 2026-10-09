@@ -41,6 +41,10 @@ from basebreak.repair.engine import (
     verify_repair_loop_receipt_integrity,
 )
 from basebreak.repair.feedback import (
+    FORBIDDEN_PASSING_OUTCOMES,
+    VALID_FAILING_OUTCOMES,
+    VALID_FAILING_VERDICTS,
+    VALID_FAILING_WITNESS_OUTCOMES,
     DisclosureClassification,
     FailedExecutionFacts,
     FailureConditionCategory,
@@ -106,6 +110,7 @@ __all__: list[str] = [
     "DisclosureSanitizerError",
     "FailedExecutionFacts",
     "FailureConditionCategory",
+    "FORBIDDEN_PASSING_OUTCOMES",
     "REPAIRED_RECEIPT_SCHEMA_VERSION",
     "REPAIR_LOOP_RECEIPT_SCHEMA_VERSION",
     "RepairBudgetExceededError",
@@ -156,6 +161,9 @@ __all__: list[str] = [
     "execute_repaired_verifier_reproduction",
     "is_dummy_or_invalid_digest",
     "run_sealed_repair_loop",
+    "VALID_FAILING_OUTCOMES",
+    "VALID_FAILING_VERDICTS",
+    "VALID_FAILING_WITNESS_OUTCOMES",
     "verify_builder_repair_context_integrity",
     "verify_candidate_lineage_integrity",
     "verify_clean_implementation_preflight",
