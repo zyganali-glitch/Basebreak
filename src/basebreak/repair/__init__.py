@@ -42,6 +42,7 @@ from basebreak.repair.engine import (
 )
 from basebreak.repair.feedback import (
     FORBIDDEN_PASSING_OUTCOMES,
+    INCONCLUSIVE_OR_BLOCKED_VERDICTS,
     VALID_FAILING_OUTCOMES,
     VALID_FAILING_VERDICTS,
     VALID_FAILING_WITNESS_OUTCOMES,
@@ -161,6 +162,7 @@ __all__: list[str] = [
     "execute_repaired_verifier_reproduction",
     "is_dummy_or_invalid_digest",
     "run_sealed_repair_loop",
+    "INCONCLUSIVE_OR_BLOCKED_VERDICTS",
     "VALID_FAILING_OUTCOMES",
     "VALID_FAILING_VERDICTS",
     "VALID_FAILING_WITNESS_OUTCOMES",

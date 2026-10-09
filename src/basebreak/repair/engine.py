@@ -52,7 +52,7 @@ from basebreak.repair.context import (
     verify_builder_repair_context_integrity,
 )
 from basebreak.repair.feedback import (
-    VALID_FAILING_OUTCOMES,
+    INCONCLUSIVE_OR_BLOCKED_VERDICTS,
     FailedExecutionFacts,
     RepairFeedbackError,
     derive_safe_repair_feedback,
@@ -678,11 +678,13 @@ def run_sealed_repair_loop(
             provenance=provenance,
         )
 
-    # Repair A: Exit code 0 requires genuine validated deterministic failing outcome
+    # Exit code 0 requires genuine verified execution evidence proving
+    # demonstrated behavioral failure
     if initial_failure_facts.exit_code == 0:
         if (
-            initial_failure_facts.failing_outcome is None
-            or initial_failure_facts.failing_outcome not in VALID_FAILING_OUTCOMES
+            initial_failure_facts.verified_evidence is None
+            or initial_failure_facts.failing_outcome
+            not in (WitnessOutcome.FAIL, PreliminaryVerdict.CONTRADICTED)
         ):
             return create_repair_loop_receipt(
                 repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
@@ -702,12 +704,37 @@ def run_sealed_repair_loop(
                 reproduction_receipt_digests=reproduction_receipt_digests,
                 counters=counters.to_dict(),
                 failure_reason=(
-                    "Initial execution facts indicate exit_code=0 without a genuine validated "
-                    "deterministic failing outcome bound to execution identity; "
-                    "cannot initiate repair loop for unproven failure"
+                    "Initial execution facts indicate exit_code=0 without trusted, "
+                    "integrity-verified demonstrated behavioral failure evidence "
+                    "bound to execution identity; cannot initiate repair loop for unproven failure"
                 ),
                 provenance=provenance,
             )
+
+    if initial_failure_facts.failing_outcome in INCONCLUSIVE_OR_BLOCKED_VERDICTS:
+        return create_repair_loop_receipt(
+            repair_receipt_id=f"RLR-{uuid.uuid4().hex[:12]}",
+            initial_candidate_id=initial_candidate.candidate_id,
+            initial_patch_digest=initial_candidate.patch_digest,
+            initial_tree_digest=initial_candidate.candidate_tree_digest,
+            final_candidate_id=None,
+            final_patch_digest=None,
+            final_tree_digest=None,
+            status=RepairLoopStatus.INCONCLUSIVE,
+            preliminary_verdict=PreliminaryVerdict.INCONCLUSIVE,
+            is_causally_verified=False,
+            grants_pass=False,
+            total_rounds=0,
+            lineage_digests=lineage_digests,
+            feedback_digests=feedback_digests,
+            reproduction_receipt_digests=reproduction_receipt_digests,
+            counters=counters.to_dict(),
+            failure_reason=(
+                f"Initial execution outcome {initial_failure_facts.failing_outcome.value} is "
+                f"inconclusive or blocked; cannot initiate repair loop without confirmed failure"
+            ),
+            provenance=provenance,
+        )
 
     current_candidate = initial_candidate
     current_receipt_digest = originating_receipt_digest

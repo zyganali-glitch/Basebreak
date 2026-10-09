@@ -26,12 +26,21 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from basebreak.domain.execution import TerminationStatus
 from basebreak.domain.semantics import ChangeClass
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
-from basebreak.verifier.witness_result import WitnessOutcome
+from basebreak.verifier.witness_result import (
+    NormalizedWitnessResult,
+    WitnessOutcome,
+    build_canonical_witness_result_payload,
+    compute_result_digest,
+)
+
+if TYPE_CHECKING:
+    from basebreak.repair.reproduction import RepairedVerificationReceipt
+
 
 REPAIR_FEEDBACK_SCHEMA_VERSION: str = "1.0.0"
 
@@ -51,6 +60,11 @@ VALID_FAILING_WITNESS_OUTCOMES: frozenset[WitnessOutcome] = frozenset(
 VALID_FAILING_VERDICTS: frozenset[PreliminaryVerdict] = frozenset(
     {
         PreliminaryVerdict.CONTRADICTED,
+    }
+)
+
+INCONCLUSIVE_OR_BLOCKED_VERDICTS: frozenset[PreliminaryVerdict] = frozenset(
+    {
         PreliminaryVerdict.INCONCLUSIVE,
         PreliminaryVerdict.BLOCKED,
     }
@@ -167,6 +181,7 @@ class FailedExecutionFacts:
     counterexample_expected: str | None = None
     deterministic_failure_justification: str | None = None
     failing_outcome: WitnessOutcome | PreliminaryVerdict | None = None
+    verified_evidence: NormalizedWitnessResult | RepairedVerificationReceipt | None = None
 
     def __post_init__(self) -> None:
         if self.exit_code is not None and not isinstance(self.exit_code, int):
@@ -207,6 +222,12 @@ class FailedExecutionFacts:
                     f"Passing or partially passing outcome {self.failing_outcome.value!r} "
                     "cannot justify failed execution."
                 )
+            if self.failing_outcome in INCONCLUSIVE_OR_BLOCKED_VERDICTS:
+                raise RepairFeedbackIntegrityError(
+                    f"PreliminaryVerdict.{self.failing_outcome.value} cannot be interpreted as "
+                    "confirmed behavioral failure. Inconclusive and blocked states cannot "
+                    "authorize repair."
+                )
             if self.failing_outcome == PreliminaryVerdict.NOT_RUN:
                 raise RepairFeedbackIntegrityError(
                     "Non-execution verdict NOT_RUN cannot justify failed execution."
@@ -216,16 +237,164 @@ class FailedExecutionFacts:
                     f"Unsupported outcome {self.failing_outcome!r} cannot justify failed execution."
                 )
 
-        # Repair A: Reject exit_code=0 as evidence of failed execution unless backed
-        # by a genuine validated deterministic failing witness/verdict outcome bound
-        # to the same execution identity. Free-form justification text is not proof.
+        # Validate verified_evidence if provided
+        if self.verified_evidence is not None:
+            from basebreak.repair.reproduction import (
+                RepairedVerificationReceipt,
+                verify_repaired_receipt_integrity,
+            )
+
+            if not isinstance(
+                self.verified_evidence, (NormalizedWitnessResult, RepairedVerificationReceipt)
+            ):
+                raise RepairFeedbackIntegrityError(
+                    f"verified_evidence must be a genuine NormalizedWitnessResult or "
+                    f"RepairedVerificationReceipt instance, got "
+                    f"{type(self.verified_evidence).__name__}. "
+                    "Arbitrary or fabricated objects cannot authorize repair."
+                )
+
+            if isinstance(self.verified_evidence, NormalizedWitnessResult):
+                payload = build_canonical_witness_result_payload(
+                    witness_id=self.verified_evidence.witness_id,
+                    witness_digest=self.verified_evidence.witness_digest,
+                    frozen_contract_digest=self.verified_evidence.frozen_contract_digest,
+                    requirement_id=self.verified_evidence.requirement_id,
+                    sandbox_id=self.verified_evidence.sandbox_id,
+                    source_commit_id=self.verified_evidence.source_commit_id,
+                    world=self.verified_evidence.world,
+                    outcome=self.verified_evidence.outcome,
+                    exit_code=self.verified_evidence.exit_code,
+                    termination_status=self.verified_evidence.termination_status,
+                    stdout_digest=self.verified_evidence.stdout_digest,
+                    stderr_digest=self.verified_evidence.stderr_digest,
+                    duration_seconds=self.verified_evidence.duration_seconds,
+                    provenance=self.verified_evidence.provenance,
+                )
+                expected_digest = compute_result_digest(payload)
+                if self.verified_evidence.result_digest != expected_digest:
+                    raise RepairFeedbackIntegrityError(
+                        "NormalizedWitnessResult failed cryptographic digest verification."
+                    )
+                if self.verified_evidence.outcome == WitnessOutcome.PASS:
+                    raise RepairFeedbackIntegrityError(
+                        "Cannot derive failed execution facts from successful witness result "
+                        "(outcome=PASS)."
+                    )
+                # Bind execution identity and facts
+                if (
+                    self.execution_digest is not None
+                    and self.execution_digest != self.verified_evidence.result_digest
+                ):
+                    raise RepairFeedbackIntegrityError(
+                        f"execution_digest ({self.execution_digest!r}) does not match "
+                        f"verified witness result_digest ({self.verified_evidence.result_digest!r})"
+                    )
+                if (
+                    self.sandbox_id is not None
+                    and self.sandbox_id != self.verified_evidence.sandbox_id
+                ):
+                    raise RepairFeedbackIntegrityError(
+                        f"sandbox_id ({self.sandbox_id!r}) does not match "
+                        f"verified witness sandbox_id ({self.verified_evidence.sandbox_id!r})"
+                    )
+                if (
+                    self.exit_code is not None
+                    and self.exit_code != self.verified_evidence.exit_code
+                ):
+                    raise RepairFeedbackIntegrityError(
+                        f"exit_code ({self.exit_code}) does not match "
+                        f"verified witness exit_code ({self.verified_evidence.exit_code})"
+                    )
+                if (
+                    self.failing_outcome is not None
+                    and self.failing_outcome != self.verified_evidence.outcome
+                ):
+                    raise RepairFeedbackIntegrityError(
+                        f"failing_outcome ({self.failing_outcome}) does not match "
+                        f"verified witness outcome ({self.verified_evidence.outcome})"
+                    )
+
+            elif isinstance(self.verified_evidence, RepairedVerificationReceipt):
+                if not verify_repaired_receipt_integrity(self.verified_evidence):
+                    raise RepairFeedbackIntegrityError(
+                        "RepairedVerificationReceipt failed cryptographic integrity verification."
+                    )
+                if self.verified_evidence.grants_pass:
+                    raise RepairFeedbackIntegrityError(
+                        "Cannot derive failed execution facts from passing reproduction receipt "
+                        "(grants_pass=True)."
+                    )
+                if self.verified_evidence.preliminary_verdict in (
+                    PreliminaryVerdict.VERIFIED,
+                    PreliminaryVerdict.PARTIALLY_VERIFIED,
+                ):
+                    raise RepairFeedbackIntegrityError(
+                        "Cannot derive failed execution facts from verified reproduction receipt."
+                    )
+                if self.verified_evidence.preliminary_verdict in INCONCLUSIVE_OR_BLOCKED_VERDICTS:
+                    raise RepairFeedbackIntegrityError(
+                        f"RepairedVerificationReceipt verdict "
+                        f"{self.verified_evidence.preliminary_verdict.value} is "
+                        "inconclusive/blocked and cannot be interpreted as "
+                        "confirmed behavioral failure."
+                    )
+                # Bind execution identity and facts
+                if (
+                    self.execution_digest is not None
+                    and self.execution_digest != self.verified_evidence.receipt_digest
+                ):
+                    raise RepairFeedbackIntegrityError(
+                        f"execution_digest ({self.execution_digest!r}) does not match "
+                        f"verified reproduction receipt_digest "
+                        f"({self.verified_evidence.receipt_digest!r})"
+                    )
+                if (
+                    self.sandbox_id is not None
+                    and self.sandbox_id != self.verified_evidence.sandbox_id
+                ):
+                    raise RepairFeedbackIntegrityError(
+                        f"sandbox_id ({self.sandbox_id!r}) does not match "
+                        f"verified reproduction sandbox_id ({self.verified_evidence.sandbox_id!r})"
+                    )
+                if (
+                    self.exit_code is not None
+                    and self.exit_code != self.verified_evidence.exit_code
+                ):
+                    raise RepairFeedbackIntegrityError(
+                        f"exit_code ({self.exit_code}) does not match "
+                        f"verified reproduction exit_code ({self.verified_evidence.exit_code})"
+                    )
+                if self.failing_outcome is not None and self.failing_outcome not in (
+                    self.verified_evidence.witness_outcome,
+                    self.verified_evidence.preliminary_verdict,
+                ):
+                    raise RepairFeedbackIntegrityError(
+                        f"failing_outcome ({self.failing_outcome}) does not match "
+                        f"verified reproduction outcome ({self.verified_evidence.witness_outcome}) "
+                        f"or verdict ({self.verified_evidence.preliminary_verdict})"
+                    )
+
+        # Reject exit_code=0 as evidence of failed execution unless backed
+        # by a trusted, integrity-verified failing witness result or reproduction receipt
+        # bound to the same execution identity. Standalone caller-asserted failing enums
+        # and synthetic digests cannot authorize repair.
         if self.exit_code == 0:
-            if self.failing_outcome is None:
+            if self.verified_evidence is None:
                 raise RepairFeedbackIntegrityError(
                     "exit_code=0 cannot be accepted as evidence of failed execution "
-                    "without a genuine validated deterministic failing witness/verdict outcome "
-                    "(WitnessOutcome or PreliminaryVerdict). Free-form justification text "
-                    "cannot authorize repair."
+                    "without a trusted, integrity-verified failing witness result or "
+                    "reproduction receipt "
+                    "(NormalizedWitnessResult or RepairedVerificationReceipt). "
+                    "Standalone caller-asserted failing enums and synthetic digests cannot "
+                    "authorize repair."
+                )
+            if self.failing_outcome not in (WitnessOutcome.FAIL, PreliminaryVerdict.CONTRADICTED):
+                raise RepairFeedbackIntegrityError(
+                    f"exit_code=0 requires demonstrated behavioral failure (WitnessOutcome.FAIL or "
+                    f"PreliminaryVerdict.CONTRADICTED), got {self.failing_outcome!r}. "
+                    "Infrastructure, timeout, inconclusive, or blocked outcomes "
+                    "cannot justify exit_code=0 failure."
                 )
             if self.execution_digest is None or is_dummy_or_invalid_digest(self.execution_digest):
                 raise RepairFeedbackIntegrityError(
@@ -237,10 +406,10 @@ class FailedExecutionFacts:
                     f"Contradictory execution state: exit_code=0 with "
                     f"termination_status={self.termination_status.value}"
                 )
-            if self.failing_outcome == WitnessOutcome.TIMEOUT:
+            if self.condition_category == FailureConditionCategory.UNEXPECTED_TERMINATION:
                 raise RepairFeedbackIntegrityError(
-                    "Contradictory execution state: exit_code=0 cannot be combined with "
-                    "WitnessOutcome.TIMEOUT"
+                    "Contradictory execution state: exit_code=0 cannot have condition category "
+                    "UNEXPECTED_TERMINATION."
                 )
 
         # Contradiction check: TIMED_OUT status cannot collapse into WitnessOutcome.FAIL
@@ -272,71 +441,85 @@ class FailedExecutionFacts:
             raise RepairFeedbackIntegrityError(
                 "Cannot derive failed execution facts from missing reproduction receipt."
             )
-        if getattr(receipt, "grants_pass", False) is True:
+        from basebreak.repair.reproduction import (
+            RepairedVerificationReceipt,
+            verify_repaired_receipt_integrity,
+        )
+
+        if not isinstance(receipt, RepairedVerificationReceipt):
+            raise RepairFeedbackIntegrityError(
+                "from_reproduction_receipt requires a genuine RepairedVerificationReceipt "
+                f"instance, got {type(receipt).__name__}. "
+                "Arbitrary or fabricated objects cannot authorize repair."
+            )
+        if not verify_repaired_receipt_integrity(receipt):
+            raise RepairFeedbackIntegrityError(
+                "RepairedVerificationReceipt failed cryptographic integrity verification."
+            )
+        if receipt.grants_pass is True:
             raise RepairFeedbackIntegrityError(
                 "Cannot derive failed execution facts from passing reproduction receipt "
                 "(grants_pass=True)."
             )
-        witness_outcome = getattr(receipt, "witness_outcome", None)
-        if witness_outcome is None:
-            raise RepairFeedbackIntegrityError(
-                "Malformed reproduction receipt: missing witness_outcome."
-            )
-        outcome_str = getattr(witness_outcome, "value", str(witness_outcome))
-        if outcome_str == "PASS" or witness_outcome == WitnessOutcome.PASS:
+        if receipt.witness_outcome == WitnessOutcome.PASS:
             raise RepairFeedbackIntegrityError(
                 "Cannot derive failed execution facts from passing reproduction receipt "
                 "(witness_outcome=PASS)."
             )
-        if getattr(receipt, "preliminary_verdict", None) == PreliminaryVerdict.VERIFIED:
+        if receipt.preliminary_verdict in (
+            PreliminaryVerdict.VERIFIED,
+            PreliminaryVerdict.PARTIALLY_VERIFIED,
+        ):
             raise RepairFeedbackIntegrityError(
                 "Cannot derive failed execution facts from verified reproduction receipt "
-                "(preliminary_verdict=VERIFIED)."
+                f"({receipt.preliminary_verdict.value})."
             )
-        if getattr(receipt, "preliminary_verdict", None) == PreliminaryVerdict.PARTIALLY_VERIFIED:
+        if receipt.preliminary_verdict in INCONCLUSIVE_OR_BLOCKED_VERDICTS:
             raise RepairFeedbackIntegrityError(
-                "Cannot derive failed execution facts from partially verified reproduction receipt "
-                "(preliminary_verdict=PARTIALLY_VERIFIED)."
+                f"RepairedVerificationReceipt verdict {receipt.preliminary_verdict.value} "
+                "is inconclusive/blocked and cannot be interpreted as confirmed behavioral failure."
+            )
+        if receipt.witness_outcome not in VALID_FAILING_WITNESS_OUTCOMES:
+            raise RepairFeedbackIntegrityError(
+                f"Reproduction receipt has unsupported outcome: {receipt.witness_outcome!r}"
             )
 
-        if not isinstance(witness_outcome, WitnessOutcome):
-            raise RepairFeedbackIntegrityError(
-                f"Reproduction receipt witness_outcome must be a WitnessOutcome instance, "
-                f"got {type(witness_outcome).__name__}"
-            )
-        if witness_outcome not in VALID_FAILING_WITNESS_OUTCOMES:
-            raise RepairFeedbackIntegrityError(
-                f"Reproduction receipt has unsupported outcome: {witness_outcome!r}"
-            )
-
-        exit_code = getattr(receipt, "exit_code", None)
+        outcome_str = receipt.witness_outcome.value
+        exit_code = receipt.exit_code
         justification = f"Deterministic reproduction failure outcome validated: {outcome_str}"
 
         category = FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED
         if outcome_str in ("TIMEOUT", "ERROR"):
             category = FailureConditionCategory.UNEXPECTED_TERMINATION
 
-        receipt_digest = getattr(receipt, "receipt_digest", None)
-        if not receipt_digest or is_dummy_or_invalid_digest(receipt_digest):
+        if not receipt.receipt_digest or is_dummy_or_invalid_digest(receipt.receipt_digest):
             raise RepairFeedbackIntegrityError(
-                f"Reproduction receipt has missing or dummy receipt_digest: {receipt_digest!r}"
+                "Reproduction receipt has missing or dummy receipt_digest: "
+                f"{receipt.receipt_digest!r}"
             )
 
-        sandbox_id = getattr(receipt, "sandbox_id", None)
-        if not sandbox_id or not str(sandbox_id).strip():
+        if not receipt.sandbox_id or not str(receipt.sandbox_id).strip():
             raise RepairFeedbackIntegrityError(
-                f"Reproduction receipt has missing or empty sandbox_id: {sandbox_id!r}"
+                f"Reproduction receipt has missing or empty sandbox_id: {receipt.sandbox_id!r}"
             )
+
+        if exit_code == 0:
+            if receipt.witness_outcome != WitnessOutcome.FAIL:
+                raise RepairFeedbackIntegrityError(
+                    f"Reproduction receipt with exit_code=0 must have witness_outcome=FAIL, "
+                    f"got {receipt.witness_outcome.value}"
+                )
 
         return cls(
             exit_code=exit_code,
             failure_message=f"Reproduction outcome: {outcome_str}",
-            sandbox_id=sandbox_id,
-            execution_digest=receipt_digest,
+            sandbox_id=receipt.sandbox_id,
+            execution_digest=receipt.receipt_digest,
             condition_category=category,
-            duration_seconds=getattr(receipt, "duration_seconds", None),
+            duration_seconds=receipt.duration_seconds,
             deterministic_failure_justification=justification,
-            failing_outcome=witness_outcome,
+            failing_outcome=receipt.witness_outcome,
+            verified_evidence=receipt,
         )
 
     @classmethod
@@ -346,58 +529,81 @@ class FailedExecutionFacts:
             raise RepairFeedbackIntegrityError(
                 "Cannot derive failed execution facts from missing witness result."
             )
-        outcome = getattr(result, "outcome", None)
-        if outcome is None:
+        if not isinstance(result, NormalizedWitnessResult):
             raise RepairFeedbackIntegrityError(
-                "Malformed witness result: missing outcome attribute."
+                "from_witness_result requires a genuine NormalizedWitnessResult instance, "
+                f"got {type(result).__name__}. "
+                "Arbitrary or fabricated objects cannot authorize repair."
             )
-        outcome_str = getattr(outcome, "value", str(outcome))
-        if outcome_str == "PASS" or outcome == WitnessOutcome.PASS:
+
+        # Verify cryptographic digest
+        payload = build_canonical_witness_result_payload(
+            witness_id=result.witness_id,
+            witness_digest=result.witness_digest,
+            frozen_contract_digest=result.frozen_contract_digest,
+            requirement_id=result.requirement_id,
+            sandbox_id=result.sandbox_id,
+            source_commit_id=result.source_commit_id,
+            world=result.world,
+            outcome=result.outcome,
+            exit_code=result.exit_code,
+            termination_status=result.termination_status,
+            stdout_digest=result.stdout_digest,
+            stderr_digest=result.stderr_digest,
+            duration_seconds=result.duration_seconds,
+            provenance=result.provenance,
+        )
+        if compute_result_digest(payload) != result.result_digest:
+            raise RepairFeedbackIntegrityError(
+                "NormalizedWitnessResult failed cryptographic digest verification."
+            )
+
+        if result.outcome == WitnessOutcome.PASS:
             raise RepairFeedbackIntegrityError(
                 f"Cannot derive failed execution facts from successful witness result "
-                f"(outcome={outcome_str})."
+                f"(outcome={result.outcome.value})."
+            )
+        if result.outcome not in VALID_FAILING_WITNESS_OUTCOMES:
+            raise RepairFeedbackIntegrityError(
+                f"Witness result has unsupported outcome: {result.outcome!r}"
             )
 
-        if not isinstance(outcome, WitnessOutcome):
-            raise RepairFeedbackIntegrityError(
-                f"Witness result outcome must be a WitnessOutcome instance, "
-                f"got {type(outcome).__name__}"
-            )
-        if outcome not in VALID_FAILING_WITNESS_OUTCOMES:
-            raise RepairFeedbackIntegrityError(
-                f"Witness result has unsupported outcome: {outcome!r}"
-            )
-
-        exit_code = getattr(result, "exit_code", None)
+        outcome_str = result.outcome.value
+        exit_code = result.exit_code
         justification = f"Deterministic witness failure outcome validated: {outcome_str}"
 
         category = FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED
         if outcome_str in ("TIMEOUT", "ERROR"):
             category = FailureConditionCategory.UNEXPECTED_TERMINATION
-        term_status = getattr(result, "termination_status", TerminationStatus.COMPLETED)
 
-        result_digest = getattr(result, "result_digest", None)
-        if not result_digest or is_dummy_or_invalid_digest(result_digest):
+        if not result.result_digest or is_dummy_or_invalid_digest(result.result_digest):
             raise RepairFeedbackIntegrityError(
-                f"Witness result has missing or dummy result_digest: {result_digest!r}"
+                f"Witness result has missing or dummy result_digest: {result.result_digest!r}"
             )
 
-        sandbox_id = getattr(result, "sandbox_id", None)
-        if not sandbox_id or not str(sandbox_id).strip():
+        if not result.sandbox_id or not str(result.sandbox_id).strip():
             raise RepairFeedbackIntegrityError(
-                f"Witness result has missing or empty sandbox_id: {sandbox_id!r}"
+                f"Witness result has missing or empty sandbox_id: {result.sandbox_id!r}"
             )
+
+        if exit_code == 0:
+            if result.outcome != WitnessOutcome.FAIL:
+                raise RepairFeedbackIntegrityError(
+                    f"Witness result with exit_code=0 must have outcome=FAIL, "
+                    f"got {result.outcome.value}"
+                )
 
         return cls(
             exit_code=exit_code,
-            termination_status=term_status,
+            termination_status=result.termination_status,
             failure_message=f"Witness outcome: {outcome_str}",
-            sandbox_id=sandbox_id,
-            execution_digest=result_digest,
+            sandbox_id=result.sandbox_id,
+            execution_digest=result.result_digest,
             condition_category=category,
-            duration_seconds=getattr(result, "duration_seconds", None),
+            duration_seconds=result.duration_seconds,
             deterministic_failure_justification=justification,
-            failing_outcome=outcome,
+            failing_outcome=result.outcome,
+            verified_evidence=result,
         )
 
     @classmethod
@@ -418,8 +624,15 @@ class FailedExecutionFacts:
         termination_status: TerminationStatus = TerminationStatus.COMPLETED,
         deterministic_failure_justification: str | None = None,
         failing_outcome: WitnessOutcome | PreliminaryVerdict | None = None,
+        verified_evidence: NormalizedWitnessResult | RepairedVerificationReceipt | None = None,
     ) -> FailedExecutionFacts:
         if exit_code == 0:
+            if verified_evidence is None:
+                raise RepairFeedbackIntegrityError(
+                    "from_execution cannot accept exit_code=0 without trusted, integrity-verified "
+                    "execution evidence (NormalizedWitnessResult or RepairedVerificationReceipt). "
+                    "Standalone caller-asserted failing enums cannot authorize repair."
+                )
             if failing_outcome is None:
                 raise RepairFeedbackIntegrityError(
                     "Cannot derive failed execution facts from successful execution (exit_code=0) "
@@ -427,30 +640,22 @@ class FailedExecutionFacts:
                     "(WitnessOutcome or PreliminaryVerdict). "
                     "Free-form justification text cannot authorize repair."
                 )
-            if not isinstance(failing_outcome, (WitnessOutcome, PreliminaryVerdict)):
+            if failing_outcome not in (WitnessOutcome.FAIL, PreliminaryVerdict.CONTRADICTED):
                 raise RepairFeedbackIntegrityError(
-                    "failing_outcome must be a typed WitnessOutcome or PreliminaryVerdict enum "
-                    f"instance, got {type(failing_outcome).__name__} ({failing_outcome!r}). "
-                    "Arbitrary strings and fabricated outcome names cannot authorize repair."
-                )
-            if failing_outcome in FORBIDDEN_PASSING_OUTCOMES:
-                raise RepairFeedbackIntegrityError(
-                    f"Passing or partially passing outcome {failing_outcome.value!r} "
-                    "cannot justify failed execution."
-                )
-            if failing_outcome == PreliminaryVerdict.NOT_RUN:
-                raise RepairFeedbackIntegrityError(
-                    "Non-execution verdict NOT_RUN cannot justify failed execution."
-                )
-            if failing_outcome not in VALID_FAILING_OUTCOMES:
-                raise RepairFeedbackIntegrityError(
-                    f"Unsupported outcome {failing_outcome!r} cannot justify failed execution."
+                    f"exit_code=0 requires demonstrated behavioral failure (WitnessOutcome.FAIL or "
+                    f"PreliminaryVerdict.CONTRADICTED), got {failing_outcome!r}."
                 )
             if execution_digest is None or is_dummy_or_invalid_digest(execution_digest):
                 raise RepairFeedbackIntegrityError(
                     "exit_code=0 requires a valid execution_digest bound to the "
                     f"deterministic failing outcome, got {execution_digest!r}"
                 )
+
+        if failing_outcome in INCONCLUSIVE_OR_BLOCKED_VERDICTS:
+            raise RepairFeedbackIntegrityError(
+                f"PreliminaryVerdict.{failing_outcome.value} cannot be interpreted as confirmed "
+                "behavioral failure."
+            )
 
         if (
             exit_code is None
@@ -479,6 +684,7 @@ class FailedExecutionFacts:
             counterexample_expected=counterexample_expected,
             deterministic_failure_justification=deterministic_failure_justification,
             failing_outcome=failing_outcome,
+            verified_evidence=verified_evidence,
         )
 
 
@@ -829,13 +1035,18 @@ def derive_safe_repair_feedback(
             )
 
     if failed_facts.exit_code == 0:
-        if (
-            failed_facts.failing_outcome is None
-            or failed_facts.failing_outcome not in VALID_FAILING_OUTCOMES
+        if failed_facts.verified_evidence is None:
+            raise RepairFeedbackIntegrityError(
+                "Cannot derive repair feedback from execution with exit_code=0 "
+                "without trusted, integrity-verified execution evidence."
+            )
+        if failed_facts.failing_outcome is None or failed_facts.failing_outcome not in (
+            WitnessOutcome.FAIL,
+            PreliminaryVerdict.CONTRADICTED,
         ):
             raise RepairFeedbackIntegrityError(
                 "Cannot derive repair feedback from execution with exit_code=0 "
-                "without a validated deterministic failing outcome bound to execution identity."
+                "without a demonstrated behavioral failure outcome."
             )
         if failed_facts.execution_digest is None or is_dummy_or_invalid_digest(
             failed_facts.execution_digest
@@ -844,6 +1055,12 @@ def derive_safe_repair_feedback(
                 "Cannot derive repair feedback from execution with exit_code=0 "
                 "without a valid execution_digest bound to the deterministic failing outcome."
             )
+
+    if failed_facts.failing_outcome in INCONCLUSIVE_OR_BLOCKED_VERDICTS:
+        raise RepairFeedbackIntegrityError(
+            f"failing_outcome {failed_facts.failing_outcome.value} is inconclusive or blocked "
+            "and cannot authorize repair."
+        )
 
     # 1. Derive observed behavior from actual execution facts
     if failed_facts.exit_code == 0:

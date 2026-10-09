@@ -22,6 +22,7 @@ from basebreak.compiler.semantics import (
     ChangeSemanticsClassification,
     DeterministicClassificationFact,
 )
+from basebreak.domain.causal import ExecutionWorld
 from basebreak.domain.execution import SandboxIdentity, TerminationStatus
 from basebreak.domain.source import CommitRevision, SourceIdentity
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
@@ -45,10 +46,19 @@ from basebreak.repair.feedback import (
     RepairFeedbackIntegrityError,
     derive_safe_repair_feedback,
 )
+from basebreak.repair.reproduction import (
+    RepairedVerificationReceipt,
+    create_repaired_verification_receipt,
+)
 from basebreak.repair.sanitizer import DisclosureSanitizer
 from basebreak.verifier.sandbox import VerifierSandboxManager
 from basebreak.verifier.witness_lock import ImmutableWitnessLock, create_witness_lock
-from basebreak.verifier.witness_result import WitnessOutcome
+from basebreak.verifier.witness_result import (
+    NormalizedWitnessResult,
+    WitnessOutcome,
+    build_canonical_witness_result_payload,
+    compute_result_digest,
+)
 from basebreak.verifier.witness_store import (
     SealedWitnessRecord,
     TrustedWitnessVault,
@@ -1247,8 +1257,90 @@ def test_repair_loop_missing_initial_facts_fails_closed() -> None:
     assert receipt3.total_rounds == 0
 
 
+def _make_valid_witness_result(
+    *,
+    outcome: WitnessOutcome = WitnessOutcome.FAIL,
+    exit_code: int = 0,
+    sandbox_id: str = "sbx-test",
+    witness_id: str = "wit-test",
+    source_commit: str = "a" * 40,
+    contract_digest: str = "c" * 64,
+    witness_digest: str = "1" * 64,
+) -> NormalizedWitnessResult:
+    payload = build_canonical_witness_result_payload(
+        witness_id=witness_id,
+        witness_digest=witness_digest,
+        frozen_contract_digest=contract_digest,
+        requirement_id="REQ-01",
+        sandbox_id=sandbox_id,
+        source_commit_id=source_commit,
+        world=ExecutionWorld.CANDIDATE,
+        outcome=outcome,
+        exit_code=exit_code,
+        termination_status=TerminationStatus.COMPLETED,
+        stdout_digest="f" * 64,
+        stderr_digest="f" * 64,
+        duration_seconds=0.5,
+        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+    )
+    digest = compute_result_digest(payload)
+    return NormalizedWitnessResult(
+        witness_id=witness_id,
+        witness_digest=witness_digest,
+        frozen_contract_digest=contract_digest,
+        requirement_id="REQ-01",
+        sandbox_id=sandbox_id,
+        source_commit_id=source_commit,
+        world=ExecutionWorld.CANDIDATE,
+        outcome=outcome,
+        exit_code=exit_code,
+        termination_status=TerminationStatus.COMPLETED,
+        stdout_digest="f" * 64,
+        stderr_digest="f" * 64,
+        stdout_clean="FAILED test - AssertionError",
+        stderr_clean="",
+        duration_seconds=0.5,
+        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        result_digest=digest,
+    )
+
+
+def _make_valid_reproduction_receipt(
+    *,
+    witness_outcome: WitnessOutcome = WitnessOutcome.FAIL,
+    preliminary_verdict: PreliminaryVerdict = PreliminaryVerdict.CONTRADICTED,
+    exit_code: int = 0,
+    sandbox_id: str = "sbx-test",
+    grants_pass: bool = False,
+    is_causally_verified: bool = False,
+) -> RepairedVerificationReceipt:
+    return create_repaired_verification_receipt(
+        receipt_id="RVR-test123456",
+        repaired_candidate_id="cand-repaired",
+        repaired_patch_digest="1" * 64,
+        repaired_tree_digest="1" * 40,
+        parent_candidate_id="cand-parent",
+        lineage_digest="2" * 64,
+        feedback_round=1,
+        requirement_id="REQ-01",
+        change_class=ChangeClass.BUG_FIX,
+        frozen_contract_digest="3" * 64,
+        witness_digest="4" * 64,
+        lock_digest="5" * 64,
+        sandbox_id=sandbox_id,
+        witness_outcome=witness_outcome,
+        exit_code=exit_code,
+        duration_seconds=0.5,
+        preliminary_verdict=preliminary_verdict,
+        is_causally_verified=is_causally_verified,
+        grants_pass=grants_pass,
+        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        created_at="2026-10-09T00:00:00Z",
+    )
+
+
 def test_failed_execution_facts_rejects_successful_execution() -> None:
-    # 1. Direct constructor with exit_code=0 without justification
+    # 1. Direct constructor with exit_code=0 without verified evidence
     with pytest.raises(RepairFeedbackIntegrityError, match="exit_code=0 cannot be accepted"):
         FailedExecutionFacts(
             exit_code=0,
@@ -1257,8 +1349,10 @@ def test_failed_execution_facts_rejects_successful_execution() -> None:
             execution_digest="a" * 64,
         )
 
-    # 2. from_execution with exit_code=0 without justification
-    with pytest.raises(RepairFeedbackIntegrityError, match="successful execution"):
+    # 2. from_execution with exit_code=0 without verified evidence
+    with pytest.raises(
+        RepairFeedbackIntegrityError, match="from_execution cannot accept exit_code=0"
+    ):
         FailedExecutionFacts.from_execution(
             exit_code=0,
             failure_indicator="Nothing failed",
@@ -1267,28 +1361,16 @@ def test_failed_execution_facts_rejects_successful_execution() -> None:
         )
 
     # 3. from_witness_result with outcome=PASS
-    witness_pass = SimpleNamespace(
-        witness_id="wit-test",
-        sandbox_id="sbx-test",
-        exit_code=0,
-        outcome=WitnessOutcome.PASS,
-        result_digest="b" * 64,
-    )
+    witness_pass = _make_valid_witness_result(outcome=WitnessOutcome.PASS, exit_code=0)
     with pytest.raises(RepairFeedbackIntegrityError, match="successful witness result"):
         FailedExecutionFacts.from_witness_result(witness_pass)
 
     # 4. from_reproduction_receipt with grants_pass=True
-    receipt_pass = SimpleNamespace(
-        receipt_id="RVR-test-pass",
-        repaired_candidate_id="cand-test",
-        sandbox_id="sbx-test",
-        exit_code=0,
+    receipt_pass = _make_valid_reproduction_receipt(
         witness_outcome=WitnessOutcome.PASS,
         preliminary_verdict=PreliminaryVerdict.VERIFIED,
-        is_causally_verified=True,
         grants_pass=True,
-        duration_seconds=1.0,
-        receipt_digest="c" * 64,
+        is_causally_verified=True,
     )
     with pytest.raises(RepairFeedbackIntegrityError, match="passing reproduction receipt"):
         FailedExecutionFacts.from_reproduction_receipt(receipt_pass)
@@ -1296,17 +1378,11 @@ def test_failed_execution_facts_rejects_successful_execution() -> None:
 
 def test_failed_execution_facts_exit_code_zero_with_deterministic_failing_outcome() -> None:
     # Legitimate behavior-failure-with-exit-0 backed by validated deterministic failing outcome
-    facts = FailedExecutionFacts(
-        exit_code=0,
-        failure_message="Exit 0 but behavioral invariant violated",
-        sandbox_id="sbx-test",
-        execution_digest="d" * 64,
-        failing_outcome=WitnessOutcome.FAIL,
-        deterministic_failure_justification="Silent failure: output contained forbidden token",
-    )
+    wit = _make_valid_witness_result(exit_code=0, outcome=WitnessOutcome.FAIL)
+    facts = FailedExecutionFacts.from_witness_result(wit)
     assert facts.exit_code == 0
     assert facts.failing_outcome == WitnessOutcome.FAIL
-    assert facts.deterministic_failure_justification is not None
+    assert facts.verified_evidence is wit
 
     san = DisclosureSanitizer()
     fb = derive_safe_repair_feedback(
@@ -1315,13 +1391,13 @@ def test_failed_execution_facts_exit_code_zero_with_deterministic_failing_outcom
         change_class=ChangeClass.BUG_FIX,
         failed_facts=facts,
         sanitizer=san,
-        originating_receipt_digest="d" * 64,
+        originating_receipt_digest=wit.result_digest,
         feedback_round=1,
         permitted_patch_region=["a.py"],
         provenance=EvidenceProvenance.LOCAL_EXECUTION,
     )
     assert "FAIL" in fb.observed_behavior
-    assert fb.originating_receipt_digest == "d" * 64
+    assert fb.originating_receipt_digest == wit.result_digest
 
 
 def test_failed_facts_exit_0_rejects_arbitrary_string_justification() -> None:
@@ -1336,10 +1412,10 @@ def test_failed_facts_exit_0_rejects_arbitrary_string_justification() -> None:
             failing_outcome=None,
         )
 
-    # from_execution also rejects arbitrary string justification without failing outcome
+    # from_execution also rejects arbitrary string justification without verified evidence
     with pytest.raises(
         RepairFeedbackIntegrityError,
-        match="without a genuine validated deterministic failing outcome",
+        match="from_execution cannot accept exit_code=0",
     ):
         FailedExecutionFacts.from_execution(
             exit_code=0,
@@ -1433,19 +1509,22 @@ def test_failed_facts_exit_0_rejects_passing_and_unsupported_outcomes() -> None:
             failing_outcome=PreliminaryVerdict.NOT_RUN,
         )
 
-    # 5. Contradictory outcome: WitnessOutcome.TIMEOUT with exit_code=0
-    with pytest.raises(RepairFeedbackIntegrityError, match="Contradictory execution state"):
+    # 5. Contradictory outcome: WitnessOutcome.TIMEOUT with exit_code=0 and verified evidence
+    wit_timeout = _make_valid_witness_result(exit_code=0, outcome=WitnessOutcome.TIMEOUT)
+    with pytest.raises(RepairFeedbackIntegrityError, match="demonstrated behavioral failure"):
         FailedExecutionFacts(
             exit_code=0,
             failure_message="Timed out but exited 0",
-            sandbox_id="sbx-test",
-            execution_digest="d" * 64,
+            sandbox_id=wit_timeout.sandbox_id,
+            execution_digest=wit_timeout.result_digest,
             failing_outcome=WitnessOutcome.TIMEOUT,
+            verified_evidence=wit_timeout,
         )
 
 
 def test_failed_facts_exit_0_rejects_missing_or_dummy_execution_digest() -> None:
-    # 1. Missing execution_digest with exit_code=0
+    wit = _make_valid_witness_result(exit_code=0, outcome=WitnessOutcome.FAIL)
+    # 1. Missing execution_digest with exit_code=0 even with verified_evidence
     with pytest.raises(
         RepairFeedbackIntegrityError,
         match="requires a valid non-dummy execution_digest",
@@ -1453,9 +1532,10 @@ def test_failed_facts_exit_0_rejects_missing_or_dummy_execution_digest() -> None
         FailedExecutionFacts(
             exit_code=0,
             failure_message="Exit 0",
-            sandbox_id="sbx-test",
+            sandbox_id=wit.sandbox_id,
             execution_digest=None,
             failing_outcome=WitnessOutcome.FAIL,
+            verified_evidence=wit,
         )
 
     # 2. Dummy all-zero execution_digest with exit_code=0
@@ -1463,67 +1543,229 @@ def test_failed_facts_exit_0_rejects_missing_or_dummy_execution_digest() -> None
         FailedExecutionFacts(
             exit_code=0,
             failure_message="Exit 0",
-            sandbox_id="sbx-test",
+            sandbox_id=wit.sandbox_id,
             execution_digest="0" * 64,
+            failing_outcome=WitnessOutcome.FAIL,
+            verified_evidence=wit,
+        )
+
+
+def test_failed_facts_exit_0_rejects_standalone_caller_asserted_enums_and_invented_digests() -> (
+    None
+):
+    # 1. Standalone FailedExecutionFacts with exit_code=0 and typed WitnessOutcome.FAIL
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="exit_code=0 cannot be accepted as evidence of failed execution without a trusted",
+    ):
+        FailedExecutionFacts(
+            exit_code=0,
+            failure_message="Exit 0 caller assertion",
+            sandbox_id="sbx-test",
+            execution_digest="a" * 64,
+            failing_outcome=WitnessOutcome.FAIL,
+        )
+
+    # 2. Standalone from_execution with exit_code=0 and valid-format invented digest
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="from_execution cannot accept exit_code=0 without trusted",
+    ):
+        FailedExecutionFacts.from_execution(
+            exit_code=0,
+            execution_digest="b" * 64,
             failing_outcome=WitnessOutcome.FAIL,
         )
 
 
-def test_boundary_helpers_cannot_bypass_exit_code_zero_validation() -> None:
-    # 1. from_execution rejects passing outcome
-    with pytest.raises(RepairFeedbackIntegrityError, match="Passing or partially passing outcome"):
-        FailedExecutionFacts.from_execution(
-            exit_code=0,
-            execution_digest="e" * 64,
-            failing_outcome=WitnessOutcome.PASS,
-        )
-
-    # 2. from_execution rejects string outcome
+def test_failed_facts_rejects_inconclusive_and_blocked_misclassification() -> None:
+    # 1. Direct construction with PreliminaryVerdict.INCONCLUSIVE
     with pytest.raises(
         RepairFeedbackIntegrityError,
-        match="must be a typed WitnessOutcome or PreliminaryVerdict",
+        match="PreliminaryVerdict.INCONCLUSIVE cannot be interpreted",
     ):
-        FailedExecutionFacts.from_execution(
-            exit_code=0,
-            execution_digest="e" * 64,
-            failing_outcome="FAIL",  # type: ignore[arg-type]
+        FailedExecutionFacts(
+            exit_code=1,
+            failure_message="Inconclusive execution",
+            sandbox_id="sbx-test",
+            execution_digest="c" * 64,
+            failing_outcome=PreliminaryVerdict.INCONCLUSIVE,
         )
 
-    # 3. from_witness_result with PASS
-    pass_witness = SimpleNamespace(
-        outcome=WitnessOutcome.PASS,
-        result_digest="e" * 64,
-        sandbox_id="sbx-test",
-        exit_code=0,
-    )
-    with pytest.raises(RepairFeedbackIntegrityError, match="successful witness result"):
-        FailedExecutionFacts.from_witness_result(pass_witness)
+    # 2. Direct construction with PreliminaryVerdict.BLOCKED
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="PreliminaryVerdict.BLOCKED cannot be interpreted",
+    ):
+        FailedExecutionFacts(
+            exit_code=1,
+            failure_message="Blocked prerequisite",
+            sandbox_id="sbx-test",
+            execution_digest="c" * 64,
+            failing_outcome=PreliminaryVerdict.BLOCKED,
+        )
 
-    # 4. from_reproduction_receipt with PASS
-    pass_receipt = SimpleNamespace(
-        grants_pass=False,
-        witness_outcome=WitnessOutcome.PASS,
-        preliminary_verdict=PreliminaryVerdict.VERIFIED,
-        receipt_digest="e" * 64,
-        sandbox_id="sbx-test",
-        exit_code=0,
-    )
-    with pytest.raises(RepairFeedbackIntegrityError, match="passing reproduction receipt"):
-        FailedExecutionFacts.from_reproduction_receipt(pass_receipt)
+    # 3. from_execution with INCONCLUSIVE
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="PreliminaryVerdict.INCONCLUSIVE cannot be interpreted",
+    ):
+        FailedExecutionFacts.from_execution(
+            exit_code=1,
+            execution_digest="c" * 64,
+            failing_outcome=PreliminaryVerdict.INCONCLUSIVE,
+        )
 
-    # 5. Legitimate behavior-failure-with-exit-0 from witness result is preserved
-    failing_witness = SimpleNamespace(
+    # 4. from_execution with BLOCKED
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="PreliminaryVerdict.BLOCKED cannot be interpreted",
+    ):
+        FailedExecutionFacts.from_execution(
+            exit_code=1,
+            execution_digest="c" * 64,
+            failing_outcome=PreliminaryVerdict.BLOCKED,
+        )
+
+
+def test_failed_facts_rejects_fabricated_objects_and_simplenamespace() -> None:
+    # 1. from_witness_result rejects SimpleNamespace
+    fake_wit = SimpleNamespace(
         outcome=WitnessOutcome.FAIL,
         result_digest="e" * 64,
         sandbox_id="sbx-test",
         exit_code=0,
-        termination_status=TerminationStatus.COMPLETED,
-        duration_seconds=0.5,
     )
-    facts = FailedExecutionFacts.from_witness_result(failing_witness)
-    assert facts.exit_code == 0
-    assert facts.failing_outcome == WitnessOutcome.FAIL
-    assert facts.execution_digest == "e" * 64
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="from_witness_result requires a genuine NormalizedWitnessResult instance",
+    ):
+        FailedExecutionFacts.from_witness_result(fake_wit)
+
+    # 2. from_reproduction_receipt rejects SimpleNamespace
+    fake_rcpt = SimpleNamespace(
+        grants_pass=False,
+        witness_outcome=WitnessOutcome.FAIL,
+        preliminary_verdict=PreliminaryVerdict.CONTRADICTED,
+        receipt_digest="e" * 64,
+        sandbox_id="sbx-test",
+        exit_code=0,
+    )
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="from_reproduction_receipt requires a genuine RepairedVerificationReceipt",
+    ):
+        FailedExecutionFacts.from_reproduction_receipt(fake_rcpt)
+
+    # 3. Direct verified_evidence rejects SimpleNamespace
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="verified_evidence must be a genuine NormalizedWitnessResult",
+    ):
+        FailedExecutionFacts(
+            exit_code=0,
+            failure_message="Exit 0",
+            sandbox_id="sbx-test",
+            execution_digest="e" * 64,
+            failing_outcome=WitnessOutcome.FAIL,
+            verified_evidence=fake_wit,  # type: ignore[arg-type]
+        )
+
+
+def test_failed_facts_receipt_and_witness_identity_mismatch_fails_closed() -> None:
+    # 1. Genuine witness with mismatched execution_digest
+    wit = _make_valid_witness_result(exit_code=0, outcome=WitnessOutcome.FAIL)
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="execution_digest .* does not match verified witness result_digest",
+    ):
+        FailedExecutionFacts(
+            exit_code=0,
+            sandbox_id=wit.sandbox_id,
+            execution_digest="9" * 64,
+            failing_outcome=WitnessOutcome.FAIL,
+            verified_evidence=wit,
+        )
+
+    # 2. Genuine witness with mismatched sandbox_id
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="sandbox_id .* does not match verified witness sandbox_id",
+    ):
+        FailedExecutionFacts(
+            exit_code=0,
+            sandbox_id="sbx-wrong",
+            execution_digest=wit.result_digest,
+            failing_outcome=WitnessOutcome.FAIL,
+            verified_evidence=wit,
+        )
+
+    # 3. Genuine witness with mismatched exit_code
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="exit_code .* does not match verified witness exit_code",
+    ):
+        FailedExecutionFacts(
+            exit_code=1,
+            sandbox_id=wit.sandbox_id,
+            execution_digest=wit.result_digest,
+            failing_outcome=WitnessOutcome.FAIL,
+            verified_evidence=wit,
+        )
+
+    # 4. Genuine receipt with mismatched execution_digest
+    rcpt = _make_valid_reproduction_receipt(
+        exit_code=0,
+        witness_outcome=WitnessOutcome.FAIL,
+        preliminary_verdict=PreliminaryVerdict.CONTRADICTED,
+    )
+    with pytest.raises(
+        RepairFeedbackIntegrityError,
+        match="execution_digest .* does not match verified reproduction receipt_digest",
+    ):
+        FailedExecutionFacts(
+            exit_code=0,
+            sandbox_id=rcpt.sandbox_id,
+            execution_digest="8" * 64,
+            failing_outcome=WitnessOutcome.FAIL,
+            verified_evidence=rcpt,
+        )
+
+
+def test_valid_trusted_failure_evidence_exit_code_zero_preserved() -> None:
+    # 1. Genuine NormalizedWitnessResult with exit_code=0
+    wit = _make_valid_witness_result(exit_code=0, outcome=WitnessOutcome.FAIL)
+    facts_wit = FailedExecutionFacts.from_witness_result(wit)
+    assert facts_wit.exit_code == 0
+    assert facts_wit.failing_outcome == WitnessOutcome.FAIL
+    assert facts_wit.execution_digest == wit.result_digest
+    assert facts_wit.verified_evidence is wit
+
+    # Derive safe repair feedback works cleanly
+    sanitizer = DisclosureSanitizer()
+    fb = derive_safe_repair_feedback(
+        candidate_id="cand-0",
+        requirement_id="REQ-01",
+        change_class=ChangeClass.BUG_FIX,
+        failed_facts=facts_wit,
+        sanitizer=sanitizer,
+        originating_receipt_digest=wit.result_digest,
+        feedback_round=1,
+        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+    )
+    assert fb.failed_condition == FailureConditionCategory.BEHAVIORAL_ASSERTION_FAILED
+
+    # 2. Genuine RepairedVerificationReceipt with exit_code=0
+    rcpt = _make_valid_reproduction_receipt(
+        exit_code=0,
+        witness_outcome=WitnessOutcome.FAIL,
+        preliminary_verdict=PreliminaryVerdict.CONTRADICTED,
+    )
+    facts_rcpt = FailedExecutionFacts.from_reproduction_receipt(rcpt)
+    assert facts_rcpt.exit_code == 0
+    assert facts_rcpt.failing_outcome == WitnessOutcome.FAIL
+    assert facts_rcpt.execution_digest == rcpt.receipt_digest
+    assert facts_rcpt.verified_evidence is rcpt
 
 
 def test_repair_loop_incomplete_or_mismatched_execution_identity_fails_closed() -> None:
@@ -1621,20 +1863,37 @@ def test_repair_loop_incomplete_or_mismatched_execution_identity_fails_closed() 
     assert receipt2.status == RepairLoopStatus.INCONCLUSIVE
     assert "Mismatched sandbox identity" in (receipt2.failure_reason or "")
 
-    # 5. Exit code 0 without failing outcome fails closed in run_sealed_repair_loop (Repair A)
-    # Direct construction with exit_code=0 without failing outcome is blocked by
-    # FailedExecutionFacts, but if a bypass attempted to reach run_sealed_repair_loop,
-    # it returns INCONCLUSIVE.
-    zero_exit_facts = FailedExecutionFacts(
+    # 5. Legitimate behavior failure with exit_code=0 backed by verified witness result
+    wit_zero = _make_valid_witness_result(
+        outcome=WitnessOutcome.FAIL,
         exit_code=0,
-        failure_message="Exit 0 but failed assertion",
         sandbox_id="sbx-c0-initial",
-        execution_digest=ORIGINATING_C0_DIGEST,
-        failing_outcome=WitnessOutcome.FAIL,
+        witness_id=sealed_record.witness_id,
+        source_commit=SAMPLE_SOURCE.revision.commit_id,
+        contract_digest=frozen_contract.contract_digest,
+        witness_digest=sealed_record.seal_digest,
     )
-    # With valid failing outcome, it enters the repair loop (here adapter returns 0 -> VERIFIED)
+    zero_exit_facts = FailedExecutionFacts.from_witness_result(wit_zero)
+    # Using candidate snapshot that matches wit_zero
+    cand_matching = CandidateSnapshot(
+        candidate_id=initial_cand.candidate_id,
+        source_identity=initial_cand.source_identity,
+        candidate_tree_digest=initial_cand.candidate_tree_digest,
+        patch_digest=initial_cand.patch_digest,
+        patch_text=initial_cand.patch_text,
+        files_added=initial_cand.files_added,
+        files_modified=initial_cand.files_modified,
+        files_deleted=initial_cand.files_deleted,
+        builder_authored_tests=initial_cand.builder_authored_tests,
+        frozen_contract_digest=initial_cand.frozen_contract_digest,
+        context_digest=initial_cand.context_digest,
+        sandbox_identity=SandboxIdentity("sbx-c0-initial"),
+        provenance=initial_cand.provenance,
+        is_authoritative=False,
+    )
+
     receipt_valid = run_sealed_repair_loop(
-        initial_candidate=initial_cand,
+        initial_candidate=cand_matching,
         frozen_contract=frozen_contract,
         source_identity=SAMPLE_SOURCE,
         sealed_record=sealed_record,
@@ -1658,7 +1917,7 @@ def test_repair_loop_incomplete_or_mismatched_execution_identity_fails_closed() 
         materializer=materializer,
         execution_command="pytest tests/test_witness.py",
         budget=RepairLoopBudget(max_repair_rounds=1),
-        originating_receipt_digest=ORIGINATING_C0_DIGEST,
+        originating_receipt_digest=wit_zero.result_digest,
         initial_failure_facts=zero_exit_facts,
         prior_sandbox_ids=["sbx-c0-initial"],
     )
