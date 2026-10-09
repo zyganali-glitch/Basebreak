@@ -83,53 +83,42 @@ Judge claim:
 - P-11 phase (Counterfactual Third Run, P-11.01 through P-11.06) is independently CLOSED / PASS at canonical closure SHA `e37b772300c1892304c3ac66358e8125c8cd96f9` (fresh LIVE_NEBIUS triplet verification executed and passed; genuine proof generated in `docs/P11_LIVE_CLOSURE_PROOF.md`; receipt `3b80457c7d1499fef1b160286bbc386fb6b16ae36921e65f775d338d905eb4a2`; bound to implementation SHA `6bb8e0913d08b307ea4382833d4772380389ca78`).
 - P-12 phase (Minimal Causal Slice, P-12.01 through P-12.05) is independently CLOSED / PASS at SHA `6e5853da72482d5eb2d875be89c9ed6a48f2bfde` (fresh LIVE_NEBIUS demonstration executed and passed; genuine proof in `docs/P12_LIVE_CLOSURE_PROOF.md`; receipt `d75fa9e685cc5fddfa017c2fe58cb5079060d7a9e7961f702ac24df6a85f2016`; bound to implementation SHA `ca2fe46867a83641c22c47375da966fc701d5878`).
 - P-13 phase (Change-Semantics Expansion, P-13.01 through P-13.06) is independently CLOSED / PASS at SHA `0045ad89394758bb6c128b846945f2e7e8b2b955`.
-- P-14.01 (Define bounded failure-feedback schema) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `d098907`.
-- P-14.02 (Return minimized counterexample without hidden witness disclosure) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `ca56f68`.
-- P-14.03 (Re-enter Builder in fresh/controlled repair context) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `7aae566`.
-- P-14.04 (Create repaired candidate with new exact hash) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `bc89df6`.
-- P-14.05 (Require fresh verifier reproduction for repaired candidate) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `6b5ed2c`.
-- P-14.06 (Cap repair rounds/cost and return honest non-success) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE at SHA `cb3f6a8`.
-- P-14 Phase Closure (Sealed Repair Loop Live Verification Proof):
-  - Fresh LIVE_NEBIUS revalidation demonstration executed against real Nebius Token Factory Sandboxes and real Nemotron AI Builder on exact implementation SHA `62b24c69a819c0ddcf15b455a237568059949107`:
-    - Initial candidate Candidate 0 failed exit 1 with AssertionError (`sbx-ac5211f0113b423e`);
-    - Verifier extracted execution-derived safe failure feedback (`dda915cb74ed36ce573a0a3083ed1c2edd10d8cfce05db11ac3b6b387ebcd482`, derived from exit code 1 and error facts, traceable origin, zero hidden witness code disclosed, zero counterexample fabrication);
-    - Real Nemotron model client (`nvidia/Nemotron-3_5-Lightning`, request `chatcmpl-31e64fda`, 1270 tokens: 431 prompt, 839 completion, 3.64s) received only permitted context, passed mechanical secrecy checks, and produced verified python repair for `src/demo_target/cli.py`;
-    - Builder materialized Candidate 1 (`cand-live-repaired-r1-0c4aeba1`, lineage `0c7a8079b820e314f831439a68ca03c30e694850967c62ad9698c51e49f21188`, patch `2d5dc4640352458323e973643e3a2215ec61d7a5a40996ba08a85516b625536e`, tree `31f7ab50a5e0da6da9160ce47bdc5daf71072216`);
-    - Fresh disposable verifier sandbox (`sbx-c87ecbf51df74a0a` distinct from `sbx-ac5211f0113b423e`, fail-closed pre-execution sandbox budget checked) executed sealed witness -> Exit 0 (`WITNESS_PASS`);
-    - Reproduction receipt digest: `a75d856737d2a13792ae7cb2e64e0e9395d92a7d3dc4b39fb872734385e6ef8b`;
-    - Terminal loop receipt `RLR-60aab51cd27e` emitted with status `VERIFIED_AFTER_REPAIR`, preliminary verdict `VERIFIED`, `is_causally_verified=True`, `grants_pass=True`, `is_authoritative=False` (zero verdict authority invariant);
-    - Cryptographic receipt digest: `933e0acbd4bed1197c84d49139dd9773c94aab516ad5ecb4f46e8e3fd87dd9f1`;
-    - Bound to exact Basebreak implementation SHA: `62b24c69a819c0ddcf15b455a237568059949107`;
-    - Documented in `docs/P14_LIVE_CLOSURE_PROOF.md`;
-  - P-14.06 non-success termination classification repair applied at SHA `eecc93860342432cf00d5f7e65f9ff721e65fe5a`: reproduction outcomes deterministically classified (ERROR, TIMEOUT, INVALID_PRECONDITION, INCONCLUSIVE, BLOCKED, and witness PASS with grants_pass=False); genuine behavioral FAIL continues repair loop; honest non-success terminal receipts emitted; zero unhandled feedback exceptions;
-  - P-14.06 surgical verdict-gate repair applied at SHA `22a03c8e729b9da463d5dde5104e580209d21044`: repair loop continuation strictly restricted to `WitnessOutcome.FAIL` + `PreliminaryVerdict.CONTRADICTED` with pre-append cryptographic integrity verification; tampered reproduction receipts fail closed without promoting digests as verified evidence;
-  - P-14 live witness exit-code authority repair validated on live platform: eliminated truthiness fallback (`c0_exit_code = res_test0.exit_code or 1`); exact execution exit code preserved; enforced `validate_and_derive_c0_failure_facts` requiring confirmed nonzero test runner exit code 1 and genuine behavioral `AssertionError`; distinguished timeout, missing exit code, exit code 0, and infrastructure errors from confirmed witness FAIL; bound execution digest cryptographically to sandbox, source identity, patch digest, tree digest, command, exit code, and stdout/stderr digests; added 5 focused deterministic negative regression tests in `test_repair_engine.py`;
-  - Prior LIVE_NEBIUS evidence bound to `22a03c8e729b9da463d5dde5104e580209d21044`, `de563754148ad5364609127d3079d8d6294c7823`, and `dcfa538459340ae5adbd0e001ecf5aaa87971fb5` preserved with original SHAs; fresh one-time operator authorization consumed cleanly;
-  - P-14 batch is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-15+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
+- P-14.01 (Define bounded failure-feedback schema) is independently VERIFIED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b`.
+- P-14.02 (Return minimized counterexample without hidden witness disclosure) is independently VERIFIED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b`.
+- P-14.03 (Re-enter Builder in fresh/controlled repair context) is independently VERIFIED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b`.
+- P-14.04 (Create repaired candidate with new exact hash) is independently VERIFIED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b`.
+- P-14.05 (Require fresh verifier reproduction for repaired candidate) is independently VERIFIED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b`.
+- P-14.06 (Cap repair rounds/cost and return honest non-success) is independently VERIFIED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b`.
+- P-14 phase (Sealed Repair Loop) is independently CLOSED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b` (live demonstration validated on exact implementation SHA `62b24c69a819c0ddcf15b455a237568059949107` with receipt `933e0acbd4bed1197c84d49139dd9773c94aab516ad5ecb4f46e8e3fd87dd9f1` in `docs/P14_LIVE_CLOSURE_PROOF.md`).
+- P-15.01 (Define deterministic risk features and policy levels) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-15.02 (Map low/medium/high risk to verification depth) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-15.03 (Add cost/token/sandbox budget accounting) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-15.04 (Add policy for when counterrun/slicing is mandatory) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-15.05 (Add fail-closed behavior when required budget cannot execute) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-15 batch (Risk-Adaptive Verification Budget, P-15.01 through P-15.05) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-16+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
-`0045ad89394758bb6c128b846945f2e7e8b2b955` (independently VERIFIED / PASS at P-13 closure).
-Prior LIVE_NEBIUS-tested implementation SHA: `22a03c8e729b9da463d5dde5104e580209d21044`.
-Current LIVE_NEBIUS-tested implementation SHA: `62b24c69a819c0ddcf15b455a237568059949107`.
+`31929c1876a16372d24fc8c77951e0ac21fdfc9b` (independently VERIFIED / PASS at P-14 closure).
+Prior LIVE_NEBIUS-tested implementation SHA: `62b24c69a819c0ddcf15b455a237568059949107` (P-14 live closure).
 
 ## Blocking live gate vs active task
 
 ### Blocking live gate
-OPERATOR_AUTHORIZED_LIVE_EXECUTION_COMPLETED: Authorized live cycle executed cleanly and passed with LIVE_NEBIUS provenance on implementation SHA `62b24c69a819c0ddcf15b455a237568059949107` (receipt `933e0acbd4bed1197c84d49139dd9773c94aab516ad5ecb4f46e8e3fd87dd9f1`). Fresh one-time authorization consumed; no additional live run executed; clean closure proof recorded in `docs/P14_LIVE_CLOSURE_PROOF.md`.
+NONE currently blocking P-15 batch (provider-neutral local deterministic execution only; no LIVE_NEBIUS invocation authorized or required for P-15 offline batch).
 
 ### Current QA candidate
-P-14 Sealed Repair Loop Batch — P-14.01 through P-14.06 + Live Witness Exit-Code Authority Repair + Live Closure Proof on SHA `62b24c69a819c0ddcf15b455a237568059949107` (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+P-15 Risk-Adaptive Verification Budget Batch — P-15.01 through P-15.05 (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
 
 ### Active exact task
-P-14 Sealed Repair Loop Batch — final live revalidation and evidence closure completed. Awaiting independent QA. P-15+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+P-15 Risk-Adaptive Verification Budget Batch — implementation, test suite (56 budget tests, 2,404 non-live suite), and documentation sync complete. Awaiting independent QA. P-16+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-13 all tasks and phases are independently VERIFIED / PASS. P-14.01 through P-14.06 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-15+ remain strictly NOT AUTHORIZED / NOT_RUN.
-- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, Causal primitives, Causal Slice contracts, Change-Semantics verifiers, and Sealed Repair Loop primitives (SafeRepairFeedback, DisclosureSanitizer, BuilderRepairContextEnvelope, CandidateLineageRecord, RepairedVerificationReceipt, RepairLoopReceipt) remain strictly provider-neutral with zero provider model IDs and zero provider-specific identifiers.
-- **Phase status:** P-00 through P-13 phases are independently CLOSED / PASS. P-14 phase remains OPEN awaiting independent QA review. P-15+ are strictly NOT AUTHORIZED / NOT_RUN.
-- **Batch restoration & hard stop:** P-14 batch executed and completed. P-15+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
-- **Not authorized / forbidden:** P-15+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-14 all tasks and phases are independently VERIFIED / PASS. P-15.01 through P-15.05 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-16+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, Causal primitives, Causal Slice contracts, Change-Semantics verifiers, Sealed Repair Loop primitives, and Risk-Adaptive Verification Budget primitives (RiskLevel, RiskFeatureSet, RiskClassification, VerificationAction, VerificationDepth, ResourceLimits, ResourceConsumption, BudgetLedger, MandatoryVerificationObligations, BudgetGateResult) remain strictly provider-neutral with zero provider model IDs and zero provider-specific identifiers.
+- **Phase status:** P-00 through P-14 phases are independently CLOSED / PASS. P-15 phase remains OPEN awaiting independent QA review. P-16+ are strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** P-15 batch executed and completed. P-16+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Not authorized / forbidden:** P-16+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -147,7 +136,7 @@ P-14 Sealed Repair Loop Batch — final live revalidation and evidence closure c
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-14 Sealed Repair Loop batch (P-14.01 through P-14.06 + Live Closure Proof) for independent QA verification.
-2. Maintain hard stop before P-15; do not activate or implement P-15+.
+1. Submit P-15 Risk-Adaptive Verification Budget batch (P-15.01 through P-15.05) for independent QA verification.
+2. Maintain hard stop before P-16; do not activate or implement P-16+.
 3. Await independent QA evaluation.
 

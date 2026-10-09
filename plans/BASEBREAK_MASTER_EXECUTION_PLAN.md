@@ -525,33 +525,42 @@ Phase exit: product is not a one-demo bug-fix trick. (Phase P-13 independently C
 
 # P-14 — Sealed Repair Loop
 ### P-14.01 — Define bounded failure-feedback schema
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (committed at SHA `d098907`; implemented SafeRepairFeedback, SanitizedCounterexample, DisclosureClassification, and FailureConditionCategory; canonical hashing, tamper detection, and zero verdict authority enforced)
+Status: DONE (independently VERIFIED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b`; implemented SafeRepairFeedback, SanitizedCounterexample, DisclosureClassification, and FailureConditionCategory; canonical hashing, tamper detection, and zero verdict authority enforced)
 
 ### P-14.02 — Return minimized counterexample without hidden witness disclosure
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (committed at SHA `ca56f68`; implemented DisclosureSanitizer, secret redaction, and counterexample minimization without leaking sealed witness internals)
+Status: DONE (independently VERIFIED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b`; implemented DisclosureSanitizer, secret redaction, and counterexample minimization without leaking sealed witness internals)
 
 ### P-14.03 — Re-enter Builder in fresh/controlled repair context
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (committed at SHA `7aae566`; implemented BuilderRepairContextEnvelope, context digest binding, verifier leak prevention)
+Status: DONE (independently VERIFIED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b`; implemented BuilderRepairContextEnvelope, context digest binding, verifier leak prevention)
 
 ### P-14.04 — Create repaired candidate with new exact hash
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (committed at SHA `bc89df6`; implemented CandidateLineageRecord, RepairedCandidateSnapshot, anti-candidate-reuse and anti-stagnation rules)
+Status: DONE (independently VERIFIED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b`; implemented CandidateLineageRecord, RepairedCandidateSnapshot, anti-candidate-reuse and anti-stagnation rules)
 
 ### P-14.05 — Require fresh verifier reproduction for repaired candidate
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (committed at SHA `6b5ed2c`; implemented RepairedVerificationReceipt, execute_repaired_verifier_reproduction, anti-sandbox-reuse, anti-receipt-replay, and fresh reproduction from base)
+Status: DONE (independently VERIFIED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b`; implemented RepairedVerificationReceipt, execute_repaired_verifier_reproduction, anti-sandbox-reuse, anti-receipt-replay, and fresh reproduction from base)
 
 ### P-14.06 — Cap repair rounds/cost and return honest non-success
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (committed at SHA `cb3f6a8`; implemented RepairLoopBudget, RepairLoopReceipt, run_sealed_repair_loop orchestration, honest terminal status classification, and receipt integrity validation)
-Phase exit: agent improves from evidence without memorizing the hidden exam. (Phase P-14 batch fully executed and validated; all 6 micro-tasks P-14.01 through P-14.06 completed; P-14 verified-evidence boundary repair applied; P-14.06 non-success termination classification repair applied enforcing honest terminal non-success receipts for ERROR, TIMEOUT, INVALID_PRECONDITION, INCONCLUSIVE, BLOCKED, and witness PASS without pass grant, and permitting repair continuation only on genuine integrity-verified behavioral FAIL; reproduction receipt integrity order and surgical verdict gate repaired; live witness exit-code authority repair validated on live platform; 2,337 non-live tests passing; genuine operator-authorized LIVE_NEBIUS demonstration executed cleanly (exit code 0) bound to Basebreak implementation SHA `62b24c69a819c0ddcf15b455a237568059949107` [receipt `933e0acbd4bed1197c84d49139dd9773c94aab516ad5ecb4f46e8e3fd87dd9f1`] and prior executions on SHA `22a03c8e729b9da463d5dde5104e580209d21044`, `de563754148ad5364609127d3079d8d6294c7823`, and `dcfa538459340ae5adbd0e001ecf5aaa87971fb5` in `docs/P14_LIVE_CLOSURE_PROOF.md`; P-14 status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; P-15+ remain strictly NOT AUTHORIZED / NOT_RUN; HARD STOP ENFORCED)
+Status: DONE (independently VERIFIED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b`; implemented RepairLoopBudget, RepairLoopReceipt, run_sealed_repair_loop orchestration, honest terminal status classification, and receipt integrity validation)
+Phase exit: agent improves from evidence without memorizing the hidden exam. (Phase P-14 independently CLOSED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b`; live demonstration validated on exact implementation SHA `62b24c69a819c0ddcf15b455a237568059949107` with receipt `933e0acbd4bed1197c84d49139dd9773c94aab516ad5ecb4f46e8e3fd87dd9f1` in `docs/P14_LIVE_CLOSURE_PROOF.md`).
 
 ---
 
 # P-15 — Risk-Adaptive Verification Budget
 ### P-15.01 — Define deterministic risk features and policy levels
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/budget/risk_features.py`; RiskLevel total ordering LOW < MEDIUM < HIGH; deterministic feature extraction from change class, touched paths, certainty, blast radius; fail-closed risk elevation on untrusted metadata, UNKNOWN certainty, security paths, protected surfaces; canonical hashing and tamper verification; 13 tests in `tests/budget/test_risk_features.py`)
+
 ### P-15.02 — Map low/medium/high risk to verification depth
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/budget/depth_policy.py`; deterministic mapping to VerificationDepth; strict preservation of mandatory BASE + CANDIDATE execution across all 6 change classes and all 3 risk tiers; change-class specific obligations including REFACTOR equivalence, PERFORMANCE measurement, DEP_API migration; monotonic depth scaling; inspectable skipped-check records; canonical hashing and tamper verification; 22 tests in `tests/budget/test_depth_policy.py`)
+
 ### P-15.03 — Add cost/token/sandbox budget accounting
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/budget/accounting.py`; bounded resource accounting for tokens, model calls, sandboxes, verifiers, wall-clock time, and estimated financial cost; operation ID deduplication; reservation/commit/cancel lifecycle; upper constraint enforcement; composition with RepairLoopBudget/RepairLoopCounters; rejection of false zero-cost claims, negative values, and non-finite quantities; 5 tests in `tests/budget/test_accounting.py`)
+
 ### P-15.04 — Add policy for when counterrun/slicing is mandatory
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/budget/mandatory_policy.py`; deterministic conditions under which counterfactual third runs and causal slicing are mandatory; semantic preservation across change classes; immunity to model confidence and cost estimates; deterministic obligation validation via validate_executed_obligations; canonical hashing and tamper detection; 5 tests in `tests/budget/test_mandatory_policy.py`)
+
 ### P-15.05 — Add fail-closed behavior when required budget cannot execute
-Phase exit: strong verification is economically usable.
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/budget/fail_closed.py`; BudgetGateResult and BudgetGateStatus; preflight admission checks; fail-closed exhaustion handling with evidence preservation; witness failure primacy preventing budget limits from hiding actual test failures; zero verdict authority and prohibition of false PASS awards; 7 tests in `tests/budget/test_fail_closed.py` and 3 integration tests in `tests/budget/test_budget_integration.py`)
+Phase exit: strong verification is economically usable. (P-15 batch EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; all 56 budget tests passing; 2,404 total non-live tests passing; P-16+ remain strictly NOT AUTHORIZED / NOT_RUN; HARD STOP ENFORCED)
 
 ---
 
