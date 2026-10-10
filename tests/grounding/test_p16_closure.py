@@ -265,6 +265,11 @@ def test_p16_05_operator_authorization_gate_enforcement() -> None:
     )
     assert verify_advisory_snippet_support(unrelated_snippet, "CVE-2024-21626") is False
 
+    version_only_snippet = (
+        "In version 4 of our weekly cybersecurity roundup, CVE-2024-21626 was listed in index."
+    )
+    assert verify_advisory_snippet_support(version_only_snippet, "CVE-2024-21626") is False
+
     supported_snippet = (
         "CVE-2024-21626 vulnerability in runc allowed container escape; fixed in version 1.1.12."
     )

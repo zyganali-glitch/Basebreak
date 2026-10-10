@@ -44,7 +44,9 @@ from basebreak.grounding.evidence import (
     FreshnessState,
     GroundedContractBinding,
     GroundedFact,
+    TrustedProviderObservation,
     UncertaintyState,
+    validate_trusted_observation_contract,
     verify_grounded_binding_digest,
     verify_grounded_fact_digest,
 )
@@ -202,6 +204,7 @@ def evaluate_grounding_firewall(
     protected_surface_violated: bool = False,
     budget_exhausted: bool = False,
     verified_observation_ids: Sequence[str] | None = None,
+    trusted_observations: Sequence[TrustedProviderObservation] | None = None,
 ) -> GroundingFirewallResult:
     """Evaluate grounding evidence against deterministic execution facts with authority firewall.
 
@@ -220,13 +223,39 @@ def evaluate_grounding_firewall(
     7. Adversarial Containment:
        If prompt injection or fake authority claims are detected in web content -> flags recorded,
        untrusted claims discarded.
-    8. Not Applicable:
+    8. Observation Trust Boundary:
+       Arbitrary caller-provided strings (verified_observation_ids) NEVER establish provider
+       observation authority. Actual observation authority must come from
+       TrustedProviderObservation.
+    9. Not Applicable:
        If materiality is NOT_APPLICABLE -> web evidence ignored, status GROUNDING_SKIPPED,
        verdict = execution_verdict.
     """
     adversarial_flags: list[str] = []
 
-    # 0. Verify MaterialityDecision integrity
+    # 0a. Arbitrary caller-provided strings can NEVER establish verified external-provider execution
+    if verified_observation_ids:
+        adversarial_flags.append("forged_observation_authority:arbitrary_caller_strings")
+
+    # 0b. Validate trusted provider observations from trustworthy runtime boundary
+    valid_trusted_obs: list[TrustedProviderObservation] = []
+    if trusted_observations is not None:
+        for obs in trusted_observations:
+            try:
+                validate_trusted_observation_contract(obs)
+                valid_trusted_obs.append(obs)
+            except (TypeError, ValueError) as err:
+                obs_id = getattr(obs, "observation_id", "invalid")
+                adversarial_flags.append(f"tamper:observation_digest_mismatch:{obs_id}")
+                return _make_firewall_result(
+                    final_verdict=PreliminaryVerdict.BLOCKED,
+                    status=GroundingStatus.TAMPER_DETECTED,
+                    execution_verdict=execution_verdict,
+                    flags=tuple(adversarial_flags),
+                    rationale=f"Trusted observation validation failed for '{obs_id}': {err}",
+                )
+
+    # 0c. Verify MaterialityDecision integrity
     if not verify_materiality_digest(materiality):
         adversarial_flags.append("tamper:materiality_decision_digest_mismatch")
         return _make_firewall_result(
@@ -541,17 +570,25 @@ def evaluate_grounding_firewall(
                 ),
             )
 
+        # Build map of verified trusted live observations from runtime boundary
+        trusted_live_map: dict[str, TrustedProviderObservation] = {
+            obs.observation_id: obs
+            for obs in valid_trusted_obs
+            if obs.is_live_execution and obs.provenance == EvidenceProvenance.LOCAL_EXECUTION
+        }
+
         unverified_facts = [
             f
             for f in binding.facts
             if not f.is_fixture
             and (
-                not verified_observation_ids
-                or (f.provider_response_id not in verified_observation_ids)
+                not f.provider_response_id
+                or f.provider_response_id not in trusted_live_map
+                or trusted_live_map[f.provider_response_id].provider_name != f.retrieval_provider
             )
         ]
         if unverified_facts:
-            adversarial_flags.append("unverified_live_claim:missing_observation_identity")
+            adversarial_flags.append("unverified_live_claim:missing_observation_authority")
             return _make_firewall_result(
                 final_verdict=PreliminaryVerdict.BLOCKED,
                 status=GroundingStatus.INSUFFICIENT_GROUNDING,
@@ -559,7 +596,8 @@ def evaluate_grounding_firewall(
                 flags=tuple(adversarial_flags),
                 rationale=(
                     "Caller-supplied is_fixture=False without verified provider observation "
-                    "identity cannot certify live provider execution; fail-closed BLOCKED."
+                    "authority from trusted runtime boundary cannot certify live provider "
+                    "execution; arbitrary caller strings rejected; fail-closed BLOCKED."
                 ),
             )
 

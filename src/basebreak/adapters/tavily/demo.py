@@ -18,8 +18,10 @@ Authority & Invariants:
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 from basebreak.adapters.tavily.client import TavilyClient, extract_source_claims
 from basebreak.adapters.tavily.models import (
@@ -28,13 +30,16 @@ from basebreak.adapters.tavily.models import (
 )
 from basebreak.compiler.freeze import FrozenContract
 from basebreak.domain.semantics import ChangeClass
+from basebreak.domain.verdict import EvidenceProvenance
 from basebreak.grounding.evidence import (
     FreshnessState,
     GroundedContractBinding,
     GroundedFact,
+    TrustedProviderObservation,
     UncertaintyState,
     create_grounded_binding,
     create_grounded_fact,
+    create_trusted_observation,
 )
 from basebreak.grounding.materiality import (
     AUTHORITATIVE_CVE_DOMAINS,
@@ -101,30 +106,105 @@ def check_live_tavily_preflight() -> TavilyPreflightStatus:
 ADVISORY_SUBSTANTIVE_SIGNALS: tuple[str, ...] = (
     "fixed",
     "fix",
+    "fixes",
     "patch",
-    "version",
-    "release",
+    "patched",
+    "patches",
     "vulnerability",
     "descriptor",
     "escape",
     "leak",
+    "leakage",
     "1.1.12",
     "1.1.11",
 )
 
+ADVISORY_SUBSTANTIVE_PATTERN = re.compile(
+    r"\b(?:fixed|fixes|fix|patched|patches|patch|vulnerability|descriptor|escape|leak|leakage|1\.1\.12|1\.1\.11)\b",
+    re.IGNORECASE,
+)
+
 
 def verify_advisory_snippet_support(claim_text: str, target_cve: str) -> bool:
-    """Verify that a snippet contains sufficient supporting factual context for the CVE.
+    """Screen an advisory search snippet for substantive relevance to the target CVE.
 
-    Does not infer factual certainty from an identifier substring alone.
-    Requires both the target CVE identifier AND substantive vulnerability/fix signals.
+    Treats snippet matching strictly as relevance screening, NOT factual certainty.
+    Requires both the exact target CVE identifier AND substantive vulnerability/fix signals.
+    Generic words such as 'version' or 'release' alone do not establish advisory relevance.
     """
     if not claim_text or not target_cve:
         return False
     lower_text = claim_text.lower()
     if target_cve.lower() not in lower_text:
         return False
-    return any(sig in lower_text for sig in ADVISORY_SUBSTANTIVE_SIGNALS)
+    return bool(ADVISORY_SUBSTANTIVE_PATTERN.search(lower_text))
+
+
+def screen_advisory_claim(
+    claim_text: str,
+    target_cve: str,
+    url: str,
+    allowed_domains: tuple[str, ...],
+    has_observation_metadata: bool,
+    published_date: str | None = None,
+) -> tuple[FreshnessState, UncertaintyState]:
+    """Screen an advisory claim, preserving uncertainty unless fully validated.
+
+    Invariants:
+    1. Lexical snippet matching is relevance screening only, NOT proof of certainty or freshness.
+    2. Freshness is NEVER automatically assigned FRESH solely because retrieval just occurred;
+       defaults to UNKNOWN unless explicit temporal freshness is verified.
+    3. Uncertainty is preserved (UNCERTAIN) unless supported by trusted observation metadata,
+       authoritative publisher domain, and validated substantive advisory facts.
+    4. Non-relevant snippets fail to INSUFFICIENT.
+    """
+    if not verify_advisory_snippet_support(claim_text, target_cve):
+        return (FreshnessState.UNKNOWN, UncertaintyState.INSUFFICIENT)
+
+    # Retrieval having just occurred does NOT establish freshness; defaults to UNKNOWN
+    freshness = FreshnessState.UNKNOWN
+
+    # Evaluate claim and source quality:
+    # 1. Authoritative domain check
+    parsed_domain = urlparse(url).netloc.lower()
+    is_authoritative = any(
+        parsed_domain == d or parsed_domain.endswith("." + d) for d in allowed_domains
+    )
+
+    # 2. Substantive advisory fact verification (vulnerability mechanism or fix/patched release)
+    lower = claim_text.lower()
+    has_substantive_fact = bool(
+        re.search(r"\b(?:1\.1\.12|fixed|escape|descriptor|leak|patch|patched)\b", lower)
+    )
+
+    # 3. Only if authoritative domain, substantive advisory fact, and trusted observation metadata
+    # are all present do we conclude CERTAIN; otherwise preserve UNCERTAIN.
+    if is_authoritative and has_substantive_fact and has_observation_metadata:
+        uncertainty = UncertaintyState.CERTAIN
+    else:
+        uncertainty = UncertaintyState.UNCERTAIN
+
+    return (freshness, uncertainty)
+
+
+def create_demonstration_observation(
+    response: TavilySearchResponse,
+    *,
+    plan: TavilyDemonstrationPlan,
+    observation_timestamp: str,
+    provenance: EvidenceProvenance,
+    is_live_execution: bool,
+) -> TrustedProviderObservation:
+    """Mint a TrustedProviderObservation from demonstration search response."""
+    return create_trusted_observation(
+        observation_id=response.request_id or f"obs-{response.response_digest[:16]}",
+        provider_name="tavily",
+        query=plan.query,
+        response_digest=response.response_digest,
+        observation_timestamp=observation_timestamp,
+        provenance=provenance,
+        is_live_execution=is_live_execution,
+    )
 
 
 def execute_live_tavily_demonstration(
@@ -196,8 +276,16 @@ def execute_live_tavily_demonstration(
 
     claims = extract_source_claims(response)
     facts: list[GroundedFact] = []
+    has_obs_meta = bool(response.request_id and response.response_digest)
     for claim in claims:
-        is_supported = verify_advisory_snippet_support(claim.claim_text, plan.target_cve)
+        freshness_state, uncertainty_state = screen_advisory_claim(
+            claim_text=claim.claim_text,
+            target_cve=plan.target_cve,
+            url=claim.url,
+            allowed_domains=plan.allowed_domains,
+            has_observation_metadata=has_obs_meta,
+            published_date=claim.published_date,
+        )
         fact = create_grounded_fact(
             contract=contract,
             requirement_id=decision.requirement_id,
@@ -210,10 +298,8 @@ def execute_live_tavily_demonstration(
             retrieval_provider="tavily",
             provider_response_id=response.request_id,
             is_fixture=False,
-            freshness_state=FreshnessState.FRESH if is_supported else FreshnessState.UNKNOWN,
-            uncertainty_state=(
-                UncertaintyState.CERTAIN if is_supported else UncertaintyState.UNCERTAIN
-            ),
+            freshness_state=freshness_state,
+            uncertainty_state=uncertainty_state,
         )
         facts.append(fact)
 
@@ -264,8 +350,16 @@ def execute_fixture_tavily_demonstration(
 
     claims = extract_source_claims(response)
     facts: list[GroundedFact] = []
+    has_obs_meta = bool(response.request_id and response.response_digest)
     for claim in claims:
-        is_supported = verify_advisory_snippet_support(claim.claim_text, plan.target_cve)
+        freshness_state, uncertainty_state = screen_advisory_claim(
+            claim_text=claim.claim_text,
+            target_cve=plan.target_cve,
+            url=claim.url,
+            allowed_domains=plan.allowed_domains,
+            has_observation_metadata=has_obs_meta,
+            published_date=claim.published_date,
+        )
         fact = create_grounded_fact(
             contract=contract,
             requirement_id=decision.requirement_id,
@@ -278,10 +372,8 @@ def execute_fixture_tavily_demonstration(
             retrieval_provider="tavily",
             provider_response_id=response.request_id,
             is_fixture=True,  # Honestly classified as fixture!
-            freshness_state=FreshnessState.FRESH if is_supported else FreshnessState.UNKNOWN,
-            uncertainty_state=(
-                UncertaintyState.CERTAIN if is_supported else UncertaintyState.UNCERTAIN
-            ),
+            freshness_state=freshness_state,
+            uncertainty_state=uncertainty_state,
         )
         facts.append(fact)
 

@@ -25,6 +25,7 @@ from enum import Enum
 from typing import Any
 
 from basebreak.compiler.freeze import FrozenContract
+from basebreak.domain.verdict import EvidenceProvenance
 from basebreak.grounding.materiality import GroundingMateriality, MaterialityDecision
 
 
@@ -347,3 +348,160 @@ def create_grounded_binding(
         overall_uncertainty=overall,
         binding_digest=binding_digest,
     )
+
+
+def compute_trusted_observation_digest(payload: Mapping[str, Any]) -> str:
+    """Compute deterministic SHA-256 digest over canonical JSON representation."""
+    canonical = json.dumps(
+        dict(payload),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedProviderObservation:
+    """Immutable, content-addressed witness of an observation executed at the
+    trusted runtime boundary.
+    """
+
+    observation_id: str
+    provider_name: str
+    query: str
+    response_digest: str
+    observation_timestamp: str
+    provenance: EvidenceProvenance
+    is_live_execution: bool
+    observation_digest: str
+
+    def __post_init__(self) -> None:
+        if not self.observation_id:
+            raise ValueError("observation_id must not be empty")
+        if not self.provider_name:
+            raise ValueError("provider_name must not be empty")
+        if not self.query:
+            raise ValueError("query must not be empty")
+        if not self.response_digest or len(self.response_digest) != 64:
+            raise ValueError("response_digest must be a 64-hex SHA-256 string")
+        if not self.observation_timestamp:
+            raise ValueError("observation_timestamp must not be empty")
+        if not isinstance(self.provenance, EvidenceProvenance):
+            raise TypeError(
+                f"provenance must be EvidenceProvenance, got {type(self.provenance).__name__}"
+            )
+        if not isinstance(self.is_live_execution, bool):
+            raise TypeError(
+                f"is_live_execution must be bool, got {type(self.is_live_execution).__name__}"
+            )
+
+        # Provenance invariants:
+        # 1. External provider observation is never LIVE_NEBIUS (provenance category laundering)
+        if self.provenance == EvidenceProvenance.LIVE_NEBIUS:
+            raise ValueError(
+                "Forbidden provenance: external provider observation cannot claim LIVE_NEBIUS."
+            )
+
+        # 2. Fixture observations can never claim is_live_execution=True
+        if self.provenance == EvidenceProvenance.FIXTURE and self.is_live_execution:
+            raise ValueError(
+                "Provenance laundering rejected: fixture observation cannot "
+                "claim is_live_execution=True."
+            )
+
+        # 3. Historical recordings can never claim is_live_execution=True
+        if self.provenance == EvidenceProvenance.RECORDED_LIVE and self.is_live_execution:
+            raise ValueError(
+                "Provenance laundering rejected: historical RECORDED_LIVE observation cannot "
+                "claim is_live_execution=True."
+            )
+
+        expected = compute_trusted_observation_digest(
+            {
+                "observation_id": self.observation_id,
+                "provider_name": self.provider_name,
+                "query": self.query,
+                "response_digest": self.response_digest,
+                "observation_timestamp": self.observation_timestamp,
+                "provenance": self.provenance.value,
+                "is_live_execution": self.is_live_execution,
+            }
+        )
+        if self.observation_digest != expected:
+            raise ValueError(
+                f"observation_digest mismatch: declared '{self.observation_digest}', "
+                f"computed '{expected}'"
+            )
+
+
+def verify_trusted_observation_digest(observation: TrustedProviderObservation) -> bool:
+    """Verify integrity of a TrustedProviderObservation."""
+    expected = compute_trusted_observation_digest(
+        {
+            "observation_id": observation.observation_id,
+            "provider_name": observation.provider_name,
+            "query": observation.query,
+            "response_digest": observation.response_digest,
+            "observation_timestamp": observation.observation_timestamp,
+            "provenance": observation.provenance.value,
+            "is_live_execution": observation.is_live_execution,
+        }
+    )
+    return observation.observation_digest == expected
+
+
+def create_trusted_observation(
+    observation_id: str,
+    provider_name: str,
+    query: str,
+    response_digest: str,
+    observation_timestamp: str,
+    *,
+    provenance: EvidenceProvenance,
+    is_live_execution: bool,
+) -> TrustedProviderObservation:
+    """Factory creating an immutable, digest-verified TrustedProviderObservation."""
+    payload = {
+        "observation_id": observation_id,
+        "provider_name": provider_name,
+        "query": query,
+        "response_digest": response_digest,
+        "observation_timestamp": observation_timestamp,
+        "provenance": provenance.value,
+        "is_live_execution": is_live_execution,
+    }
+    digest = compute_trusted_observation_digest(payload)
+    return TrustedProviderObservation(
+        observation_id=observation_id,
+        provider_name=provider_name,
+        query=query,
+        response_digest=response_digest,
+        observation_timestamp=observation_timestamp,
+        provenance=provenance,
+        is_live_execution=is_live_execution,
+        observation_digest=digest,
+    )
+
+
+def validate_trusted_observation_contract(
+    observation: Any,
+) -> None:
+    """Validate that an observation originates from a trustworthy runtime boundary.
+
+    Enforces:
+    1. Must be an instance of TrustedProviderObservation (rejects arbitrary caller strings).
+    2. Must pass digest verification.
+    3. Must satisfy provenance rules.
+    """
+    if not isinstance(observation, TrustedProviderObservation):
+        raise TypeError(
+            f"Observation authority must be a TrustedProviderObservation instance, "
+            f"got {type(observation).__name__}. Arbitrary caller strings cannot establish "
+            "observation authority."
+        )
+    if not verify_trusted_observation_digest(observation):
+        raise ValueError(
+            f"Observation '{observation.observation_id}' digest verification failed; "
+            "tampering detected."
+        )
