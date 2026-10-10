@@ -58,6 +58,9 @@ SENSITIVE_QUERY_PATTERNS = [
 ]
 
 
+ALLOWED_TAVILY_HOSTS = ("api.tavily.com",)
+
+
 class TavilyClient:
     """Bounded, secret-safe Tavily Search client."""
 
@@ -67,6 +70,8 @@ class TavilyClient:
         base_url: str = DEFAULT_TAVILY_API_URL,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
         opener: Callable[..., Any] | None = None,
+        allow_retries: bool = True,
+        single_call_only: bool = False,
     ) -> None:
         self._api_key = api_key or os.environ.get("TAVILY_API_KEY", "")
         self._base_url = base_url
@@ -77,11 +82,48 @@ class TavilyClient:
             )
         self._timeout = timeout
         self._opener = opener or urllib.request.urlopen
+        self._allow_retries = allow_retries
+        self._single_call_only = single_call_only
+        self._calls_attempted = 0
+
+        # Destination validation: live credentials must only target official HTTPS Tavily endpoints
+        parsed = urlparse(self._base_url)
+        if parsed.scheme != "https":
+            raise TavilyConfigError(
+                f"Insecure API destination '{self._base_url}': "
+                "live credentials must only use HTTPS."
+            )
+        if parsed.netloc.lower() not in ALLOWED_TAVILY_HOSTS:
+            raise TavilyConfigError(
+                f"Unauthorized API destination '{self._base_url}': credentials may only be sent "
+                f"to {ALLOWED_TAVILY_HOSTS}."
+            )
+
+    @property
+    def is_mocked(self) -> bool:
+        """True if this client uses an injected test mock opener rather than real live HTTP."""
+        return self._opener is not urllib.request.urlopen
+
+    @property
+    def calls_attempted(self) -> int:
+        """Total number of HTTP attempts made by this client."""
+        return self._calls_attempted
 
     def __repr__(self) -> str:
         # Secret safety: never expose API key in repr
         masked = "***" if self._api_key else "NONE"
         return f"TavilyClient(base_url={self._base_url!r}, timeout={self._timeout}, key={masked})"
+
+    def _sanitize_text(self, text: str, extra_tokens: Sequence[str] | None = None) -> str:
+        s = text
+        if self._api_key:
+            s = s.replace(self._api_key, "[REDACTED]")
+        s = re.sub(r"tvly-[A-Za-z0-9_\-]{10,}", "[REDACTED]", s)
+        if extra_tokens:
+            for tok in extra_tokens:
+                if tok and len(tok) >= 4:
+                    s = s.replace(tok, "[PROTECTED_WITNESS]")
+        return redact_log_text(s)
 
     def validate_query(
         self,
@@ -130,20 +172,37 @@ class TavilyClient:
         sealed_witness_tokens: Sequence[str] | None = None,
     ) -> TavilySearchResponse:
         """Execute a strictly bounded search query against Tavily."""
+        if self._single_call_only and self._calls_attempted >= 1:
+            raise TavilyAdapterError(
+                "Single-call constraint violated: multiple HTTP attempts are strictly forbidden."
+            )
+
         if not self._api_key:
             raise TavilyMissingKeyError(
                 "TAVILY_API_KEY is not set. Execution requires a valid key "
                 "in the runtime environment."
             )
 
+        # Enforce search depth: only 'basic' is supported
+        if search_depth != "basic":
+            raise TavilyConfigError(
+                f"Unsupported search_depth '{search_depth}'. Only 'basic' is permitted "
+                "to guarantee strict zero-cost budget and minimal payload."
+            )
+
+        # Enforce max_results strictly
+        if not (1 <= max_results <= MAX_PERMITTED_RESULTS):
+            raise TavilyQueryValidationError(
+                f"max_results must be between 1 and {MAX_PERMITTED_RESULTS}, got {max_results}"
+            )
+
         sanitized_query = self.validate_query(query, sealed_witness_tokens=sealed_witness_tokens)
-        bounded_max_results = max(1, min(max_results, MAX_PERMITTED_RESULTS))
 
         # Payload strict minimization
         request_data: dict[str, Any] = {
             "query": sanitized_query,
-            "search_depth": search_depth,
-            "max_results": bounded_max_results,
+            "search_depth": "basic",
+            "max_results": max_results,
             "include_raw_content": False,
             "include_answer": False,
             "include_published_date": include_published_date,
@@ -168,13 +227,25 @@ class TavilyClient:
             method="POST",
         )
 
-        response_bytes = self._execute_http_with_bounded_retry(req)
+        response_bytes = self._execute_http_with_bounded_retry(
+            req, sealed_witness_tokens=sealed_witness_tokens
+        )
         return self._parse_response(sanitized_query, response_bytes)
 
-    def _execute_http_with_bounded_retry(self, req: urllib.request.Request) -> bytes:
+    def _execute_http_with_bounded_retry(
+        self,
+        req: urllib.request.Request,
+        sealed_witness_tokens: Sequence[str] | None = None,
+    ) -> bytes:
         """Execute HTTP request with bounded retry for rate limits / transient server errors."""
-        max_attempts = 2
+        max_attempts = 2 if self._allow_retries else 1
         for attempt in range(max_attempts):
+            self._calls_attempted += 1
+            if self._single_call_only and self._calls_attempted > 1:
+                raise TavilyAdapterError(
+                    "Single-call constraint violated: "
+                    "multiple HTTP attempts are strictly forbidden."
+                )
             try:
                 with self._opener(req, timeout=self._timeout) as resp:
                     return resp.read()  # type: ignore[no-any-return]
@@ -183,16 +254,13 @@ class TavilyClient:
                 detail = ""
                 try:
                     err_body = exc.read().decode("utf-8", errors="replace")
-                    if self._api_key and self._api_key in err_body:
-                        err_body = err_body.replace(self._api_key, "[REDACTED]")
-                    err_body = re.sub(r"tvly-[A-Za-z0-9_\-]{10,}", "[REDACTED]", err_body)
-                    detail = redact_log_text(err_body)
+                    detail = self._sanitize_text(err_body, extra_tokens=sealed_witness_tokens)
                 except Exception:
                     detail = f"HTTP {code}"
 
-                # 429 Too Many Requests -> check Retry-After header, retry at most once
+                # 429 Too Many Requests -> check Retry-After header, retry at most once if allowed
                 if code == 429:
-                    if attempt < max_attempts - 1:
+                    if self._allow_retries and attempt < max_attempts - 1:
                         retry_after = exc.headers.get("Retry-After")
                         delay = 1.0
                         if retry_after:
@@ -202,35 +270,48 @@ class TavilyClient:
                                 delay = 1.0
                         time.sleep(delay)
                         continue
-                    raise TavilyRateLimitError(
-                        f"Tavily rate limit exceeded (HTTP 429): {detail}"
-                    ) from exc
+                    sanitized_err = self._sanitize_text(
+                        f"Tavily rate limit exceeded (HTTP 429): {detail}",
+                        extra_tokens=sealed_witness_tokens,
+                    )
+                    raise TavilyRateLimitError(sanitized_err) from exc
 
                 # 432 Plan Limit or 433 PayGo Limit
                 if code in (432, 433):
-                    raise TavilyQuotaExceededError(
-                        f"Tavily quota/plan limit exceeded (HTTP {code}): {detail}"
-                    ) from exc
+                    sanitized_err = self._sanitize_text(
+                        f"Tavily quota/plan limit exceeded (HTTP {code}): {detail}",
+                        extra_tokens=sealed_witness_tokens,
+                    )
+                    raise TavilyQuotaExceededError(sanitized_err) from exc
 
-                # 503 / 504 -> retry at most once
-                if code in (503, 504) and attempt < max_attempts - 1:
+                # 503 / 504 -> retry at most once if allowed
+                if self._allow_retries and code in (503, 504) and attempt < max_attempts - 1:
                     time.sleep(1.0)
                     continue
 
                 if code == 401:
-                    raise TavilyMissingKeyError(
-                        f"Tavily authentication failed (HTTP 401): {detail}"
-                    ) from exc
+                    sanitized_err = self._sanitize_text(
+                        f"Tavily authentication failed (HTTP 401): {detail}",
+                        extra_tokens=sealed_witness_tokens,
+                    )
+                    raise TavilyMissingKeyError(sanitized_err) from exc
 
                 raise TavilyHttpError(code, detail) from exc
             except TimeoutError as exc:
-                raise TavilyTimeoutError(
-                    f"Tavily search request timed out after {self._timeout}s"
-                ) from exc
+                sanitized_err = self._sanitize_text(
+                    f"Tavily search request timed out after {self._timeout}s: {exc}",
+                    extra_tokens=sealed_witness_tokens,
+                )
+                raise TavilyTimeoutError(sanitized_err) from exc
             except urllib.error.URLError as exc:
+                sanitized_msg = self._sanitize_text(str(exc), extra_tokens=sealed_witness_tokens)
                 if "timed out" in str(exc).lower():
-                    raise TavilyTimeoutError(f"Tavily search request timed out: {exc}") from exc
-                raise TavilyAdapterError(f"Tavily network connection failed: {exc}") from exc
+                    raise TavilyTimeoutError(
+                        f"Tavily search request timed out: {sanitized_msg}"
+                    ) from exc
+                raise TavilyAdapterError(
+                    f"Tavily network connection failed: {sanitized_msg}"
+                ) from exc
 
         raise TavilyAdapterError("Unexpected exit from HTTP retry loop")
 
@@ -293,12 +374,13 @@ class TavilyClient:
             resp_time = 0.0
 
         usage_dict = data.get("usage", {})
-        credits_used = CREDIT_COST_BASIC
+        observed_credits: int | None = None
         if isinstance(usage_dict, dict) and "credits" in usage_dict:
             try:
-                credits_used = int(usage_dict["credits"])
+                observed_credits = int(usage_dict["credits"])
             except (ValueError, TypeError):
-                credits_used = CREDIT_COST_BASIC
+                observed_credits = None
+        expected_credits = CREDIT_COST_BASIC
 
         req_id = data.get("request_id")
         req_id_str = str(req_id).strip() if req_id else None
@@ -308,7 +390,8 @@ class TavilyClient:
                 "query": query,
                 "results": [it.item_digest for it in items],
                 "response_time": round(resp_time, 4),
-                "credits_used": credits_used,
+                "expected_credits": expected_credits,
+                "observed_credits": observed_credits,
                 "request_id": req_id_str,
             }
         )
@@ -317,7 +400,8 @@ class TavilyClient:
             query=query,
             results=tuple(items),
             response_time=resp_time,
-            credits_used=credits_used,
+            expected_credits=expected_credits,
+            observed_credits=observed_credits,
             request_id=req_id_str,
             response_digest=resp_digest,
         )

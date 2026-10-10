@@ -251,3 +251,95 @@ def test_tavily_secret_redaction_in_http_error() -> None:
     # The secret must be redacted
     assert "tvly-super-secret-token-abcdef" not in err_str
     assert "[REDACTED" in err_str
+
+
+def test_tavily_rejects_advanced_and_unsupported_search_depth() -> None:
+    """Adversarial test: caller-selected advanced or non-basic depth must be rejected."""
+    from basebreak.adapters.tavily.models import TavilyConfigError
+
+    client = TavilyClient(api_key="tvly-mock-key")
+    with pytest.raises(TavilyConfigError, match="Unsupported search_depth 'advanced'"):
+        client.search("CVE-2024-21626", search_depth="advanced")
+
+    with pytest.raises(TavilyConfigError, match="Unsupported search_depth 'ultra'"):
+        client.search("CVE-2024-21626", search_depth="ultra")
+
+
+def test_tavily_retry_suppression_and_single_call_constraint() -> None:
+    """Adversarial test: retry suppression fails on first error and blocks second call."""
+    from basebreak.adapters.tavily.models import TavilyAdapterError, TavilyRateLimitError
+
+    attempts = 0
+
+    def mock_opener(req: urllib.request.Request, timeout: float = 10.0) -> Any:
+        nonlocal attempts
+        attempts += 1
+        msg = Message()
+        msg["Retry-After"] = "0.1"
+        fp = io.BytesIO(b'{"detail": {"error": "Rate limit exceeded"}}')
+        raise urllib.error.HTTPError(
+            req.full_url,
+            429,
+            "Too Many Requests",
+            hdrs=msg,
+            fp=fp,
+        )
+
+    # With allow_retries=False, must fail immediately without second attempt
+    client = TavilyClient(
+        api_key="tvly-mock-key-12345",
+        opener=mock_opener,
+        allow_retries=False,
+        single_call_only=True,
+    )
+    with pytest.raises(TavilyRateLimitError):
+        client.search("CVE-2024-21626")
+    assert attempts == 1
+
+    # Second call must be rejected by single_call_only
+    with pytest.raises(TavilyAdapterError, match="Single-call constraint violated"):
+        client.search("CVE-2024-21626")
+
+
+def test_tavily_rejects_unauthorized_and_insecure_destinations() -> None:
+    """Adversarial test: live credentials must never target insecure or unauthorized hosts."""
+    from basebreak.adapters.tavily.models import TavilyConfigError
+
+    # Insecure HTTP
+    with pytest.raises(TavilyConfigError, match="Insecure API destination"):
+        TavilyClient(api_key="tvly-mock-key", base_url="http://api.tavily.com/search")
+
+    # Unauthorized domain
+    with pytest.raises(TavilyConfigError, match="Unauthorized API destination"):
+        TavilyClient(api_key="tvly-mock-key", base_url="https://attacker.com/steal")
+
+    with pytest.raises(TavilyConfigError, match="Unauthorized API destination"):
+        TavilyClient(api_key="tvly-mock-key", base_url="https://api.tavily.com.attacker.com")
+
+
+def test_tavily_secret_safe_exceptions_redacts_witness_tokens() -> None:
+    """Adversarial test: witness tokens and API keys must be scrubbed from exception messages."""
+    witness_token = "VERIFIER_SEALED_TOKEN_XYZ_123"
+
+    def mock_opener(req: urllib.request.Request, timeout: float = 10.0) -> Any:
+        fp = io.BytesIO(
+            f'{{"detail": "{witness_token} leaked with tvly-real-secret-key-abcdef"}}'.encode()
+        )
+        msg = Message()
+        raise urllib.error.HTTPError(
+            req.full_url,
+            400,
+            "Bad Request",
+            hdrs=msg,
+            fp=fp,
+        )
+
+    client = TavilyClient(api_key="tvly-real-secret-key-abcdef", opener=mock_opener)
+    with pytest.raises(TavilyHttpError) as exc_info:
+        client.search("CVE-2024-21626", sealed_witness_tokens=[witness_token])
+
+    err_msg = str(exc_info.value)
+    assert witness_token not in err_msg
+    assert "tvly-real-secret-key-abcdef" not in err_msg
+    assert "[PROTECTED_WITNESS]" in err_msg
+    assert "[REDACTED]" in err_msg

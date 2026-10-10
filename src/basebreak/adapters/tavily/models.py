@@ -150,9 +150,15 @@ class TavilySearchResponse:
     query: str
     results: tuple[TavilySearchResultItem, ...]
     response_time: float
-    credits_used: int
+    expected_credits: int
+    observed_credits: int | None
     request_id: str | None
     response_digest: str
+
+    @property
+    def credits_used(self) -> int:
+        """Credits consumed: observed if provider reported, otherwise expected."""
+        return self.observed_credits if self.observed_credits is not None else self.expected_credits
 
     def __post_init__(self) -> None:
         if not self.query:
@@ -162,7 +168,8 @@ class TavilySearchResponse:
                 "query": self.query,
                 "results": [item.item_digest for item in self.results],
                 "response_time": round(self.response_time, 4),
-                "credits_used": self.credits_used,
+                "expected_credits": self.expected_credits,
+                "observed_credits": self.observed_credits,
                 "request_id": self.request_id,
             }
         )

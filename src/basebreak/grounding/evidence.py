@@ -308,6 +308,25 @@ def create_grounded_binding(
     if decision.contract_digest != contract.contract_digest:
         raise ValueError("Decision contract_digest does not match FrozenContract digest")
 
+    from basebreak.grounding.materiality import verify_materiality_digest
+
+    if not verify_materiality_digest(decision):
+        raise ValueError(
+            "MaterialityDecision digest verification failed; cannot bind corrupted decision."
+        )
+
+    for f in facts:
+        if f.contract_digest != contract.contract_digest:
+            raise ValueError(
+                f"Fact contract_digest '{f.contract_digest}' does not match "
+                f"contract digest '{contract.contract_digest}'"
+            )
+        if f.requirement_id != decision.requirement_id:
+            raise ValueError(
+                f"Fact requirement_id '{f.requirement_id}' does not match "
+                f"decision requirement_id '{decision.requirement_id}'"
+            )
+
     overall = reconcile_fact_uncertainty(facts)
     b_id = binding_id or f"bind-{contract.contract_digest[:8]}-{decision.decision_id[-8:]}"
     payload = {

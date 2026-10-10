@@ -11,6 +11,7 @@ from .demo import (
     TavilyDemonstrationPlan,
     TavilyPreflightStatus,
     check_live_tavily_preflight,
+    execute_fixture_tavily_demonstration,
     execute_live_tavily_demonstration,
 )
 from .models import (
@@ -65,6 +66,7 @@ __all__ = [
     "TavilyTimeoutError",
     "check_live_tavily_preflight",
     "compute_tavily_digest",
+    "execute_fixture_tavily_demonstration",
     "execute_live_tavily_demonstration",
     "extract_source_claims",
 ]

@@ -119,7 +119,8 @@ def test_p16_end_to_end_grounding_lifecycle() -> None:
                     "title": "CVE-2024-21626 Advisory",
                     "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-21626",
                     "content": (
-                        "runc <= 1.1.11 leaks internal file descriptors. Fixed in runc 1.1.12."
+                        "CVE-2024-21626: runc <= 1.1.11 leaks internal file descriptors. "
+                        "Fixed in runc 1.1.12."
                     ),
                     "score": 0.98,
                     "published_date": "2024-01-31",
@@ -136,7 +137,7 @@ def test_p16_end_to_end_grounding_lifecycle() -> None:
     assert response.credits_used == 1
     assert len(response.results) == 1
 
-    # P-16.03: Bind into GroundedContractBinding
+    # P-16.03: Bind into GroundedContractBinding (honestly marked as fixture since mock was used)
     item = response.results[0]
     fact = create_grounded_fact(
         contract=contract,
@@ -149,7 +150,7 @@ def test_p16_end_to_end_grounding_lifecycle() -> None:
         published_date=item.published_date,
         retrieval_provider="tavily",
         provider_response_id=response.request_id,
-        is_fixture=False,
+        is_fixture=True,
     )
     assert verify_grounded_fact_digest(fact) is True
 
@@ -173,20 +174,29 @@ def test_p16_end_to_end_grounding_lifecycle() -> None:
 
 
 def test_p16_05_operator_authorization_gate_enforcement() -> None:
-    """Validate P-16.05 hard stop gate behavior."""
+    """Validate P-16.05 hard stop gate behavior and anti-laundering rules."""
     contract = _make_frozen_cve_contract()
 
-    # Preflight check
+    # Preflight check: unverified without live account inspection
     preflight = check_live_tavily_preflight()
     assert preflight.authorization_status == "OPERATOR_AUTHORIZATION_REQUIRED"
     assert preflight.expected_consumption == 1
-    assert preflight.zero_cost_safeguard_active is True
+    assert preflight.current_verified_credits is None
+    assert preflight.current_quota_verified is False
+    assert preflight.zero_cost_safeguard_verified is False
+    assert "BLOCKED" in preflight.readiness_state
 
-    # Without explicit operator authorization -> FAILS CLOSED
+    # 1. Without explicit operator authorization -> FAILS CLOSED
     with pytest.raises(PermissionError, match="OPERATOR_AUTHORIZATION_REQUIRED"):
         execute_live_tavily_demonstration(contract, operator_authorized=False)
 
-    # When authorized with mock client -> executes cleanly
+    # 2. Authorized but without verified capacity -> FAILS CLOSED
+    with pytest.raises(RuntimeError, match="current quota capacity"):
+        execute_live_tavily_demonstration(
+            contract, operator_authorized=True, verified_capacity=False
+        )
+
+    # 3. Passing injected mock client to LIVE demo -> FAILS CLOSED (anti-laundering)
     def mock_opener(req: Any, timeout: float = 10.0) -> MockHttpResponse:
         resp_data = {
             "query": "CVE-2024-21626",
@@ -194,7 +204,7 @@ def test_p16_05_operator_authorization_gate_enforcement() -> None:
                 {
                     "title": "GHSA Advisory",
                     "url": "https://github.com/opencontainers/runc/security/advisories/GHSA-c3cr-m6c4-2r3x",
-                    "content": "Fixed in runc 1.1.12.",
+                    "content": "Fixed CVE-2024-21626 in runc 1.1.12.",
                     "score": 0.99,
                     "published_date": "2024-01-31",
                 }
@@ -206,11 +216,22 @@ def test_p16_05_operator_authorization_gate_enforcement() -> None:
         return MockHttpResponse(json.dumps(resp_data).encode("utf-8"))
 
     mock_client = TavilyClient(api_key="tvly-mock-auth-key", opener=mock_opener)
-    resp, binding = execute_live_tavily_demonstration(
+    with pytest.raises(ValueError, match="Fixture laundering rejected"):
+        execute_live_tavily_demonstration(
+            contract,
+            operator_authorized=True,
+            verified_capacity=True,
+            client=mock_client,
+        )
+
+    # 4. Honest offline fixture demonstration executes and marks facts as fixture
+    from basebreak.adapters.tavily.demo import execute_fixture_tavily_demonstration
+
+    resp, binding = execute_fixture_tavily_demonstration(
         contract,
-        operator_authorized=True,
         client=mock_client,
     )
     assert resp.credits_used == 1
     assert len(binding.facts) == 1
+    assert binding.facts[0].is_fixture is True
     assert verify_grounded_binding_digest(binding) is True

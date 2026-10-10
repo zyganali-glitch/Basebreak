@@ -37,16 +37,22 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
+from urllib.parse import urlparse
 
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.grounding.evidence import (
+    FreshnessState,
     GroundedContractBinding,
     GroundedFact,
     UncertaintyState,
     verify_grounded_binding_digest,
     verify_grounded_fact_digest,
 )
-from basebreak.grounding.materiality import GroundingMateriality, MaterialityDecision
+from basebreak.grounding.materiality import (
+    GroundingMateriality,
+    MaterialityDecision,
+    verify_materiality_digest,
+)
 from basebreak.verifier.witness_result import NormalizedWitnessResult
 
 
@@ -61,6 +67,8 @@ class GroundingStatus(str, Enum):
     INJECTION_BLOCKED = "INJECTION_BLOCKED"
     TAMPER_DETECTED = "TAMPER_DETECTED"
     UNVERIFIABLE_REQUIREMENT = "UNVERIFIABLE_REQUIREMENT"
+    STALE_GROUNDING = "STALE_GROUNDING"
+    UNTRUSTED_SOURCE_DOMAIN = "UNTRUSTED_SOURCE_DOMAIN"
 
 
 # Adversarial prompt-injection patterns in web content
@@ -216,6 +224,17 @@ def evaluate_grounding_firewall(
     """
     adversarial_flags: list[str] = []
 
+    # 0. Verify MaterialityDecision integrity
+    if not verify_materiality_digest(materiality):
+        adversarial_flags.append("tamper:materiality_decision_digest_mismatch")
+        return _make_firewall_result(
+            final_verdict=PreliminaryVerdict.BLOCKED,
+            status=GroundingStatus.TAMPER_DETECTED,
+            execution_verdict=execution_verdict,
+            flags=tuple(adversarial_flags),
+            rationale="MaterialityDecision integrity verification failed; tampering detected.",
+        )
+
     # 1. Protected surface violation is fatal
     if protected_surface_violated:
         return _make_firewall_result(
@@ -321,6 +340,34 @@ def evaluate_grounding_firewall(
             rationale="GroundedContractBinding digest verification failed; tampering detected.",
         )
 
+    # 7b. Binding-to-decision context integrity checks
+    if binding.materiality_decision_digest != materiality.decision_digest:
+        adversarial_flags.append("tamper:materiality_digest_mismatch")
+        return _make_firewall_result(
+            final_verdict=PreliminaryVerdict.BLOCKED,
+            status=GroundingStatus.TAMPER_DETECTED,
+            execution_verdict=execution_verdict,
+            flags=tuple(adversarial_flags),
+            rationale=(
+                f"Binding materiality digest '{binding.materiality_decision_digest}' does not "
+                f"match incoming MaterialityDecision digest '{materiality.decision_digest}'."
+            ),
+        )
+
+    if binding.contract_digest != materiality.contract_digest:
+        adversarial_flags.append("tamper:contract_digest_mismatch")
+        return _make_firewall_result(
+            final_verdict=PreliminaryVerdict.BLOCKED,
+            status=GroundingStatus.TAMPER_DETECTED,
+            execution_verdict=execution_verdict,
+            flags=tuple(adversarial_flags),
+            rationale=(
+                f"Binding contract digest '{binding.contract_digest}' does not "
+                "match incoming MaterialityDecision contract digest "
+                f"'{materiality.contract_digest}'."
+            ),
+        )
+
     for fact in binding.facts:
         if not verify_grounded_fact_digest(fact):
             adversarial_flags.append(f"tamper:fact_digest_mismatch:{fact.fact_id}")
@@ -333,6 +380,89 @@ def evaluate_grounding_firewall(
                     f"GroundedFact '{fact.fact_id}' digest verification failed; tampering detected."
                 ),
             )
+
+        # 7c. Fact-to-context checks: contract_digest and requirement_id
+        if fact.contract_digest != materiality.contract_digest:
+            adversarial_flags.append(f"tamper:fact_contract_mismatch:{fact.fact_id}")
+            return _make_firewall_result(
+                final_verdict=PreliminaryVerdict.BLOCKED,
+                status=GroundingStatus.TAMPER_DETECTED,
+                execution_verdict=execution_verdict,
+                flags=tuple(adversarial_flags),
+                rationale=(
+                    f"Fact '{fact.fact_id}' contract_digest does not match MaterialityDecision."
+                ),
+            )
+
+        if fact.requirement_id != materiality.requirement_id:
+            adversarial_flags.append(f"tamper:fact_requirement_mismatch:{fact.fact_id}")
+            return _make_firewall_result(
+                final_verdict=PreliminaryVerdict.BLOCKED,
+                status=GroundingStatus.TAMPER_DETECTED,
+                execution_verdict=execution_verdict,
+                flags=tuple(adversarial_flags),
+                rationale=(
+                    f"Fact '{fact.fact_id}' requirement_id does not match MaterialityDecision."
+                ),
+            )
+
+        # 7d. Mandatory grounding security, domain, freshness, and fake certainty checks
+        if materiality.materiality == GroundingMateriality.REQUIRED:
+            if not fact.source_url.startswith("https://"):
+                adversarial_flags.append(f"insecure_url:{fact.fact_id}")
+                return _make_firewall_result(
+                    final_verdict=PreliminaryVerdict.BLOCKED,
+                    status=GroundingStatus.INSUFFICIENT_GROUNDING,
+                    execution_verdict=execution_verdict,
+                    flags=tuple(adversarial_flags),
+                    rationale=f"Mandatory grounding source '{fact.source_url}' is not HTTPS.",
+                )
+
+            if materiality.allowed_domains:
+                parsed_dom = urlparse(fact.source_url).netloc.lower()
+                if not any(
+                    parsed_dom == d or parsed_dom.endswith("." + d)
+                    for d in materiality.allowed_domains
+                ):
+                    adversarial_flags.append(f"untrusted_domain:{parsed_dom}")
+                    return _make_firewall_result(
+                        final_verdict=PreliminaryVerdict.BLOCKED,
+                        status=GroundingStatus.UNTRUSTED_SOURCE_DOMAIN,
+                        execution_verdict=execution_verdict,
+                        flags=tuple(adversarial_flags),
+                        rationale=(
+                            f"Mandatory grounding source domain '{parsed_dom}' "
+                            "is not in allowed domains."
+                        ),
+                    )
+
+            if fact.freshness_state == FreshnessState.STALE:
+                adversarial_flags.append(f"stale_fact:{fact.fact_id}")
+                return _make_firewall_result(
+                    final_verdict=PreliminaryVerdict.BLOCKED,
+                    status=GroundingStatus.STALE_GROUNDING,
+                    execution_verdict=execution_verdict,
+                    flags=tuple(adversarial_flags),
+                    rationale=(
+                        f"Mandatory grounding fact '{fact.fact_id}' is stale; fail-closed BLOCKED."
+                    ),
+                )
+
+            # Fake certainty check: fact claims CERTAIN without corroborating external reference
+            is_certain = fact.uncertainty_state == UncertaintyState.CERTAIN
+            if is_certain and materiality.external_reference:
+                if materiality.external_reference.lower() not in fact.retrieved_claim.lower():
+                    adversarial_flags.append(f"fake_certainty:{fact.fact_id}")
+                    return _make_firewall_result(
+                        final_verdict=PreliminaryVerdict.BLOCKED,
+                        status=GroundingStatus.INSUFFICIENT_GROUNDING,
+                        execution_verdict=execution_verdict,
+                        flags=tuple(adversarial_flags),
+                        rationale=(
+                            f"Fact '{fact.fact_id}' claims CERTAIN but claim text does not "
+                            f"corroborate external reference '{materiality.external_reference}'."
+                        ),
+                    )
 
         # 8. Check for adversarial injection in fact claims
         has_inj, inj_pats = detect_prompt_injection(fact.retrieved_claim)
@@ -377,7 +507,7 @@ def evaluate_grounding_firewall(
                 ),
             )
 
-    if binding.overall_uncertainty == UncertaintyState.INSUFFICIENT:
+    if binding.overall_uncertainty in (UncertaintyState.INSUFFICIENT, UncertaintyState.UNCERTAIN):
         if materiality.materiality == GroundingMateriality.REQUIRED:
             return _make_firewall_result(
                 final_verdict=PreliminaryVerdict.BLOCKED,
@@ -385,7 +515,7 @@ def evaluate_grounding_firewall(
                 execution_verdict=execution_verdict,
                 flags=tuple(adversarial_flags),
                 rationale=(
-                    "Mandatory external grounding facts are insufficient to verify requirement; "
+                    f"Mandatory external grounding facts are {binding.overall_uncertainty.value}; "
                     "fail-closed BLOCKED."
                 ),
             )
