@@ -15,6 +15,7 @@ from basebreak.causal.public_receipt import (
     PublicVerificationReceipt,
     render_receipt_markdown,
     render_receipt_terminal,
+    verify_public_receipt_integrity,
 )
 from basebreak.cli.config import BasebreakConfig
 from basebreak.cli.persistence import (
@@ -101,11 +102,13 @@ def run_verify_command(args: argparse.Namespace, config: BasebreakConfig) -> int
                     f"Sandbox: {facts.get('sandbox_id', 'N/A')})"
                 )
         if res.receipt is not None:
-            lines.extend([
-                "-" * 70,
-                f"Receipt Digest:    {res.receipt.receipt_digest}",
-                f"Coverage Ratio:    {res.receipt.coverage_summary.coverage_percentage}%",
-            ])
+            lines.extend(
+                [
+                    "-" * 70,
+                    f"Receipt Digest:    {res.receipt.receipt_digest}",
+                    f"Coverage Ratio:    {res.receipt.coverage_summary.coverage_percentage}%",
+                ]
+            )
         lines.append(sep)
         content = "\n".join(lines)
 
@@ -179,15 +182,17 @@ def run_evidence_command(args: argparse.Namespace, config: BasebreakConfig) -> i
         for idx, item in enumerate(evidence, 1):
             world = item.get("world", "UNKNOWN")
             fact = item.get("fact", {})
-            lines.extend([
-                f"[{idx}] World: {world}",
-                f"    Outcome:     {fact.get('outcome', 'N/A')}",
-                f"    Exit Code:   {fact.get('exit_code', 'N/A')}",
-                f"    Sandbox ID:  {fact.get('sandbox_id', 'N/A')}",
-                f"    Duration:    {fact.get('duration_seconds', 0.0)}s",
-                f"    Tree Digest: {fact.get('tree_digest', 'N/A')}",
-                "-" * 40,
-            ])
+            lines.extend(
+                [
+                    f"[{idx}] World: {world}",
+                    f"    Outcome:     {fact.get('outcome', 'N/A')}",
+                    f"    Exit Code:   {fact.get('exit_code', 'N/A')}",
+                    f"    Sandbox ID:  {fact.get('sandbox_id', 'N/A')}",
+                    f"    Duration:    {fact.get('duration_seconds', 0.0)}s",
+                    f"    Tree Digest: {fact.get('tree_digest', 'N/A')}",
+                    "-" * 40,
+                ]
+            )
         content = "\n".join(lines)
 
     _print_safe(content)
@@ -219,8 +224,9 @@ def run_receipt_command(args: argparse.Namespace, config: BasebreakConfig) -> in
 
     try:
         receipt = PublicVerificationReceipt.from_dict(raw_receipt)
+        verify_public_receipt_integrity(receipt)
     except Exception as exc:
-        _print_safe(f"Error parsing receipt into verified object: {exc}", file=sys.stderr)
+        _print_safe(f"Receipt integrity verification failed for '{run_id}': {exc}", file=sys.stderr)
         return 2
 
     if fmt == "json":

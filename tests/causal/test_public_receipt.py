@@ -53,12 +53,17 @@ def _sample_receipt() -> PublicVerificationReceipt:
     object.__setattr__(contract, "requirements", (req,))
     object.__setattr__(contract, "contract_digest", "c" * 64)
 
+    from basebreak.causal.reconciliation import CausalTransition
+
     coverage = compute_causal_coverage(
         frozen_contract=contract,
         results={
             "REQ-AUTH-01": {
+                "transition": CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
                 "verdict": PreliminaryVerdict.VERIFIED,
                 "is_causally_verified": True,
+                "witness_id": "WIT-001",
+                "witness_digest": "a" * 64,
                 "rationale": "Base failed, candidate passed",
             }
         },
@@ -280,3 +285,57 @@ class TestPublicVerificationReceiptP18:
         assert "BASEBREAK CAUSAL VERIFICATION RECEIPT" in term
         assert "TASK-AUTH-FIX" in term
         assert "100.0%" in term
+
+    def test_adversarial_rehashed_but_causally_inconsistent_receipt_rejected(self) -> None:
+        """Adversarial: Even with matching SHA, causally inconsistent state cannot be VERIFIED."""
+        receipt = _sample_receipt()
+        # Create execution facts where BASE passed (base did not break!)
+        base_pass_exec = PublicExecutionFact(
+            world=ExecutionWorld.BASE,
+            sandbox_id="sbx-base-123",
+            source_commit_id="1" * 40,
+            tree_digest="2" * 40,
+            outcome=WitnessOutcome.PASS,  # Base passed!
+            exit_code=0,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="3" * 64,
+            stderr_digest="4" * 64,
+            duration_seconds=2.5,
+        )
+        cand_exec = [e for e in receipt.executions if e.world == ExecutionWorld.CANDIDATE][0]
+
+        with pytest.raises(PublicReceiptIntegrityError, match="base did not break"):
+            create_public_verification_receipt(
+                frozen_contract_digest=receipt.frozen_contract_digest,
+                task_id=receipt.task_id,
+                repo_locator=receipt.repo_locator,
+                source_commit_id=receipt.source_commit_id,
+                candidate_tree_digest=receipt.candidate_tree_digest,
+                coverage_summary=receipt.coverage_summary,
+                executions=(base_pass_exec, cand_exec),
+                witnesses=receipt.witnesses,
+                overall_verdict=PreliminaryVerdict.VERIFIED,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            )
+
+    def test_adversarial_is_authoritative_promotion_without_signature_rejected(self) -> None:
+        """Adversarial: is_authoritative cannot be asserted without independent trusted
+        certification.
+        """
+        receipt = _sample_receipt()
+        with pytest.raises(
+            PublicReceiptIntegrityError, match="is_authoritative cannot be asserted"
+        ):
+            create_public_verification_receipt(
+                frozen_contract_digest=receipt.frozen_contract_digest,
+                task_id=receipt.task_id,
+                repo_locator=receipt.repo_locator,
+                source_commit_id=receipt.source_commit_id,
+                candidate_tree_digest=receipt.candidate_tree_digest,
+                coverage_summary=receipt.coverage_summary,
+                executions=receipt.executions,
+                witnesses=receipt.witnesses,
+                overall_verdict=receipt.overall_verdict,
+                provenance=receipt.provenance,
+                is_authoritative=True,  # Caller attempts promotion!
+            )

@@ -105,9 +105,7 @@ class TestCausalCoverageP17:
 
     def test_p17_01_empty_denominator_yields_none_ratio(self) -> None:
         """P-17.01: An empty denominator must be undefined/None, never 100%."""
-        contract = _make_frozen_contract(
-            [("REQ-DOC", ChangeClass.REFACTOR, "Doc refactor only")]
-        )
+        contract = _make_frozen_contract([("REQ-DOC", ChangeClass.REFACTOR, "Doc refactor only")])
         overrides = {"REQ-DOC": RequirementEligibility.EXCLUDED_NON_BEHAVIORAL}
 
         summary = compute_causal_coverage(
@@ -217,36 +215,48 @@ class TestCausalCoverageP17:
                 "transition": CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
                 "verdict": PreliminaryVerdict.VERIFIED,
                 "is_causally_verified": True,
+                "witness_id": "wit-bug",
+                "witness_digest": "b" * 64,
                 "rationale": "Base failed, candidate passed",
             },
             "REQ-FEAT": {
                 "transition": CausalTransition.FEATURE_VERIFIED,
                 "verdict": PreliminaryVerdict.VERIFIED,
                 "is_causally_verified": True,
+                "witness_id": "wit-feat",
+                "witness_digest": "c" * 64,
                 "rationale": "Absent -> Present",
             },
             "REQ-SEC": {
                 "transition": CausalTransition.SECURITY_FIX_VERIFIED,
                 "verdict": PreliminaryVerdict.VERIFIED,
                 "is_causally_verified": True,
+                "witness_id": "wit-sec",
+                "witness_digest": "d" * 64,
                 "rationale": "Exploitable -> Blocked",
             },
             "REQ-REF": {
                 "transition": CausalTransition.REFACTOR_VERIFIED,
                 "verdict": PreliminaryVerdict.VERIFIED,
                 "is_causally_verified": True,
+                "witness_id": "wit-ref",
+                "witness_digest": "e" * 64,
                 "rationale": "Behavioral equivalence verified",
             },
             "REQ-PERF": {
                 "transition": CausalTransition.PERFORMANCE_VERIFIED,
                 "verdict": PreliminaryVerdict.VERIFIED,
                 "is_causally_verified": True,
+                "witness_id": "wit-perf",
+                "witness_digest": "f" * 64,
                 "rationale": "Parity verified and positive speedup measured",
             },
             "REQ-DEP": {
                 "transition": CausalTransition.DEP_API_CHANGE_VERIFIED,
                 "verdict": PreliminaryVerdict.VERIFIED,
                 "is_causally_verified": True,
+                "witness_id": "wit-dep",
+                "witness_digest": "a" * 64,
                 "rationale": "New API satisfied without regression",
             },
         }
@@ -288,6 +298,8 @@ class TestCausalCoverageP17:
                 "transition": CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
                 "verdict": PreliminaryVerdict.VERIFIED,
                 "is_causally_verified": True,
+                "witness_id": "wit-1",
+                "witness_digest": "b" * 64,
                 "rationale": "Passed",
             }
         }
@@ -301,6 +313,42 @@ class TestCausalCoverageP17:
         assert summary.coverage_ratio == round(1 / 3, 6)
         assert summary.overall_verdict == PreliminaryVerdict.PARTIALLY_VERIFIED
         verify_coverage_integrity(summary)
+
+    def test_adversarial_forged_dict_without_witness_rejected(self) -> None:
+        """Adversarial: Forged dict with is_causally_verified=True cannot increase coverage."""
+        contract = _make_frozen_contract([("REQ-1", ChangeClass.BUG_FIX, "Bug 1")])
+        forged_results = {
+            "REQ-1": {
+                "transition": CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+                "verdict": PreliminaryVerdict.VERIFIED,
+                "is_causally_verified": True,
+                # Missing witness_id and witness_digest!
+                "rationale": "Attacker claims verified without proof",
+            }
+        }
+        summary = compute_causal_coverage(frozen_contract=contract, results=forged_results)
+        assert summary.eligible_count == 1
+        assert summary.verified_count == 0
+        assert summary.inconclusive_count == 1
+        assert summary.coverage_ratio == 0.0
+        assert summary.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
+
+    def test_adversarial_caller_controlled_exclusion_of_behavioral_obligation_rejected(
+        self,
+    ) -> None:
+        """Adversarial: Caller cannot exclude behavioral requirement from denominator."""
+        contract = _make_frozen_contract(
+            [("REQ-BUG", ChangeClass.BUG_FIX, "Fix memory safety vulnerability")]
+        )
+        with pytest.raises(
+            CoverageIntegrityError, match="behavioral obligations cannot be removed"
+        ):
+            compute_causal_coverage(
+                frozen_contract=contract,
+                results={},
+                eligibility_overrides={"REQ-BUG": RequirementEligibility.EXCLUDED_NON_BEHAVIORAL},
+                exclusion_rationales={"REQ-BUG": "Caller wants to drop this requirement"},
+            )
 
     def test_p17_05_model_confidence_kwargs_rejected(self) -> None:
         """P-17.05: Reject caller-supplied confidence arguments fail-closed."""

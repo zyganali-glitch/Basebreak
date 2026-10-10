@@ -76,25 +76,25 @@ def generate_pr_review_comment(
         )
 
     if receipt.counterfactual is not None and receipt.counterfactual.is_required:
-        cf_res = (
-            receipt.counterfactual.outcome.value
-            if receipt.counterfactual.outcome
-            else "N/A"
+        cf_res = receipt.counterfactual.outcome.value if receipt.counterfactual.outcome else "N/A"
+        lines.extend(
+            [
+                "",
+                "### Counterfactual Subtraction Check (P-11)",
+                f"- **Delta Digest:** `{receipt.counterfactual.delta_digest}`",
+                f"- **Outcome on Delta Subtraction:** `{cf_res}` (Target: FAIL)",
+                "- **Causal Invariant:** Base broke, Candidate passed, Subtraction broke.",
+            ]
         )
-        lines.extend([
-            "",
-            "### Counterfactual Subtraction Check (P-11)",
-            f"- **Delta Digest:** `{receipt.counterfactual.delta_digest}`",
-            f"- **Outcome on Delta Subtraction:** `{cf_res}` (Target: FAIL)",
-            "- **Causal Invariant:** Base broke, Candidate passed, Subtraction broke.",
-        ])
 
-    lines.extend([
-        "",
-        "### Requirement Causal Status",
-        "| Requirement ID | Change Class | Causal State | Verdict | Explanation |",
-        "| :--- | :--- | :--- | :--- | :--- |",
-    ])
+    lines.extend(
+        [
+            "",
+            "### Requirement Causal Status",
+            "| Requirement ID | Change Class | Causal State | Verdict | Explanation |",
+            "| :--- | :--- | :--- | :--- | :--- |",
+        ]
+    )
 
     for rf in cov.per_requirement_facts:
         lines.append(
@@ -102,14 +102,16 @@ def generate_pr_review_comment(
             f"`{rf.preliminary_verdict.value}` | {rf.rationale} |"
         )
 
-    lines.extend([
-        "",
-        "### Audit & Verification",
-        "```bash",
-        f"basebreak receipt {receipt.task_id}",
-        "```",
-        "*Report generated deterministically with zero model authority.*",
-    ])
+    lines.extend(
+        [
+            "",
+            "### Audit & Verification",
+            "```bash",
+            f"basebreak receipt {receipt.task_id}",
+            "```",
+            "*Report generated deterministically with zero model authority.*",
+        ]
+    )
 
     raw_markdown = "\n".join(lines)
     safe_markdown, _ = redact_text(raw_markdown)

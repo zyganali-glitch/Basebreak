@@ -71,25 +71,20 @@ class GitHubMutationBoundary:
                 ),
             }
 
-        # If mutation is explicitly requested, enforce human authority token
-        if not self.human_authority_token or not self.human_authority_token.strip():
+        if not self.human_authority_token:
             raise UnauthorizedMutationError(
-                "Human operator authority token is required to perform irreversible "
-                "GitHub actions. Operation blocked by Basebreak governance boundary."
+                "Human operator authority token is required to request GitHub mutations."
             )
 
         if len(self.human_authority_token.strip()) < 16:
             raise UnauthorizedMutationError(
-                "Human operator authority token does not meet minimum entropy "
-                "requirements (>= 16 chars)."
+                "Human authority token does not meet minimum entropy requirements (min 16 chars)."
             )
 
-        # In competition environment, Basebreak operates under Zero-Cost Law and zero-leakage:
-        # We simulate / handle live network mutation with verified authorization
-        return {
-            "status": "MUTATION_AUTHORIZED",
-            "repo": repo_ref.full_name,
-            "pr_number": repo_ref.pr_number,
-            "mutation_performed": True,
-            "message": "Mutation authorized with verified human operator authority.",
-        }
+        # External mutation is strictly disabled in this runtime environment.
+        # Under Zero-Cost Law and security boundaries, no unconfirmed live external mutation
+        # is permitted, and arbitrary string length cannot authorize or prove external action.
+        raise UnauthorizedMutationError(
+            "External GitHub write operations (PR comments, draft PRs, merges) are strictly "
+            "disabled in this runtime environment. No external mutations may be performed."
+        )

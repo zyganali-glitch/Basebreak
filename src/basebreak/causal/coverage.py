@@ -318,15 +318,36 @@ def determine_requirement_eligibility(
 
     By default, requirements with canonical change classes are ELIGIBLE for behavioral
     verification unless explicit non-behavioral or out-of-scope overrides are specified.
+    Caller-controlled exclusions cannot silently remove behavioral obligations from the denominator.
     """
     req_id = requirement.requirement_id
     if eligibility_overrides and req_id in eligibility_overrides:
         eligibility = eligibility_overrides[req_id]
-        rationale = (
-            exclusion_rationales.get(req_id) if exclusion_rationales else None
-        )
-        if eligibility != RequirementEligibility.ELIGIBLE and not rationale:
-            rationale = f"Requirement {req_id} explicitly excluded as {eligibility.value}"
+        rationale = exclusion_rationales.get(req_id) if exclusion_rationales else None
+        if eligibility != RequirementEligibility.ELIGIBLE:
+            # Prevent arbitrary exclusions from artificially removing behavioral obligations
+            is_behavioral_class = change_class in (
+                ChangeClass.BUG_FIX,
+                ChangeClass.FEATURE,
+                ChangeClass.SECURITY_FIX,
+            )
+            stmt_lower = requirement.statement.lower()
+            is_obviously_non_behavioral = any(
+                term in stmt_lower
+                for term in ("doc", "readme", "comment", "typo", "license", "metadata", "changelog")
+            )
+            if is_behavioral_class and not is_obviously_non_behavioral:
+                raise CoverageIntegrityError(
+                    f"Cannot exclude behavioral requirement {req_id} ({change_class.value}): "
+                    f"behavioral obligations cannot be removed from coverage denominator."
+                )
+            if not rationale or not rationale.strip():
+                if is_behavioral_class:
+                    raise CoverageIntegrityError(
+                        f"Exclusion of requirement {req_id} requires explicit, "
+                        "non-empty exclusion rationale."
+                    )
+                rationale = f"Non-behavioral exclusion: {eligibility.value}"
         return EligibilityDecision(
             requirement_id=req_id,
             change_class=change_class,
@@ -534,12 +555,19 @@ def compute_causal_coverage(
             witness_digest = res.witness_digest
             rationale = res.narrative
         elif isinstance(res, LocalCausalReceipt):
+            if res.frozen_contract_digest.lower() != frozen_contract.contract_digest.lower():
+                raise ContractDigestMismatchError(
+                    f"Receipt contract digest {res.frozen_contract_digest} does not match "
+                    f"frozen contract {frozen_contract.contract_digest}"
+                )
+            if res.requirement_id != req.requirement_id:
+                raise UnknownRequirementError(
+                    f"Receipt requirement_id {res.requirement_id} does not match "
+                    f"{req.requirement_id}"
+                )
             transition = res.transition
             verdict = res.verdict
-            is_verified = (
-                res.transition == CausalTransition.CAUSAL_BUG_FIX_VERIFIED
-                and res.verdict == PreliminaryVerdict.VERIFIED
-            )
+            is_verified = res.is_causally_verified and res.verdict == PreliminaryVerdict.VERIFIED
             witness_id = res.witness_id
             witness_digest = res.witness_digest
             rationale = res.narrative
@@ -550,6 +578,22 @@ def compute_causal_coverage(
                     raise ModelAuthorityViolationError(
                         f"Model confidence key {k!r} forbidden in requirement result"
                     )
+
+            # Validate contract binding if present
+            dict_cd = res.get("frozen_contract_digest") or res.get("contract_digest")
+            if dict_cd and dict_cd.strip().lower() != frozen_contract.contract_digest.lower():
+                raise ContractDigestMismatchError(
+                    f"Result contract digest {dict_cd} does not match "
+                    f"frozen contract {frozen_contract.contract_digest}"
+                )
+
+            # Validate requirement ID binding if present
+            dict_rid = res.get("requirement_id")
+            if dict_rid and dict_rid.strip() != req.requirement_id:
+                raise UnknownRequirementError(
+                    f"Result requirement_id {dict_rid} does not match {req.requirement_id}"
+                )
+
             transition_val = res.get("transition")
             if transition_val is not None:
                 transition = (
@@ -563,10 +607,67 @@ def compute_causal_coverage(
                 if isinstance(verdict_val, PreliminaryVerdict)
                 else PreliminaryVerdict(str(verdict_val))
             )
-            is_verified = bool(res.get("is_causally_verified", False))
+            raw_is_verified = bool(res.get("is_causally_verified", False))
             witness_id = res.get("witness_id")
             witness_digest = res.get("witness_digest")
             rationale = str(res.get("rationale", res.get("narrative", "Result processed")))
+
+            # Independent causal evidence validation:
+            # 1. Witness presence and format validation
+            has_valid_witness = (
+                isinstance(witness_id, str)
+                and bool(witness_id.strip())
+                and isinstance(witness_digest, str)
+                and bool(_HEX_64_PATTERN.match(witness_digest))
+            )
+
+            # 2. Class-specific transition compatibility
+            is_valid_transition = False
+            if transition is not None:
+                if req_class == ChangeClass.BUG_FIX:
+                    is_valid_transition = transition in (
+                        CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+                        CausalTransition.CAUSAL_TRIPLET_VERIFIED,
+                    )
+                elif req_class == ChangeClass.FEATURE:
+                    is_valid_transition = transition in (
+                        CausalTransition.FEATURE_VERIFIED,
+                        CausalTransition.CAUSAL_TRIPLET_VERIFIED,
+                    )
+                elif req_class == ChangeClass.SECURITY_FIX:
+                    is_valid_transition = transition in (
+                        CausalTransition.SECURITY_FIX_VERIFIED,
+                        CausalTransition.CAUSAL_TRIPLET_VERIFIED,
+                    )
+                elif req_class == ChangeClass.REFACTOR:
+                    is_valid_transition = transition in (
+                        CausalTransition.REFACTOR_VERIFIED,
+                        CausalTransition.CAUSAL_TRIPLET_VERIFIED,
+                    )
+                elif req_class == ChangeClass.PERFORMANCE:
+                    is_valid_transition = transition in (
+                        CausalTransition.PERFORMANCE_VERIFIED,
+                        CausalTransition.CAUSAL_TRIPLET_VERIFIED,
+                    )
+                elif req_class == ChangeClass.DEP_API_CHANGE:
+                    is_valid_transition = transition in (
+                        CausalTransition.DEP_API_CHANGE_VERIFIED,
+                        CausalTransition.CAUSAL_TRIPLET_VERIFIED,
+                    )
+
+            if raw_is_verified and verdict == PreliminaryVerdict.VERIFIED:
+                if not has_valid_witness or not is_valid_transition:
+                    # Reject unproven assertion: cannot promote arbitrary dict to VERIFIED!
+                    is_verified = False
+                    verdict = PreliminaryVerdict.INCONCLUSIVE
+                    rationale = (
+                        f"Unproven assertion rejected: missing witness evidence or incompatible "
+                        f"transition {transition} for {req_class.value}."
+                    )
+                else:
+                    is_verified = True
+            else:
+                is_verified = False
         else:
             res_type = type(res).__name__
             raise TypeError(

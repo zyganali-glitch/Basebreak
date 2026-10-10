@@ -22,6 +22,9 @@ _RUN_ID_ROUTE_PATTERN = re.compile(
 )
 
 
+MAX_REQUEST_BODY_BYTES: int = 1024 * 1024  # 1 MB
+
+
 class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
     """HTTP request handler for Basebreak REST API and SSE event stream."""
 
@@ -43,17 +46,17 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
         """Send structured JSON error."""
         self._send_json(status_code, {"error": message, "status_code": status_code})
 
-    def _check_auth(self) -> bool:
-        """Verify authorization header."""
+    def _check_auth(self, *, is_execution: bool = False) -> bool:
+        """Verify authorization header with fail-closed enforcement for execution."""
         auth_hdr = self.headers.get("Authorization")
-        if not self.auth.validate_auth_header(auth_hdr):
+        if not self.auth.validate_auth_header(auth_hdr, is_execution=is_execution):
             self._send_error(401, "Unauthorized: missing or invalid Bearer token.")
             return False
         return True
 
     def do_POST(self) -> None:
         """Handle POST requests."""
-        if not self._check_auth():
+        if not self._check_auth(is_execution=True):
             return
 
         parsed_url = urlparse(self.path)
@@ -61,6 +64,13 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
             content_len = int(self.headers.get("Content-Length", 0))
             if content_len <= 0:
                 self._send_error(400, "Request body cannot be empty.")
+                return
+            if content_len > MAX_REQUEST_BODY_BYTES:
+                self._send_error(
+                    413,
+                    f"Request payload too large: {content_len} bytes "
+                    f"exceeds {MAX_REQUEST_BODY_BYTES} bytes limit.",
+                )
                 return
 
             try:
@@ -91,7 +101,7 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         """Handle GET requests."""
-        if not self._check_auth():
+        if not self._check_auth(is_execution=False):
             return
 
         parsed_url = urlparse(self.path)
@@ -123,6 +133,20 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
             if receipt is None:
                 self._send_error(404, f"Public receipt for run '{run_id}' not found.")
                 return
+
+            # Mandatory receipt integrity verification before presentation
+            from basebreak.causal.public_receipt import (
+                PublicVerificationReceipt,
+                verify_public_receipt_integrity,
+            )
+
+            try:
+                verified_rc = PublicVerificationReceipt.from_dict(receipt)
+                verify_public_receipt_integrity(verified_rc)
+            except Exception as exc:
+                self._send_error(400, f"Receipt integrity verification failed: {exc}")
+                return
+
             self._send_json(200, receipt)
         elif subpath == "/events":
             # GET /v1/runs/{run_id}/events (Server-Sent Events)
@@ -134,9 +158,12 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
 
+            from basebreak.security.secret_policy import redact_text
+
             for ev in events:
-                sse_chunk = ev.to_sse().encode("utf-8")
-                self.wfile.write(sse_chunk)
+                sse_chunk = ev.to_sse()
+                safe_sse, _ = redact_text(sse_chunk)
+                self.wfile.write(safe_sse.encode("utf-8"))
                 self.wfile.flush()
         else:
             self._send_error(404, f"Unknown subpath: {subpath}")

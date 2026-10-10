@@ -68,7 +68,9 @@ class TestGitHubIngestion:
 
     def test_parse_commit_url(self) -> None:
         commit_sha = "a" * 40
-        ref = parse_github_reference(f"https://github.com/zyganali-glitch/Basebreak/commit/{commit_sha}")
+        ref = parse_github_reference(
+            f"https://github.com/zyganali-glitch/Basebreak/commit/{commit_sha}"
+        )
         assert ref.owner == "zyganali-glitch"
         assert ref.repo == "Basebreak"
         assert ref.commit_sha == commit_sha
@@ -141,9 +143,7 @@ class TestGitHubReviewArtifact:
         cand_tree = "2" * 64
 
         req_rationale = (
-            f"Fix defect with token {secret_text}"
-            if secret_text
-            else "Fix defect in auth module"
+            f"Fix defect with token {secret_text}" if secret_text else "Fix defect in auth module"
         )
         fact_digest = compute_fact_digest(
             requirement_id="req_001",
@@ -340,17 +340,26 @@ class TestGitHubMutationBoundary:
                 dry_run=False,
             )
 
-    def test_mutation_with_valid_token_authorized(self) -> None:
+    def test_mutation_with_valid_token_defaults_to_dry_run_and_non_dry_run_raises(self) -> None:
         boundary = GitHubMutationBoundary(
             allow_github_mutation=True,
             human_authority_token="operator_auth_token_secret_entropy_ok",
         )
         repo_ref = parse_github_reference("https://github.com/zyganali-glitch/Basebreak/pull/10")
 
-        result = boundary.execute_post_pr_comment(
+        # Default dry_run=True must NEVER perform mutation
+        preview = boundary.execute_post_pr_comment(
             repo_ref=repo_ref,
             comment_body="Test comment content",
-            dry_run=False,
+            dry_run=True,
         )
-        assert result["status"] == "MUTATION_AUTHORIZED"
-        assert result["mutation_performed"] is True
+        assert preview["status"] == "DRY_RUN_PREVIEW"
+        assert preview["mutation_performed"] is False
+
+        # Non-dry-run must fail closed without claiming external mutation
+        with pytest.raises(UnauthorizedMutationError, match="External GitHub write operations"):
+            boundary.execute_post_pr_comment(
+                repo_ref=repo_ref,
+                comment_body="Test comment content",
+                dry_run=False,
+            )

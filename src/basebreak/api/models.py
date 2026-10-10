@@ -83,6 +83,25 @@ class ApiEvent:
         )
         return f"event: {self.event_type}\ndata: {payload}\n\n"
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert ApiEvent to dictionary."""
+        return {
+            "event_type": self.event_type,
+            "run_id": self.run_id,
+            "timestamp_utc": self.timestamp_utc,
+            "data": self.data,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ApiEvent:
+        """Create ApiEvent from dictionary."""
+        return cls(
+            event_type=data["event_type"],
+            run_id=data["run_id"],
+            timestamp_utc=data["timestamp_utc"],
+            data=data.get("data", {}),
+        )
+
     @classmethod
     def create(cls, event_type: str, run_id: str, data: dict[str, Any] | None = None) -> ApiEvent:
         now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()

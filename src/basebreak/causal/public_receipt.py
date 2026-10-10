@@ -463,7 +463,7 @@ class PublicVerificationReceipt:
             coverage_digest=cov_raw["coverage_digest"],
         )
 
-        return cls(
+        receipt = cls(
             schema_version=data["schema_version"],
             receipt_digest=data["receipt_digest"],
             frozen_contract_digest=data["frozen_contract_digest"],
@@ -487,6 +487,8 @@ class PublicVerificationReceipt:
             is_authoritative=bool(data.get("is_authoritative", False)),
             disclaimers=tuple(data.get("disclaimers", ())),
         )
+        verify_public_receipt_integrity(receipt)
+        return receipt
 
 
 def build_canonical_public_receipt_payload(
@@ -617,7 +619,7 @@ def create_public_verification_receipt(
 
     receipt_digest = compute_public_receipt_digest(payload)
 
-    return PublicVerificationReceipt(
+    receipt = PublicVerificationReceipt(
         schema_version=PUBLIC_RECEIPT_SCHEMA_VERSION,
         receipt_digest=receipt_digest,
         frozen_contract_digest=frozen_contract_digest.strip().lower(),
@@ -643,6 +645,136 @@ def create_public_verification_receipt(
         is_authoritative=is_authoritative,
         disclaimers=tuple(disclaimers),
     )
+    _validate_receipt_cross_bindings_and_causal_consistency(receipt)
+    return receipt
+
+
+def _validate_receipt_cross_bindings_and_causal_consistency(
+    receipt: PublicVerificationReceipt,
+) -> None:
+    """Validate full cross-binding, causal consistency, and non-promotable authority."""
+    # 1. Coverage summary contract digest cross-binding
+    if receipt.coverage_summary.contract_digest.lower() != receipt.frozen_contract_digest.lower():
+        raise PublicReceiptIntegrityError(
+            f"Coverage summary contract_digest {receipt.coverage_summary.contract_digest} "
+            f"does not match receipt frozen_contract_digest {receipt.frozen_contract_digest}"
+        )
+
+    # 2. Authority check: a checksum alone does not certify authority
+    if receipt.is_authoritative:
+        if receipt.signature_strategy == "SHA256_DIGEST_ONLY" or not receipt.signature:
+            raise PublicReceiptIntegrityError(
+                "is_authoritative cannot be asserted without independent trusted certification "
+                "or signature; SHA256 digest alone cannot confer authority."
+            )
+
+    # 3. Source commit and tree bindings across executions
+    for idx, exec_fact in enumerate(receipt.executions):
+        if exec_fact.source_commit_id.lower() != receipt.source_commit_id.lower():
+            raise PublicReceiptIntegrityError(
+                f"Execution [{idx}] source_commit_id {exec_fact.source_commit_id} "
+                f"does not match receipt source_commit_id {receipt.source_commit_id}"
+            )
+        if exec_fact.world == ExecutionWorld.CANDIDATE:
+            if exec_fact.tree_digest.lower() != receipt.candidate_tree_digest.lower():
+                raise PublicReceiptIntegrityError(
+                    f"Candidate execution tree_digest {exec_fact.tree_digest} "
+                    f"does not match receipt candidate_tree_digest {receipt.candidate_tree_digest}"
+                )
+
+    # 4. Counterfactual bindings
+    if receipt.counterfactual is not None and receipt.counterfactual.is_required:
+        cf = receipt.counterfactual
+        if cf.execution_fact is not None:
+            if cf.execution_fact.world != ExecutionWorld.COUNTERFACTUAL:
+                raise PublicReceiptIntegrityError(
+                    f"Counterfactual execution fact world must be COUNTERFACTUAL, "
+                    f"got {cf.execution_fact.world.value}"
+                )
+            if cf.execution_fact.source_commit_id.lower() != receipt.source_commit_id.lower():
+                raise PublicReceiptIntegrityError(
+                    f"Counterfactual execution source_commit_id "
+                    f"{cf.execution_fact.source_commit_id} "
+                    f"does not match receipt source_commit_id {receipt.source_commit_id}"
+                )
+            if cf.candidate_tree_digest:
+                matches_candidate = (
+                    cf.candidate_tree_digest.lower() == receipt.candidate_tree_digest.lower()
+                )
+                matches_cf_exec = (
+                    cf.candidate_tree_digest.lower() == cf.execution_fact.tree_digest.lower()
+                )
+                if not (matches_candidate or matches_cf_exec):
+                    raise PublicReceiptIntegrityError(
+                        f"Counterfactual candidate_tree_digest {cf.candidate_tree_digest} "
+                        f"does not match candidate tree {receipt.candidate_tree_digest} "
+                        f"or counterfactual execution tree {cf.execution_fact.tree_digest}"
+                    )
+
+    # 5. Causal consistency of overall_verdict
+    if receipt.overall_verdict == PreliminaryVerdict.VERIFIED:
+        if not receipt.coverage_summary.is_fully_verified:
+            raise PublicReceiptIntegrityError(
+                "Causal inconsistency: overall_verdict is VERIFIED "
+                "but coverage_summary is not fully verified"
+            )
+        if receipt.coverage_summary.overall_verdict != PreliminaryVerdict.VERIFIED:
+            raise PublicReceiptIntegrityError(
+                "Causal inconsistency: overall_verdict is VERIFIED "
+                "but coverage_summary overall_verdict is not VERIFIED"
+            )
+
+        # In Basebreak: if the patch matters, the base must break!
+        base_execs = [e for e in receipt.executions if e.world == ExecutionWorld.BASE]
+        cand_execs = [e for e in receipt.executions if e.world == ExecutionWorld.CANDIDATE]
+
+        if not base_execs:
+            raise PublicReceiptIntegrityError(
+                "Causal inconsistency: overall_verdict is VERIFIED but BASE execution is missing"
+            )
+        if not cand_execs:
+            raise PublicReceiptIntegrityError(
+                "Causal inconsistency: overall_verdict is VERIFIED "
+                "but CANDIDATE execution is missing"
+            )
+
+        if any(e.outcome == WitnessOutcome.PASS for e in base_execs):
+            raise PublicReceiptIntegrityError(
+                "Causal inconsistency: overall_verdict is VERIFIED "
+                "but BASE passed witness (base did not break)"
+            )
+        if any(e.outcome != WitnessOutcome.PASS for e in cand_execs):
+            raise PublicReceiptIntegrityError(
+                "Causal inconsistency: overall_verdict is VERIFIED but CANDIDATE failed witness"
+            )
+
+        if receipt.counterfactual is not None and receipt.counterfactual.is_required:
+            if receipt.counterfactual.outcome == WitnessOutcome.PASS:
+                raise PublicReceiptIntegrityError(
+                    "Causal inconsistency: overall_verdict is VERIFIED "
+                    "but COUNTERFACTUAL passed (patch not causally necessary)"
+                )
+            if (
+                receipt.counterfactual.execution_fact
+                and receipt.counterfactual.execution_fact.outcome == WitnessOutcome.PASS
+            ):
+                raise PublicReceiptIntegrityError(
+                    "Causal inconsistency: overall_verdict is VERIFIED "
+                    "but COUNTERFACTUAL execution passed"
+                )
+
+        if not receipt.witnesses:
+            raise PublicReceiptIntegrityError(
+                "Causal inconsistency: overall_verdict is VERIFIED but no witnesses are bound"
+            )
+
+        req_ids = {f.requirement_id for f in receipt.coverage_summary.per_requirement_facts}
+        for w in receipt.witnesses:
+            if w.requirement_id and w.requirement_id not in req_ids:
+                raise PublicReceiptIntegrityError(
+                    f"Witness requirement {w.requirement_id!r} "
+                    f"not found in coverage summary requirements"
+                )
 
 
 def verify_public_receipt_integrity(receipt: PublicVerificationReceipt) -> None:
@@ -686,6 +818,9 @@ def verify_public_receipt_integrity(receipt: PublicVerificationReceipt) -> None:
     # Verify coverage summary integrity
     verify_coverage_integrity(receipt.coverage_summary)
 
+    # Verify cross-bindings and causal facts consistency
+    _validate_receipt_cross_bindings_and_causal_consistency(receipt)
+
 
 def render_receipt_markdown(receipt: PublicVerificationReceipt) -> str:
     """Render comprehensive, human-readable GitHub Flavored Markdown from receipt."""
@@ -722,12 +857,14 @@ def render_receipt_markdown(receipt: PublicVerificationReceipt) -> str:
             f"`{fact.execution_obligation}` |"
         )
 
-    lines.extend([
-        "",
-        "## Execution Evidence",
-        "| World | Sandbox | Outcome | Exit Code | Stdout Digest | Duration |",
-        "|---|---|---|---|---|---|",
-    ])
+    lines.extend(
+        [
+            "",
+            "## Execution Evidence",
+            "| World | Sandbox | Outcome | Exit Code | Stdout Digest | Duration |",
+            "|---|---|---|---|---|---|",
+        ]
+    )
 
     for ex in receipt.executions:
         exit_code_str = str(ex.exit_code) if ex.exit_code is not None else "N/A"
@@ -737,15 +874,15 @@ def render_receipt_markdown(receipt: PublicVerificationReceipt) -> str:
         )
 
     if receipt.counterfactual is not None:
-        lines.extend([
-            "",
-            "## Counterfactual Third-Run (P-11)",
-        ])
+        lines.extend(
+            [
+                "",
+                "## Counterfactual Third-Run (P-11)",
+            ]
+        )
         if receipt.counterfactual.is_required:
             cf_out = (
-                receipt.counterfactual.outcome.value
-                if receipt.counterfactual.outcome
-                else "N/A"
+                receipt.counterfactual.outcome.value if receipt.counterfactual.outcome else "N/A"
             )
             lines.append("- **Required:** Yes")
             lines.append(f"- **Delta Digest:** `{receipt.counterfactual.delta_digest}`")
@@ -755,20 +892,24 @@ def render_receipt_markdown(receipt: PublicVerificationReceipt) -> str:
             lines.append(f"- **Rationale:** {receipt.counterfactual.absence_rationale}")
 
     if receipt.not_run_obligations:
-        lines.extend([
-            "",
-            "## NOT_RUN / Limitations",
-        ])
+        lines.extend(
+            [
+                "",
+                "## NOT_RUN / Limitations",
+            ]
+        )
         for ob in receipt.not_run_obligations:
             lines.append(f"- {ob}")
 
     auth_str = "Yes" if receipt.is_authoritative else "No (Deterministic Fact Envelope)"
-    lines.extend([
-        "",
-        "## Integrity & Disclaimers",
-        f"- **Signature Strategy:** `{receipt.signature_strategy}`",
-        f"- **Authoritative Certificate:** `{auth_str}`",
-    ])
+    lines.extend(
+        [
+            "",
+            "## Integrity & Disclaimers",
+            f"- **Signature Strategy:** `{receipt.signature_strategy}`",
+            f"- **Authoritative Certificate:** `{auth_str}`",
+        ]
+    )
     for d in receipt.disclaimers:
         lines.append(f"> {d}")
 

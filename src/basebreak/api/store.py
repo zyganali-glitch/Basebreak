@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -28,9 +29,11 @@ class ApiRunStore:
     def __init__(self, runs_dir: str | Path = ".basebreak/runs") -> None:
         self.runs_dir = Path(runs_dir)
         self.persistence = RunPersistenceManager(self.runs_dir)
+        self._lock = threading.Lock()
         self._runs: dict[str, dict[str, Any]] = {}
         self._idempotency_records: dict[str, dict[str, str]] = {}
         self._events: dict[str, list[ApiEvent]] = {}
+        self._idempotency_file = self.runs_dir / "idempotency.json"
         self.recover_from_disk()
 
     @staticmethod
@@ -42,22 +45,41 @@ class ApiRunStore:
         return hashlib.sha256(raw_bytes).hexdigest()
 
     def recover_from_disk(self) -> int:
-        """Recover existing runs from disk into the store on startup."""
+        """Recover existing runs and durable idempotency mapping from disk on startup."""
         recovered_count = 0
         run_ids = self.persistence.list_runs()
         for run_id in run_ids:
             try:
                 meta = self.persistence.load_metadata(run_id)
                 self._runs[run_id] = meta
-                # If there are no recorded events in memory, generate recovered completion event
-                if run_id not in self._events:
+
+                # Recover actual persisted events if available
+                persisted_raw_events = self.persistence.load_events(run_id)
+                if persisted_raw_events:
+                    self._events[run_id] = [ApiEvent.from_dict(raw) for raw in persisted_raw_events]
+                elif run_id not in self._events:
                     self._events[run_id] = [
                         ApiEvent.create("run.recovered", run_id, {"status": meta.get("status")})
                     ]
                 recovered_count += 1
             except Exception:
                 continue
+
+        # Load durable idempotency records
+        if self._idempotency_file.is_file():
+            try:
+                with self._idempotency_file.open("r", encoding="utf-8") as f:
+                    self._idempotency_records = json.load(f)
+            except Exception:
+                pass
+
         return recovered_count
+
+    def _persist_idempotency_records(self) -> None:
+        """Durable persistence of idempotency bindings."""
+        self.runs_dir.mkdir(parents=True, exist_ok=True)
+        with self._idempotency_file.open("w", encoding="utf-8") as f:
+            json.dump(self._idempotency_records, f, indent=2, sort_keys=True)
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         """Get run metadata by ID."""
@@ -98,87 +120,126 @@ class ApiRunStore:
         fingerprint = self._compute_fingerprint(req_dict)
         idemp_key = request.idempotency_key
 
-        # Check idempotency record
-        if idemp_key:
-            if idemp_key in self._idempotency_records:
-                record = self._idempotency_records[idemp_key]
-                if record["fingerprint"] != fingerprint:
-                    raise IdempotencyConflictError(
-                        f"Idempotency-Key '{idemp_key}' has already been used "
-                        "with different request parameters."
-                    )
-                existing_run_id = record["run_id"]
-                existing_meta = self.get_run(existing_run_id)
-                if existing_meta is not None:
-                    return existing_meta, False  # Replay existing run
+        with self._lock:
+            # Check idempotency record
+            if idemp_key:
+                if idemp_key in self._idempotency_records:
+                    record = self._idempotency_records[idemp_key]
+                    if record["fingerprint"] != fingerprint:
+                        raise IdempotencyConflictError(
+                            f"Idempotency-Key '{idemp_key}' has already been used "
+                            "with different request parameters."
+                        )
+                    existing_run_id = record["run_id"]
+                    existing_meta = self.get_run(existing_run_id)
+                    if existing_meta is not None:
+                        return existing_meta, False  # Replay existing run
 
-        active_config = config or BasebreakConfig(runs_dir=str(self.runs_dir))
+            active_config = config or BasebreakConfig(runs_dir=str(self.runs_dir))
 
-        # Execute verification pipeline
-        res = execute_verification_pipeline(
-            target=request.target,
-            patch=request.patch,
-            base_sha=request.base_sha,
-            candidate_sha=request.candidate_sha,
-            change_class_name=request.change_class,
-            allow_live=request.allow_live,
-            config=active_config,
-        )
+            # Execute verification pipeline
+            res = execute_verification_pipeline(
+                target=request.target,
+                patch=request.patch,
+                base_sha=request.base_sha,
+                candidate_sha=request.candidate_sha,
+                change_class_name=request.change_class,
+                allow_live=request.allow_live,
+                config=active_config,
+            )
 
-        run_id = res.run_id
-        self._runs[run_id] = res.metadata
+            run_id = res.run_id
+            self._runs[run_id] = res.metadata
 
-        # Record structured event stream
-        events = [
-            ApiEvent.create("run.created", run_id, {"target": request.target}),
-            ApiEvent.create("contract.frozen", run_id, {"change_class": request.change_class}),
-            ApiEvent.create("witness.sealed", run_id, {"witness_id": "wit_001"}),
-            ApiEvent.create("base.executing", run_id, {"world": "BASE"}),
-            ApiEvent.create(
-                "base.completed",
-                run_id,
-                {"outcome": res.world_states.get("BASE", {}).get("outcome")},
-            ),
-            ApiEvent.create("candidate.executing", run_id, {"world": "CANDIDATE"}),
-            ApiEvent.create(
-                "candidate.completed",
-                run_id,
-                {"outcome": res.world_states.get("CANDIDATE", {}).get("outcome")},
-            ),
-            ApiEvent.create("counterfactual.executing", run_id, {"world": "COUNTERFACTUAL"}),
-            ApiEvent.create(
-                "counterfactual.completed",
-                run_id,
-                {"outcome": res.world_states.get("COUNTERFACTUAL", {}).get("outcome")},
-            ),
-            ApiEvent.create(
-                "reconciliation.completed",
-                run_id,
-                {"transition": res.causal_transition, "verdict": res.metadata.get("verdict")},
-            ),
-        ]
-        if res.receipt is not None:
-            events.append(
+            # Record factual event stream — NEVER fabricate execution milestones!
+            events = [
                 ApiEvent.create(
-                    "receipt.generated",
+                    "run.created",
                     run_id,
-                    {"receipt_digest": res.receipt.receipt_digest},
+                    {"target": request.target, "change_class": request.change_class},
                 )
-            )
-        events.append(
-            ApiEvent.create(
-                "run.completed",
-                run_id,
-                {"status": res.status, "exit_code": res.exit_code},
-            )
-        )
-        self._events[run_id] = events
+            ]
 
-        # Store idempotency binding
-        if idemp_key:
-            self._idempotency_records[idemp_key] = {
-                "fingerprint": fingerprint,
-                "run_id": run_id,
-            }
+            if res.status == "BLOCKED":
+                events.append(
+                    ApiEvent.create(
+                        "run.blocked",
+                        run_id,
+                        {"message": res.message, "exit_code": res.exit_code},
+                    )
+                )
+            elif res.status == "INVALID_INPUT":
+                events.append(
+                    ApiEvent.create(
+                        "run.invalid_input",
+                        run_id,
+                        {"message": res.message, "exit_code": res.exit_code},
+                    )
+                )
+            else:
+                # Factual world completions
+                for world in ("BASE", "CANDIDATE", "COUNTERFACTUAL"):
+                    if world in res.world_states:
+                        w_state = res.world_states[world]
+                        events.append(
+                            ApiEvent.create(
+                                f"{world.lower()}.completed",
+                                run_id,
+                                {
+                                    "world": world,
+                                    "outcome": w_state.get("outcome"),
+                                    "exit_code": w_state.get("exit_code"),
+                                    "sandbox_id": w_state.get("sandbox_id"),
+                                },
+                            )
+                        )
 
-        return res.metadata, True
+                if res.causal_transition:
+                    events.append(
+                        ApiEvent.create(
+                            "reconciliation.completed",
+                            run_id,
+                            {
+                                "transition": res.causal_transition,
+                                "verdict": res.metadata.get("verdict"),
+                            },
+                        )
+                    )
+
+                if res.receipt is not None:
+                    events.append(
+                        ApiEvent.create(
+                            "receipt.generated",
+                            run_id,
+                            {"receipt_digest": res.receipt.receipt_digest},
+                        )
+                    )
+
+                events.append(
+                    ApiEvent.create(
+                        "run.completed",
+                        run_id,
+                        {"status": res.status, "exit_code": res.exit_code},
+                    )
+                )
+
+            self._events[run_id] = events
+
+            # Persist run state and events to disk
+            self.persistence.save_run(
+                run_id=run_id,
+                metadata=res.metadata,
+                evidence=res.evidence,
+                receipt=res.receipt.to_dict() if res.receipt else None,
+                events=[e.to_dict() for e in events],
+            )
+
+            # Store durable idempotency binding
+            if idemp_key:
+                self._idempotency_records[idemp_key] = {
+                    "fingerprint": fingerprint,
+                    "run_id": run_id,
+                }
+                self._persist_idempotency_records()
+
+            return res.metadata, True

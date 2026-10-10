@@ -57,7 +57,9 @@ class TestCliConfig:
         assert loaded.token_factory_promo_stop_threshold == 10.0
 
     def test_config_secret_redaction(self) -> None:
-        cfg = BasebreakConfig(api_endpoint="https://user:ghp_SuperSecretToken1234567890@api.host.com")
+        cfg = BasebreakConfig(
+            api_endpoint="https://user:ghp_SuperSecretToken1234567890@api.host.com"
+        )
         safe_dict = cfg.to_safe_dict()
         assert "ghp_" not in safe_dict["api_endpoint"]
         assert "[REDACTED]" in safe_dict["api_endpoint"]
@@ -202,20 +204,45 @@ class TestCliCommandsInvocation:
         assert "BASEBREAK EFFECTIVE CONFIGURATION" in captured.out
         assert "Offline Mode:        True" in captured.out
 
+    def test_cli_verify_arbitrary_nonexistent_repo_blocked(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Adversarial: basebreak verify with an arbitrary nonexistent repo cannot return
+        VERIFIED.
+        """
+        runs_dir = str(tmp_path / "runs")
+        verify_code = main(
+            [
+                "--runs-dir",
+                runs_dir,
+                "verify",
+                "dummy_repo",
+                "--base-sha",
+                "1" * 40,
+            ]
+        )
+        assert verify_code == 2
+        captured = capsys.readouterr()
+        assert "[BLOCKED]" in captured.out
+        assert "Basebreak security boundaries" in captured.out
+
     def test_cli_verify_and_status_and_receipt_flow(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         runs_dir = str(tmp_path / "runs")
+        demo_target = str(Path(__file__).resolve().parent.parent / "fixtures" / "demo_target")
 
-        # 1. Run verify
-        verify_code = main([
-            "--runs-dir",
-            runs_dir,
-            "verify",
-            "dummy_repo",
-            "--base-sha",
-            "1" * 40,
-        ])
+        # 1. Run verify against trusted demo fixture
+        verify_code = main(
+            [
+                "--runs-dir",
+                runs_dir,
+                "verify",
+                demo_target,
+                "--base-sha",
+                "1" * 40,
+            ]
+        )
         assert verify_code == 0
         captured = capsys.readouterr()
         assert "[VERIFIED]" in captured.out
@@ -227,24 +254,28 @@ class TestCliCommandsInvocation:
         run_id = run_id_line.split("Run ID:")[1].strip()
 
         # 2. Run status
-        status_code = main([
-            "--runs-dir",
-            runs_dir,
-            "status",
-            run_id,
-        ])
+        status_code = main(
+            [
+                "--runs-dir",
+                runs_dir,
+                "status",
+                run_id,
+            ]
+        )
         assert status_code == 0
         status_out = capsys.readouterr().out
         assert f"BASEBREAK RUN STATUS: {run_id}" in status_out
         assert "[VERIFIED]" in status_out
 
         # 3. Run evidence
-        ev_code = main([
-            "--runs-dir",
-            runs_dir,
-            "evidence",
-            run_id,
-        ])
+        ev_code = main(
+            [
+                "--runs-dir",
+                runs_dir,
+                "evidence",
+                run_id,
+            ]
+        )
         assert ev_code == 0
         ev_out = capsys.readouterr().out
         assert "EVIDENCE RECORDS FOR RUN:" in ev_out
@@ -252,12 +283,14 @@ class TestCliCommandsInvocation:
         assert "World: CANDIDATE" in ev_out
 
         # 4. Run receipt
-        rc_code = main([
-            "--runs-dir",
-            runs_dir,
-            "receipt",
-            run_id,
-        ])
+        rc_code = main(
+            [
+                "--runs-dir",
+                runs_dir,
+                "receipt",
+                run_id,
+            ]
+        )
         assert rc_code == 0
         rc_out = capsys.readouterr().out
         assert "BASEBREAK CAUSAL VERIFICATION RECEIPT" in rc_out
@@ -271,14 +304,16 @@ class TestCliCommandsInvocation:
         secret_token = "ghp_123456789012345678901234567890123456"
         secret_target = f"repo/{secret_token}"
 
-        main([
-            "--runs-dir",
-            runs_dir,
-            "verify",
-            secret_target,
-            "--base-sha",
-            "1" * 40,
-        ])
+        main(
+            [
+                "--runs-dir",
+                runs_dir,
+                "verify",
+                secret_target,
+                "--base-sha",
+                "1" * 40,
+            ]
+        )
         out = capsys.readouterr().out
         assert secret_token not in out
         assert "[REDACTED]" in out

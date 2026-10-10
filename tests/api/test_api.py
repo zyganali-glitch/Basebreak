@@ -21,13 +21,25 @@ from basebreak.api.auth import ApiAuthManager
 from basebreak.api.server import BasebreakApiServer
 from basebreak.api.store import ApiRunStore
 
+API_TEST_TOKEN = "test_bearer_token_secret_auth_999"
+
+
+def _auth_headers(token: str = API_TEST_TOKEN, **extra: str) -> dict[str, str]:
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}",
+    }
+    headers.update(extra)
+    return headers
+
 
 @pytest.fixture
 def running_server(tmp_path: Path) -> Generator[tuple[BasebreakApiServer, str], None, None]:
-    """Start an ephemeral Basebreak API server."""
+    """Start an ephemeral Basebreak API server with test authentication."""
     runs_dir = tmp_path / "runs"
     store = ApiRunStore(runs_dir=runs_dir)
-    server = BasebreakApiServer(store=store, host="127.0.0.1", port=0)
+    auth = ApiAuthManager(bearer_token=API_TEST_TOKEN)
+    server = BasebreakApiServer(store=store, auth=auth, host="127.0.0.1", port=0)
     server.start()
     try:
         yield server, server.base_url
@@ -38,22 +50,40 @@ def running_server(tmp_path: Path) -> Generator[tuple[BasebreakApiServer, str], 
 class TestApiEndpoints:
     """Tests for P-21.01, P-21.02, P-21.03: Endpoints and SSE streaming."""
 
-    def test_create_and_get_run_lifecycle(
+    def test_unauthorized_post_runs_denied_by_default(
         self, running_server: tuple[BasebreakApiServer, str]
     ) -> None:
+        """Adversarial: POST /v1/runs without valid Bearer token returns 401 Unauthorized."""
         _, base_url = running_server
+        req = urllib.request.Request(
+            f"{base_url}/v1/runs",
+            data=json.dumps({"target": "sample"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},  # No Authorization!
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            urllib.request.urlopen(req)
+        assert exc.value.code == 401
+
+    def test_create_and_get_run_lifecycle_verified_flow(
+        self, running_server: tuple[BasebreakApiServer, str]
+    ) -> None:
+        """P-21.02 & P-21.03: Real execution pipeline on trusted demo fixture emits
+        genuine events.
+        """
+        _, base_url = running_server
+        demo_target = str(Path(__file__).resolve().parent.parent / "fixtures" / "demo_target")
 
         # 1. POST /v1/runs
         payload = {
-            "target": "sample_repo",
+            "target": demo_target,
             "base_sha": "1" * 40,
-            "candidate_sha": "2" * 40,
             "change_class": "BUG_FIX",
         }
         req = urllib.request.Request(
             f"{base_url}/v1/runs",
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=_auth_headers(),
             method="POST",
         )
         with urllib.request.urlopen(req) as resp:
@@ -64,14 +94,18 @@ class TestApiEndpoints:
             assert body["exit_code"] == 0
 
         # 2. GET /v1/runs/{run_id}
-        with urllib.request.urlopen(f"{base_url}/v1/runs/{run_id}") as resp:
+        req_get = urllib.request.Request(f"{base_url}/v1/runs/{run_id}", headers=_auth_headers())
+        with urllib.request.urlopen(req_get) as resp:
             assert resp.status == 200
             meta = json.loads(resp.read().decode("utf-8"))
             assert meta["run_id"] == run_id
             assert meta["status"] == "VERIFIED"
 
         # 3. GET /v1/runs/{run_id}/evidence
-        with urllib.request.urlopen(f"{base_url}/v1/runs/{run_id}/evidence") as resp:
+        req_ev = urllib.request.Request(
+            f"{base_url}/v1/runs/{run_id}/evidence", headers=_auth_headers()
+        )
+        with urllib.request.urlopen(req_ev) as resp:
             assert resp.status == 200
             ev_body = json.loads(resp.read().decode("utf-8"))
             evidence = ev_body["evidence"]
@@ -80,33 +114,75 @@ class TestApiEndpoints:
             assert worlds == {"BASE", "CANDIDATE", "COUNTERFACTUAL"}
 
         # 4. GET /v1/runs/{run_id}/receipt
-        with urllib.request.urlopen(f"{base_url}/v1/runs/{run_id}/receipt") as resp:
+        req_rc = urllib.request.Request(
+            f"{base_url}/v1/runs/{run_id}/receipt", headers=_auth_headers()
+        )
+        with urllib.request.urlopen(req_rc) as resp:
             assert resp.status == 200
             rc = json.loads(resp.read().decode("utf-8"))
             assert "receipt_digest" in rc
             assert rc["overall_verdict"] == "VERIFIED"
 
         # 5. GET /v1/runs/{run_id}/events (SSE)
-        with urllib.request.urlopen(f"{base_url}/v1/runs/{run_id}/events") as resp:
+        req_events = urllib.request.Request(
+            f"{base_url}/v1/runs/{run_id}/events", headers=_auth_headers()
+        )
+        with urllib.request.urlopen(req_events) as resp:
             assert resp.status == 200
             assert resp.headers.get("Content-Type") == "text/event-stream"
             stream_text = resp.read().decode("utf-8")
             assert "event: run.created" in stream_text
-            assert "event: contract.frozen" in stream_text
-            assert "event: witness.sealed" in stream_text
-            assert "event: base.executing" in stream_text
-            assert "event: candidate.executing" in stream_text
-            assert "event: counterfactual.executing" in stream_text
+            assert "event: base.completed" in stream_text
+            assert "event: candidate.completed" in stream_text
+            assert "event: counterfactual.completed" in stream_text
             assert "event: reconciliation.completed" in stream_text
             assert "event: receipt.generated" in stream_text
             assert "event: run.completed" in stream_text
+
+    def test_blocked_run_produces_no_fictitious_events(
+        self, running_server: tuple[BasebreakApiServer, str]
+    ) -> None:
+        """Adversarial: A blocked run must never emit fake execution/completion milestones."""
+        _, base_url = running_server
+
+        payload = {"target": "arbitrary_external_untrusted_repo"}
+        req = urllib.request.Request(
+            f"{base_url}/v1/runs",
+            data=json.dumps(payload).encode("utf-8"),
+            headers=_auth_headers(),
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            assert resp.status == 201
+            body = json.loads(resp.read().decode("utf-8"))
+            run_id = body["run_id"]
+            assert body["status"] == "BLOCKED"
+            assert body["exit_code"] == 2
+
+        # Inspect SSE events
+        req_events = urllib.request.Request(
+            f"{base_url}/v1/runs/{run_id}/events", headers=_auth_headers()
+        )
+        with urllib.request.urlopen(req_events) as resp:
+            assert resp.status == 200
+            stream_text = resp.read().decode("utf-8")
+            assert "event: run.created" in stream_text
+            assert "event: run.blocked" in stream_text
+            # Fictitious milestones must be ABSENT!
+            assert "event: base.executing" not in stream_text
+            assert "event: base.completed" not in stream_text
+            assert "event: witness.sealed" not in stream_text
+            assert "event: candidate.executing" not in stream_text
+            assert "event: candidate.completed" not in stream_text
+            assert "event: counterfactual.completed" not in stream_text
 
     def test_get_nonexistent_run_returns_404(
         self, running_server: tuple[BasebreakApiServer, str]
     ) -> None:
         _, base_url = running_server
+        req = urllib.request.Request(f"{base_url}/v1/runs/missing_run_id", headers=_auth_headers())
         with pytest.raises(urllib.error.HTTPError) as exc:
-            urllib.request.urlopen(f"{base_url}/v1/runs/missing_run_id")
+            urllib.request.urlopen(req)
         assert exc.value.code == 404
 
 
@@ -128,7 +204,7 @@ class TestApiIdempotencyAndRecovery:
         req1 = urllib.request.Request(
             f"{base_url}/v1/runs",
             data=req_data,
-            headers={"Content-Type": "application/json"},
+            headers=_auth_headers(),
             method="POST",
         )
         with urllib.request.urlopen(req1) as resp:
@@ -140,7 +216,7 @@ class TestApiIdempotencyAndRecovery:
         req2 = urllib.request.Request(
             f"{base_url}/v1/runs",
             data=req_data,
-            headers={"Content-Type": "application/json"},
+            headers=_auth_headers(),
             method="POST",
         )
         with urllib.request.urlopen(req2) as resp:
@@ -158,7 +234,7 @@ class TestApiIdempotencyAndRecovery:
         req1 = urllib.request.Request(
             f"{base_url}/v1/runs",
             data=json.dumps(payload1).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=_auth_headers(),
             method="POST",
         )
         with urllib.request.urlopen(req1) as resp:
@@ -169,7 +245,7 @@ class TestApiIdempotencyAndRecovery:
         req2 = urllib.request.Request(
             f"{base_url}/v1/runs",
             data=json.dumps(payload2).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=_auth_headers(),
             method="POST",
         )
         with pytest.raises(urllib.error.HTTPError) as exc:
@@ -179,7 +255,9 @@ class TestApiIdempotencyAndRecovery:
     def test_restart_recovery_from_disk(self, tmp_path: Path) -> None:
         runs_dir = tmp_path / "runs"
         store1 = ApiRunStore(runs_dir=runs_dir)
-        server1 = BasebreakApiServer(store=store1, port=0)
+        token = "recovery_test_token_888"
+        auth1 = ApiAuthManager(bearer_token=token)
+        server1 = BasebreakApiServer(store=store1, auth=auth1, port=0)
         server1.start()
         url1 = server1.base_url
 
@@ -188,7 +266,7 @@ class TestApiIdempotencyAndRecovery:
             req = urllib.request.Request(
                 f"{url1}/v1/runs",
                 data=req_data,
-                headers={"Content-Type": "application/json"},
+                headers=_auth_headers(token=token),
                 method="POST",
             )
             with urllib.request.urlopen(req) as resp:
@@ -199,15 +277,20 @@ class TestApiIdempotencyAndRecovery:
 
         # Start a brand new server pointing to same runs_dir
         store2 = ApiRunStore(runs_dir=runs_dir)
-        server2 = BasebreakApiServer(store=store2, port=0)
+        server2 = BasebreakApiServer(store=store2, auth=auth1, port=0)
         server2.start()
         url2 = server2.base_url
         try:
-            with urllib.request.urlopen(f"{url2}/v1/runs/{run_id}") as resp:
+            req_get = urllib.request.Request(
+                f"{url2}/v1/runs/{run_id}",
+                headers=_auth_headers(token=token),
+            )
+            with urllib.request.urlopen(req_get) as resp:
                 assert resp.status == 200
                 recovered = json.loads(resp.read().decode("utf-8"))
                 assert recovered["run_id"] == run_id
-                assert recovered["status"] == "VERIFIED"
+                # Factual recovery: untrusted repo was factually BLOCKED, not synthetic success!
+                assert recovered["status"] == "BLOCKED"
         finally:
             server2.stop()
 
@@ -274,10 +357,39 @@ class TestApiAuthAndSecretSafety:
         req = urllib.request.Request(
             f"{base_url}/v1/runs",
             data=json.dumps({"target": secret_target}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=_auth_headers(),
             method="POST",
         )
         with urllib.request.urlopen(req) as resp:
             body_text = resp.read().decode("utf-8")
             assert secret_token not in body_text
             assert "[REDACTED]" in body_text
+
+    def test_malformed_and_oversized_payload_rejected(
+        self, running_server: tuple[BasebreakApiServer, str]
+    ) -> None:
+        """Adversarial: Malformed JSON returns 400; oversized body returns 413."""
+        _, base_url = running_server
+
+        # 1. Malformed JSON
+        req_malformed = urllib.request.Request(
+            f"{base_url}/v1/runs",
+            data=b"not valid json {{{",
+            headers=_auth_headers(),
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as exc1:
+            urllib.request.urlopen(req_malformed)
+        assert exc1.value.code == 400
+
+        # 2. Oversized body > 1MB
+        oversized_data = b"x" * (1024 * 1024 + 1024)
+        req_oversized = urllib.request.Request(
+            f"{base_url}/v1/runs",
+            data=oversized_data,
+            headers=_auth_headers(),
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as exc2:
+            urllib.request.urlopen(req_oversized)
+        assert exc2.value.code == 413

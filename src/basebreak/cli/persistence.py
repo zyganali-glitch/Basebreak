@@ -41,6 +41,7 @@ class RunPersistenceManager:
         metadata: dict[str, Any],
         evidence: list[dict[str, Any]] | None = None,
         receipt: dict[str, Any] | None = None,
+        events: list[dict[str, Any]] | None = None,
     ) -> Path:
         """Save run state to disk."""
         run_dir = self.get_run_dir(run_id)
@@ -58,6 +59,11 @@ class RunPersistenceManager:
             rc_file = run_dir / "receipt.json"
             with rc_file.open("w", encoding="utf-8") as f:
                 json.dump(receipt, f, indent=2, sort_keys=True)
+
+        if events is not None:
+            events_file = run_dir / "events.json"
+            with events_file.open("w", encoding="utf-8") as f:
+                json.dump(events, f, indent=2, sort_keys=True)
 
         return run_dir
 
@@ -106,6 +112,22 @@ class RunPersistenceManager:
             return data
         except json.JSONDecodeError as exc:
             raise RunCorruptError(f"Malformed receipt.json in {run_id}: {exc}") from exc
+
+    def load_events(self, run_id: str) -> list[dict[str, Any]]:
+        """Load events records for a run if available."""
+        events_file = self.get_run_dir(run_id) / "events.json"
+        if not events_file.is_file():
+            if not self.run_exists(run_id):
+                raise RunNotFoundError(f"Run '{run_id}' not found")
+            return []
+        try:
+            with events_file.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, list):
+                raise RunCorruptError(f"events.json must contain a JSON list in {run_id}")
+            return data
+        except json.JSONDecodeError as exc:
+            raise RunCorruptError(f"Malformed events.json in {run_id}: {exc}") from exc
 
     def list_runs(self) -> list[str]:
         """List all run IDs in the store."""

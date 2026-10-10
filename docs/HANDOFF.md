@@ -101,11 +101,12 @@ Judge claim:
 - P-16.03 (Bind release-note/CVE/API facts into Grounded Contract evidence) is independently VERIFIED / PASS at SHA `a37a15af52266bac477ffd343ecd333630ae4b77`.
 - P-16.04 (Prevent web evidence from overriding deterministic execution) is independently VERIFIED / PASS at SHA `a37a15af52266bac477ffd343ecd333630ae4b77`.
 - P-16.05 (Execute real runtime Tavily path if bonus remains strategically justified) is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN.
-- P-17 (Causal Coverage & Multi-Requirement Reconciliation, P-17.01 through P-17.05) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (12 tests passing).
-- P-18 (Verification Receipt, P-18.01 through P-18.05) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (7 tests passing).
-- P-19 (CLI & Developer Workflow, P-19.01 through P-19.05) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (18 tests passing).
-- P-20 (GitHub Integration, P-20.01 through P-20.05) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (16 tests passing).
-- P-21 (API / Orchestrator Surface, P-21.01 through P-21.05) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (7 tests passing).
+- P-17 (Causal Coverage & Multi-Requirement Reconciliation, P-17.01 through P-17.05) is SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (14 tests passing; caller-controlled exclusions blocked, dict assertions validated).
+- P-18 (Verification Receipt, P-18.01 through P-18.05) is SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (9 tests passing; full receipt digest validated, cross-bindings and causal consistency strictly enforced, is_authoritative promotion blocked).
+- P-19 (CLI & Developer Workflow, P-19.01 through P-19.05) is SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (19 tests passing; fabricated success removed, arbitrary/nonexistent repos return honest BLOCKED exit 2, trusted demo pipeline uses real pytest subprocesses).
+- P-20 (GitHub Integration, P-20.01 through P-20.05) is SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (16 tests passing; fake mutation simulation removed, write requests fail closed, dry-run defaults to DRY_RUN_PREVIEW with mutation_performed=False).
+- P-21 (API / Orchestrator Surface, P-21.01 through P-21.05) is SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (10 tests passing; fail-closed Bearer auth on POST /v1/runs, 413 payload limit, genuine factual SSE events only, durable disk idempotency with threading locks).
+- Dedicated Batch A Adversarial Matrix: 18 tests passing in `tests/causal/test_batch_a_adversarial_matrix.py` certifying all 18 mandatory adversarial criteria.
 - P-22+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED AFTER P-21.
 
 ## Last independently VERIFIED baseline SHA
@@ -118,15 +119,15 @@ Prior LIVE_NEBIUS-tested implementation SHA: `62b24c69a819c0ddcf15b455a237568059
 P-16.05 live Tavily execution remains held strictly at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. No real Tavily API call was executed. A stored preflight observation does not certify current execution authority; required current grounding must remain BLOCKED when trustworthy provider/runtime authority is absent. P-16.05 is not a prerequisite for provider-neutral Batch A (P-17–P-21) execution.
 
 ### Current QA candidate
-Batch A candidate — P-17 through P-21 (exactly 25 micro-tasks) are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+Batch A candidate — P-17 through P-21 (exactly 25 micro-tasks) are SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE.
 
 ### Active exact task
-Batch A execution completed. Consolidated validation gate clean (2,526 unit/integration tests passing, ruff and mypy passing clean on 231 files). Awaiting independent QA review. P-22+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
+Batch A consolidated surgical repair completed. Full test suite clean (2,552 unit/integration tests passing across all phases, 18 dedicated adversarial tests passing, ruff and mypy passing clean on all source files). Awaiting independent QA review. P-22+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are independently VERIFIED / PASS. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. P-17 through P-21 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are independently VERIFIED / PASS. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. P-17 through P-21 are SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, Causal primitives, Causal Slice contracts, Change-Semantics verifiers, Sealed Repair Loop primitives, Risk-Adaptive Verification Budget primitives, Grounding primitives, Causal Coverage primitives, Public Receipt primitives, CLI tools, GitHub integration, and API orchestrator remain strictly provider-neutral with zero provider-specific identifiers.
-- **Phase status:** P-00 through P-15 phases are independently CLOSED / PASS. P-16 phase remains OPEN. P-17 through P-21 phases are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-22+ are strictly NOT AUTHORIZED / NOT_RUN.
+- **Phase status:** P-00 through P-15 phases are independently CLOSED / PASS. P-16 phase remains OPEN. P-17 through P-21 phases are SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE. P-22+ are strictly NOT AUTHORIZED / NOT_RUN.
 - **Batch authorization & hard stop:** Batch A (P-17 through P-21) completed sequentially. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
 - **Not authorized / forbidden:** P-22+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
@@ -146,7 +147,7 @@ Batch A execution completed. Consolidated validation gate clean (2,526 unit/inte
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit consolidated Batch A (P-17 through P-21) execution report to external QA authority.
+1. Submit consolidated Batch A surgical repair execution report to external QA authority.
 2. Await independent QA evaluation.
 3. Enforce hard stop after P-21; do not activate P-22+.
 

@@ -593,96 +593,96 @@ Phase exit: current-fact tasks are grounded without bolted-on bonus theater. (P-
 
 # P-17 — Causal Coverage & Multi-Requirement Reconciliation
 ### P-17.01 — Define eligibility denominator for behavioral requirements
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/coverage.py`; eligibility denominator strictly derives from eligible behavioral requirements in FrozenContract; non-behavioral or out-of-scope requirements excluded with explicit rationales; zero-denominator yields explicitly undefined/None coverage_ratio, never automatic 100%; verified in `tests/causal/test_coverage.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/coverage.py`; eligibility denominator strictly derives from eligible behavioral requirements in FrozenContract; caller-controlled exclusions cannot remove behavioral requirements from denominator without contract-level justification; non-behavioral or out-of-scope requirements excluded with explicit rationales; zero-denominator yields explicitly undefined/None coverage_ratio, never automatic 100%; verified in `tests/causal/test_coverage.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-17.02 — Aggregate per-requirement causal states
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/coverage.py`; aggregates per-requirement states VERIFIED, CONTRADICTED, INCONCLUSIVE, BLOCKED, NOT_RUN into immutable RequirementVerificationFact records with individual canonical SHA-256 fact_digests; preserves non-collapsing verdict fidelity; verified in `tests/causal/test_coverage.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/coverage.py`; aggregates per-requirement states VERIFIED, CONTRADICTED, INCONCLUSIVE, BLOCKED, NOT_RUN into immutable RequirementVerificationFact records with individual canonical SHA-256 fact_digests; dict assertions cannot bypass causal checks; preserves non-collapsing verdict fidelity; verified in `tests/causal/test_coverage.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-17.03 — Compute deterministic Causal Coverage
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/coverage.py`; compute_causal_coverage computes verified_count / eligible_count, coverage_ratio, coverage_percentage, is_fully_verified, and overall PreliminaryVerdict; computes deterministic SHA-256 coverage_digest; verify_coverage_integrity verifies cryptographic and arithmetic integrity; verified in `tests/causal/test_coverage.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/coverage.py`; compute_causal_coverage computes verified_count / eligible_count, coverage_ratio, coverage_percentage, is_fully_verified, and overall PreliminaryVerdict; computes deterministic SHA-256 coverage_digest; verify_coverage_integrity verifies cryptographic and arithmetic integrity; verified in `tests/causal/test_coverage.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-17.04 — Handle mixed semantic classes and NOT_RUN requirements
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/coverage.py`; evaluates all 6 canonical change classes: BUG_FIX, FEATURE, SECURITY_FIX, REFACTOR, PERFORMANCE, DEP_API_CHANGE under class-specific verification obligations; eligible requirements omitted from results automatically remain in the denominator as NOT_RUN; verified in `tests/causal/test_coverage.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/coverage.py`; evaluates all 6 canonical change classes: BUG_FIX, FEATURE, SECURITY_FIX, REFACTOR, PERFORMANCE, DEP_API_CHANGE under class-specific verification obligations; eligible requirements omitted from results automatically remain in the denominator as NOT_RUN; verified in `tests/causal/test_coverage.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-17.05 — Prevent model confidence from entering coverage math
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/coverage.py`; strictly rejects caller-supplied model confidence, probability, likelihood, or LLM-derived scores with ModelAuthorityViolationError; zero model authority over coverage math; verified in `tests/causal/test_coverage.py`)
-Phase exit: project-level verification is honest and understandable. (P-17 micro-tasks P-17.01 through P-17.05 EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; 12 unit and adversarial tests passing in `tests/causal/test_coverage.py`).
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/coverage.py`; strictly rejects caller-supplied model confidence, probability, likelihood, or LLM-derived scores with ModelAuthorityViolationError; zero model authority over coverage math; verified in `tests/causal/test_coverage.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
+Phase exit: project-level verification is honest and understandable. (P-17 micro-tasks P-17.01 through P-17.05 SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE; 14 tests passing in `tests/causal/test_coverage.py`).
 
 ---
 
 # P-18 — Verification Receipt
 ### P-18.01 — Define public receipt schema
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/public_receipt.py`; defines `PublicVerificationReceipt` schema version 1.0.0; canonical JSON serialization with sorted keys and compact delimiters; verified in `tests/causal/test_public_receipt.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/public_receipt.py`; defines `PublicVerificationReceipt` schema version 1.0.0; canonical JSON serialization with sorted keys and compact delimiters; verified in `tests/causal/test_public_receipt.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-18.02 — Bind base/candidate/counterfactual hashes, witnesses and outcomes
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/public_receipt.py`; cryptographically binds frozen contract digest, source commit SHA, candidate tree/patch digests, counterfactual deltas, witnesses, and execution facts; verified in `tests/causal/test_public_receipt.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/public_receipt.py`; cryptographically binds frozen contract digest, source commit SHA, candidate tree/patch digests, counterfactual deltas, witnesses, and execution facts; cross-binding integrity strictly validated; verified in `tests/causal/test_public_receipt.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-18.03 — Include provenance, runtime identities, timing/cost and NOT_RUN
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/public_receipt.py`; includes EvidenceProvenance, sandbox/runtime identities, created_at_utc and duration timings, PublicCostAccountingFact, and explicit not_run_obligations; verified in `tests/causal/test_public_receipt.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/public_receipt.py`; includes EvidenceProvenance, sandbox/runtime identities, created_at_utc and duration timings, PublicCostAccountingFact, and explicit not_run_obligations; verified in `tests/causal/test_public_receipt.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-18.04 — Add integrity digest/signature strategy appropriate to hackathon scope
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/public_receipt.py`; recomputes SHA-256 receipt_digest over canonical bytes; verify_public_receipt_integrity rejects tampering, contract digest mismatches, and scans for secret leakage fail-closed; verified in `tests/causal/test_public_receipt.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/public_receipt.py`; recomputes SHA-256 receipt_digest over canonical bytes; verify_public_receipt_integrity rejects tampering, causal inconsistency, contract digest mismatches, and uncertified is_authoritative assertions; scans for secret leakage fail-closed; verified in `tests/causal/test_public_receipt.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-18.05 — Render human-readable receipt without losing machine truth
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/public_receipt.py`; render_receipt_markdown and render_receipt_terminal produce clear human-readable presentations faithful to machine truth without contradiction; verified in `tests/causal/test_public_receipt.py`)
-Phase exit: judges/developers can inspect one proof object. (P-18 micro-tasks P-18.01 through P-18.05 EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; 7 unit and adversarial tests passing in `tests/causal/test_public_receipt.py`).
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/public_receipt.py`; render_receipt_markdown and render_receipt_terminal produce clear human-readable presentations faithful to machine truth without contradiction; verified in `tests/causal/test_public_receipt.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
+Phase exit: judges/developers can inspect one proof object. (P-18 micro-tasks P-18.01 through P-18.05 SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE; 9 tests passing in `tests/causal/test_public_receipt.py`).
 
 ---
 
 # P-19 — CLI & Developer Workflow
 ### P-19.01 — Implement `basebreak verify` happy path
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/cli/runner.py` and `src/basebreak/cli/commands.py`; executes verification pipeline, evaluates BASE/CANDIDATE/COUNTERFACTUAL triplet, reconciles causal transitions, generates and binds public receipts; verified in `tests/cli/test_cli.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/cli/runner.py` and `src/basebreak/cli/commands.py`; removed fabricated world states and synthetic success; untrusted/nonexistent repos return honest BLOCKED (exit 2) with zero fabricated executions or receipts; trusted demo pipeline executes real subprocesses with pytest capturing actual exit codes; test overrides restricted to FIXTURE provenance; verified in `tests/cli/test_cli.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-19.02 — Implement run/status/evidence/receipt commands
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/cli/commands.py` and `src/basebreak/cli/persistence.py`; status, evidence, receipt, config commands with JSON, text, and Markdown output; verified in `tests/cli/test_cli.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/cli/commands.py` and `src/basebreak/cli/persistence.py`; status, evidence, receipt, config commands with JSON, text, and Markdown output; receipt command validates cryptographic and causal integrity before display; verified in `tests/cli/test_cli.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-19.03 — Add config schema and safe defaults
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/cli/config.py`; BasebreakConfig with safe defaults: offline=True, zero_cost=True, allow_live=False, provider=local, promo floor=$5.00, runs_dir=.basebreak/runs; verified in `tests/cli/test_cli.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/cli/config.py`; BasebreakConfig with safe defaults: offline=True, zero_cost=True, allow_live=False, provider=local, promo floor=$5.00, runs_dir=.basebreak/runs; verified in `tests/cli/test_cli.py`)
 
 ### P-19.04 — Add clear blocked/inconclusive/contradicted UX
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/cli/runner.py` and `src/basebreak/cli/commands.py`; distinct exits 0: VERIFIED, 1: CONTRADICTED, 2: BLOCKED/INCONCLUSIVE/ERROR; displays thesis and behavioral breakdown; verified in `tests/cli/test_cli.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/cli/runner.py` and `src/basebreak/cli/commands.py`; distinct exits 0: VERIFIED, 1: CONTRADICTED, 2: BLOCKED/INCONCLUSIVE/ERROR; displays thesis and behavioral breakdown; verified in `tests/cli/test_cli.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-19.05 — Validate clean-checkout install/run instructions
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (registered console script `basebreak = "basebreak.cli.main:main"` in `pyproject.toml`; validated `basebreak --help` and `basebreak config`; verified in `tests/cli/test_cli.py`)
-Phase exit: coherent developer tool exists before dashboard polish. (P-19 micro-tasks P-19.01 through P-19.05 EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; 18 tests passing in `tests/cli/test_cli.py`).
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (registered console script `basebreak = "basebreak.cli.main:main"` in `pyproject.toml`; validated `basebreak --help` and `basebreak config`; verified in `tests/cli/test_cli.py`)
+Phase exit: coherent developer tool exists before dashboard polish. (P-19 micro-tasks P-19.01 through P-19.05 SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE; 19 tests passing in `tests/cli/test_cli.py`).
 
 ---
 
 # P-20 — GitHub Integration
 ### P-20.01 — Implement read-only repository/task ingestion path
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/integrations/github/ingestion.py`; pure read-only ingestion supporting HTTPS URLs, PR refs, commit SHAs, shorthand syntax, and local paths with path traversal defenses; verified in `tests/integrations/test_github.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/integrations/github/ingestion.py`; pure read-only ingestion supporting HTTPS URLs, PR refs, commit SHAs, shorthand syntax, and local paths with path traversal defenses; verified in `tests/integrations/test_github.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-20.02 — Resolve exact remote/base SHA and protect against moving refs
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/integrations/github/resolver.py`; GitHubRefResolver pins symbolic refs to 40-char commit SHAs before verification; verify_ref_unmoved detects remote ref movement and raises MovingRefRaceError fail-closed; verified in `tests/integrations/test_github.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/integrations/github/resolver.py`; GitHubRefResolver pins symbolic refs to 40-char commit SHAs before verification; verify_ref_unmoved detects remote ref movement and raises MovingRefRaceError fail-closed; verified in `tests/integrations/test_github.py`)
 
 ### P-20.03 — Generate review artifact/comment text without external mutation
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/integrations/github/review_artifact.py`; generate_pr_review_comment generates judge-ready GitHub PR review Markdown comment with thesis, verdict badges, behavioral triplet table, coverage status, and receipt verification command; strictly secret-free; verified in `tests/integrations/test_github.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/integrations/github/review_artifact.py`; generate_pr_review_comment generates judge-ready GitHub PR review Markdown comment with thesis, verdict badges, behavioral triplet table, coverage status, and receipt verification command; strictly secret-free; verified in `tests/integrations/test_github.py`)
 
 ### P-20.04 — Add bounded optional draft-PR/comment integration only if competition value justifies it
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/integrations/github/mutation_boundary.py`; dry-run preview mode returns DRY_RUN_PREVIEW without performing network mutations; verified in `tests/integrations/test_github.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/integrations/github/mutation_boundary.py`; removed simulated fake mutations; defaults to genuinely read-only DRY_RUN_PREVIEW with mutation_performed=False; verified in `tests/integrations/test_github.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-20.05 — Require human authority for irreversible GitHub action
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/integrations/github/mutation_boundary.py`; requires explicit allow_github_mutation flag AND verified human operator authority token >= 16 chars; fails closed with UnauthorizedMutationError; verified in `tests/integrations/test_github.py`)
-Phase exit: real-world repo workflow without autonomous merge theater. (P-20 micro-tasks P-20.01 through P-20.05 EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; 16 tests passing in `tests/integrations/test_github.py`).
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/integrations/github/mutation_boundary.py`; non-dry-run write requests strictly fail closed with UnauthorizedMutationError; external PR/comment/merge/push mutations remain completely disabled; verified in `tests/integrations/test_github.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
+Phase exit: real-world repo workflow without autonomous merge theater. (P-20 micro-tasks P-20.01 through P-20.05 SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE; 16 tests passing in `tests/integrations/test_github.py`).
 
 ---
 
 # P-21 — API / Orchestrator Surface
 ### P-21.01 — Define run API contracts from domain types
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/api/models.py`; RunCreateRequest, RunStatusResponse, and ApiEvent contracts derived from domain types; verified in `tests/api/test_api.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/api/models.py`; RunCreateRequest, RunStatusResponse, and ApiEvent contracts with serialization methods; verified in `tests/api/test_api.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-21.02 — Implement create/status/evidence/receipt endpoints
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/api/server.py`; REST routes POST /v1/runs (201 Created), GET /v1/runs/{id}, GET /v1/runs/{id}/evidence, GET /v1/runs/{id}/receipt using Python standard library without external dependencies; verified in `tests/api/test_api.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/api/server.py`; REST routes POST /v1/runs (201 Created), GET /v1/runs/{id}, GET /v1/runs/{id}/evidence, GET /v1/runs/{id}/receipt; enforces MAX_REQUEST_BODY_BYTES (413 Payload Too Large) and validates receipt integrity before serving; verified in `tests/api/test_api.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-21.03 — Implement event stream for live build/verify states
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/api/server.py` and `src/basebreak/api/store.py`; GET /v1/runs/{id}/events streams SSE events: run.created, contract.frozen, witness.sealed, base/candidate/counterfactual executing/completed, reconciliation.completed, receipt.generated, run.completed; verified in `tests/api/test_api.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/api/server.py` and `src/basebreak/api/store.py`; removed synthetic event fabrication; streams only genuine observed state transitions via SSE; blocked runs emit only run.created and run.blocked; redacts secrets from SSE chunks; verified in `tests/api/test_api.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-21.04 — Enforce authorization and secret-safe serialization
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/api/auth.py`; Bearer token authorization enforcement with constant-time comparison; secret-safe JSON serialization guaranteed with redact_text; verified in `tests/api/test_api.py`)
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/api/auth.py`; fail-closed Bearer token authorization enforcement on execution endpoints (POST /v1/runs requires token); constant-time token comparison; secret-safe JSON and SSE serialization; verified in `tests/api/test_api.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
 
 ### P-21.05 — Add idempotency/recovery for run creation
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/api/store.py`; binds Idempotency-Key to canonical SHA-256 payload fingerprint; replays existing run on identical payload (200 OK); detects payload mismatches with IdempotencyConflictError (409 Conflict); recovers existing runs from disk store upon server restart; verified in `tests/api/test_api.py`)
-Phase exit: UI can consume deterministic runtime state. (P-21 micro-tasks P-21.01 through P-21.05 EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; 7 tests passing in `tests/api/test_api.py`; HARD STOP: BATCH A COMPLETE; P-22+ REMAIN STRICTLY CLOSED / UNOPENED).
+Status: SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/api/store.py`; binds Idempotency-Key to canonical payload fingerprint with durable disk persistence (idempotency.json) and thread locking; replays existing run on identical payload (200 OK); detects payload mismatches with IdempotencyConflictError (409 Conflict); server restart recovers factual recorded state without synthetic milestones; verified in `tests/api/test_api.py` and `tests/causal/test_batch_a_adversarial_matrix.py`)
+Phase exit: UI can consume deterministic runtime state. (P-21 micro-tasks P-21.01 through P-21.05 SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE; 10 tests passing in `tests/api/test_api.py`; 18 adversarial tests passing in `tests/causal/test_batch_a_adversarial_matrix.py`; HARD STOP: BATCH A COMPLETE; P-22+ REMAIN STRICTLY CLOSED / UNOPENED).
 
 ---
 
