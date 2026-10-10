@@ -574,30 +574,39 @@ Policy:
 - no paid Tavily upgrade;
 - if bonus participation remains justified, use a real runtime Tavily call rather than bolted-on decoration.
 ### P-16.01 — Define when external current facts are materially required
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/grounding/materiality.py`; deterministic materiality classification distinguishing REQUIRED, OPTIONAL, NOT_APPLICABLE, UNVERIFIABLE; CVE security advisory and dependency migration detection; canonical SHA-256 digests and tamper verification; 7 tests in `tests/grounding/test_materiality.py`)
+Status: INDEPENDENTLY VERIFIED / PASS at baseline SHA `a37a15af52266bac477ffd343ecd333630ae4b77` (implemented in `src/basebreak/grounding/materiality.py`; deterministic materiality classification distinguishing REQUIRED, OPTIONAL, NOT_APPLICABLE, UNVERIFIABLE; CVE security advisory and dependency migration detection; canonical SHA-256 digests and tamper verification; 7 tests in `tests/grounding/test_materiality.py`)
 
 ### P-16.02 — Implement Tavily adapter with source provenance and strict minimization
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/adapters/tavily/`; bounded HTTP client `POST https://api.tavily.com/search`; strict minimization `basic` depth, no raw content, no answers; bounded length, sanitized query, secret pattern detection, sealed witness leak prevention; secret redaction in logging/errors; 10 tests in `tests/adapters/test_tavily_adapter.py`)
+Status: INDEPENDENTLY VERIFIED / PASS at baseline SHA `a37a15af52266bac477ffd343ecd333630ae4b77` (implemented in `src/basebreak/adapters/tavily/`; bounded HTTP client `POST https://api.tavily.com/search`; strict minimization `basic` depth, no raw content, no answers; bounded length, sanitized query, secret pattern detection, sealed witness leak prevention; secret redaction in logging/errors; 10 tests in `tests/adapters/test_tavily_adapter.py`)
 
 ### P-16.03 — Bind release-note/CVE/API facts into Grounded Contract evidence
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/grounding/evidence.py`; provider-neutral `GroundedFact` and `GroundedContractBinding` bound to frozen contract digest; publisher, observation timestamp, published date, provider identity; freshness and uncertainty states; canonical SHA-256 digests and tamper detection; 4 tests in `tests/grounding/test_grounded_evidence.py`)
+Status: INDEPENDENTLY VERIFIED / PASS at baseline SHA `a37a15af52266bac477ffd343ecd333630ae4b77` (implemented in `src/basebreak/grounding/evidence.py`; provider-neutral `GroundedFact` and `GroundedContractBinding` bound to frozen contract digest; publisher, observation timestamp, published date, provider identity; freshness and uncertainty states; canonical SHA-256 digests and tamper detection; 4 tests in `tests/grounding/test_grounded_evidence.py`)
 
 ### P-16.04 — Prevent web evidence from overriding deterministic execution
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/grounding/firewall.py`; deterministic authority firewall enforcing witness failure primacy, budget exhaustion, protected surface violation, mandatory grounding gates; adversarial prompt injection and fake authority claim detection; canonical SHA-256 firewall digest; 4 canonical evidence provenance categories preserved; 9 tests in `tests/grounding/test_firewall.py`)
+Status: INDEPENDENTLY VERIFIED / PASS at baseline SHA `a37a15af52266bac477ffd343ecd333630ae4b77` (implemented in `src/basebreak/grounding/firewall.py`; deterministic authority firewall enforcing witness failure primacy, budget exhaustion, protected surface violation, mandatory grounding gates; adversarial prompt injection and fake authority claim detection; canonical SHA-256 firewall digest; 4 canonical evidence provenance categories preserved; 9 tests in `tests/grounding/test_firewall.py`)
 
 ### P-16.05 — Execute real runtime Tavily path if bonus remains strategically justified
-Status: OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN (implemented in `src/basebreak/adapters/tavily/demo.py`; preflight quota inspection confirms 4,125 credits available at $0.00 spend; bounded demo plan for CVE-2024-21626 requiring 1 credit; execution held strictly at authorization gate until operator grants explicit live execution consent; 2 closure tests in `tests/grounding/test_p16_closure.py`)
-Phase exit: current-fact tasks are grounded without bolted-on bonus theater. (P-16 batch P-16.01 through P-16.04 EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; P-16.05 held at OPERATOR_AUTHORIZATION_REQUIRED; P-17+ remain strictly NOT AUTHORIZED / NOT_RUN; HARD STOP ENFORCED)
+Status: OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN (implemented in `src/basebreak/adapters/tavily/demo.py`; bounded demo plan for CVE-2024-21626; previously noted 4,125 credits is an uncertified historical preflight observation, NOT an independently certified current balance; no real Tavily API call was performed; a preflight observation does not certify current execution authority; required current grounding remains BLOCKED when current provider authority is absent; execution held strictly at operator authorization gate; 2 closure tests in `tests/grounding/test_p16_closure.py`)
+Phase exit: current-fact tasks are grounded without bolted-on bonus theater. (P-16.01 through P-16.04 independently VERIFIED / PASS; P-16.05 held strictly at OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN; P-16 phase remains OPEN; Batch A covering P-17 through P-21 authorized by operator for sequential execution; P-22+ remain strictly NOT AUTHORIZED / NOT_RUN; HARD STOP ENFORCED AFTER P-21).
 
 ---
 
 # P-17 — Causal Coverage & Multi-Requirement Reconciliation
 ### P-17.01 — Define eligibility denominator for behavioral requirements
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/coverage.py`; eligibility denominator strictly derives from eligible behavioral requirements in FrozenContract; non-behavioral or out-of-scope requirements excluded with explicit rationales; zero-denominator yields explicitly undefined/None coverage_ratio, never automatic 100%; verified in `tests/causal/test_coverage.py`)
+
 ### P-17.02 — Aggregate per-requirement causal states
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/coverage.py`; aggregates per-requirement states VERIFIED, CONTRADICTED, INCONCLUSIVE, BLOCKED, NOT_RUN into immutable RequirementVerificationFact records with individual canonical SHA-256 fact_digests; preserves non-collapsing verdict fidelity; verified in `tests/causal/test_coverage.py`)
+
 ### P-17.03 — Compute deterministic Causal Coverage
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/coverage.py`; compute_causal_coverage computes verified_count / eligible_count, coverage_ratio, coverage_percentage, is_fully_verified, and overall PreliminaryVerdict; computes deterministic SHA-256 coverage_digest; verify_coverage_integrity verifies cryptographic and arithmetic integrity; verified in `tests/causal/test_coverage.py`)
+
 ### P-17.04 — Handle mixed semantic classes and NOT_RUN requirements
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/coverage.py`; evaluates all 6 canonical change classes: BUG_FIX, FEATURE, SECURITY_FIX, REFACTOR, PERFORMANCE, DEP_API_CHANGE under class-specific verification obligations; eligible requirements omitted from results automatically remain in the denominator as NOT_RUN; verified in `tests/causal/test_coverage.py`)
+
 ### P-17.05 — Prevent model confidence from entering coverage math
-Phase exit: project-level verification is honest and understandable.
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/coverage.py`; strictly rejects caller-supplied model confidence, probability, likelihood, or LLM-derived scores with ModelAuthorityViolationError; zero model authority over coverage math; verified in `tests/causal/test_coverage.py`)
+Phase exit: project-level verification is honest and understandable. (P-17 micro-tasks P-17.01 through P-17.05 EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; 12 unit and adversarial tests passing in `tests/causal/test_coverage.py`).
 
 ---
 

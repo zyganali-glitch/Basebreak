@@ -96,34 +96,36 @@ Judge claim:
 - P-15.04 (Add policy for when counterrun/slicing is mandatory) is independently VERIFIED / PASS at SHA `09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b`.
 - P-15.05 (Add fail-closed behavior when required budget cannot execute) is independently VERIFIED / PASS at SHA `09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b`.
 - P-15 phase (Risk-Adaptive Verification Budget, P-15.01 through P-15.05) is independently CLOSED / PASS at SHA `09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b`.
-- P-16.01 (Define when external current facts are materially required) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-16.02 (Implement Tavily adapter with source provenance and strict minimization) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-16.03 (Bind release-note/CVE/API facts into Grounded Contract evidence) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-16.04 (Prevent web evidence from overriding deterministic execution) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-16.01 (Define when external current facts are materially required) is independently VERIFIED / PASS at SHA `a37a15af52266bac477ffd343ecd333630ae4b77`.
+- P-16.02 (Implement Tavily adapter with source provenance and strict minimization) is independently VERIFIED / PASS at SHA `a37a15af52266bac477ffd343ecd333630ae4b77`.
+- P-16.03 (Bind release-note/CVE/API facts into Grounded Contract evidence) is independently VERIFIED / PASS at SHA `a37a15af52266bac477ffd343ecd333630ae4b77`.
+- P-16.04 (Prevent web evidence from overriding deterministic execution) is independently VERIFIED / PASS at SHA `a37a15af52266bac477ffd343ecd333630ae4b77`.
 - P-16.05 (Execute real runtime Tavily path if bonus remains strategically justified) is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN.
-- P-17+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
+- P-17 (Causal Coverage & Multi-Requirement Reconciliation, P-17.01 through P-17.05) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A.
+- P-18 through P-21: IN_PROGRESS / AUTHORIZED under operator-authorized sequential Batch A.
+- P-22+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED AFTER P-21.
 
 ## Last independently VERIFIED baseline SHA
-`09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b` (independently VERIFIED / PASS at P-15 closure).
+`a37a15af52266bac477ffd343ecd333630ae4b77` (independently VERIFIED / PASS at P-16.01–P-16.04).
 Prior LIVE_NEBIUS-tested implementation SHA: `62b24c69a819c0ddcf15b455a237568059949107` (P-14 live closure).
 
 ## Blocking live gate vs active task
 
 ### Blocking live gate
-P-16.05 live Tavily execution is held strictly at `OPERATOR_AUTHORIZATION_REQUIRED`. Preflight checks passed with zero credit consumption. No live API call may execute until fresh operator authorization is provided.
+P-16.05 live Tavily execution remains held strictly at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. No real Tavily API call was executed. A stored preflight observation does not certify current execution authority; required current grounding must remain BLOCKED when trustworthy provider/runtime authority is absent. P-16.05 is not a prerequisite for provider-neutral Batch A (P-17–P-21) execution.
 
 ### Current QA candidate
-P-16 External Grounding & Tavily Batch — P-16.01 through P-16.04 (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+Batch A candidate — P-17 Causal Coverage (P-17.01 through P-17.05) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 
 ### Active exact task
-P-16 External Grounding & Tavily Batch — implementation, test suite (36 focused grounding/adapter tests, 2,448 non-live suite), and documentation sync complete. P-16.05 held at operator authorization gate. Awaiting independent QA. P-17+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+Executing operator-authorized Batch A (P-17 through P-21 sequential execution). P-17 complete; proceeding to P-18 Verification Receipt. P-22+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. P-17+ remain strictly NOT AUTHORIZED / NOT_RUN.
-- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, Causal primitives, Causal Slice contracts, Change-Semantics verifiers, Sealed Repair Loop primitives, Risk-Adaptive Verification Budget primitives, and Grounding primitives (`MaterialityDecision`, `GroundedFact`, `GroundedContractBinding`, `GroundingFirewallResult`, `GroundingStatus`, `FreshnessState`, `UncertaintyState`) remain strictly provider-neutral with zero provider-specific identifiers. The Tavily adapter is isolated in `adapters/tavily/` and never imported into core domain logic.
-- **Phase status:** P-00 through P-15 phases are independently CLOSED / PASS. P-16 phase remains OPEN awaiting independent QA review and operator authorization for P-16.05. P-17+ are strictly NOT AUTHORIZED / NOT_RUN.
-- **Batch restoration & hard stop:** P-16 batch executed and completed. P-17+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
-- **Not authorized / forbidden:** P-17+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are independently VERIFIED / PASS. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. P-17 is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-18 through P-21 are authorized for sequential execution in Batch A. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, Causal primitives, Causal Slice contracts, Change-Semantics verifiers, Sealed Repair Loop primitives, Risk-Adaptive Verification Budget primitives, Grounding primitives, and Causal Coverage primitives remain strictly provider-neutral with zero provider-specific identifiers.
+- **Phase status:** P-00 through P-15 phases are independently CLOSED / PASS. P-16 phase remains OPEN. P-17 phase is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-18 through P-21 in progress. P-22+ are strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch authorization & hard stop:** Batch A (P-17 through P-21) authorized by operator for sequential execution. One micro-task active at a time. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
+- **Not authorized / forbidden:** P-22+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -141,7 +143,8 @@ P-16 External Grounding & Tavily Batch — implementation, test suite (36 focuse
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-16 External Grounding & Tavily batch (P-16.01 through P-16.04) for independent QA verification.
-2. Await operator decision for P-16.05 conditional live Tavily demonstration (or record as NOT_RUN / NOT_APPLICABLE).
-3. Maintain hard stop before P-17; do not activate or implement P-17+.
+1. Execute P-18 (Verification Receipt, P-18.01 through P-18.05) under operator-authorized sequential Batch A.
+2. Complete P-19, P-20, and P-21 sequentially.
+3. Enforce hard stop after P-21; do not activate P-22+.
+
 

@@ -187,24 +187,26 @@ If the Builder Program promo-code email arrives while allowlisted parallel work 
 
 Do not consume the $1 trial. No automatic paid fallback.
 
-### Current Parallel Allowlist & Hard Stop
-The previous parallel lane for P-02 (P-02.01 through P-02.07) and P-03 (P-03.01 through P-03.06) is COMPLETED and independently CLOSED.
+### Historical Parallel Lanes
+The previous parallel lanes for P-02/P-03 and P-04 offline primitives are COMPLETED and independently CLOSED. P-05 through P-15 phases are independently CLOSED / PASS. P-16.01 through P-16.04 are independently VERIFIED / PASS at baseline SHA `a37a15af52266bac477ffd343ecd333630ae4b77`.
 
-Under amendment P-01.01B, for the ongoing active P-01.02 external blocker, allow sequential execution ONLY of the platform-independent security primitives from P-04:
-- P-04.01 — Formalize target-repository threat model
-- P-04.02 — Implement secret redaction and forbidden persistence rules
-- P-04.04 — Implement protected-surface manifest and diff checks
+### P-16 Reconciliation & Provider Authority Truth
+- P-16.01 through P-16.04 are independently VERIFIED / PASS.
+- P-16.05 remains strictly `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+- No real Tavily API call was executed for P-16.05.
+- The previously stated balance of 4,125 credits was a historical unverified preflight observation, NOT an independently certified current balance.
+- A preflight observation or stored record does NOT certify current provider execution authority.
+- REQUIRED current grounding must remain BLOCKED when trustworthy provider/runtime authority is absent.
+- P-16.05 is NOT a prerequisite for provider-neutral P-17 through P-21 implementation.
+- P-16 phase remains OPEN pending explicit operator live authorization.
 
-These tasks may execute sequentially only after P-01.01B receives independent QA PASS. Exactly ONE executable micro-task may be active at any time. P-04.04 may execute after independently verified P-04.02 even though P-04.03 remains unexecuted, because its correctness does not depend on unverified platform/sandbox facts.
+### Operator-Authorized Batch A: P-17 through P-21 Sequential Execution
+Under express operator authorization, one sequential execution batch covering P-17 through P-21 is permitted:
+- Authorized scope: P-17.01 through P-21.05 (exactly 25 Master Plan micro-tasks).
+- Execution discipline: Tasks execute strictly ONE AT A TIME, in exact dependency order.
+- No parallel coding agents or parallel task execution may be launched.
+- The one-active-task discipline is preserved.
+- No self-awarded independent QA PASS.
+- Bounded scope: P-22+ remain strictly FORBIDDEN / NOT AUTHORIZED / NOT_RUN.
+- Hard stop enforced: Upon completion of P-21, execution MUST STOP. Do NOT initiate P-22 or any future phase.
 
-NOT AUTHORIZED under current offline lane:
-- P-04.03 — Define sandbox resource/network/process policy from proven platform capability (depends on live platform/sandbox capability; cannot guess network policy, process isolation, sandbox privilege model, resource ceilings, filesystem guarantees, checkpoint/snapshot/fork/reset semantics, teardown, runtime limits, concurrency, or provider error semantics).
-- P-04.05 — Implement execution timeout/cancellation/resource-failure normalization (keep timeout/resource behavior from encoding unverified platform semantics before live sandbox discovery).
-- P-04.06 — Add malicious-fixture tests for exfiltration attempts, fork bombs, verifier discovery, and protected-surface mutation (keep fork-bomb/resource behavior from encoding unverified platform semantics before live sandbox discovery).
-- P-05+ remain strictly FORBIDDEN.
-
-P-04 phase status:
-P-04 phase MUST remain OPEN. Completing P-04.01, P-04.02, and P-04.04 cannot close P-04. Phase exit remains unavailable until the remaining exact tasks are legitimately completed.
-
-Hard stop after P-04 offline subset:
-If P-04.01, P-04.02, and P-04.04 all independently close while P-01.02 is still blocked: execution MUST STOP again. Do NOT automatically start P-04.03, P-04.05, P-04.06, P-05+, P-06+, or any other future phase. Return for another independent architecture decision.
