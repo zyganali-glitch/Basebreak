@@ -612,11 +612,20 @@ Phase exit: project-level verification is honest and understandable. (P-17 micro
 
 # P-18 — Verification Receipt
 ### P-18.01 — Define public receipt schema
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/public_receipt.py`; defines `PublicVerificationReceipt` schema version 1.0.0; canonical JSON serialization with sorted keys and compact delimiters; verified in `tests/causal/test_public_receipt.py`)
+
 ### P-18.02 — Bind base/candidate/counterfactual hashes, witnesses and outcomes
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/public_receipt.py`; cryptographically binds frozen contract digest, source commit SHA, candidate tree/patch digests, counterfactual deltas, witnesses, and execution facts; verified in `tests/causal/test_public_receipt.py`)
+
 ### P-18.03 — Include provenance, runtime identities, timing/cost and NOT_RUN
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/public_receipt.py`; includes EvidenceProvenance, sandbox/runtime identities, created_at_utc and duration timings, PublicCostAccountingFact, and explicit not_run_obligations; verified in `tests/causal/test_public_receipt.py`)
+
 ### P-18.04 — Add integrity digest/signature strategy appropriate to hackathon scope
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/public_receipt.py`; recomputes SHA-256 receipt_digest over canonical bytes; verify_public_receipt_integrity rejects tampering, contract digest mismatches, and scans for secret leakage fail-closed; verified in `tests/causal/test_public_receipt.py`)
+
 ### P-18.05 — Render human-readable receipt without losing machine truth
-Phase exit: judges/developers can inspect one proof object.
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/causal/public_receipt.py`; render_receipt_markdown and render_receipt_terminal produce clear human-readable presentations faithful to machine truth without contradiction; verified in `tests/causal/test_public_receipt.py`)
+Phase exit: judges/developers can inspect one proof object. (P-18 micro-tasks P-18.01 through P-18.05 EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; 7 unit and adversarial tests passing in `tests/causal/test_public_receipt.py`).
 
 ---
 
