@@ -22,3 +22,4 @@ secrets/
 *.key
 .DS_Store
 Thumbs.db
+.basebreak/

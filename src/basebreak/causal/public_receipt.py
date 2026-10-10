@@ -328,6 +328,166 @@ class PublicVerificationReceipt:
         """Serialize to JSON string."""
         return json.dumps(self.to_dict(), sort_keys=True, indent=indent)
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PublicVerificationReceipt:
+        """Reconstruct PublicVerificationReceipt from a canonical dictionary."""
+        from basebreak.causal.coverage import (
+            RequirementCausalState,
+            RequirementEligibility,
+            RequirementVerificationFact,
+        )
+        from basebreak.causal.reconciliation import CausalTransition
+        from basebreak.domain.semantics import ChangeClass
+
+        witnesses = []
+        for w in data.get("witnesses", []):
+            witnesses.append(
+                PublicWitnessFact(
+                    witness_id=w["witness_id"],
+                    witness_digest=w["witness_digest"],
+                    lock_digest=w.get("lock_digest"),
+                    requirement_id=w.get("requirement_id"),
+                    execution_command=tuple(w.get("execution_command", ())),
+                    timeout_seconds=float(w.get("timeout_seconds", 30.0)),
+                )
+            )
+
+        executions = []
+        for e in data.get("executions", []):
+            executions.append(
+                PublicExecutionFact(
+                    world=ExecutionWorld(e["world"]),
+                    sandbox_id=e["sandbox_id"],
+                    source_commit_id=e["source_commit_id"],
+                    tree_digest=e["tree_digest"],
+                    outcome=WitnessOutcome(e["outcome"]),
+                    exit_code=e.get("exit_code"),
+                    termination_status=TerminationStatus(e["termination_status"]),
+                    duration_seconds=float(e["duration_seconds"]),
+                    stdout_digest=e["stdout_digest"],
+                    stderr_digest=e["stderr_digest"],
+                    stdout_excerpt=e.get("stdout_excerpt", ""),
+                    stderr_excerpt=e.get("stderr_excerpt", ""),
+                )
+            )
+
+        cf_fact: PublicCounterfactualFact | None = None
+        cf_raw = data.get("counterfactual")
+        if cf_raw is not None:
+            cf_exec: PublicExecutionFact | None = None
+            if cf_raw.get("execution_fact"):
+                cfe = cf_raw["execution_fact"]
+                cf_exec = PublicExecutionFact(
+                    world=ExecutionWorld(cfe["world"]),
+                    sandbox_id=cfe["sandbox_id"],
+                    source_commit_id=cfe["source_commit_id"],
+                    tree_digest=cfe["tree_digest"],
+                    outcome=WitnessOutcome(cfe["outcome"]),
+                    exit_code=cfe.get("exit_code"),
+                    termination_status=TerminationStatus(cfe["termination_status"]),
+                    duration_seconds=float(cfe["duration_seconds"]),
+                    stdout_digest=cfe["stdout_digest"],
+                    stderr_digest=cfe["stderr_digest"],
+                    stdout_excerpt=cfe.get("stdout_excerpt", ""),
+                    stderr_excerpt=cfe.get("stderr_excerpt", ""),
+                )
+            cf_fact = PublicCounterfactualFact(
+                is_required=bool(cf_raw["is_required"]),
+                candidate_tree_digest=cf_raw.get("candidate_tree_digest"),
+                delta_digest=cf_raw.get("delta_digest"),
+                outcome=WitnessOutcome(cf_raw["outcome"]) if cf_raw.get("outcome") else None,
+                execution_fact=cf_exec,
+                absence_rationale=cf_raw.get("absence_rationale"),
+            )
+
+        ac_fact: PublicCostAccountingFact | None = None
+        ac_raw = data.get("accounting")
+        if ac_raw is not None:
+            ac_fact = PublicCostAccountingFact(
+                model_call_count=int(ac_raw.get("model_call_count", 0)),
+                prompt_tokens=int(ac_raw.get("prompt_tokens", 0)),
+                completion_tokens=int(ac_raw.get("completion_tokens", 0)),
+                sandbox_runtime_seconds=float(ac_raw.get("sandbox_runtime_seconds", 0.0)),
+                estimated_cost_usd=(
+                    float(ac_raw["estimated_cost_usd"])
+                    if ac_raw.get("estimated_cost_usd") is not None
+                    else None
+                ),
+                currency=str(ac_raw.get("currency", "USD")),
+                is_metered=bool(ac_raw.get("is_metered", False)),
+            )
+
+        cov_raw = data["coverage_summary"]
+        req_facts = []
+        for rf in cov_raw.get("per_requirement_facts", []):
+            trans = CausalTransition(rf["transition"]) if rf.get("transition") else None
+            req_facts.append(
+                RequirementVerificationFact(
+                    requirement_id=rf["requirement_id"],
+                    change_class=ChangeClass(rf["change_class"]),
+                    eligibility=RequirementEligibility(rf["eligibility"]),
+                    causal_state=RequirementCausalState(rf["causal_state"]),
+                    preliminary_verdict=PreliminaryVerdict(rf["preliminary_verdict"]),
+                    transition=trans,
+                    witness_id=rf.get("witness_id"),
+                    witness_digest=rf.get("witness_digest"),
+                    execution_obligation=rf["execution_obligation"],
+                    rationale=rf["rationale"],
+                    fact_digest=rf["fact_digest"],
+                )
+            )
+
+        cov_summary = CausalCoverageSummary(
+            contract_digest=cov_raw["contract_digest"],
+            total_requirements=int(cov_raw["total_requirements"]),
+            eligible_count=int(cov_raw["eligible_count"]),
+            excluded_count=int(cov_raw["excluded_count"]),
+            verified_count=int(cov_raw["verified_count"]),
+            not_run_count=int(cov_raw["not_run_count"]),
+            inconclusive_count=int(cov_raw["inconclusive_count"]),
+            contradicted_count=int(cov_raw["contradicted_count"]),
+            blocked_count=int(cov_raw["blocked_count"]),
+            coverage_ratio=(
+                float(cov_raw["coverage_ratio"])
+                if cov_raw.get("coverage_ratio") is not None
+                else None
+            ),
+            coverage_percentage=(
+                float(cov_raw["coverage_percentage"])
+                if cov_raw.get("coverage_percentage") is not None
+                else None
+            ),
+            is_fully_verified=bool(cov_raw["is_fully_verified"]),
+            overall_verdict=PreliminaryVerdict(cov_raw["overall_verdict"]),
+            per_requirement_facts=tuple(req_facts),
+            coverage_digest=cov_raw["coverage_digest"],
+        )
+
+        return cls(
+            schema_version=data["schema_version"],
+            receipt_digest=data["receipt_digest"],
+            frozen_contract_digest=data["frozen_contract_digest"],
+            task_id=data["task_id"],
+            repo_locator=data["repo_locator"],
+            source_commit_id=data["source_commit_id"],
+            candidate_tree_digest=data["candidate_tree_digest"],
+            candidate_patch_digest=data.get("candidate_patch_digest"),
+            counterfactual=cf_fact,
+            coverage_summary=cov_summary,
+            witnesses=tuple(witnesses),
+            executions=tuple(executions),
+            overall_verdict=PreliminaryVerdict(data["overall_verdict"]),
+            provenance=EvidenceProvenance(data["provenance"]),
+            runtime_identities=tuple(data.get("runtime_identities", ())),
+            timing=dict(data.get("timing", {})),
+            accounting=ac_fact,
+            not_run_obligations=tuple(data.get("not_run_obligations", ())),
+            signature_strategy=data.get("signature_strategy", "SHA256_DIGEST_ONLY"),
+            signature=data.get("signature"),
+            is_authoritative=bool(data.get("is_authoritative", False)),
+            disclaimers=tuple(data.get("disclaimers", ())),
+        )
+
 
 def build_canonical_public_receipt_payload(
     *,
