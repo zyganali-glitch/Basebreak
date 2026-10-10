@@ -224,9 +224,13 @@ def evaluate_grounding_firewall(
        If prompt injection or fake authority claims are detected in web content -> flags recorded,
        untrusted claims discarded.
     8. Observation Trust Boundary:
-       Arbitrary caller-provided strings (verified_observation_ids) NEVER establish provider
-       observation authority. Actual observation authority must come from
-       TrustedProviderObservation.
+       Separation of Record Integrity vs Execution Authority.
+       Arbitrary caller-provided strings (verified_observation_ids) and caller-constructed
+       observation records NEVER establish live provider execution authority.
+       A public constructor, valid digest, caller-selected provenance, boolean
+       is_live_execution, or matching response ID must NEVER establish actual provider execution.
+       Until an authentic trusted runtime observation boundary exists, the unsupported
+       live-authority path explicitly fails closed.
     9. Not Applicable:
        If materiality is NOT_APPLICABLE -> web evidence ignored, status GROUNDING_SKIPPED,
        verdict = execution_verdict.
@@ -479,6 +483,21 @@ def evaluate_grounding_firewall(
                     ),
                 )
 
+            if fact.freshness_state == FreshnessState.UNKNOWN:
+                adversarial_flags.append(f"unverified_freshness:{fact.fact_id}")
+                return _make_firewall_result(
+                    final_verdict=PreliminaryVerdict.BLOCKED,
+                    status=GroundingStatus.INSUFFICIENT_GROUNDING,
+                    execution_verdict=execution_verdict,
+                    flags=tuple(adversarial_flags),
+                    rationale=(
+                        f"Mandatory grounding fact '{fact.fact_id}' has UNKNOWN freshness; "
+                        "required current grounding cannot be satisfied by unverified freshness "
+                        "evidence without established temporal context; keep uncertainty explicit; "
+                        "fail-closed BLOCKED."
+                    ),
+                )
+
             # Fake certainty check: fact claims CERTAIN without corroborating external reference
             is_certain = fact.uncertainty_state == UncertaintyState.CERTAIN
             if is_certain and materiality.external_reference:
@@ -554,8 +573,12 @@ def evaluate_grounding_firewall(
     # 10. Fixture & Live Observation Enforcement:
     # A REQUIRED grounding decision with only fixture facts must never return
     # GROUNDED_VALID / VERIFIED.
-    # Furthermore, caller-supplied is_fixture=False without verified provider observation
-    # identity from the trusted runtime boundary cannot certify live provider execution.
+    # Separation of Record Integrity vs Execution Authority:
+    # A public constructor, valid digest, caller-selected provenance, boolean
+    # is_live_execution, or matching response ID / provider name must NEVER establish
+    # actual provider execution.
+    # Until an authentic trusted runtime observation boundary exists, the unsupported
+    # live-authority path explicitly fails closed.
     if materiality.materiality == GroundingMateriality.REQUIRED:
         if all(f.is_fixture for f in binding.facts):
             adversarial_flags.append("fixture_only:mandatory_grounding")
@@ -570,38 +593,28 @@ def evaluate_grounding_firewall(
                 ),
             )
 
-        # Build map of verified trusted live observations from runtime boundary
-        trusted_live_map: dict[str, TrustedProviderObservation] = {
-            obs.observation_id: obs
-            for obs in valid_trusted_obs
-            if obs.is_live_execution and obs.provenance == EvidenceProvenance.LOCAL_EXECUTION
-        }
-
-        unverified_facts = [
-            f
-            for f in binding.facts
-            if not f.is_fixture
-            and (
-                not f.provider_response_id
-                or f.provider_response_id not in trusted_live_map
-                or trusted_live_map[f.provider_response_id].provider_name != f.retrieval_provider
-            )
-        ]
-        if unverified_facts:
-            adversarial_flags.append("unverified_live_claim:missing_observation_authority")
+        # Any fact asserting is_fixture=False claims live provider execution authority.
+        # Without an authentic trusted runtime observation boundary, live observation authority
+        # cannot be established by caller-created observations, digests, matching response IDs,
+        # or provider names; fails closed BLOCKED.
+        non_fixture_facts = [f for f in binding.facts if not f.is_fixture]
+        if non_fixture_facts:
+            adversarial_flags.append("unverified_live_claim:unsupported_live_observation_authority")
             return _make_firewall_result(
                 final_verdict=PreliminaryVerdict.BLOCKED,
                 status=GroundingStatus.INSUFFICIENT_GROUNDING,
                 execution_verdict=execution_verdict,
                 flags=tuple(adversarial_flags),
                 rationale=(
-                    "Caller-supplied is_fixture=False without verified provider observation "
-                    "authority from trusted runtime boundary cannot certify live provider "
-                    "execution; arbitrary caller strings rejected; fail-closed BLOCKED."
+                    "Live provider observation authority cannot be established by "
+                    "caller-constructed observations, matching response IDs, or "
+                    "unauthenticated claims. Without an authentic trusted runtime "
+                    "observation boundary, the unsupported live-authority path "
+                    "explicitly fails closed; fail-closed BLOCKED."
                 ),
             )
 
-    # For OPTIONAL grounding, fixture-only evidence does not block but does not claim GROUNDED_VALID
+    # For OPTIONAL grounding, fixture evidence honestly records FIXTURE_ONLY_GROUNDING
     if materiality.materiality == GroundingMateriality.OPTIONAL:
         if all(f.is_fixture for f in binding.facts):
             return _make_firewall_result(
@@ -612,6 +625,22 @@ def evaluate_grounding_firewall(
                 rationale=(
                     "Optional external grounding consists of offline fixture evidence; "
                     "proceeding with deterministic execution verdict."
+                ),
+            )
+
+        # Non-fixture claims under OPTIONAL cannot claim GROUNDED_VALID without trusted boundary
+        non_fixture_facts = [f for f in binding.facts if not f.is_fixture]
+        if non_fixture_facts:
+            adversarial_flags.append("unverified_live_claim:unsupported_live_observation_authority")
+            return _make_firewall_result(
+                final_verdict=execution_verdict,
+                status=GroundingStatus.INSUFFICIENT_GROUNDING,
+                execution_verdict=execution_verdict,
+                flags=tuple(adversarial_flags),
+                rationale=(
+                    "Optional external grounding live claim cannot be certified without an "
+                    "authentic trusted runtime observation boundary; proceeding with deterministic "
+                    "execution verdict without GROUNDED_VALID status."
                 ),
             )
 

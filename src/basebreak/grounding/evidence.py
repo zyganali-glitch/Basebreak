@@ -363,8 +363,17 @@ def compute_trusted_observation_digest(payload: Mapping[str, Any]) -> str:
 
 @dataclass(frozen=True, slots=True)
 class TrustedProviderObservation:
-    """Immutable, content-addressed witness of an observation executed at the
-    trusted runtime boundary.
+    """Immutable, content-addressed witness of an observation record.
+
+    Separation of Record Integrity vs Execution Authority:
+    - RECORD INTEGRITY: The observation_digest proves field consistency, schema
+      correctness, and payload immutability. It verifies that the record has not
+      been altered since creation.
+    - EXECUTION AUTHORITY: Record integrity does NOT establish or certify live
+      provider execution. A public constructor, valid digest, caller-selected
+      provenance, boolean is_live_execution flag, or matching response ID cannot
+      mint provider execution authority. Genuine provider execution authority
+      requires an authentic trusted runtime attestation boundary.
     """
 
     observation_id: str
@@ -461,7 +470,11 @@ def create_trusted_observation(
     provenance: EvidenceProvenance,
     is_live_execution: bool,
 ) -> TrustedProviderObservation:
-    """Factory creating an immutable, digest-verified TrustedProviderObservation."""
+    """Factory creating an immutable, digest-verified TrustedProviderObservation record.
+
+    Note: This factory establishes record integrity only. It does NOT establish
+    live provider execution authority at the runtime firewall.
+    """
     payload = {
         "observation_id": observation_id,
         "provider_name": provider_name,
@@ -487,12 +500,16 @@ def create_trusted_observation(
 def validate_trusted_observation_contract(
     observation: Any,
 ) -> None:
-    """Validate that an observation originates from a trustworthy runtime boundary.
+    """Validate that an observation record satisfies schema, digest, and provenance invariants.
 
-    Enforces:
+    Enforces record integrity:
     1. Must be an instance of TrustedProviderObservation (rejects arbitrary caller strings).
     2. Must pass digest verification.
-    3. Must satisfy provenance rules.
+    3. Must satisfy provenance rules (e.g. FIXTURE or RECORDED_LIVE cannot claim
+       is_live_execution=True).
+
+    Note: Passing this validation verifies record integrity only. It does NOT confer
+    live provider execution authority at the firewall.
     """
     if not isinstance(observation, TrustedProviderObservation):
         raise TypeError(

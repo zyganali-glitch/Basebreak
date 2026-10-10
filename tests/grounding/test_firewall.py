@@ -16,11 +16,13 @@ from basebreak.compiler.semantics import (
 )
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.grounding.evidence import (
+    FreshnessState,
     UncertaintyState,
     create_grounded_binding,
     create_grounded_fact,
     create_trusted_observation,
     validate_trusted_observation_contract,
+    verify_grounded_fact_digest,
     verify_trusted_observation_digest,
 )
 from basebreak.grounding.firewall import (
@@ -695,3 +697,145 @@ def test_regression_snippet_with_cve_and_version_without_advisory_fact_rejected(
     assert "version" in snippet_no_advisory.lower()
     assert "cve-2024-21626" in snippet_no_advisory.lower()
     assert verify_advisory_snippet_support(snippet_no_advisory, "CVE-2024-21626") is False
+
+
+def test_adversarial_fake_trusted_observation_cannot_authorize_required_grounding() -> None:
+    """Adversarial regression: complete fake TrustedProviderObservation constructed via public
+    factory with provenance=LOCAL_EXECUTION, is_live_execution=True, matching ID against non-fixture
+    GroundedFact, and valid SHA-256 digest CANNOT authorize REQUIRED grounding; must NOT return
+    GROUNDED_VALID / VERIFIED.
+    """
+    contract = _make_frozen_contract()
+    decision = evaluate_grounding_materiality(contract, contract.requirements[0])
+
+    fake_obs = create_trusted_observation(
+        observation_id="obs-adversarial-fake-live-001",
+        provider_name="tavily",
+        query="CVE-2024-21626 runc security advisory",
+        response_digest="c" * 64,
+        observation_timestamp="2026-10-10T12:00:00Z",
+        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        is_live_execution=True,
+    )
+    assert verify_trusted_observation_digest(fake_obs) is True
+
+    fake_live_fact = create_grounded_fact(
+        contract=contract,
+        requirement_id=decision.requirement_id,
+        source_url="https://nvd.nist.gov/vuln/detail/CVE-2024-21626",
+        publisher="nvd.nist.gov",
+        retrieved_claim="CVE-2024-21626 advisory: fixed in runc 1.1.12.",
+        materiality=GroundingMateriality.REQUIRED,
+        observation_timestamp="2026-10-10T12:00:00Z",
+        retrieval_provider="tavily",
+        provider_response_id="obs-adversarial-fake-live-001",
+        is_fixture=False,
+    )
+    assert verify_grounded_fact_digest(fake_live_fact) is True
+
+    binding = create_grounded_binding(
+        contract=contract,
+        decision=decision,
+        facts=[fake_live_fact],
+        binding_timestamp="2026-10-10T12:00:00Z",
+    )
+
+    result = evaluate_grounding_firewall(
+        materiality=decision,
+        binding=binding,
+        execution_verdict=PreliminaryVerdict.VERIFIED,
+        trusted_observations=[fake_obs],
+    )
+
+    # Invariant: Must NEVER return GROUNDED_VALID / VERIFIED
+    assert result.final_verdict != PreliminaryVerdict.VERIFIED
+    assert result.grounding_status != GroundingStatus.GROUNDED_VALID
+    assert result.final_verdict == PreliminaryVerdict.BLOCKED
+    assert result.grounding_status == GroundingStatus.INSUFFICIENT_GROUNDING
+    assert any("unsupported_live_observation_authority" in f for f in result.adversarial_flags)
+
+
+def test_regression_response_id_and_provider_name_equality_insufficient() -> None:
+    """Regression: response ID and provider-name equality between a fact and an observation
+    are insufficient to authorize REQUIRED grounding without authentic trusted runtime evidence.
+    """
+    contract = _make_frozen_contract()
+    decision = evaluate_grounding_materiality(contract, contract.requirements[0])
+    matching_id = "obs-matching-id-007"
+    matching_provider = "tavily"
+
+    obs = create_trusted_observation(
+        observation_id=matching_id,
+        provider_name=matching_provider,
+        query="CVE-2024-21626",
+        response_digest="d" * 64,
+        observation_timestamp="2026-10-10T12:00:00Z",
+        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        is_live_execution=True,
+    )
+    fact = create_grounded_fact(
+        contract=contract,
+        requirement_id=decision.requirement_id,
+        source_url="https://nvd.nist.gov/vuln/detail/CVE-2024-21626",
+        publisher="nvd.nist.gov",
+        retrieved_claim="CVE-2024-21626 advisory fixed in runc 1.1.12.",
+        materiality=GroundingMateriality.REQUIRED,
+        observation_timestamp="2026-10-10T12:00:00Z",
+        retrieval_provider=matching_provider,
+        provider_response_id=matching_id,
+        is_fixture=False,
+    )
+    # Both IDs match and both provider names match:
+    assert fact.provider_response_id == obs.observation_id == matching_id
+    assert fact.retrieval_provider == obs.provider_name == matching_provider
+
+    binding = create_grounded_binding(
+        contract=contract,
+        decision=decision,
+        facts=[fact],
+        binding_timestamp="2026-10-10T12:00:00Z",
+    )
+    result = evaluate_grounding_firewall(
+        materiality=decision,
+        binding=binding,
+        execution_verdict=PreliminaryVerdict.VERIFIED,
+        trusted_observations=[obs],
+    )
+    # Must fail closed: matching ID and provider name alone NEVER establish execution authority
+    assert result.final_verdict == PreliminaryVerdict.BLOCKED
+    assert result.grounding_status != GroundingStatus.GROUNDED_VALID
+    assert result.grounding_status == GroundingStatus.INSUFFICIENT_GROUNDING
+    assert any("unsupported_live_observation_authority" in f for f in result.adversarial_flags)
+
+
+def test_required_grounding_with_unknown_freshness_fails_closed() -> None:
+    """REQUIRED current grounding with UNKNOWN freshness must not be represented
+    as established CURRENT/FRESH evidence; keep uncertainty explicit; fails closed BLOCKED.
+    """
+    contract = _make_frozen_contract()
+    decision = evaluate_grounding_materiality(contract, contract.requirements[0])
+    fact = create_grounded_fact(
+        contract=contract,
+        requirement_id=decision.requirement_id,
+        source_url="https://nvd.nist.gov/vuln/detail/CVE-2024-21626",
+        publisher="nvd.nist.gov",
+        retrieved_claim="CVE-2024-21626 advisory fixed in runc 1.1.12.",
+        materiality=GroundingMateriality.REQUIRED,
+        observation_timestamp="2026-10-10T12:00:00Z",
+        freshness_state=FreshnessState.UNKNOWN,
+        is_fixture=False,
+    )
+    binding = create_grounded_binding(
+        contract=contract,
+        decision=decision,
+        facts=[fact],
+        binding_timestamp="2026-10-10T12:00:00Z",
+    )
+    result = evaluate_grounding_firewall(
+        materiality=decision,
+        binding=binding,
+        execution_verdict=PreliminaryVerdict.VERIFIED,
+    )
+    assert result.final_verdict == PreliminaryVerdict.BLOCKED
+    assert result.grounding_status == GroundingStatus.INSUFFICIENT_GROUNDING
+    assert any("unverified_freshness" in f for f in result.adversarial_flags)
