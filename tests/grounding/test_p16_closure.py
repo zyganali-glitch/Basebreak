@@ -163,14 +163,16 @@ def test_p16_end_to_end_grounding_lifecycle() -> None:
     assert verify_grounded_binding_digest(binding) is True
 
     # P-16.04: Evaluate through authority firewall
+    # Offline fixture evidence CANNOT satisfy mandatory live grounding: fail-closed BLOCKED
     firewall_result = evaluate_grounding_firewall(
         materiality=decision,
         binding=binding,
         execution_verdict=PreliminaryVerdict.VERIFIED,
     )
-    assert firewall_result.final_verdict == PreliminaryVerdict.VERIFIED
-    assert firewall_result.grounding_status == GroundingStatus.GROUNDED_VALID
-    assert firewall_result.execution_verdict_preserved is True
+    assert firewall_result.final_verdict == PreliminaryVerdict.BLOCKED
+    assert firewall_result.grounding_status == GroundingStatus.FIXTURE_ONLY_GROUNDING
+    assert firewall_result.execution_verdict_preserved is False
+    assert "fixture_only:mandatory_grounding" in firewall_result.adversarial_flags
 
 
 def test_p16_05_operator_authorization_gate_enforcement() -> None:
@@ -235,3 +237,65 @@ def test_p16_05_operator_authorization_gate_enforcement() -> None:
     assert len(binding.facts) == 1
     assert binding.facts[0].is_fixture is True
     assert verify_grounded_binding_digest(binding) is True
+
+    # 5. Reject unmocked live network client from offline fixture demonstration
+    live_client = TavilyClient(api_key="tvly-mock-live-key")
+    with pytest.raises(ValueError, match="Live network client rejected from fixture"):
+        execute_fixture_tavily_demonstration(contract, client=live_client)
+
+    # 6. Reject supplied client that permits retries or multiple attempts from live demo
+    retry_client = TavilyClient(
+        api_key="tvly-mock-live-key",
+        allow_retries=True,
+        single_call_only=False,
+    )
+    with pytest.raises(ValueError, match="single_call_only=True and allow_retries=False"):
+        execute_live_tavily_demonstration(
+            contract,
+            operator_authorized=True,
+            verified_capacity=True,
+            client=retry_client,
+        )
+
+    # 7. Focused Grounding Honesty: snippet mentioning CVE without substantive fix context
+    from basebreak.adapters.tavily.demo import verify_advisory_snippet_support
+
+    unrelated_snippet = (
+        "In our latest cybersecurity episode we mention CVE-2024-21626 among weekly tags."
+    )
+    assert verify_advisory_snippet_support(unrelated_snippet, "CVE-2024-21626") is False
+
+    supported_snippet = (
+        "CVE-2024-21626 vulnerability in runc allowed container escape; fixed in version 1.1.12."
+    )
+    assert verify_advisory_snippet_support(supported_snippet, "CVE-2024-21626") is True
+
+    # 8. Negative laundering test: caller-supplied is_fixture=False without verified observation
+    from basebreak.grounding.evidence import create_grounded_fact
+
+    req = contract.requirements[0]
+    decision = evaluate_grounding_materiality(contract, req)
+    fake_live_fact = create_grounded_fact(
+        contract=contract,
+        requirement_id=req.requirement_id,
+        source_url="https://nvd.nist.gov/vuln/detail/CVE-2024-21626",
+        publisher="nvd.nist.gov",
+        retrieved_claim="CVE-2024-21626 fixed in runc 1.1.12.",
+        materiality=GroundingMateriality.REQUIRED,
+        observation_timestamp="2026-10-10T08:00:00Z",
+        is_fixture=False,
+    )
+    fake_live_binding = create_grounded_binding(
+        contract=contract,
+        decision=decision,
+        facts=[fake_live_fact],
+        binding_timestamp="2026-10-10T08:00:00Z",
+    )
+    laundering_eval = evaluate_grounding_firewall(
+        materiality=decision,
+        binding=fake_live_binding,
+        execution_verdict=PreliminaryVerdict.VERIFIED,
+    )
+    assert laundering_eval.final_verdict == PreliminaryVerdict.BLOCKED
+    assert laundering_eval.grounding_status == GroundingStatus.INSUFFICIENT_GROUNDING
+    assert any("unverified_live_claim" in f for f in laundering_eval.adversarial_flags)

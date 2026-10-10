@@ -156,9 +156,9 @@ class TavilySearchResponse:
     response_digest: str
 
     @property
-    def credits_used(self) -> int:
-        """Credits consumed: observed if provider reported, otherwise expected."""
-        return self.observed_credits if self.observed_credits is not None else self.expected_credits
+    def credits_used(self) -> int | None:
+        """Observed provider credit consumption; strictly None if unobserved/not reported."""
+        return self.observed_credits
 
     def __post_init__(self) -> None:
         if not self.query:

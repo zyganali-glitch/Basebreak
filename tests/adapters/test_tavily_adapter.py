@@ -101,12 +101,17 @@ def test_query_validation_prevents_sealed_witness_leakage() -> None:
         == "CVE-2024-21626 advisory"
     )
 
-    # Query leaking sealed token fails
-    with pytest.raises(TavilyQueryValidationError, match="contains protected sealed witness token"):
+    # Query leaking sealed token fails closed
+    with pytest.raises(
+        TavilyQueryValidationError, match="contains protected sealed witness token"
+    ) as exc_info:
         client.validate_query(
             "explain SEALED_EXPLOIT_PAYLOAD_001 crash",
             sealed_witness_tokens=sealed_tokens,
         )
+    # Regression: Ensure protected token is NEVER interpolated into exception text
+    assert "SEALED_EXPLOIT_PAYLOAD_001" not in str(exc_info.value)
+    assert "SECRET_SIGNATURE_KEY_xyz" not in str(exc_info.value)
 
 
 def test_tavily_search_request_strict_minimization() -> None:
@@ -343,3 +348,36 @@ def test_tavily_secret_safe_exceptions_redacts_witness_tokens() -> None:
     assert "tvly-real-secret-key-abcdef" not in err_msg
     assert "[PROTECTED_WITNESS]" in err_msg
     assert "[REDACTED]" in err_msg
+
+
+def test_credits_used_property_does_not_mask_missing_usage() -> None:
+    """Validate credits_used returns None when usage is absent, never falling back to expected."""
+
+    def mock_opener(req: urllib.request.Request, timeout: float = 10.0) -> MockHttpResponse:
+        resp_payload = {
+            "query": "CVE-2024-21626",
+            "results": [],
+            "response_time": 0.1,
+            # No "usage" dictionary provided by provider!
+            "request_id": "req-no-usage",
+        }
+        return MockHttpResponse(json.dumps(resp_payload).encode("utf-8"))
+
+    client = TavilyClient(api_key="tvly-mock-key", opener=mock_opener)
+    response = client.search("CVE-2024-21626")
+    assert response.expected_credits == 1
+    assert response.observed_credits is None
+    assert response.credits_used is None  # Strictly None, does NOT present 1 as observed!
+
+
+def test_tavily_client_properties_and_single_call_constraints() -> None:
+    """Validate client properties for single-call and retry constraints."""
+    c1 = TavilyClient(api_key="tvly-mock-key", single_call_only=True, allow_retries=False)
+    assert c1.single_call_only is True
+    assert c1.allow_retries is False
+    assert c1.calls_attempted == 0
+
+    c2 = TavilyClient(api_key="tvly-mock-key", single_call_only=False, allow_retries=True)
+    assert c2.single_call_only is False
+    assert c2.allow_retries is True
+    assert c2.calls_attempted == 0

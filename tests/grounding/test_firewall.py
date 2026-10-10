@@ -499,3 +499,82 @@ def test_adversarial_fake_certainty_rejection() -> None:
     assert res.final_verdict == PreliminaryVerdict.BLOCKED
     assert res.grounding_status == GroundingStatus.INSUFFICIENT_GROUNDING
     assert any("fake_certainty:" in f for f in res.adversarial_flags)
+
+
+def test_fixture_evidence_cannot_satisfy_mandatory_live_grounding() -> None:
+    """Offline fixture evidence cannot satisfy mandatory current fact retrieval."""
+    contract = _make_frozen_contract()
+    req = contract.requirements[0]
+    decision = evaluate_grounding_materiality(contract, req)
+
+    fact = create_grounded_fact(
+        contract=contract,
+        requirement_id=req.requirement_id,
+        source_url="https://nvd.nist.gov/vuln/detail/CVE-2024-21626",
+        publisher="nvd.nist.gov",
+        retrieved_claim="CVE-2024-21626 fixed in runc 1.1.12.",
+        materiality=GroundingMateriality.REQUIRED,
+        observation_timestamp="2026-10-10T08:00:00Z",
+        is_fixture=True,
+    )
+    binding = create_grounded_binding(
+        contract=contract,
+        decision=decision,
+        facts=[fact],
+        binding_timestamp="2026-10-10T08:00:00Z",
+    )
+
+    res = evaluate_grounding_firewall(
+        materiality=decision,
+        binding=binding,
+        execution_verdict=PreliminaryVerdict.VERIFIED,
+    )
+    assert res.final_verdict == PreliminaryVerdict.BLOCKED
+    assert res.grounding_status == GroundingStatus.FIXTURE_ONLY_GROUNDING
+    assert any("fixture_only:" in f for f in res.adversarial_flags)
+
+
+def test_caller_supplied_is_fixture_false_without_observation_identity_fails_closed() -> None:
+    """Caller-supplied is_fixture=False without verified observation identity fails closed."""
+    contract = _make_frozen_contract()
+    req = contract.requirements[0]
+    decision = evaluate_grounding_materiality(contract, req)
+
+    # Caller tries to forge live status with is_fixture=False
+    fact = create_grounded_fact(
+        contract=contract,
+        requirement_id=req.requirement_id,
+        source_url="https://nvd.nist.gov/vuln/detail/CVE-2024-21626",
+        publisher="nvd.nist.gov",
+        retrieved_claim="CVE-2024-21626 fixed in runc 1.1.12.",
+        materiality=GroundingMateriality.REQUIRED,
+        observation_timestamp="2026-10-10T08:00:00Z",
+        provider_response_id="req-forged-response-id",
+        is_fixture=False,
+    )
+    binding = create_grounded_binding(
+        contract=contract,
+        decision=decision,
+        facts=[fact],
+        binding_timestamp="2026-10-10T08:00:00Z",
+    )
+
+    # 1. Without verified provider observation identity -> FAILS CLOSED
+    res_unverified = evaluate_grounding_firewall(
+        materiality=decision,
+        binding=binding,
+        execution_verdict=PreliminaryVerdict.VERIFIED,
+    )
+    assert res_unverified.final_verdict == PreliminaryVerdict.BLOCKED
+    assert res_unverified.grounding_status == GroundingStatus.INSUFFICIENT_GROUNDING
+    assert any("unverified_live_claim" in f for f in res_unverified.adversarial_flags)
+
+    # 2. With verified provider observation identity matching provider_response_id -> PASSES
+    res_verified = evaluate_grounding_firewall(
+        materiality=decision,
+        binding=binding,
+        execution_verdict=PreliminaryVerdict.VERIFIED,
+        verified_observation_ids=["req-forged-response-id"],
+    )
+    assert res_verified.final_verdict == PreliminaryVerdict.VERIFIED
+    assert res_verified.grounding_status == GroundingStatus.GROUNDED_VALID

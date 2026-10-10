@@ -69,6 +69,7 @@ class GroundingStatus(str, Enum):
     UNVERIFIABLE_REQUIREMENT = "UNVERIFIABLE_REQUIREMENT"
     STALE_GROUNDING = "STALE_GROUNDING"
     UNTRUSTED_SOURCE_DOMAIN = "UNTRUSTED_SOURCE_DOMAIN"
+    FIXTURE_ONLY_GROUNDING = "FIXTURE_ONLY_GROUNDING"
 
 
 # Adversarial prompt-injection patterns in web content
@@ -200,6 +201,7 @@ def evaluate_grounding_firewall(
     witness_results: Sequence[NormalizedWitnessResult] | None = None,
     protected_surface_violated: bool = False,
     budget_exhausted: bool = False,
+    verified_observation_ids: Sequence[str] | None = None,
 ) -> GroundingFirewallResult:
     """Evaluate grounding evidence against deterministic execution facts with authority firewall.
 
@@ -517,6 +519,61 @@ def evaluate_grounding_firewall(
                 rationale=(
                     f"Mandatory external grounding facts are {binding.overall_uncertainty.value}; "
                     "fail-closed BLOCKED."
+                ),
+            )
+
+    # 10. Fixture & Live Observation Enforcement:
+    # A REQUIRED grounding decision with only fixture facts must never return
+    # GROUNDED_VALID / VERIFIED.
+    # Furthermore, caller-supplied is_fixture=False without verified provider observation
+    # identity from the trusted runtime boundary cannot certify live provider execution.
+    if materiality.materiality == GroundingMateriality.REQUIRED:
+        if all(f.is_fixture for f in binding.facts):
+            adversarial_flags.append("fixture_only:mandatory_grounding")
+            return _make_firewall_result(
+                final_verdict=PreliminaryVerdict.BLOCKED,
+                status=GroundingStatus.FIXTURE_ONLY_GROUNDING,
+                execution_verdict=execution_verdict,
+                flags=tuple(adversarial_flags),
+                rationale=(
+                    "Mandatory external grounding requirement contains only fixture evidence; "
+                    "offline fixtures cannot satisfy required live grounding; fail-closed BLOCKED."
+                ),
+            )
+
+        unverified_facts = [
+            f
+            for f in binding.facts
+            if not f.is_fixture
+            and (
+                not verified_observation_ids
+                or (f.provider_response_id not in verified_observation_ids)
+            )
+        ]
+        if unverified_facts:
+            adversarial_flags.append("unverified_live_claim:missing_observation_identity")
+            return _make_firewall_result(
+                final_verdict=PreliminaryVerdict.BLOCKED,
+                status=GroundingStatus.INSUFFICIENT_GROUNDING,
+                execution_verdict=execution_verdict,
+                flags=tuple(adversarial_flags),
+                rationale=(
+                    "Caller-supplied is_fixture=False without verified provider observation "
+                    "identity cannot certify live provider execution; fail-closed BLOCKED."
+                ),
+            )
+
+    # For OPTIONAL grounding, fixture-only evidence does not block but does not claim GROUNDED_VALID
+    if materiality.materiality == GroundingMateriality.OPTIONAL:
+        if all(f.is_fixture for f in binding.facts):
+            return _make_firewall_result(
+                final_verdict=execution_verdict,
+                status=GroundingStatus.FIXTURE_ONLY_GROUNDING,
+                execution_verdict=execution_verdict,
+                flags=tuple(adversarial_flags),
+                rationale=(
+                    "Optional external grounding consists of offline fixture evidence; "
+                    "proceeding with deterministic execution verdict."
                 ),
             )
 

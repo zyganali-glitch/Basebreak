@@ -105,6 +105,16 @@ class TavilyClient:
         return self._opener is not urllib.request.urlopen
 
     @property
+    def single_call_only(self) -> bool:
+        """True if this client enforces single-call constraint without retries."""
+        return self._single_call_only
+
+    @property
+    def allow_retries(self) -> bool:
+        """True if this client allows HTTP retry attempts on transient errors."""
+        return self._allow_retries
+
+    @property
     def calls_attempted(self) -> int:
         """Total number of HTTP attempts made by this client."""
         return self._calls_attempted
@@ -154,7 +164,7 @@ class TavilyClient:
             for token in sealed_witness_tokens:
                 if token and len(token) >= 4 and token.lower() in stripped.lower():
                     raise TavilyQueryValidationError(
-                        f"Query contains protected sealed witness token '{token}'; "
+                        "Query contains protected sealed witness token; "
                         "search blocked to prevent leakage"
                     )
 

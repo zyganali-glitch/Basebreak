@@ -98,11 +98,33 @@ def check_live_tavily_preflight() -> TavilyPreflightStatus:
     )
 
 
+ADVISORY_SUBSTANTIVE_SIGNALS: tuple[str, ...] = (
+    "fixed",
+    "fix",
+    "patch",
+    "version",
+    "release",
+    "vulnerability",
+    "descriptor",
+    "escape",
+    "leak",
+    "1.1.12",
+    "1.1.11",
+)
+
+
 def verify_advisory_snippet_support(claim_text: str, target_cve: str) -> bool:
-    """Verify that a snippet contains sufficient supporting factual context for the CVE."""
+    """Verify that a snippet contains sufficient supporting factual context for the CVE.
+
+    Does not infer factual certainty from an identifier substring alone.
+    Requires both the target CVE identifier AND substantive vulnerability/fix signals.
+    """
     if not claim_text or not target_cve:
         return False
-    return target_cve.lower() in claim_text.lower()
+    lower_text = claim_text.lower()
+    if target_cve.lower() not in lower_text:
+        return False
+    return any(sig in lower_text for sig in ADVISORY_SUBSTANTIVE_SIGNALS)
 
 
 def execute_live_tavily_demonstration(
@@ -119,8 +141,9 @@ def execute_live_tavily_demonstration(
     1. Fails closed if operator_authorized is False.
     2. Fails closed if verified_capacity is False.
     3. Rejects mock client injection to prevent fixture laundering.
-    4. Uses captured UTC observation time, never hardcoded default.
-    5. Disables automatic retries and enforces single-call constraint.
+    4. Rejects supplied client that permits retries or multiple calls.
+    5. Uses captured UTC observation time, never hardcoded default.
+    6. Disables automatic retries and enforces exactly one HTTP attempt.
     """
     if not operator_authorized:
         raise PermissionError(
@@ -134,11 +157,22 @@ def execute_live_tavily_demonstration(
             "safeguard must be independently verified before dispatching HTTP request."
         )
 
-    if client is not None and client.is_mocked:
-        raise ValueError(
-            "Fixture laundering rejected: mock client with custom opener cannot execute "
-            "as live demonstration."
-        )
+    if client is not None:
+        if client.is_mocked:
+            raise ValueError(
+                "Fixture laundering rejected: mock client with custom opener cannot execute "
+                "as live demonstration."
+            )
+        if not client.single_call_only or client.allow_retries:
+            raise ValueError(
+                "Execution rejected: supplied TavilyClient must have single_call_only=True "
+                "and allow_retries=False to strictly guarantee exactly one HTTP attempt."
+            )
+        if client.calls_attempted > 0:
+            raise ValueError(
+                "Execution rejected: supplied TavilyClient has already attempted calls; "
+                "fresh single-call client required."
+            )
 
     actual_timestamp = observation_timestamp or datetime.now(timezone.utc).isoformat()
     plan = TavilyDemonstrationPlan()
@@ -202,7 +236,14 @@ def execute_fixture_tavily_demonstration(
     """Execute an honest offline fixture demonstration using mock provider data.
 
     Explicitly marks all generated facts as is_fixture=True.
+    Rejects normal live network clients to prevent accidental external calls.
     """
+    if not client.is_mocked:
+        raise ValueError(
+            "Live network client rejected from fixture demonstration: "
+            "execute_fixture_tavily_demonstration requires a mocked client with explicit opener."
+        )
+
     actual_timestamp = observation_timestamp or datetime.now(timezone.utc).isoformat()
     plan = TavilyDemonstrationPlan()
 
