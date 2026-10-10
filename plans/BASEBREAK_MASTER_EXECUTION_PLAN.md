@@ -547,20 +547,20 @@ Phase exit: agent improves from evidence without memorizing the hidden exam. (Ph
 
 # P-15 — Risk-Adaptive Verification Budget
 ### P-15.01 — Define deterministic risk features and policy levels
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/budget/risk_features.py`; RiskLevel total ordering LOW < MEDIUM < HIGH; deterministic feature extraction from change class, touched paths, certainty, blast radius; fail-closed risk elevation on untrusted metadata, UNKNOWN certainty, security paths, protected surfaces; canonical hashing and tamper verification; 13 tests in `tests/budget/test_risk_features.py`)
+Status: DONE (independently VERIFIED / PASS at SHA `09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b`)
 
 ### P-15.02 — Map low/medium/high risk to verification depth
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/budget/depth_policy.py`; deterministic mapping to VerificationDepth; strict preservation of mandatory BASE + CANDIDATE execution across all 6 change classes and all 3 risk tiers; change-class specific obligations including REFACTOR equivalence, PERFORMANCE measurement, DEP_API migration; monotonic depth scaling; inspectable skipped-check records; canonical hashing and tamper verification; 22 tests in `tests/budget/test_depth_policy.py`)
+Status: DONE (independently VERIFIED / PASS at SHA `09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b`)
 
 ### P-15.03 — Add cost/token/sandbox budget accounting
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/budget/accounting.py`; bounded resource accounting for tokens, model calls, sandboxes, verifiers, wall-clock time, and estimated financial cost; operation ID deduplication; reservation/commit/cancel lifecycle; upper constraint enforcement; composition with RepairLoopBudget/RepairLoopCounters; rejection of false zero-cost claims, negative values, and non-finite quantities; 5 tests in `tests/budget/test_accounting.py`)
+Status: DONE (independently VERIFIED / PASS at SHA `09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b`)
 
 ### P-15.04 — Add policy for when counterrun/slicing is mandatory
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/budget/mandatory_policy.py`; deterministic conditions under which counterfactual third runs and causal slicing are mandatory; semantic preservation across change classes; immunity to model confidence and cost estimates; deterministic obligation validation via validate_executed_obligations; canonical hashing and tamper detection; 5 tests in `tests/budget/test_mandatory_policy.py`)
+Status: DONE (independently VERIFIED / PASS at SHA `09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b`)
 
 ### P-15.05 — Add fail-closed behavior when required budget cannot execute
-Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/budget/fail_closed.py`; BudgetGateResult and BudgetGateStatus; preflight admission checks; fail-closed exhaustion handling with evidence preservation; witness failure primacy preventing budget limits from hiding actual test failures; zero verdict authority and prohibition of false PASS awards; 7 tests in `tests/budget/test_fail_closed.py` and 3 integration tests in `tests/budget/test_budget_integration.py`)
-Phase exit: strong verification is economically usable. (P-15 batch EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; all 56 budget tests passing; 2,404 total non-live tests passing; P-16+ remain strictly NOT AUTHORIZED / NOT_RUN; HARD STOP ENFORCED)
+Status: DONE (independently VERIFIED / PASS at SHA `09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b`)
+Phase exit: strong verification is economically usable. (Phase P-15 independently CLOSED / PASS at SHA `09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b`).
 
 ---
 
@@ -574,11 +574,20 @@ Policy:
 - no paid Tavily upgrade;
 - if bonus participation remains justified, use a real runtime Tavily call rather than bolted-on decoration.
 ### P-16.01 — Define when external current facts are materially required
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/grounding/materiality.py`; deterministic materiality classification distinguishing REQUIRED, OPTIONAL, NOT_APPLICABLE, UNVERIFIABLE; CVE security advisory and dependency migration detection; canonical SHA-256 digests and tamper verification; 7 tests in `tests/grounding/test_materiality.py`)
+
 ### P-16.02 — Implement Tavily adapter with source provenance and strict minimization
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/adapters/tavily/`; bounded HTTP client `POST https://api.tavily.com/search`; strict minimization `basic` depth, no raw content, no answers; bounded length, sanitized query, secret pattern detection, sealed witness leak prevention; secret redaction in logging/errors; 10 tests in `tests/adapters/test_tavily_adapter.py`)
+
 ### P-16.03 — Bind release-note/CVE/API facts into Grounded Contract evidence
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/grounding/evidence.py`; provider-neutral `GroundedFact` and `GroundedContractBinding` bound to frozen contract digest; publisher, observation timestamp, published date, provider identity; freshness and uncertainty states; canonical SHA-256 digests and tamper detection; 4 tests in `tests/grounding/test_grounded_evidence.py`)
+
 ### P-16.04 — Prevent web evidence from overriding deterministic execution
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/grounding/firewall.py`; deterministic authority firewall enforcing witness failure primacy, budget exhaustion, protected surface violation, mandatory grounding gates; adversarial prompt injection and fake authority claim detection; canonical SHA-256 firewall digest; 4 canonical evidence provenance categories preserved; 9 tests in `tests/grounding/test_firewall.py`)
+
 ### P-16.05 — Execute real runtime Tavily path if bonus remains strategically justified
-Phase exit: current-fact tasks are grounded without bolted-on bonus theater.
+Status: OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN (implemented in `src/basebreak/adapters/tavily/demo.py`; preflight quota inspection confirms 4,125 credits available at $0.00 spend; bounded demo plan for CVE-2024-21626 requiring 1 credit; execution held strictly at authorization gate until operator grants explicit live execution consent; 2 closure tests in `tests/grounding/test_p16_closure.py`)
+Phase exit: current-fact tasks are grounded without bolted-on bonus theater. (P-16 batch P-16.01 through P-16.04 EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; P-16.05 held at OPERATOR_AUTHORIZATION_REQUIRED; P-17+ remain strictly NOT AUTHORIZED / NOT_RUN; HARD STOP ENFORCED)
 
 ---
 

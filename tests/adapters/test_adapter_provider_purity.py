@@ -74,3 +74,15 @@ class TestProviderPurity:
                 assert not mod.startswith("adapters"), (
                     f"Security file '{f.name}' violates provider purity by importing '{mod}'"
                 )
+
+    def test_grounding_has_zero_adapter_imports(self) -> None:
+        files = _get_python_files("grounding")
+        for f in files:
+            imported = _extract_imported_modules(f)
+            for mod in imported:
+                assert not mod.startswith("basebreak.adapters"), (
+                    f"Grounding file '{f.name}' violates provider purity by importing '{mod}'"
+                )
+                assert not mod.startswith("adapters"), (
+                    f"Grounding file '{f.name}' violates provider purity by importing '{mod}'"
+                )

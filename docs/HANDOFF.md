@@ -90,35 +90,40 @@ Judge claim:
 - P-14.05 (Require fresh verifier reproduction for repaired candidate) is independently VERIFIED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b`.
 - P-14.06 (Cap repair rounds/cost and return honest non-success) is independently VERIFIED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b`.
 - P-14 phase (Sealed Repair Loop) is independently CLOSED / PASS at SHA `31929c1876a16372d24fc8c77951e0ac21fdfc9b` (live demonstration validated on exact implementation SHA `62b24c69a819c0ddcf15b455a237568059949107` with receipt `933e0acbd4bed1197c84d49139dd9773c94aab516ad5ecb4f46e8e3fd87dd9f1` in `docs/P14_LIVE_CLOSURE_PROOF.md`).
-- P-15.01 (Define deterministic risk features and policy levels) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-15.02 (Map low/medium/high risk to verification depth) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-15.03 (Add cost/token/sandbox budget accounting) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-15.04 (Add policy for when counterrun/slicing is mandatory) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-15.05 (Add fail-closed behavior when required budget cannot execute) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-15 batch (Risk-Adaptive Verification Budget, P-15.01 through P-15.05) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
-- P-16+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
+- P-15.01 (Define deterministic risk features and policy levels) is independently VERIFIED / PASS at SHA `09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b`.
+- P-15.02 (Map low/medium/high risk to verification depth) is independently VERIFIED / PASS at SHA `09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b`.
+- P-15.03 (Add cost/token/sandbox budget accounting) is independently VERIFIED / PASS at SHA `09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b`.
+- P-15.04 (Add policy for when counterrun/slicing is mandatory) is independently VERIFIED / PASS at SHA `09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b`.
+- P-15.05 (Add fail-closed behavior when required budget cannot execute) is independently VERIFIED / PASS at SHA `09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b`.
+- P-15 phase (Risk-Adaptive Verification Budget, P-15.01 through P-15.05) is independently CLOSED / PASS at SHA `09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b`.
+- P-16.01 (Define when external current facts are materially required) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-16.02 (Implement Tavily adapter with source provenance and strict minimization) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-16.03 (Bind release-note/CVE/API facts into Grounded Contract evidence) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-16.04 (Prevent web evidence from overriding deterministic execution) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+- P-16.05 (Execute real runtime Tavily path if bonus remains strategically justified) is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN.
+- P-17+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED.
 
 ## Last independently VERIFIED baseline SHA
-`31929c1876a16372d24fc8c77951e0ac21fdfc9b` (independently VERIFIED / PASS at P-14 closure).
+`09ff7740635c02ad9a568fc7f13d9b3b8bd96c6b` (independently VERIFIED / PASS at P-15 closure).
 Prior LIVE_NEBIUS-tested implementation SHA: `62b24c69a819c0ddcf15b455a237568059949107` (P-14 live closure).
 
 ## Blocking live gate vs active task
 
 ### Blocking live gate
-NONE currently blocking P-15 batch (provider-neutral local deterministic execution only; no LIVE_NEBIUS invocation authorized or required for P-15 offline batch).
+P-16.05 live Tavily execution is held strictly at `OPERATOR_AUTHORIZATION_REQUIRED`. Preflight checks passed with zero credit consumption. No live API call may execute until fresh operator authorization is provided.
 
 ### Current QA candidate
-P-15 Risk-Adaptive Verification Budget Batch — P-15.01 through P-15.05 (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
+P-16 External Grounding & Tavily Batch — P-16.01 through P-16.04 (EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE).
 
 ### Active exact task
-P-15 Risk-Adaptive Verification Budget Batch — implementation, test suite (56 budget tests, 2,404 non-live suite), and documentation sync complete. Awaiting independent QA. P-16+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+P-16 External Grounding & Tavily Batch — implementation, test suite (36 focused grounding/adapter tests, 2,448 non-live suite), and documentation sync complete. P-16.05 held at operator authorization gate. Awaiting independent QA. P-17+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-14 all tasks and phases are independently VERIFIED / PASS. P-15.01 through P-15.05 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-16+ remain strictly NOT AUTHORIZED / NOT_RUN.
-- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, Causal primitives, Causal Slice contracts, Change-Semantics verifiers, Sealed Repair Loop primitives, and Risk-Adaptive Verification Budget primitives (RiskLevel, RiskFeatureSet, RiskClassification, VerificationAction, VerificationDepth, ResourceLimits, ResourceConsumption, BudgetLedger, MandatoryVerificationObligations, BudgetGateResult) remain strictly provider-neutral with zero provider model IDs and zero provider-specific identifiers.
-- **Phase status:** P-00 through P-14 phases are independently CLOSED / PASS. P-15 phase remains OPEN awaiting independent QA review. P-16+ are strictly NOT AUTHORIZED / NOT_RUN.
-- **Batch restoration & hard stop:** P-15 batch executed and completed. P-16+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
-- **Not authorized / forbidden:** P-16+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. P-17+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, Causal primitives, Causal Slice contracts, Change-Semantics verifiers, Sealed Repair Loop primitives, Risk-Adaptive Verification Budget primitives, and Grounding primitives (`MaterialityDecision`, `GroundedFact`, `GroundedContractBinding`, `GroundingFirewallResult`, `GroundingStatus`, `FreshnessState`, `UncertaintyState`) remain strictly provider-neutral with zero provider-specific identifiers. The Tavily adapter is isolated in `adapters/tavily/` and never imported into core domain logic.
+- **Phase status:** P-00 through P-15 phases are independently CLOSED / PASS. P-16 phase remains OPEN awaiting independent QA review and operator authorization for P-16.05. P-17+ are strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch restoration & hard stop:** P-16 batch executed and completed. P-17+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Not authorized / forbidden:** P-17+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -136,7 +141,7 @@ P-15 Risk-Adaptive Verification Budget Batch — implementation, test suite (56 
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit P-15 Risk-Adaptive Verification Budget batch (P-15.01 through P-15.05) for independent QA verification.
-2. Maintain hard stop before P-16; do not activate or implement P-16+.
-3. Await independent QA evaluation.
+1. Submit P-16 External Grounding & Tavily batch (P-16.01 through P-16.04) for independent QA verification.
+2. Await operator decision for P-16.05 conditional live Tavily demonstration (or record as NOT_RUN / NOT_APPLICABLE).
+3. Maintain hard stop before P-17; do not activate or implement P-17+.
 
