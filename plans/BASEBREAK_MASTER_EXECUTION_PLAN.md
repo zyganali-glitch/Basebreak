@@ -631,31 +631,58 @@ Phase exit: judges/developers can inspect one proof object. (P-18 micro-tasks P-
 
 # P-19 — CLI & Developer Workflow
 ### P-19.01 — Implement `basebreak verify` happy path
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/cli/runner.py` and `src/basebreak/cli/commands.py`; executes verification pipeline, evaluates BASE/CANDIDATE/COUNTERFACTUAL triplet, reconciles causal transitions, generates and binds public receipts; verified in `tests/cli/test_cli.py`)
+
 ### P-19.02 — Implement run/status/evidence/receipt commands
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/cli/commands.py` and `src/basebreak/cli/persistence.py`; status, evidence, receipt, config commands with JSON, text, and Markdown output; verified in `tests/cli/test_cli.py`)
+
 ### P-19.03 — Add config schema and safe defaults
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/cli/config.py`; BasebreakConfig with safe defaults: offline=True, zero_cost=True, allow_live=False, provider=local, promo floor=$5.00, runs_dir=.basebreak/runs; verified in `tests/cli/test_cli.py`)
+
 ### P-19.04 — Add clear blocked/inconclusive/contradicted UX
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/cli/runner.py` and `src/basebreak/cli/commands.py`; distinct exits 0: VERIFIED, 1: CONTRADICTED, 2: BLOCKED/INCONCLUSIVE/ERROR; displays thesis and behavioral breakdown; verified in `tests/cli/test_cli.py`)
+
 ### P-19.05 — Validate clean-checkout install/run instructions
-Phase exit: coherent developer tool exists before dashboard polish.
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (registered console script `basebreak = "basebreak.cli.main:main"` in `pyproject.toml`; validated `basebreak --help` and `basebreak config`; verified in `tests/cli/test_cli.py`)
+Phase exit: coherent developer tool exists before dashboard polish. (P-19 micro-tasks P-19.01 through P-19.05 EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; 18 tests passing in `tests/cli/test_cli.py`).
 
 ---
 
 # P-20 — GitHub Integration
 ### P-20.01 — Implement read-only repository/task ingestion path
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/integrations/github/ingestion.py`; pure read-only ingestion supporting HTTPS URLs, PR refs, commit SHAs, shorthand syntax, and local paths with path traversal defenses; verified in `tests/integrations/test_github.py`)
+
 ### P-20.02 — Resolve exact remote/base SHA and protect against moving refs
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/integrations/github/resolver.py`; GitHubRefResolver pins symbolic refs to 40-char commit SHAs before verification; verify_ref_unmoved detects remote ref movement and raises MovingRefRaceError fail-closed; verified in `tests/integrations/test_github.py`)
+
 ### P-20.03 — Generate review artifact/comment text without external mutation
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/integrations/github/review_artifact.py`; generate_pr_review_comment generates judge-ready GitHub PR review Markdown comment with thesis, verdict badges, behavioral triplet table, coverage status, and receipt verification command; strictly secret-free; verified in `tests/integrations/test_github.py`)
+
 ### P-20.04 — Add bounded optional draft-PR/comment integration only if competition value justifies it
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/integrations/github/mutation_boundary.py`; dry-run preview mode returns DRY_RUN_PREVIEW without performing network mutations; verified in `tests/integrations/test_github.py`)
+
 ### P-20.05 — Require human authority for irreversible GitHub action
-Phase exit: real-world repo workflow without autonomous merge theater.
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/integrations/github/mutation_boundary.py`; requires explicit allow_github_mutation flag AND verified human operator authority token >= 16 chars; fails closed with UnauthorizedMutationError; verified in `tests/integrations/test_github.py`)
+Phase exit: real-world repo workflow without autonomous merge theater. (P-20 micro-tasks P-20.01 through P-20.05 EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; 16 tests passing in `tests/integrations/test_github.py`).
 
 ---
 
 # P-21 — API / Orchestrator Surface
 ### P-21.01 — Define run API contracts from domain types
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/api/models.py`; RunCreateRequest, RunStatusResponse, and ApiEvent contracts derived from domain types; verified in `tests/api/test_api.py`)
+
 ### P-21.02 — Implement create/status/evidence/receipt endpoints
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/api/server.py`; REST routes POST /v1/runs (201 Created), GET /v1/runs/{id}, GET /v1/runs/{id}/evidence, GET /v1/runs/{id}/receipt using Python standard library without external dependencies; verified in `tests/api/test_api.py`)
+
 ### P-21.03 — Implement event stream for live build/verify states
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/api/server.py` and `src/basebreak/api/store.py`; GET /v1/runs/{id}/events streams SSE events: run.created, contract.frozen, witness.sealed, base/candidate/counterfactual executing/completed, reconciliation.completed, receipt.generated, run.completed; verified in `tests/api/test_api.py`)
+
 ### P-21.04 — Enforce authorization and secret-safe serialization
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/api/auth.py`; Bearer token authorization enforcement with constant-time comparison; secret-safe JSON serialization guaranteed with redact_text; verified in `tests/api/test_api.py`)
+
 ### P-21.05 — Add idempotency/recovery for run creation
-Phase exit: UI can consume deterministic runtime state.
+Status: EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE (implemented in `src/basebreak/api/store.py`; binds Idempotency-Key to canonical SHA-256 payload fingerprint; replays existing run on identical payload (200 OK); detects payload mismatches with IdempotencyConflictError (409 Conflict); recovers existing runs from disk store upon server restart; verified in `tests/api/test_api.py`)
+Phase exit: UI can consume deterministic runtime state. (P-21 micro-tasks P-21.01 through P-21.05 EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE; 7 tests passing in `tests/api/test_api.py`; HARD STOP: BATCH A COMPLETE; P-22+ REMAIN STRICTLY CLOSED / UNOPENED).
 
 ---
 

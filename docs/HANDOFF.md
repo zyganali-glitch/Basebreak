@@ -101,9 +101,11 @@ Judge claim:
 - P-16.03 (Bind release-note/CVE/API facts into Grounded Contract evidence) is independently VERIFIED / PASS at SHA `a37a15af52266bac477ffd343ecd333630ae4b77`.
 - P-16.04 (Prevent web evidence from overriding deterministic execution) is independently VERIFIED / PASS at SHA `a37a15af52266bac477ffd343ecd333630ae4b77`.
 - P-16.05 (Execute real runtime Tavily path if bonus remains strategically justified) is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN.
-- P-17 (Causal Coverage & Multi-Requirement Reconciliation, P-17.01 through P-17.05) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A.
-- P-18 (Verification Receipt, P-18.01 through P-18.05) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A.
-- P-19 through P-21: IN_PROGRESS / AUTHORIZED under operator-authorized sequential Batch A.
+- P-17 (Causal Coverage & Multi-Requirement Reconciliation, P-17.01 through P-17.05) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (12 tests passing).
+- P-18 (Verification Receipt, P-18.01 through P-18.05) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (7 tests passing).
+- P-19 (CLI & Developer Workflow, P-19.01 through P-19.05) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (18 tests passing).
+- P-20 (GitHub Integration, P-20.01 through P-20.05) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (16 tests passing).
+- P-21 (API / Orchestrator Surface, P-21.01 through P-21.05) is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (7 tests passing).
 - P-22+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED AFTER P-21.
 
 ## Last independently VERIFIED baseline SHA
@@ -116,16 +118,16 @@ Prior LIVE_NEBIUS-tested implementation SHA: `62b24c69a819c0ddcf15b455a237568059
 P-16.05 live Tavily execution remains held strictly at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. No real Tavily API call was executed. A stored preflight observation does not certify current execution authority; required current grounding must remain BLOCKED when trustworthy provider/runtime authority is absent. P-16.05 is not a prerequisite for provider-neutral Batch A (P-17–P-21) execution.
 
 ### Current QA candidate
-Batch A candidate — P-17 Causal Coverage and P-18 Verification Receipt are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
+Batch A candidate — P-17 through P-21 (exactly 25 micro-tasks) are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE.
 
 ### Active exact task
-Executing operator-authorized Batch A (P-17 through P-21 sequential execution). P-17 and P-18 complete; proceeding to P-19 CLI & Developer Workflow. P-22+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
+Batch A execution completed. Consolidated validation gate clean (2,526 unit/integration tests passing, ruff and mypy passing clean on 231 files). Awaiting independent QA review. P-22+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are independently VERIFIED / PASS. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. P-17 and P-18 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-19 through P-21 are authorized for sequential execution in Batch A. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN.
-- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, Causal primitives, Causal Slice contracts, Change-Semantics verifiers, Sealed Repair Loop primitives, Risk-Adaptive Verification Budget primitives, Grounding primitives, Causal Coverage primitives, and Public Receipt primitives remain strictly provider-neutral with zero provider-specific identifiers.
-- **Phase status:** P-00 through P-15 phases are independently CLOSED / PASS. P-16 phase remains OPEN. P-17 phase is EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-18 through P-21 in progress. P-22+ are strictly NOT AUTHORIZED / NOT_RUN.
-- **Batch authorization & hard stop:** Batch A (P-17 through P-21) authorized by operator for sequential execution. One micro-task active at a time. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
+- **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are independently VERIFIED / PASS. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. P-17 through P-21 are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, Causal primitives, Causal Slice contracts, Change-Semantics verifiers, Sealed Repair Loop primitives, Risk-Adaptive Verification Budget primitives, Grounding primitives, Causal Coverage primitives, Public Receipt primitives, CLI tools, GitHub integration, and API orchestrator remain strictly provider-neutral with zero provider-specific identifiers.
+- **Phase status:** P-00 through P-15 phases are independently CLOSED / PASS. P-16 phase remains OPEN. P-17 through P-21 phases are EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE. P-22+ are strictly NOT AUTHORIZED / NOT_RUN.
+- **Batch authorization & hard stop:** Batch A (P-17 through P-21) completed sequentially. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
 - **Not authorized / forbidden:** P-22+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Frozen constraints
@@ -144,8 +146,8 @@ Executing operator-authorized Batch A (P-17 through P-21 sequential execution). 
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Execute P-18 (Verification Receipt, P-18.01 through P-18.05) under operator-authorized sequential Batch A.
-2. Complete P-19, P-20, and P-21 sequentially.
+1. Submit consolidated Batch A (P-17 through P-21) execution report to external QA authority.
+2. Await independent QA evaluation.
 3. Enforce hard stop after P-21; do not activate P-22+.
 
 
