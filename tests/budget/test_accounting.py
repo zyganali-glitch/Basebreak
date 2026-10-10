@@ -576,3 +576,140 @@ def test_defect_3_cost_accounting_semantics() -> None:
     )
     assert gate_result_est.gate_status == BudgetGateStatus.ADMITTED
     assert gate_result_est.preliminary_verdict == PreliminaryVerdict.INCONCLUSIVE
+
+
+def test_defect_a_unverified_zero_cannot_yield_verified_zero_ledger() -> None:
+    """Defect A: FinancialCostEstimate(0.0, is_verified_zero_cost=False) must not yield
+    verified-zero ledger evidence, preserving distinction across all 4 cost states.
+    """
+    from basebreak.budget.depth_policy import resolve_verification_depth
+    from basebreak.budget.fail_closed import BudgetGateStatus, preflight_budget_admission
+    from basebreak.budget.mandatory_policy import resolve_mandatory_obligations
+    from basebreak.budget.risk_features import classify_risk, extract_risk_features
+    from basebreak.compiler.semantics import CertaintyLevel, ChangeClass
+    from basebreak.domain.verdict import PreliminaryVerdict
+
+    # 1. Clean initial ledger starts with is_verified_zero_cost=True and no recorded cost
+    ledger = BudgetLedger()
+    assert ledger.consumption.is_verified_zero_cost is True
+    assert ledger.consumption.estimated_cost_usd is None
+    assert ledger.consumption.has_unknown_financial_cost is False
+
+    # 2. Unverified zero estimate (ESTIMATED_ZERO): must set is_verified_zero_cost=False
+    ledger.record_operation(
+        "op-unverified-zero",
+        financial_cost=FinancialCostEstimate(estimated_usd=0.0, is_verified_zero_cost=False),
+    )
+    assert ledger.consumption.is_verified_zero_cost is False
+    assert ledger.consumption.has_unknown_financial_cost is False
+    assert ledger.consumption.estimated_cost_usd == 0.0
+
+    # 3. Subsequent verified zero execution cannot restore verified-zero status
+    ledger.record_operation(
+        "op-verified-zero-subsequent",
+        financial_cost=FinancialCostEstimate(estimated_usd=0.0, is_verified_zero_cost=True),
+    )
+    assert ledger.consumption.is_verified_zero_cost is False
+    assert ledger.consumption.has_unknown_financial_cost is False
+    assert ledger.consumption.estimated_cost_usd == 0.0
+
+    # 4. Legitimate verified-zero local execution on clean ledger (VERIFIED_ZERO)
+    ledger_verified = BudgetLedger(
+        limits=ResourceLimits(
+            max_sandbox_executions=3,
+            max_verifier_executions=3,
+        )
+    )
+    ledger_verified.record_operation(
+        "op-verified-local",
+        sandbox_executions=1,
+        verifier_executions=1,
+        financial_cost=FinancialCostEstimate(estimated_usd=0.0, is_verified_zero_cost=True),
+    )
+    assert ledger_verified.consumption.is_verified_zero_cost is True
+    assert ledger_verified.consumption.has_unknown_financial_cost is False
+    assert ledger_verified.consumption.estimated_cost_usd == 0.0
+
+    # 5. Fail-closed financial admission consistency:
+    # Unverified zero cost requires max_estimated_cost_usd when is_cost_consuming=True
+    features = extract_risk_features(
+        change_class=ChangeClass.BUG_FIX,
+        certainty=CertaintyLevel.CONFIDENT,
+        changed_files=("src/core.py",),
+        changed_lines_count=10,
+    )
+    classification = classify_risk(features)
+    depth = resolve_verification_depth(classification)
+    obligations = resolve_mandatory_obligations(classification)
+
+    # Ledger with unverified zero cost has no max_estimated_cost_usd -> must fail admission
+    gate_unverified = preflight_budget_admission(
+        ledger,
+        depth,
+        obligations,
+        is_cost_consuming=True,
+    )
+    assert gate_unverified.gate_status == BudgetGateStatus.UNVERIFIABLE_BUDGET
+    assert gate_unverified.preliminary_verdict == PreliminaryVerdict.BLOCKED
+    assert gate_unverified.grants_pass is False
+
+
+def test_defect_b_reservation_id_replay_rejected_across_all_statuses() -> None:
+    """Defect B: Reservation IDs must remain unique throughout ledger lifetime,
+    rejecting replay across PENDING, COMMITTED, and CANCELLED terminal statuses.
+    """
+    ledger = BudgetLedger(
+        limits=ResourceLimits(
+            max_sandbox_executions=10,
+            max_verifier_executions=10,
+            max_total_tokens=5000,
+        )
+    )
+
+    # 1. PENDING reservation replay rejected with state unchanged
+    ledger.reserve("res-pending", sandboxes=2, tokens=500)
+    snapshot_pending = ledger.to_dict()
+    with pytest.raises(ReservationError, match="Reservation ID 'res-pending' already exists"):
+        ledger.reserve("res-pending", sandboxes=1)
+    assert ledger.to_dict() == snapshot_pending
+
+    # 2. COMMITTED reservation replay rejected with state unchanged
+    ledger.reserve("res-committed", sandboxes=2, tokens=500)
+    ledger.commit_reservation("res-committed")
+    assert ledger.reservations["res-committed"].status == ReservationStatus.COMMITTED
+    snapshot_committed = ledger.to_dict()
+    with pytest.raises(ReservationError, match="Reservation ID 'res-committed' already exists"):
+        ledger.reserve("res-committed", sandboxes=1)
+    assert ledger.to_dict() == snapshot_committed
+    assert ledger.reservations["res-committed"].status == ReservationStatus.COMMITTED
+
+    # 3. CANCELLED reservation replay rejected with state unchanged
+    ledger.reserve("res-cancelled", sandboxes=2, tokens=500)
+    ledger.cancel_reservation("res-cancelled")
+    assert ledger.reservations["res-cancelled"].status == ReservationStatus.CANCELLED
+    snapshot_cancelled = ledger.to_dict()
+    with pytest.raises(ReservationError, match="Reservation ID 'res-cancelled' already exists"):
+        ledger.reserve("res-cancelled", sandboxes=1)
+    assert ledger.to_dict() == snapshot_cancelled
+    assert ledger.reservations["res-cancelled"].status == ReservationStatus.CANCELLED
+
+    # 4. Existing reservation history and consumption preserved on rejected replay
+    ledger.reserve("res-consumed", sandboxes=3, tokens=1000)
+    ledger.record_operation(
+        "op-consumed",
+        reservation_id="res-consumed",
+        sandbox_executions=1,
+        total_tokens=200,
+    )
+    ledger.commit_reservation("res-consumed")
+    snapshot_consumed = ledger.to_dict()
+    with pytest.raises(ReservationError, match="Reservation ID 'res-consumed' already exists"):
+        ledger.reserve("res-consumed", sandboxes=2)
+    assert ledger.to_dict() == snapshot_consumed
+    assert ledger.reservations["res-consumed"].consumed_sandboxes == 1
+    assert ledger.reservations["res-consumed"].consumed_tokens == 200
+
+    # 5. Normal new reservation creation succeeds with unique ID
+    res_fresh = ledger.reserve("res-fresh", sandboxes=1)
+    assert res_fresh.reservation_id == "res-fresh"
+    assert res_fresh.status == ReservationStatus.PENDING

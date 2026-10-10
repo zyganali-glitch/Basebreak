@@ -430,10 +430,10 @@ class BudgetLedger:
         """
         if reservation_id in self.reservations:
             existing = self.reservations[reservation_id]
-            if existing.status == ReservationStatus.PENDING:
-                raise ReservationError(
-                    f"Active reservation already exists with ID {reservation_id!r}"
-                )
+            raise ReservationError(
+                f"Reservation ID {reservation_id!r} already exists with "
+                f"status {existing.status.value}"
+            )
 
         # Check token ceiling
         if self.limits.max_total_tokens is not None:
@@ -844,7 +844,7 @@ class BudgetLedger:
             if financial_cost.estimated_usd is not None:
                 current_cost = self.consumption.estimated_cost_usd or 0.0
                 self.consumption.estimated_cost_usd = current_cost + financial_cost.estimated_usd
-                if financial_cost.estimated_usd > 0.0:
+                if not financial_cost.is_verified_zero_cost:
                     self.consumption.is_verified_zero_cost = False
             elif not financial_cost.is_verified_zero_cost:
                 self.consumption.has_unknown_financial_cost = True
