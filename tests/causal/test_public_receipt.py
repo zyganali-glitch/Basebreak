@@ -27,6 +27,8 @@ from basebreak.causal.public_receipt import (
     render_receipt_terminal,
     verify_public_receipt_integrity,
 )
+from basebreak.causal.receipt import WorldExecutionFact, create_causal_receipt
+from basebreak.causal.reconciliation import CausalTransition
 from basebreak.compiler.freeze import FrozenContract, FrozenRequirement
 from basebreak.compiler.semantics import CertaintyLevel
 from basebreak.domain.causal import ExecutionWorld
@@ -53,20 +55,49 @@ def _sample_receipt() -> PublicVerificationReceipt:
     object.__setattr__(contract, "requirements", (req,))
     object.__setattr__(contract, "contract_digest", "c" * 64)
 
-    from basebreak.causal.reconciliation import CausalTransition
+    base_wef = WorldExecutionFact(
+        world=ExecutionWorld.BASE,
+        sandbox_id="sbx-base-123",
+        source_commit_id="1" * 40,
+        tree_digest="2" * 40,
+        outcome=WitnessOutcome.FAIL,
+        exit_code=1,
+        termination_status=TerminationStatus.COMPLETED,
+        stdout_digest="3" * 64,
+        stderr_digest="4" * 64,
+        result_digest="8" * 64,
+        duration_seconds=2.5,
+    )
+    cand_wef = WorldExecutionFact(
+        world=ExecutionWorld.CANDIDATE,
+        sandbox_id="sbx-cand-456",
+        source_commit_id="1" * 40,
+        tree_digest="5" * 40,
+        outcome=WitnessOutcome.PASS,
+        exit_code=0,
+        termination_status=TerminationStatus.COMPLETED,
+        stdout_digest="6" * 64,
+        stderr_digest="7" * 64,
+        result_digest="9" * 64,
+        duration_seconds=1.8,
+    )
+    local_receipt = create_causal_receipt(
+        requirement_id="REQ-AUTH-01",
+        frozen_contract_digest="c" * 64,
+        witness_id="WIT-001",
+        witness_digest="a" * 64,
+        lock_digest="d" * 64,
+        base_execution=base_wef,
+        candidate_execution=cand_wef,
+        transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+        verdict=PreliminaryVerdict.VERIFIED,
+        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        narrative="Base failed, candidate passed",
+    )
 
     coverage = compute_causal_coverage(
         frozen_contract=contract,
-        results={
-            "REQ-AUTH-01": {
-                "transition": CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
-                "verdict": PreliminaryVerdict.VERIFIED,
-                "is_causally_verified": True,
-                "witness_id": "WIT-001",
-                "witness_digest": "a" * 64,
-                "rationale": "Base failed, candidate passed",
-            }
-        },
+        results={"REQ-AUTH-01": local_receipt},
     )
 
     witness = PublicWitnessFact(

@@ -30,6 +30,7 @@ from basebreak.causal.public_receipt import (
     create_public_verification_receipt,
     verify_public_receipt_integrity,
 )
+from basebreak.causal.receipt import WorldExecutionFact, create_causal_receipt
 from basebreak.causal.reconciliation import CausalTransition
 from basebreak.cli.config import BasebreakConfig
 from basebreak.cli.runner import execute_verification_pipeline
@@ -174,18 +175,48 @@ class TestBatchAAdversarialMatrix:
     def test_case_08_altered_receipt_content_cannot_pass_integrity_verification(self) -> None:
         """8. Altered receipt content cannot pass integrity verification."""
         contract = _make_sample_contract()
+        base_wef = WorldExecutionFact(
+            world=ExecutionWorld.BASE,
+            sandbox_id="sbx-1",
+            source_commit_id="1" * 40,
+            tree_digest="2" * 40,
+            outcome=WitnessOutcome.FAIL,
+            exit_code=1,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="3" * 64,
+            stderr_digest="4" * 64,
+            result_digest="8" * 64,
+            duration_seconds=1.0,
+        )
+        cand_wef = WorldExecutionFact(
+            world=ExecutionWorld.CANDIDATE,
+            sandbox_id="sbx-2",
+            source_commit_id="1" * 40,
+            tree_digest="5" * 40,
+            outcome=WitnessOutcome.PASS,
+            exit_code=0,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="6" * 64,
+            stderr_digest="7" * 64,
+            result_digest="9" * 64,
+            duration_seconds=1.0,
+        )
+        local_rc = create_causal_receipt(
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            witness_id="wit-1",
+            witness_digest="a" * 64,
+            lock_digest="d" * 64,
+            base_execution=base_wef,
+            candidate_execution=cand_wef,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            narrative="Proven",
+        )
         coverage = compute_causal_coverage(
             frozen_contract=contract,
-            results={
-                "REQ-001": {
-                    "transition": CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
-                    "verdict": PreliminaryVerdict.VERIFIED,
-                    "is_causally_verified": True,
-                    "witness_id": "wit-1",
-                    "witness_digest": "a" * 64,
-                    "rationale": "Proven",
-                }
-            },
+            results={"REQ-001": local_rc},
         )
         base_exec = PublicExecutionFact(
             world=ExecutionWorld.BASE,
@@ -262,18 +293,48 @@ class TestBatchAAdversarialMatrix:
         must not obtain valid VERIFIED status.
         """
         contract = _make_sample_contract()
+        base_wef = WorldExecutionFact(
+            world=ExecutionWorld.BASE,
+            sandbox_id="sbx-1",
+            source_commit_id="1" * 40,
+            tree_digest="2" * 40,
+            outcome=WitnessOutcome.FAIL,
+            exit_code=1,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="3" * 64,
+            stderr_digest="4" * 64,
+            result_digest="8" * 64,
+            duration_seconds=1.0,
+        )
+        cand_wef = WorldExecutionFact(
+            world=ExecutionWorld.CANDIDATE,
+            sandbox_id="sbx-2",
+            source_commit_id="1" * 40,
+            tree_digest="5" * 40,
+            outcome=WitnessOutcome.PASS,
+            exit_code=0,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="6" * 64,
+            stderr_digest="7" * 64,
+            result_digest="9" * 64,
+            duration_seconds=1.0,
+        )
+        local_rc = create_causal_receipt(
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            witness_id="wit-1",
+            witness_digest="a" * 64,
+            lock_digest="d" * 64,
+            base_execution=base_wef,
+            candidate_execution=cand_wef,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            narrative="Proven",
+        )
         coverage = compute_causal_coverage(
             frozen_contract=contract,
-            results={
-                "REQ-001": {
-                    "transition": CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
-                    "verdict": PreliminaryVerdict.VERIFIED,
-                    "is_causally_verified": True,
-                    "witness_id": "wit-1",
-                    "witness_digest": "a" * 64,
-                    "rationale": "Proven",
-                }
-            },
+            results={"REQ-001": local_rc},
         )
         base_exec_pass = PublicExecutionFact(
             world=ExecutionWorld.BASE,

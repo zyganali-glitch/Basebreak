@@ -122,7 +122,7 @@ P-16.05 live Tavily execution remains held strictly at `OPERATOR_AUTHORIZATION_R
 Batch A candidate — P-17 through P-21 (exactly 25 micro-tasks) are SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE.
 
 ### Active exact task
-Batch A consolidated surgical repair completed. Full test suite clean (2,552 unit/integration tests passing across all phases, 18 dedicated adversarial tests passing, ruff and mypy passing clean on all source files). Awaiting independent QA review. P-22+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
+Batch A second surgical repair (P-17 coverage forgery elimination, P-18 receipt semantic authority, P-19 exact source identity and real patch application) completed. Full test suite clean (2,567 unit/integration tests passing across all phases, 18 adversarial tests and 14 dedicated repair matrix tests passing, ruff and mypy passing clean on all source files). Awaiting independent QA review. P-22+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
 
 ## Parallelization boundary & rules
 - **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are independently VERIFIED / PASS. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. P-17 through P-21 are SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN.

@@ -239,8 +239,6 @@ class TestCliCommandsInvocation:
                 runs_dir,
                 "verify",
                 demo_target,
-                "--base-sha",
-                "1" * 40,
             ]
         )
         assert verify_code == 0
@@ -317,3 +315,24 @@ class TestCliCommandsInvocation:
         out = capsys.readouterr().out
         assert secret_token not in out
         assert "[REDACTED]" in out
+
+    def test_cli_verify_rejects_arbitrary_base_sha(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        runs_dir = str(tmp_path / "runs")
+        demo_target = str(Path(__file__).resolve().parent.parent / "fixtures" / "demo_target")
+
+        verify_code = main(
+            [
+                "--runs-dir",
+                runs_dir,
+                "verify",
+                demo_target,
+                "--base-sha",
+                "1" * 40,
+            ]
+        )
+        assert verify_code == 2
+        captured = capsys.readouterr()
+        assert "[BLOCKED]" in captured.out
+        assert "not a valid committed git revision" in captured.out

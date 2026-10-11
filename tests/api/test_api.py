@@ -77,7 +77,6 @@ class TestApiEndpoints:
         # 1. POST /v1/runs
         payload = {
             "target": demo_target,
-            "base_sha": "1" * 40,
             "change_class": "BUG_FIX",
         }
         req = urllib.request.Request(

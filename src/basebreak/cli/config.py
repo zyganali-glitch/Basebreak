@@ -72,8 +72,8 @@ class BasebreakConfig:
         raw = self.to_dict()
         safe: dict[str, Any] = {}
         for k, v in raw.items():
-            if isinstance(v, str):
-                redacted, _ = redact_text(v)
+            if isinstance(v, (Path, str)):
+                redacted, _ = redact_text(str(v))
                 safe[k] = redacted
             else:
                 safe[k] = v

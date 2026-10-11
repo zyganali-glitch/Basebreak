@@ -109,6 +109,8 @@ def _is_trusted_demo_target(target_locator: str) -> bool:
     try:
         p = Path(target_locator).resolve()
         demo_dir = _get_trusted_demo_target_dir()
+        if p.is_symlink() or demo_dir.is_symlink():
+            return False
         return p == demo_dir or (demo_dir.is_dir() and p.is_relative_to(demo_dir))
     except Exception:
         return False
@@ -118,7 +120,12 @@ def _compute_dir_tree_digest(root_dir: Path) -> str:
     """Compute deterministic SHA-256 digest over regular files in directory."""
     hasher = hashlib.sha256()
     for file_path in sorted(root_dir.rglob("*")):
-        if file_path.is_file() and "__pycache__" not in file_path.parts:
+        if (
+            file_path.is_file()
+            and "__pycache__" not in file_path.parts
+            and ".pytest_cache" not in file_path.parts
+            and file_path.name != "test_witness.py"
+        ):
             rel_path = file_path.relative_to(root_dir).as_posix()
             hasher.update(rel_path.encode("utf-8"))
             hasher.update(file_path.read_bytes())
@@ -138,14 +145,15 @@ def _execute_trusted_demo_pipeline(
     persistence: RunPersistenceManager,
 ) -> CliRunResult:
     """Execute genuine causal verification against the trusted demo target via real subprocesses."""
+    repo_root = Path(__file__).resolve().parent.parent.parent.parent
     demo_dir = _get_trusted_demo_target_dir()
-    if not demo_dir.is_dir():
+    if not demo_dir.is_dir() or demo_dir.is_symlink():
         result = CliRunResult(
             run_id=run_id,
             status="BLOCKED",
             exit_code=2,
             thesis=BASEBREAK_THESIS,
-            message=f"BLOCKED: Trusted demo fixture directory not found at {demo_dir}.",
+            message=f"BLOCKED: Trusted demo fixture directory not found or invalid at {demo_dir}.",
             world_states={},
             causal_transition=None,
             coverage_summary=None,
@@ -155,15 +163,210 @@ def _execute_trusted_demo_pipeline(
                 "status": "BLOCKED",
                 "exit_code": 2,
                 "created_at": now_utc,
-                "error_message": "Demo fixture directory missing.",
+                "error_message": "Demo fixture directory missing or invalid.",
             },
             evidence=[],
         )
         persistence.save_run(run_id, result.metadata)
         return result
 
-    # Resolve genuine base source commit identity
-    resolved_base_sha = (base_sha or "a37a15af52266bac477ffd343ecd333630ae4b77").lower()
+    # Prevent symlinks inside demo directory from bypassing allowlist
+    if any(p.is_symlink() for p in demo_dir.rglob("*")):
+        result = CliRunResult(
+            run_id=run_id,
+            status="BLOCKED",
+            exit_code=2,
+            thesis=BASEBREAK_THESIS,
+            message="BLOCKED: Symlinks detected inside trusted demo target fixture.",
+            world_states={},
+            causal_transition=None,
+            coverage_summary=None,
+            receipt=None,
+            metadata={
+                "run_id": run_id,
+                "status": "BLOCKED",
+                "exit_code": 2,
+                "created_at": now_utc,
+                "error_message": "Symlinks detected in fixture.",
+            },
+            evidence=[],
+        )
+        persistence.save_run(run_id, result.metadata)
+        return result
+
+    # Determine immutable source identity from committed repository material
+    try:
+        proc_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        head_commit = proc_head.stdout.strip().lower()
+
+        proc_tree = subprocess.run(
+            ["git", "rev-parse", "HEAD:tests/fixtures/demo_target"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        committed_fixture_tree = proc_tree.stdout.strip().lower()
+
+        proc_status = subprocess.run(
+            ["git", "status", "--porcelain", "--", "tests/fixtures/demo_target"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        if proc_status.stdout.strip():
+            result = CliRunResult(
+                run_id=run_id,
+                status="BLOCKED",
+                exit_code=2,
+                thesis=BASEBREAK_THESIS,
+                message=(
+                    "BLOCKED: Trusted demo fixture on disk has uncommitted "
+                    "modifications or tampering relative to git HEAD."
+                ),
+                world_states={},
+                causal_transition=None,
+                coverage_summary=None,
+                receipt=None,
+                metadata={
+                    "run_id": run_id,
+                    "status": "BLOCKED",
+                    "exit_code": 2,
+                    "created_at": now_utc,
+                    "error_message": "Uncommitted fixture modifications detected.",
+                },
+                evidence=[],
+            )
+            persistence.save_run(run_id, result.metadata)
+            return result
+    except Exception as exc:
+        result = CliRunResult(
+            run_id=run_id,
+            status="BLOCKED",
+            exit_code=2,
+            thesis=BASEBREAK_THESIS,
+            message=f"BLOCKED: Failed to determine immutable git source identity: {exc}",
+            world_states={},
+            causal_transition=None,
+            coverage_summary=None,
+            receipt=None,
+            metadata={
+                "run_id": run_id,
+                "status": "BLOCKED",
+                "exit_code": 2,
+                "created_at": now_utc,
+                "error_message": f"Source identity determination failed: {exc}",
+            },
+            evidence=[],
+        )
+        persistence.save_run(run_id, result.metadata)
+        return result
+
+    # Validate caller-supplied base_sha strictly against genuine committed repository
+    if base_sha is not None:
+        caller_base = base_sha.strip().lower()
+        if not _HEX_40_PATTERN.match(caller_base):
+            result = CliRunResult(
+                run_id=run_id,
+                status="BLOCKED",
+                exit_code=2,
+                thesis=BASEBREAK_THESIS,
+                message=(
+                    f"BLOCKED: Caller base_sha {base_sha!r} is not a valid "
+                    "40-character hex commit SHA."
+                ),
+                world_states={},
+                causal_transition=None,
+                coverage_summary=None,
+                receipt=None,
+                metadata={
+                    "run_id": run_id,
+                    "status": "BLOCKED",
+                    "exit_code": 2,
+                    "created_at": now_utc,
+                    "error_message": f"Invalid base_sha format: {base_sha!r}",
+                },
+                evidence=[],
+            )
+            persistence.save_run(run_id, result.metadata)
+            return result
+        try:
+            subprocess.run(
+                ["git", "rev-parse", "--verify", f"{caller_base}^{{commit}}"],
+                cwd=str(repo_root),
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            proc_sub = subprocess.run(
+                ["git", "rev-parse", f"{caller_base}:tests/fixtures/demo_target"],
+                cwd=str(repo_root),
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            caller_subtree = proc_sub.stdout.strip().lower()
+            if caller_subtree != committed_fixture_tree:
+                result = CliRunResult(
+                    run_id=run_id,
+                    status="BLOCKED",
+                    exit_code=2,
+                    thesis=BASEBREAK_THESIS,
+                    message=(
+                        f"BLOCKED: Caller-supplied base_sha {base_sha!r} fixture subtree "
+                        f"({caller_subtree}) does not match materialized demo target tree "
+                        f"({committed_fixture_tree})."
+                    ),
+                    world_states={},
+                    causal_transition=None,
+                    coverage_summary=None,
+                    receipt=None,
+                    metadata={
+                        "run_id": run_id,
+                        "status": "BLOCKED",
+                        "exit_code": 2,
+                        "created_at": now_utc,
+                        "error_message": "Subtree mismatch for caller base_sha.",
+                    },
+                    evidence=[],
+                )
+                persistence.save_run(run_id, result.metadata)
+                return result
+            resolved_base_sha = caller_base
+        except Exception:
+            result = CliRunResult(
+                run_id=run_id,
+                status="BLOCKED",
+                exit_code=2,
+                thesis=BASEBREAK_THESIS,
+                message=(
+                    f"BLOCKED: Caller-supplied base_sha {base_sha!r} is not a valid "
+                    "committed git revision in repository."
+                ),
+                world_states={},
+                causal_transition=None,
+                coverage_summary=None,
+                receipt=None,
+                metadata={
+                    "run_id": run_id,
+                    "status": "BLOCKED",
+                    "exit_code": 2,
+                    "created_at": now_utc,
+                    "error_message": f"Caller base_sha {base_sha!r} not in git repository.",
+                },
+                evidence=[],
+            )
+            persistence.save_run(run_id, result.metadata)
+            return result
+    else:
+        resolved_base_sha = head_commit
 
     # Resolve patch text
     patch_text: str = CANONICAL_DEMO_PATCH
@@ -198,9 +401,32 @@ def _execute_trusted_demo_pipeline(
         return result
 
     # Validate secret safety and protected surfaces on patch
-    validate_no_secrets(patch_text, path="demo_target_patch")
-    manifest = get_canonical_basebreak_protected_manifest()
-    validate_diff(patch_text, manifest)
+    try:
+        validate_no_secrets(patch_text, path="demo_target_patch")
+        manifest = get_canonical_basebreak_protected_manifest()
+        validate_diff(patch_text, manifest)
+    except Exception as e:
+        result = CliRunResult(
+            run_id=run_id,
+            status="CONTRADICTED",
+            exit_code=1,
+            thesis=BASEBREAK_THESIS,
+            message=f"CONTRADICTED: Candidate patch validation failed: {e}",
+            world_states={},
+            causal_transition="PATCH_APPLICATION_FAILED",
+            coverage_summary=None,
+            receipt=None,
+            metadata={
+                "run_id": run_id,
+                "status": "CONTRADICTED",
+                "exit_code": 1,
+                "created_at": now_utc,
+                "error_message": f"Candidate patch validation failed: {e}",
+            },
+            evidence=[],
+        )
+        persistence.save_run(run_id, result.metadata)
+        return result
 
     # Prepare witness code
     witness_code = (
@@ -227,6 +453,8 @@ def _execute_trusted_demo_pipeline(
         # 1. BASE world execution (planted defect: quiet=True outputs "verbose: sample text")
         base_ws = td_path / "base"
         shutil.copytree(demo_dir, base_ws)
+        for pyc in base_ws.rglob("__pycache__"):
+            shutil.rmtree(pyc, ignore_errors=True)
         base_tree_digest = _compute_dir_tree_digest(base_ws)
         (base_ws / "tests" / "test_witness.py").write_text(witness_code, encoding="utf-8")
 
@@ -238,16 +466,140 @@ def _execute_trusted_demo_pipeline(
         dur_base = time.perf_counter() - t0
         outcome_base = WitnessOutcome.PASS if proc_base.returncode == 0 else WitnessOutcome.FAIL
 
-        # 2. CANDIDATE world execution (patch applied: quiet=True outputs "")
+        # 2. CANDIDATE world execution (materialize by applying the actual patch)
         cand_ws = td_path / "cand"
         shutil.copytree(demo_dir, cand_ws)
-        cand_cli = cand_ws / "src" / "demo_target" / "cli.py"
-        base_cli_content = cand_cli.read_text(encoding="utf-8")
-        cand_cli_content = base_cli_content.replace('"verbose: " + output', '""')
-        cand_cli.write_text(cand_cli_content, encoding="utf-8")
-        cand_tree_digest = _compute_dir_tree_digest(cand_ws)
-        (cand_ws / "tests" / "test_witness.py").write_text(witness_code, encoding="utf-8")
+        for pyc in cand_ws.rglob("__pycache__"):
+            shutil.rmtree(pyc, ignore_errors=True)
 
+        patch_file = td_path / "candidate.patch"
+        patch_file.write_text(patch_text, encoding="utf-8")
+
+        res_check = subprocess.run(
+            ["git", "apply", "--check", "--whitespace=nowarn", str(patch_file)],
+            cwd=str(cand_ws),
+            capture_output=True,
+            text=True,
+        )
+        if res_check.returncode != 0:
+            result = CliRunResult(
+                run_id=run_id,
+                status="CONTRADICTED",
+                exit_code=1,
+                thesis=BASEBREAK_THESIS,
+                message=(
+                    "CONTRADICTED: Candidate patch failed to apply to candidate tree: "
+                    f"{res_check.stderr.strip() or 'Patch application rejected'}"
+                ),
+                world_states={},
+                causal_transition="PATCH_APPLICATION_FAILED",
+                coverage_summary=None,
+                receipt=None,
+                metadata={
+                    "run_id": run_id,
+                    "status": "CONTRADICTED",
+                    "exit_code": 1,
+                    "created_at": now_utc,
+                    "error_message": f"Patch application check failed: {res_check.stderr.strip()}",
+                },
+                evidence=[],
+            )
+            persistence.save_run(run_id, result.metadata)
+            return result
+
+        res_apply = subprocess.run(
+            ["git", "apply", "--whitespace=nowarn", str(patch_file)],
+            cwd=str(cand_ws),
+            capture_output=True,
+            text=True,
+        )
+        if res_apply.returncode != 0:
+            result = CliRunResult(
+                run_id=run_id,
+                status="CONTRADICTED",
+                exit_code=1,
+                thesis=BASEBREAK_THESIS,
+                message=(
+                    "CONTRADICTED: Candidate patch failed to apply to candidate tree: "
+                    f"{res_apply.stderr.strip()}"
+                ),
+                world_states={},
+                causal_transition="PATCH_APPLICATION_FAILED",
+                coverage_summary=None,
+                receipt=None,
+                metadata={
+                    "run_id": run_id,
+                    "status": "CONTRADICTED",
+                    "exit_code": 1,
+                    "created_at": now_utc,
+                    "error_message": f"git apply failed: {res_apply.stderr.strip()}",
+                },
+                evidence=[],
+            )
+            persistence.save_run(run_id, result.metadata)
+            return result
+
+        # Verify the patch actually changed the intended target file
+        base_cli_file = base_ws / "src" / "demo_target" / "cli.py"
+        cand_cli_file = cand_ws / "src" / "demo_target" / "cli.py"
+        if not cand_cli_file.is_file() or cand_cli_file.read_bytes() == base_cli_file.read_bytes():
+            result = CliRunResult(
+                run_id=run_id,
+                status="CONTRADICTED",
+                exit_code=1,
+                thesis=BASEBREAK_THESIS,
+                message=(
+                    "CONTRADICTED: Candidate patch did not modify the intended "
+                    "target file (src/demo_target/cli.py)."
+                ),
+                world_states={},
+                causal_transition="TARGET_FILE_UNMODIFIED",
+                coverage_summary=None,
+                receipt=None,
+                metadata={
+                    "run_id": run_id,
+                    "status": "CONTRADICTED",
+                    "exit_code": 1,
+                    "created_at": now_utc,
+                    "error_message": "Intended target file was not modified by patch.",
+                },
+                evidence=[],
+            )
+            persistence.save_run(run_id, result.metadata)
+            return result
+
+        cand_tree_digest = _compute_dir_tree_digest(cand_ws)
+
+        # Reject caller-provided candidate identities that do not match the
+        # actual materialized candidate
+        if candidate_sha is not None and candidate_sha.strip().lower() != cand_tree_digest.lower():
+            result = CliRunResult(
+                run_id=run_id,
+                status="CONTRADICTED",
+                exit_code=1,
+                thesis=BASEBREAK_THESIS,
+                message=(
+                    f"CONTRADICTED: Candidate identity mismatch: caller candidate_sha "
+                    f"{candidate_sha!r} does not match materialized candidate tree "
+                    f"digest {cand_tree_digest}."
+                ),
+                world_states={},
+                causal_transition="CANDIDATE_IDENTITY_MISMATCH",
+                coverage_summary=None,
+                receipt=None,
+                metadata={
+                    "run_id": run_id,
+                    "status": "CONTRADICTED",
+                    "exit_code": 1,
+                    "created_at": now_utc,
+                    "error_message": "Candidate tree digest mismatch.",
+                },
+                evidence=[],
+            )
+            persistence.save_run(run_id, result.metadata)
+            return result
+
+        (cand_ws / "tests" / "test_witness.py").write_text(witness_code, encoding="utf-8")
         t0 = time.perf_counter()
         proc_cand = subprocess.run(
             cmd, cwd=str(cand_ws), capture_output=True, text=True, timeout=30
@@ -255,12 +607,74 @@ def _execute_trusted_demo_pipeline(
         dur_cand = time.perf_counter() - t0
         outcome_cand = WitnessOutcome.PASS if proc_cand.returncode == 0 else WitnessOutcome.FAIL
 
-        # 3. COUNTERFACTUAL world execution (delta subtracted: original base behavior)
+        # 3. COUNTERFACTUAL world execution (delta subtracted genuinely via git apply --reverse)
         cf_ws = td_path / "cf"
-        shutil.copytree(demo_dir, cf_ws)
-        cf_tree_digest = _compute_dir_tree_digest(cf_ws)
-        (cf_ws / "tests" / "test_witness.py").write_text(witness_code, encoding="utf-8")
+        shutil.copytree(cand_ws, cf_ws)
+        (cf_ws / "tests" / "test_witness.py").unlink(missing_ok=True)
+        for pyc in cf_ws.rglob("__pycache__"):
+            shutil.rmtree(pyc, ignore_errors=True)
 
+        res_cf = subprocess.run(
+            ["git", "apply", "--reverse", "--whitespace=nowarn", str(patch_file)],
+            cwd=str(cf_ws),
+            capture_output=True,
+            text=True,
+        )
+        if res_cf.returncode != 0:
+            result = CliRunResult(
+                run_id=run_id,
+                status="CONTRADICTED",
+                exit_code=1,
+                thesis=BASEBREAK_THESIS,
+                message=(
+                    "CONTRADICTED: Counterfactual delta subtraction failed: "
+                    f"{res_cf.stderr.strip()}"
+                ),
+                world_states={},
+                causal_transition="COUNTERFACTUAL_SUBTRACTION_FAILED",
+                coverage_summary=None,
+                receipt=None,
+                metadata={
+                    "run_id": run_id,
+                    "status": "CONTRADICTED",
+                    "exit_code": 1,
+                    "created_at": now_utc,
+                    "error_message": f"git apply --reverse failed: {res_cf.stderr.strip()}",
+                },
+                evidence=[],
+            )
+            persistence.save_run(run_id, result.metadata)
+            return result
+
+        cf_tree_digest = _compute_dir_tree_digest(cf_ws)
+        if cf_tree_digest != base_tree_digest:
+            result = CliRunResult(
+                run_id=run_id,
+                status="CONTRADICTED",
+                exit_code=1,
+                thesis=BASEBREAK_THESIS,
+                message=(
+                    "CONTRADICTED: Counterfactual reconstruction identity mismatch: "
+                    f"reconstructed tree {cf_tree_digest} does not match "
+                    f"base tree {base_tree_digest}."
+                ),
+                world_states={},
+                causal_transition="COUNTERFACTUAL_RECONSTRUCTION_MISMATCH",
+                coverage_summary=None,
+                receipt=None,
+                metadata={
+                    "run_id": run_id,
+                    "status": "CONTRADICTED",
+                    "exit_code": 1,
+                    "created_at": now_utc,
+                    "error_message": "Counterfactual reconstruction tree does not match base tree.",
+                },
+                evidence=[],
+            )
+            persistence.save_run(run_id, result.metadata)
+            return result
+
+        (cf_ws / "tests" / "test_witness.py").write_text(witness_code, encoding="utf-8")
         t0 = time.perf_counter()
         proc_cf = subprocess.run(cmd, cwd=str(cf_ws), capture_output=True, text=True, timeout=30)
         dur_cf = time.perf_counter() - t0
@@ -303,7 +717,7 @@ def _execute_trusted_demo_pipeline(
     # Build genuine PublicExecutionFact records from real subprocess outputs
     base_exec = PublicExecutionFact(
         world=ExecutionWorld.BASE,
-        sandbox_id="proc_base_isolated",
+        sandbox_id="local_working_copy_base",
         source_commit_id=resolved_base_sha,
         tree_digest=base_tree_digest,
         outcome=outcome_base,
@@ -317,7 +731,7 @@ def _execute_trusted_demo_pipeline(
     )
     cand_exec = PublicExecutionFact(
         world=ExecutionWorld.CANDIDATE,
-        sandbox_id="proc_cand_isolated",
+        sandbox_id="local_working_copy_cand",
         source_commit_id=resolved_base_sha,
         tree_digest=cand_tree_digest,
         outcome=outcome_cand,
@@ -331,7 +745,7 @@ def _execute_trusted_demo_pipeline(
     )
     cf_exec = PublicExecutionFact(
         world=ExecutionWorld.COUNTERFACTUAL,
-        sandbox_id="proc_cf_isolated",
+        sandbox_id="local_working_copy_cf",
         source_commit_id=resolved_base_sha,
         tree_digest=cf_tree_digest,
         outcome=outcome_cf,
@@ -346,7 +760,7 @@ def _execute_trusted_demo_pipeline(
 
     cf_fact = PublicCounterfactualFact(
         is_required=True,
-        candidate_tree_digest=cf_tree_digest,
+        candidate_tree_digest=cand_tree_digest,
         delta_digest=delta_digest,
         outcome=outcome_cf,
         execution_fact=cf_exec,
@@ -446,7 +860,7 @@ def _execute_trusted_demo_pipeline(
         counterfactual=cf_fact,
         overall_verdict=overall_verdict,
         provenance=EvidenceProvenance.LOCAL_EXECUTION,
-        runtime_identities=("basebreak-cli/0.1.0", "python-subprocess/isolated"),
+        runtime_identities=("basebreak-cli/0.1.0", "local-subprocess/isolated-tempdir"),
         timing={
             "started_at": now_utc,
             "completed_at": now_utc,

@@ -317,7 +317,7 @@ def determine_requirement_eligibility(
     """Determine deterministic eligibility for a contract requirement.
 
     By default, requirements with canonical change classes are ELIGIBLE for behavioral
-    verification unless explicit non-behavioral or out-of-scope overrides are specified.
+    verification unless explicit non-behavioral contract-level classification is established.
     Caller-controlled exclusions cannot silently remove behavioral obligations from the denominator.
     """
     req_id = requirement.requirement_id
@@ -325,18 +325,28 @@ def determine_requirement_eligibility(
         eligibility = eligibility_overrides[req_id]
         rationale = exclusion_rationales.get(req_id) if exclusion_rationales else None
         if eligibility != RequirementEligibility.ELIGIBLE:
-            # Prevent arbitrary exclusions from artificially removing behavioral obligations
+            # Check for trusted contract-level non-behavioral classification
+            contract_non_behavioral = (
+                getattr(requirement, "is_behavioral", None) is False
+                or getattr(requirement, "classification", None)
+                in ("NON_BEHAVIORAL", "EXCLUDED_NON_BEHAVIORAL")
+                or getattr(requirement, "eligibility", None)
+                in (
+                    RequirementEligibility.EXCLUDED_NON_BEHAVIORAL,
+                    RequirementEligibility.EXCLUDED_OUT_OF_SCOPE,
+                    RequirementEligibility.EXCLUDED_UNVERIFIABLE,
+                )
+            )
+            # All 6 canonical change classes are behavioral obligations
             is_behavioral_class = change_class in (
                 ChangeClass.BUG_FIX,
                 ChangeClass.FEATURE,
                 ChangeClass.SECURITY_FIX,
+                ChangeClass.REFACTOR,
+                ChangeClass.PERFORMANCE,
+                ChangeClass.DEP_API_CHANGE,
             )
-            stmt_lower = requirement.statement.lower()
-            is_obviously_non_behavioral = any(
-                term in stmt_lower
-                for term in ("doc", "readme", "comment", "typo", "license", "metadata", "changelog")
-            )
-            if is_behavioral_class and not is_obviously_non_behavioral:
+            if is_behavioral_class and not contract_non_behavioral:
                 raise CoverageIntegrityError(
                     f"Cannot exclude behavioral requirement {req_id} ({change_class.value}): "
                     f"behavioral obligations cannot be removed from coverage denominator."
@@ -544,13 +554,43 @@ def compute_causal_coverage(
 
         if isinstance(res, ReconciliationFact):
             transition = res.transition
-            verdict = res.verdict
-            is_verified = res.is_causally_verified
-            rationale = res.rationale
+            is_verified = False
+            if res.verdict == PreliminaryVerdict.VERIFIED:
+                verdict = PreliminaryVerdict.INCONCLUSIVE
+                rationale = (
+                    "Unbound intermediate ReconciliationFact cannot independently confer "
+                    "final coverage authority: missing frozen contract, requirement, "
+                    "and witness bindings."
+                )
+            else:
+                verdict = res.verdict
+                rationale = res.rationale
         elif isinstance(res, SemanticVerificationReceipt):
+            if res.frozen_contract_digest.lower() != frozen_contract.contract_digest.lower():
+                raise ContractDigestMismatchError(
+                    f"Receipt contract digest {res.frozen_contract_digest} does not match "
+                    f"frozen contract {frozen_contract.contract_digest}"
+                )
+            if res.requirement_id != req.requirement_id:
+                raise UnknownRequirementError(
+                    f"Receipt requirement_id {res.requirement_id} does not match "
+                    f"{req.requirement_id}"
+                )
+            if res.change_class != req_class:
+                raise CoverageIntegrityError(
+                    f"Receipt change class {res.change_class.value} does not match "
+                    f"requirement class {req_class.value}"
+                )
+            from basebreak.causal.semantic_receipt import verify_semantic_receipt_integrity
+
+            if not verify_semantic_receipt_integrity(res):
+                raise CoverageIntegrityError(
+                    "Cryptographic tampering detected in SemanticVerificationReceipt for "
+                    f"{req.requirement_id}"
+                )
             transition = res.transition
             verdict = res.verdict
-            is_verified = res.is_causally_verified
+            is_verified = res.is_causally_verified and res.verdict == PreliminaryVerdict.VERIFIED
             witness_id = res.witness_id
             witness_digest = res.witness_digest
             rationale = res.narrative
@@ -563,6 +603,13 @@ def compute_causal_coverage(
             if res.requirement_id != req.requirement_id:
                 raise UnknownRequirementError(
                     f"Receipt requirement_id {res.requirement_id} does not match "
+                    f"{req.requirement_id}"
+                )
+            from basebreak.causal.receipt import verify_causal_receipt_integrity
+
+            if not verify_causal_receipt_integrity(res):
+                raise CoverageIntegrityError(
+                    f"Cryptographic tampering detected in LocalCausalReceipt for "
                     f"{req.requirement_id}"
                 )
             transition = res.transition
@@ -607,67 +654,20 @@ def compute_causal_coverage(
                 if isinstance(verdict_val, PreliminaryVerdict)
                 else PreliminaryVerdict(str(verdict_val))
             )
-            raw_is_verified = bool(res.get("is_causally_verified", False))
             witness_id = res.get("witness_id")
             witness_digest = res.get("witness_digest")
-            rationale = str(res.get("rationale", res.get("narrative", "Result processed")))
 
-            # Independent causal evidence validation:
-            # 1. Witness presence and format validation
-            has_valid_witness = (
-                isinstance(witness_id, str)
-                and bool(witness_id.strip())
-                and isinstance(witness_digest, str)
-                and bool(_HEX_64_PATTERN.match(witness_digest))
-            )
-
-            # 2. Class-specific transition compatibility
-            is_valid_transition = False
-            if transition is not None:
-                if req_class == ChangeClass.BUG_FIX:
-                    is_valid_transition = transition in (
-                        CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
-                        CausalTransition.CAUSAL_TRIPLET_VERIFIED,
-                    )
-                elif req_class == ChangeClass.FEATURE:
-                    is_valid_transition = transition in (
-                        CausalTransition.FEATURE_VERIFIED,
-                        CausalTransition.CAUSAL_TRIPLET_VERIFIED,
-                    )
-                elif req_class == ChangeClass.SECURITY_FIX:
-                    is_valid_transition = transition in (
-                        CausalTransition.SECURITY_FIX_VERIFIED,
-                        CausalTransition.CAUSAL_TRIPLET_VERIFIED,
-                    )
-                elif req_class == ChangeClass.REFACTOR:
-                    is_valid_transition = transition in (
-                        CausalTransition.REFACTOR_VERIFIED,
-                        CausalTransition.CAUSAL_TRIPLET_VERIFIED,
-                    )
-                elif req_class == ChangeClass.PERFORMANCE:
-                    is_valid_transition = transition in (
-                        CausalTransition.PERFORMANCE_VERIFIED,
-                        CausalTransition.CAUSAL_TRIPLET_VERIFIED,
-                    )
-                elif req_class == ChangeClass.DEP_API_CHANGE:
-                    is_valid_transition = transition in (
-                        CausalTransition.DEP_API_CHANGE_VERIFIED,
-                        CausalTransition.CAUSAL_TRIPLET_VERIFIED,
-                    )
-
-            if raw_is_verified and verdict == PreliminaryVerdict.VERIFIED:
-                if not has_valid_witness or not is_valid_transition:
-                    # Reject unproven assertion: cannot promote arbitrary dict to VERIFIED!
-                    is_verified = False
-                    verdict = PreliminaryVerdict.INCONCLUSIVE
-                    rationale = (
-                        f"Unproven assertion rejected: missing witness evidence or incompatible "
-                        f"transition {transition} for {req_class.value}."
-                    )
-                else:
-                    is_verified = True
+            # Never grant verified coverage from plain dict asserted verdict, transition or witness!
+            is_verified = False
+            if verdict == PreliminaryVerdict.VERIFIED or res.get("is_causally_verified"):
+                verdict = PreliminaryVerdict.INCONCLUSIVE
+                rationale = (
+                    "Caller dictionary assertions cannot confer verified causal coverage: "
+                    "plain dictionary assertions lack cryptographic receipt authority."
+                )
             else:
-                is_verified = False
+                default_rat = f"Dictionary result: {verdict.value}"
+                rationale = str(res.get("rationale", res.get("narrative", default_rat)))
         else:
             res_type = type(res).__name__
             raise TypeError(

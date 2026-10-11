@@ -573,6 +573,12 @@ def create_public_verification_receipt(
     disclaimers: Sequence[str] = (CANONICAL_RECEIPT_THESIS, CANONICAL_DISCLAIMER_TEXT),
 ) -> PublicVerificationReceipt:
     """Factory creating an authoritative, tamper-evident PublicVerificationReceipt."""
+    if is_authoritative:
+        raise PublicReceiptIntegrityError(
+            "is_authoritative cannot be asserted: independent trusted certification authority "
+            "is not implemented; public receipts must remain is_authoritative=False."
+        )
+
     # Ensure coverage summary binds to the contract digest
     if coverage_summary.contract_digest.lower() != frozen_contract_digest.strip().lower():
         raise PublicReceiptIntegrityError(
@@ -662,11 +668,10 @@ def _validate_receipt_cross_bindings_and_causal_consistency(
 
     # 2. Authority check: a checksum alone does not certify authority
     if receipt.is_authoritative:
-        if receipt.signature_strategy == "SHA256_DIGEST_ONLY" or not receipt.signature:
-            raise PublicReceiptIntegrityError(
-                "is_authoritative cannot be asserted without independent trusted certification "
-                "or signature; SHA256 digest alone cannot confer authority."
-            )
+        raise PublicReceiptIntegrityError(
+            "is_authoritative cannot be asserted: independent trusted certification authority "
+            "is not implemented; public receipts must remain is_authoritative=False."
+        )
 
     # 3. Source commit and tree bindings across executions
     for idx, exec_fact in enumerate(receipt.executions):
@@ -724,7 +729,6 @@ def _validate_receipt_cross_bindings_and_causal_consistency(
                 "but coverage_summary overall_verdict is not VERIFIED"
             )
 
-        # In Basebreak: if the patch matters, the base must break!
         base_execs = [e for e in receipt.executions if e.world == ExecutionWorld.BASE]
         cand_execs = [e for e in receipt.executions if e.world == ExecutionWorld.CANDIDATE]
 
@@ -738,30 +742,55 @@ def _validate_receipt_cross_bindings_and_causal_consistency(
                 "but CANDIDATE execution is missing"
             )
 
-        if any(e.outcome == WitnessOutcome.PASS for e in base_execs):
-            raise PublicReceiptIntegrityError(
-                "Causal inconsistency: overall_verdict is VERIFIED "
-                "but BASE passed witness (base did not break)"
-            )
         if any(e.outcome != WitnessOutcome.PASS for e in cand_execs):
             raise PublicReceiptIntegrityError(
                 "Causal inconsistency: overall_verdict is VERIFIED but CANDIDATE failed witness"
             )
 
+        # Class-specific BASE outcome validation
+        classes = {f.change_class for f in receipt.coverage_summary.per_requirement_facts}
+        from basebreak.domain.semantics import ChangeClass
+
+        breaking_base_classes = {
+            ChangeClass.BUG_FIX,
+            ChangeClass.FEATURE,
+            ChangeClass.SECURITY_FIX,
+        }
+        passing_base_classes = {
+            ChangeClass.REFACTOR,
+            ChangeClass.PERFORMANCE,
+            ChangeClass.DEP_API_CHANGE,
+        }
+
+        if classes.issubset(passing_base_classes):
+            if any(e.outcome != WitnessOutcome.PASS for e in base_execs):
+                raise PublicReceiptIntegrityError(
+                    f"Causal inconsistency: overall_verdict is VERIFIED for "
+                    f"{','.join(sorted(c.value for c in classes))} but BASE failed witness "
+                    "(baseline behavior failed)"
+                )
+        else:
+            if any(e.outcome == WitnessOutcome.PASS for e in base_execs):
+                raise PublicReceiptIntegrityError(
+                    "Causal inconsistency: overall_verdict is VERIFIED "
+                    "but BASE passed witness (base did not break)"
+                )
+
         if receipt.counterfactual is not None and receipt.counterfactual.is_required:
-            if receipt.counterfactual.outcome == WitnessOutcome.PASS:
-                raise PublicReceiptIntegrityError(
-                    "Causal inconsistency: overall_verdict is VERIFIED "
-                    "but COUNTERFACTUAL passed (patch not causally necessary)"
-                )
-            if (
-                receipt.counterfactual.execution_fact
-                and receipt.counterfactual.execution_fact.outcome == WitnessOutcome.PASS
-            ):
-                raise PublicReceiptIntegrityError(
-                    "Causal inconsistency: overall_verdict is VERIFIED "
-                    "but COUNTERFACTUAL execution passed"
-                )
+            if any(c in breaking_base_classes for c in classes):
+                if receipt.counterfactual.outcome == WitnessOutcome.PASS:
+                    raise PublicReceiptIntegrityError(
+                        "Causal inconsistency: overall_verdict is VERIFIED "
+                        "but COUNTERFACTUAL passed (patch not causally necessary)"
+                    )
+                if (
+                    receipt.counterfactual.execution_fact
+                    and receipt.counterfactual.execution_fact.outcome == WitnessOutcome.PASS
+                ):
+                    raise PublicReceiptIntegrityError(
+                        "Causal inconsistency: overall_verdict is VERIFIED "
+                        "but COUNTERFACTUAL execution passed"
+                    )
 
         if not receipt.witnesses:
             raise PublicReceiptIntegrityError(

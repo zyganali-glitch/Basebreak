@@ -24,22 +24,156 @@ from basebreak.causal.coverage import (
     compute_causal_coverage,
     verify_coverage_integrity,
 )
-from basebreak.causal.reconciliation import CausalTransition, ReconciliationFact
+from basebreak.causal.receipt import (
+    LocalCausalReceipt,
+    WorldExecutionFact,
+    create_causal_receipt,
+)
+from basebreak.causal.reconciliation import CausalTransition
+from basebreak.causal.semantic_receipt import (
+    SemanticVerificationReceipt,
+    create_semantic_receipt,
+)
 from basebreak.compiler.freeze import FrozenContract, FrozenRequirement
 from basebreak.compiler.semantics import CertaintyLevel
+from basebreak.domain.causal import ExecutionWorld
+from basebreak.domain.execution import TerminationStatus
 from basebreak.domain.semantics import ChangeClass
-from basebreak.domain.verdict import PreliminaryVerdict
+from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
+from basebreak.verifier.witness_result import WitnessOutcome
+
+
+def _make_causal_receipt(
+    requirement_id: str,
+    contract_digest: str = "a" * 64,
+    transition: CausalTransition = CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+    verdict: PreliminaryVerdict = PreliminaryVerdict.VERIFIED,
+    witness_id: str = "wit-1",
+    witness_digest: str = "b" * 64,
+    narrative: str = "Base failed, candidate passed",
+    provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
+) -> LocalCausalReceipt:
+    base_exec = WorldExecutionFact(
+        world=ExecutionWorld.BASE,
+        sandbox_id="sbx-base-1",
+        source_commit_id="1" * 40,
+        tree_digest="2" * 40,
+        outcome=WitnessOutcome.FAIL,
+        exit_code=1,
+        termination_status=TerminationStatus.COMPLETED,
+        stdout_digest="3" * 64,
+        stderr_digest="4" * 64,
+        result_digest="5" * 64,
+        duration_seconds=1.0,
+    )
+    is_ver = verdict == PreliminaryVerdict.VERIFIED
+    cand_exec = WorldExecutionFact(
+        world=ExecutionWorld.CANDIDATE,
+        sandbox_id="sbx-cand-1",
+        source_commit_id="1" * 40,
+        tree_digest="6" * 40,
+        outcome=WitnessOutcome.PASS if is_ver else WitnessOutcome.FAIL,
+        exit_code=0 if is_ver else 1,
+        termination_status=TerminationStatus.COMPLETED,
+        stdout_digest="7" * 64,
+        stderr_digest="8" * 64,
+        result_digest="9" * 64,
+        duration_seconds=1.0,
+    )
+    return create_causal_receipt(
+        requirement_id=requirement_id,
+        frozen_contract_digest=contract_digest,
+        witness_id=witness_id,
+        witness_digest=witness_digest,
+        lock_digest="d" * 64,
+        base_execution=base_exec,
+        candidate_execution=cand_exec,
+        transition=transition,
+        verdict=verdict,
+        provenance=provenance,
+        narrative=narrative,
+    )
+
+
+def _make_semantic_receipt(
+    requirement_id: str,
+    change_class: ChangeClass,
+    contract_digest: str = "a" * 64,
+    transition: CausalTransition = CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+    verdict: PreliminaryVerdict = PreliminaryVerdict.VERIFIED,
+    witness_id: str = "wit-1",
+    witness_digest: str = "b" * 64,
+    narrative: str = "Verified",
+    provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
+) -> SemanticVerificationReceipt:
+    breaking = change_class in (
+        ChangeClass.BUG_FIX,
+        ChangeClass.FEATURE,
+        ChangeClass.SECURITY_FIX,
+    )
+    base_exec = WorldExecutionFact(
+        world=ExecutionWorld.BASE,
+        sandbox_id="sbx-base-1",
+        source_commit_id="1" * 40,
+        tree_digest="2" * 40,
+        outcome=WitnessOutcome.FAIL if breaking else WitnessOutcome.PASS,
+        exit_code=1 if breaking else 0,
+        termination_status=TerminationStatus.COMPLETED,
+        stdout_digest="3" * 64,
+        stderr_digest="4" * 64,
+        result_digest="5" * 64,
+        duration_seconds=1.0,
+    )
+    is_ver = verdict == PreliminaryVerdict.VERIFIED
+    cand_exec = WorldExecutionFact(
+        world=ExecutionWorld.CANDIDATE,
+        sandbox_id="sbx-cand-1",
+        source_commit_id="1" * 40,
+        tree_digest="6" * 40,
+        outcome=WitnessOutcome.PASS if is_ver else WitnessOutcome.FAIL,
+        exit_code=0 if is_ver else 1,
+        termination_status=TerminationStatus.COMPLETED,
+        stdout_digest="7" * 64,
+        stderr_digest="8" * 64,
+        result_digest="9" * 64,
+        duration_seconds=1.0,
+    )
+    return create_semantic_receipt(
+        change_class=change_class,
+        requirement_id=requirement_id,
+        frozen_contract_digest=contract_digest,
+        witness_id=witness_id,
+        witness_digest=witness_digest,
+        lock_digest="d" * 64,
+        source_commit_id="1" * 40,
+        candidate_tree_digest="6" * 40,
+        base_execution=base_exec,
+        candidate_execution=cand_exec,
+        class_specific_payload={},
+        transition=transition,
+        verdict=verdict,
+        is_causally_verified=(verdict == PreliminaryVerdict.VERIFIED),
+        provenance=provenance,
+        narrative=narrative,
+    )
+
+
+class MockNonBehavioralRequirement(FrozenRequirement):
+    is_behavioral: bool = False
 
 
 def _make_frozen_contract(
     req_tuples: list[tuple[str, ChangeClass, str]],
     task_id: str = "TASK-TEST-001",
     contract_digest: str = "a" * 64,
+    non_behavioral_ids: set[str] | None = None,
 ) -> FrozenContract:
+    non_beh = non_behavioral_ids or set()
     frozen_reqs = []
     for rid, _cclass, stmt in req_tuples:
         citation_len = min(len(stmt), 20)
-        req = FrozenRequirement(
+        req_cls = MockNonBehavioralRequirement if rid in non_beh else FrozenRequirement
+        req = req_cls(
             requirement_id=rid,
             statement=stmt,
             citation=stmt[:citation_len] if citation_len > 0 else "sample citation",
@@ -70,18 +204,19 @@ class TestCausalCoverageP17:
                 ("REQ-1", ChangeClass.BUG_FIX, "Fix null dereference"),
                 ("REQ-2", ChangeClass.FEATURE, "Add export endpoint"),
                 ("REQ-DOC", ChangeClass.BUG_FIX, "Update README notes"),
-            ]
+            ],
+            non_behavioral_ids={"REQ-DOC"},
         )
         overrides = {"REQ-DOC": RequirementEligibility.EXCLUDED_NON_BEHAVIORAL}
         rationales = {"REQ-DOC": "Documentation-only requirement"}
 
         # Provide verification for REQ-1 only
         results = {
-            "REQ-1": ReconciliationFact(
+            "REQ-1": _make_causal_receipt(
+                requirement_id="REQ-1",
+                contract_digest=contract.contract_digest,
                 transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
                 verdict=PreliminaryVerdict.VERIFIED,
-                is_causally_verified=True,
-                rationale="BASE=FAIL, CANDIDATE=PASS",
             )
         }
 
@@ -105,13 +240,18 @@ class TestCausalCoverageP17:
 
     def test_p17_01_empty_denominator_yields_none_ratio(self) -> None:
         """P-17.01: An empty denominator must be undefined/None, never 100%."""
-        contract = _make_frozen_contract([("REQ-DOC", ChangeClass.REFACTOR, "Doc refactor only")])
+        contract = _make_frozen_contract(
+            [("REQ-DOC", ChangeClass.REFACTOR, "Doc refactor only")],
+            non_behavioral_ids={"REQ-DOC"},
+        )
         overrides = {"REQ-DOC": RequirementEligibility.EXCLUDED_NON_BEHAVIORAL}
+        rationales = {"REQ-DOC": "Non-behavioral doc change"}
 
         summary = compute_causal_coverage(
             frozen_contract=contract,
             results={},
             eligibility_overrides=overrides,
+            exclusion_rationales=rationales,
         )
 
         assert summary.total_requirements == 1
@@ -133,17 +273,17 @@ class TestCausalCoverageP17:
             ]
         )
         results = {
-            "REQ-1": ReconciliationFact(
+            "REQ-1": _make_causal_receipt(
+                requirement_id="REQ-1",
+                contract_digest=contract.contract_digest,
                 transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
                 verdict=PreliminaryVerdict.VERIFIED,
-                is_causally_verified=True,
-                rationale="Base broke, candidate passed",
             ),
-            "REQ-2": ReconciliationFact(
+            "REQ-2": _make_causal_receipt(
+                requirement_id="REQ-2",
+                contract_digest=contract.contract_digest,
                 transition=CausalTransition.UNVERIFIED_DEFECT_PERSISTS,
                 verdict=PreliminaryVerdict.CONTRADICTED,
-                is_causally_verified=False,
-                rationale="Candidate still failed",
             ),
         }
 
@@ -173,17 +313,13 @@ class TestCausalCoverageP17:
             ]
         )
         results = {
-            "REQ-1": ReconciliationFact(
-                transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
-                verdict=PreliminaryVerdict.VERIFIED,
-                is_causally_verified=True,
-                rationale="Passed",
+            "REQ-1": _make_causal_receipt(
+                requirement_id="REQ-1",
+                contract_digest=contract.contract_digest,
             ),
-            "REQ-2": ReconciliationFact(
-                transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
-                verdict=PreliminaryVerdict.VERIFIED,
-                is_causally_verified=True,
-                rationale="Passed",
+            "REQ-2": _make_causal_receipt(
+                requirement_id="REQ-2",
+                contract_digest=contract.contract_digest,
             ),
         }
 
@@ -210,57 +346,14 @@ class TestCausalCoverageP17:
             ]
         )
 
-        results = {
-            "REQ-BUG": {
-                "transition": CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
-                "verdict": PreliminaryVerdict.VERIFIED,
-                "is_causally_verified": True,
-                "witness_id": "wit-bug",
-                "witness_digest": "b" * 64,
-                "rationale": "Base failed, candidate passed",
-            },
-            "REQ-FEAT": {
-                "transition": CausalTransition.FEATURE_VERIFIED,
-                "verdict": PreliminaryVerdict.VERIFIED,
-                "is_causally_verified": True,
-                "witness_id": "wit-feat",
-                "witness_digest": "c" * 64,
-                "rationale": "Absent -> Present",
-            },
-            "REQ-SEC": {
-                "transition": CausalTransition.SECURITY_FIX_VERIFIED,
-                "verdict": PreliminaryVerdict.VERIFIED,
-                "is_causally_verified": True,
-                "witness_id": "wit-sec",
-                "witness_digest": "d" * 64,
-                "rationale": "Exploitable -> Blocked",
-            },
-            "REQ-REF": {
-                "transition": CausalTransition.REFACTOR_VERIFIED,
-                "verdict": PreliminaryVerdict.VERIFIED,
-                "is_causally_verified": True,
-                "witness_id": "wit-ref",
-                "witness_digest": "e" * 64,
-                "rationale": "Behavioral equivalence verified",
-            },
-            "REQ-PERF": {
-                "transition": CausalTransition.PERFORMANCE_VERIFIED,
-                "verdict": PreliminaryVerdict.VERIFIED,
-                "is_causally_verified": True,
-                "witness_id": "wit-perf",
-                "witness_digest": "f" * 64,
-                "rationale": "Parity verified and positive speedup measured",
-            },
-            "REQ-DEP": {
-                "transition": CausalTransition.DEP_API_CHANGE_VERIFIED,
-                "verdict": PreliminaryVerdict.VERIFIED,
-                "is_causally_verified": True,
-                "witness_id": "wit-dep",
-                "witness_digest": "a" * 64,
-                "rationale": "New API satisfied without regression",
-            },
+        transitions = {
+            "REQ-BUG": CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            "REQ-FEAT": CausalTransition.FEATURE_VERIFIED,
+            "REQ-SEC": CausalTransition.SECURITY_FIX_VERIFIED,
+            "REQ-REF": CausalTransition.REFACTOR_VERIFIED,
+            "REQ-PERF": CausalTransition.PERFORMANCE_VERIFIED,
+            "REQ-DEP": CausalTransition.DEP_API_CHANGE_VERIFIED,
         }
-
         req_classes = {
             "REQ-BUG": ChangeClass.BUG_FIX,
             "REQ-FEAT": ChangeClass.FEATURE,
@@ -269,6 +362,17 @@ class TestCausalCoverageP17:
             "REQ-PERF": ChangeClass.PERFORMANCE,
             "REQ-DEP": ChangeClass.DEP_API_CHANGE,
         }
+        results = {
+            rid: _make_semantic_receipt(
+                requirement_id=rid,
+                change_class=req_classes[rid],
+                contract_digest=contract.contract_digest,
+                transition=transitions[rid],
+                verdict=PreliminaryVerdict.VERIFIED,
+            )
+            for rid in req_classes
+        }
+
         summary = compute_causal_coverage(
             frozen_contract=contract,
             results=results,
@@ -294,14 +398,10 @@ class TestCausalCoverageP17:
 
         # Adversary only submits results for REQ-1 (passing) and tries to omit REQ-2 and REQ-3
         results = {
-            "REQ-1": {
-                "transition": CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
-                "verdict": PreliminaryVerdict.VERIFIED,
-                "is_causally_verified": True,
-                "witness_id": "wit-1",
-                "witness_digest": "b" * 64,
-                "rationale": "Passed",
-            }
+            "REQ-1": _make_causal_receipt(
+                requirement_id="REQ-1",
+                contract_digest=contract.contract_digest,
+            )
         }
 
         summary = compute_causal_coverage(frozen_contract=contract, results=results)
