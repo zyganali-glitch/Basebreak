@@ -525,13 +525,28 @@ class TrustedWitnessVault:
     """
 
     def __init__(self, vault_secret: bytes | None = None) -> None:
-        self._vault_secret = vault_secret or os.urandom(32)
+        object.__setattr__(self, "_initialized", False)
+        self._vault_secret: bytes = vault_secret or os.urandom(32)
         self._registered_seals: dict[str, tuple[str, str]] = {}
         self._records: dict[str, SealedWitnessRecord] = {}
         self._registered_executions: dict[str, VerifierExecutionAttestation] = {}
         self._observed_executions: dict[tuple[str, str], VerifierObservedExecutionRecord] = {}
         self._authorized_provenances: frozenset[EvidenceProvenance] = frozenset()
         self._bound_engine: Any | None = None
+        self._initialized: bool = True
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if getattr(self, "_initialized", False):
+            if name in (
+                "_authorized_provenances",
+                "authorized_provenances",
+                "_vault_secret",
+                "is_authoritative_root",
+            ):
+                raise UntrustedWitnessAuthorityError(
+                    f"Direct mutation or substitution of {name} is strictly prohibited"
+                )
+        super().__setattr__(name, value)
 
     @property
     def is_authoritative_root(self) -> bool:
@@ -551,37 +566,81 @@ class TrustedWitnessVault:
         """Authorize this vault for a specific provenance based on authentic verifier runtime.
 
         Production authority must originate at the genuine verifier runtime boundary.
-        Mock/simulated runtimes cannot obtain LOCAL_EXECUTION or LIVE_NEBIUS authority.
+        Mock/simulated or caller-created runtimes cannot obtain LOCAL_EXECUTION
+        or LIVE_NEBIUS authority.
         """
         if runtime is None:
             raise UntrustedWitnessAuthorityError("runtime cannot be None")
 
-        is_mock = False
-        cls_name = type(runtime).__name__
-        if any(k in cls_name for k in ("Mock", "Fake", "Simulat", "Stub")):
-            is_mock = True
-        elif hasattr(runtime, "sandbox_adapter") and runtime.sandbox_adapter is not None:
-            ad_name = type(runtime.sandbox_adapter).__name__
-            if any(k in ad_name for k in ("Mock", "Fake", "Simulat", "Stub")) or getattr(
-                runtime.sandbox_adapter, "is_simulation", False
-            ):
-                is_mock = True
-        if hasattr(runtime, "materializer") and runtime.materializer is not None:
-            mat_name = type(runtime.materializer).__name__
-            if any(k in mat_name for k in ("Mock", "Fake", "Simulat", "Stub")):
-                is_mock = True
+        from basebreak.causal.engine import (
+            CausalExecutionEngine,
+            is_genuine_local_sandbox_runtime,
+            is_genuine_nebius_sandbox_adapter,
+        )
 
-        if is_mock or provenance == EvidenceProvenance.FIXTURE:
-            self._authorized_provenances = self._authorized_provenances | {
-                EvidenceProvenance.FIXTURE
-            }
+        if not isinstance(runtime, CausalExecutionEngine):
+            raise UntrustedWitnessAuthorityError(
+                f"runtime must be an authentic CausalExecutionEngine instance, "
+                f"got {type(runtime).__name__}"
+            )
+
+        if not isinstance(provenance, EvidenceProvenance):
+            raise TypeError(
+                f"provenance must be EvidenceProvenance, got {type(provenance).__name__}"
+            )
+
+        if provenance == EvidenceProvenance.LIVE_NEBIUS:
+            if not is_genuine_nebius_sandbox_adapter(getattr(runtime, "sandbox_adapter", None)):
+                raise UntrustedWitnessAuthorityError(
+                    "LIVE_NEBIUS authority requires genuine NebiusSandboxAdapter "
+                    "runtime execution boundary"
+                )
+            if getattr(runtime, "provenance", None) != EvidenceProvenance.LIVE_NEBIUS:
+                raise UntrustedWitnessAuthorityError(
+                    "Engine provenance does not match requested LIVE_NEBIUS authority"
+                )
+            object.__setattr__(
+                self,
+                "_authorized_provenances",
+                self._authorized_provenances | {EvidenceProvenance.LIVE_NEBIUS},
+            )
+        elif provenance == EvidenceProvenance.LOCAL_EXECUTION:
+            if not is_genuine_local_sandbox_runtime():
+                raise UntrustedWitnessAuthorityError(
+                    "LOCAL_EXECUTION authority requires an authorized isolated "
+                    "local sandbox runtime"
+                )
+            if getattr(runtime, "provenance", None) != EvidenceProvenance.LOCAL_EXECUTION:
+                raise UntrustedWitnessAuthorityError(
+                    "Engine provenance does not match requested LOCAL_EXECUTION authority"
+                )
+            object.__setattr__(
+                self,
+                "_authorized_provenances",
+                self._authorized_provenances | {EvidenceProvenance.LOCAL_EXECUTION},
+            )
+        elif provenance == EvidenceProvenance.FIXTURE:
+            object.__setattr__(
+                self,
+                "_authorized_provenances",
+                self._authorized_provenances | {EvidenceProvenance.FIXTURE},
+            )
         else:
-            self._authorized_provenances = self._authorized_provenances | {provenance}
+            raise UntrustedWitnessAuthorityError(
+                f"Provenance scope {provenance.value} cannot be authorized through verifier runtime"
+            )
 
-        self._bound_engine = runtime
+        object.__setattr__(self, "_bound_engine", runtime)
 
     def _authorize_as_engine_root(self, engine: Any) -> None:
         """Authorize vault root bound to an execution engine, inspecting runtime provenance."""
+        from basebreak.causal.engine import CausalExecutionEngine
+
+        if not isinstance(engine, CausalExecutionEngine):
+            raise UntrustedWitnessAuthorityError(
+                f"Direct production authorization through _authorize_as_engine_root() rejected: "
+                f"expected authentic CausalExecutionEngine, got {type(engine).__name__}"
+            )
         prov = getattr(engine, "provenance", EvidenceProvenance.FIXTURE)
         self._authorize_verifier_runtime(engine, prov)
 
@@ -598,7 +657,9 @@ class TrustedWitnessVault:
         LOCAL_EXECUTION or LIVE_NEBIUS evidence.
         """
         vault = cls(vault_secret=vault_secret)
-        vault._authorized_provenances = frozenset({EvidenceProvenance.FIXTURE})
+        object.__setattr__(
+            vault, "_authorized_provenances", frozenset({EvidenceProvenance.FIXTURE})
+        )
         return vault
 
     def record_observed_execution(
@@ -626,6 +687,17 @@ class TrustedWitnessVault:
         clean_wid = str(witness_id).strip()
         if not clean_wid:
             raise WitnessIntegrityError("witness_id must not be empty")
+
+        if provenance in (
+            EvidenceProvenance.LOCAL_EXECUTION,
+            EvidenceProvenance.LIVE_NEBIUS,
+            EvidenceProvenance.RECORDED_LIVE,
+        ):
+            if self._bound_engine is None or provenance not in self._authorized_provenances:
+                raise UntrustedWitnessAuthorityError(
+                    f"Caller-originated record_observed_execution() for production provenance "
+                    f"({provenance.value}) without trusted execution is strictly prohibited"
+                )
 
         if provenance not in self._authorized_provenances:
             raise UntrustedWitnessAuthorityError(

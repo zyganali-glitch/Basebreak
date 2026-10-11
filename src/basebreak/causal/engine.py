@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import inspect
+import os
 import posixpath
 import shlex
 import time
@@ -99,6 +100,33 @@ class WorldExecutionOutput:
     tree_digest: str
 
 
+def is_genuine_nebius_sandbox_adapter(adapter: Any) -> bool:
+    """Positively verify that sandbox adapter is an authentic NebiusSandboxAdapter."""
+    if adapter is None:
+        return False
+    from basebreak.adapters.nebius.sandbox import NebiusSandboxAdapter
+
+    if type(adapter) is not NebiusSandboxAdapter:
+        return False
+    if getattr(adapter, "is_simulation", False) or getattr(adapter, "is_mock", False):
+        return False
+    cfg = getattr(adapter, "config", None)
+    if cfg is None:
+        return False
+    api_key = getattr(cfg, "api_key", None)
+    project_id = getattr(cfg, "project_id", None)
+    if not api_key or not isinstance(api_key, str) or not api_key.strip():
+        return False
+    if not project_id or not isinstance(project_id, str) or not project_id.strip():
+        return False
+    return True
+
+
+def is_genuine_local_sandbox_runtime() -> bool:
+    """Positively verify that authorized isolated local sandbox runtime is available."""
+    return os.environ.get("BASEBREAK_ENABLE_LOCAL_SANDBOX_RUNTIME") == "1"
+
+
 class CausalExecutionEngine:
     """Executes identical witnesses across BASE and CANDIDATE worlds and reconciles causality."""
 
@@ -141,11 +169,22 @@ class CausalExecutionEngine:
             self.materializer = materializer
 
         self.vault = vault
-        is_mock_or_sim = self._is_mock_or_simulated(sandbox_adapter, self.materializer)
-        if is_mock_or_sim:
-            self.provenance = EvidenceProvenance.FIXTURE
-        else:
-            self.provenance = provenance
+
+        # Production authority MUST originate from an actual trusted verifier execution boundary,
+        # positively verified, not negative naming heuristics.
+        effective_provenance = EvidenceProvenance.FIXTURE
+        if provenance == EvidenceProvenance.LIVE_NEBIUS:
+            if is_genuine_nebius_sandbox_adapter(
+                sandbox_adapter
+            ) and not self._is_mock_or_simulated(sandbox_adapter, self.materializer):
+                effective_provenance = EvidenceProvenance.LIVE_NEBIUS
+        elif provenance == EvidenceProvenance.LOCAL_EXECUTION:
+            if is_genuine_local_sandbox_runtime() and not self._is_mock_or_simulated(
+                sandbox_adapter, self.materializer
+            ):
+                effective_provenance = EvidenceProvenance.LOCAL_EXECUTION
+
+        self.provenance = effective_provenance
 
         if hasattr(self.vault, "_authorize_verifier_runtime"):
             self.vault._authorize_verifier_runtime(self, self.provenance)

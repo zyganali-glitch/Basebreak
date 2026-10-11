@@ -1326,11 +1326,14 @@ class TestBatchAFinalAuthorityBoundary:
         assert cov.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
 
     def test_05_attestation_provenance_mismatch_rejected(self) -> None:
-        """5. An attestation for LOCAL_EXECUTION cannot certify a receipt claiming LIVE_NEBIUS."""
+        """5. Attestation for one provenance cannot certify receipt for another."""
         vault = TrustedWitnessVault()
-        vault._authorized_provenances = frozenset({EvidenceProvenance.LOCAL_EXECUTION})
+        with pytest.raises(UntrustedWitnessAuthorityError, match="Direct mutation or substitution"):
+            vault._authorized_provenances = frozenset({EvidenceProvenance.LOCAL_EXECUTION})
+
+        fixture_vault = TrustedWitnessVault.create_authorized_vault()
         wa = WitnessArtifact.from_text(path="tests/test_w.py", content="def test_w(): pass\n")
-        rec = vault.seal_witness(
+        rec = fixture_vault.seal_witness(
             witness_id="WIT-001",
             requirement_id="REQ-001",
             frozen_contract_digest="c" * 64,
@@ -1364,7 +1367,7 @@ class TestBatchAFinalAuthorityBoundary:
             duration_seconds=1.0,
         )
 
-        vault.record_observed_execution(
+        fixture_vault.record_observed_execution(
             witness_id="WIT-001",
             witness_digest=rec.seal_digest,
             requirement_id="REQ-001",
@@ -1380,9 +1383,9 @@ class TestBatchAFinalAuthorityBoundary:
             stderr_digest=base_wef.stderr_digest,
             result_digest=base_wef.result_digest,
             outcome=base_wef.outcome,
-            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            provenance=EvidenceProvenance.FIXTURE,
         )
-        vault.record_observed_execution(
+        fixture_vault.record_observed_execution(
             witness_id="WIT-001",
             witness_digest=rec.seal_digest,
             requirement_id="REQ-001",
@@ -1398,10 +1401,10 @@ class TestBatchAFinalAuthorityBoundary:
             stderr_digest=cand_wef.stderr_digest,
             result_digest=cand_wef.result_digest,
             outcome=cand_wef.outcome,
-            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            provenance=EvidenceProvenance.FIXTURE,
         )
 
-        attestation = vault.attest_execution(
+        attestation = fixture_vault.attest_execution(
             witness_id="WIT-001",
             requirement_id="REQ-001",
             frozen_contract_digest="c" * 64,
@@ -1411,10 +1414,10 @@ class TestBatchAFinalAuthorityBoundary:
             candidate_execution=cand_wef,
             transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
             verdict=PreliminaryVerdict.VERIFIED,
-            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            provenance=EvidenceProvenance.FIXTURE,
         )
 
-        # Receipt claiming LIVE_NEBIUS with LOCAL_EXECUTION attestation
+        # Receipt claiming LIVE_NEBIUS with FIXTURE attestation
         receipt_live = create_causal_receipt(
             requirement_id="REQ-001",
             frozen_contract_digest="c" * 64,
@@ -1868,9 +1871,10 @@ class TestMandatoryAdversarialAcceptanceA1ThroughA8:
             is False
         )
 
-        # LOCAL_EXECUTION -> LIVE_NEBIUS
+        # Direct mutation or substitution of authorization state is rejected
         vault_local = TrustedWitnessVault()
-        vault_local._authorized_provenances = frozenset({EvidenceProvenance.LOCAL_EXECUTION})
+        with pytest.raises(UntrustedWitnessAuthorityError, match="Direct mutation or substitution"):
+            vault_local._authorized_provenances = frozenset({EvidenceProvenance.LOCAL_EXECUTION})
         assert (
             vault_local.verify_execution_authority(
                 receipt_or_attestation=object(),
@@ -1879,9 +1883,10 @@ class TestMandatoryAdversarialAcceptanceA1ThroughA8:
             is False
         )
 
-        # RECORDED_LIVE -> LIVE_NEBIUS
+        # RECORDED_LIVE direct mutation is also rejected
         vault_recorded = TrustedWitnessVault()
-        vault_recorded._authorized_provenances = frozenset({EvidenceProvenance.RECORDED_LIVE})
+        with pytest.raises(UntrustedWitnessAuthorityError, match="Direct mutation or substitution"):
+            vault_recorded._authorized_provenances = frozenset({EvidenceProvenance.RECORDED_LIVE})
         assert (
             vault_recorded.verify_execution_authority(
                 receipt_or_attestation=object(),

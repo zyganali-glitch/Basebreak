@@ -22,6 +22,7 @@ from basebreak.causal.coverage import (
     RequirementEligibility,
     compute_causal_coverage,
 )
+from basebreak.causal.engine import CausalExecutionEngine
 from basebreak.causal.public_receipt import (
     PublicExecutionFact,
     PublicReceiptIntegrityError,
@@ -46,8 +47,13 @@ from basebreak.integrations.github.mutation_boundary import (
     GitHubMutationBoundary,
     UnauthorizedMutationError,
 )
+from basebreak.verifier.sandbox import VerifierSandboxManager
 from basebreak.verifier.witness_result import WitnessOutcome
-from basebreak.verifier.witness_store import TrustedWitnessVault, WitnessArtifact
+from basebreak.verifier.witness_store import (
+    TrustedWitnessVault,
+    UntrustedWitnessAuthorityError,
+    WitnessArtifact,
+)
 
 
 def _make_sample_contract(change_class: ChangeClass = ChangeClass.BUG_FIX) -> FrozenContract:
@@ -811,3 +817,312 @@ class TestBatchAAdversarialMatrix:
                 comment_body="Comment body",
                 dry_run=False,
             )
+
+
+class TestAuthorityOriginRepairMatrix:
+    """Mandatory adversarial regression matrix proving authority origin closure across 7 vectors."""
+
+    def test_adv_01_authorize_verifier_runtime_arbitrary_object_rejected(self) -> None:
+        """1. _authorize_verifier_runtime(object(), LIVE_NEBIUS) cannot produce authority."""
+        vault = TrustedWitnessVault()
+        with pytest.raises(
+            UntrustedWitnessAuthorityError,
+            match="authentic CausalExecutionEngine|not an authorized verifier execution boundary",
+        ):
+            vault._authorize_verifier_runtime(
+                object(),
+                EvidenceProvenance.LIVE_NEBIUS,
+            )
+        assert EvidenceProvenance.LIVE_NEBIUS not in vault.authorized_provenances
+        assert not vault.is_authoritative_root
+
+    def test_adv_02_caller_runtime_avoiding_mock_names_cannot_obtain_production_authority(
+        self,
+    ) -> None:
+        """2. Caller runtime whose class name avoids Mock/Fake/Stub cannot obtain authority."""
+        vault = TrustedWitnessVault()
+
+        class ProductionRunner:
+            provenance = EvidenceProvenance.LIVE_NEBIUS
+            sandbox_adapter = object()
+            materializer = object()
+
+        with pytest.raises(UntrustedWitnessAuthorityError):
+            vault._authorize_verifier_runtime(
+                ProductionRunner(),
+                EvidenceProvenance.LIVE_NEBIUS,
+            )
+        assert EvidenceProvenance.LIVE_NEBIUS not in vault.authorized_provenances
+
+        # Also prove via CausalExecutionEngine that custom adapter falls back to FIXTURE
+        class InnocentCustomAdapter:
+            def create_sandbox(self, **kwargs: Any) -> Any:
+                return "sbx-innocent"
+
+            def execute(self, **kwargs: Any) -> Any:
+                return None
+
+        class InnocentCustomMaterializer:
+            pass
+
+        manager = VerifierSandboxManager()
+        engine = CausalExecutionEngine(
+            sandbox_manager=manager,
+            sandbox_adapter=InnocentCustomAdapter(),
+            materializer=InnocentCustomMaterializer(),
+            vault=vault,
+            provenance=EvidenceProvenance.LIVE_NEBIUS,
+        )
+        assert engine.provenance != EvidenceProvenance.LIVE_NEBIUS
+        assert engine.provenance == EvidenceProvenance.FIXTURE
+        assert EvidenceProvenance.LIVE_NEBIUS not in vault.authorized_provenances
+
+    def test_adv_03_direct_production_authorization_through_engine_root_rejected(self) -> None:
+        """3. Direct production authorization through _authorize_as_engine_root() is rejected."""
+        vault = TrustedWitnessVault()
+
+        class LiveRootEngine:
+            provenance = EvidenceProvenance.LIVE_NEBIUS
+            sandbox_adapter = object()
+
+        with pytest.raises(UntrustedWitnessAuthorityError):
+            vault._authorize_as_engine_root(LiveRootEngine())
+
+        assert EvidenceProvenance.LIVE_NEBIUS not in vault.authorized_provenances
+        assert not vault.is_authoritative_root
+
+    def test_adv_04_caller_originated_record_observed_execution_without_trusted_execution_rejected(
+        self,
+    ) -> None:
+        """4. Caller-originated record_observed_execution() cannot produce authority."""
+        vault = TrustedWitnessVault()
+        wa = WitnessArtifact.from_text(path="tests/test_adv4.py", content="def test_adv4(): pass\n")
+        rec = vault.seal_witness(
+            witness_id="WIT-ADV4",
+            requirement_id="REQ-ADV4",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            artifacts=[wa],
+        )
+        # Attempting to record LIVE_NEBIUS observations without trusted execution MUST fail closed
+        with pytest.raises(
+            UntrustedWitnessAuthorityError,
+            match="Caller-originated record_observed_execution|Vault is not authorized",
+        ):
+            vault.record_observed_execution(
+                witness_id="WIT-ADV4",
+                witness_digest=rec.seal_digest,
+                requirement_id="REQ-ADV4",
+                frozen_contract_digest="c" * 64,
+                source_commit_id="1" * 40,
+                candidate_tree_digest="5" * 40,
+                sandbox_id="sbx-adv4",
+                world=ExecutionWorld.BASE,
+                command=("pytest", "tests/test_adv4.py"),
+                exit_code=1,
+                termination_status=TerminationStatus.COMPLETED,
+                stdout_digest="3" * 64,
+                stderr_digest="4" * 64,
+                result_digest="8" * 64,
+                outcome=WitnessOutcome.FAIL,
+                provenance=EvidenceProvenance.LIVE_NEBIUS,
+            )
+
+    def test_adv_05_direct_mutation_or_substitution_of_provenance_state_rejected(self) -> None:
+        """5. Direct mutation or substitution of provenance authorization state fails closed."""
+        vault = TrustedWitnessVault()
+        # Direct assignment to _authorized_provenances
+        with pytest.raises(UntrustedWitnessAuthorityError, match="Direct mutation or substitution"):
+            vault._authorized_provenances = frozenset({EvidenceProvenance.LIVE_NEBIUS})
+
+        # Property assignment to authorized_provenances
+        with pytest.raises((UntrustedWitnessAuthorityError, AttributeError)):
+            vault.authorized_provenances = frozenset({EvidenceProvenance.LIVE_NEBIUS})  # type: ignore[misc]
+
+        # setattr invocation
+        with pytest.raises(UntrustedWitnessAuthorityError, match="Direct mutation or substitution"):
+            setattr(vault, "_authorized_provenances", frozenset({EvidenceProvenance.LIVE_NEBIUS}))
+
+        assert EvidenceProvenance.LIVE_NEBIUS not in vault.authorized_provenances
+        assert not vault.is_authoritative_root
+
+    def test_adv_06_fabricated_observations_and_attestation_cannot_achieve_verified_causal_coverage(
+        self,
+    ) -> None:
+        """6. Fabricated BASE=FAIL and CANDIDATE=PASS observations followed by attestation
+        cannot produce VERIFIED causal coverage for a production claim.
+        """
+        contract = _make_sample_contract(ChangeClass.BUG_FIX)
+        req_id = "REQ-001"
+        c_digest = contract.contract_digest
+
+        vault = TrustedWitnessVault.create_authorized_vault()
+        wa = WitnessArtifact.from_text(path="tests/test_adv6.py", content="def test_adv6(): pass\n")
+        rec = vault.seal_witness(
+            witness_id="WIT-ADV6",
+            requirement_id=req_id,
+            frozen_contract_digest=c_digest,
+            source_commit_id="1" * 40,
+            artifacts=[wa],
+        )
+        base_wef = WorldExecutionFact(
+            world=ExecutionWorld.BASE,
+            sandbox_id="sbx-adv6-base",
+            source_commit_id="1" * 40,
+            tree_digest="2" * 40,
+            outcome=WitnessOutcome.FAIL,
+            exit_code=1,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="3" * 64,
+            stderr_digest="4" * 64,
+            result_digest="8" * 64,
+            duration_seconds=1.0,
+        )
+        cand_wef = WorldExecutionFact(
+            world=ExecutionWorld.CANDIDATE,
+            sandbox_id="sbx-adv6-cand",
+            source_commit_id="1" * 40,
+            tree_digest="5" * 40,
+            outcome=WitnessOutcome.PASS,
+            exit_code=0,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="6" * 64,
+            stderr_digest="7" * 64,
+            result_digest="9" * 64,
+            duration_seconds=1.0,
+        )
+        vault.record_observed_execution(
+            witness_id="WIT-ADV6",
+            witness_digest=rec.seal_digest,
+            requirement_id=req_id,
+            frozen_contract_digest=c_digest,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            sandbox_id=base_wef.sandbox_id,
+            world=ExecutionWorld.BASE,
+            command=("pytest", "tests/test_adv6.py"),
+            exit_code=base_wef.exit_code,
+            termination_status=base_wef.termination_status,
+            stdout_digest=base_wef.stdout_digest,
+            stderr_digest=base_wef.stderr_digest,
+            result_digest=base_wef.result_digest,
+            outcome=base_wef.outcome,
+            provenance=EvidenceProvenance.FIXTURE,
+        )
+        vault.record_observed_execution(
+            witness_id="WIT-ADV6",
+            witness_digest=rec.seal_digest,
+            requirement_id=req_id,
+            frozen_contract_digest=c_digest,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            sandbox_id=cand_wef.sandbox_id,
+            world=ExecutionWorld.CANDIDATE,
+            command=("pytest", "tests/test_adv6.py"),
+            exit_code=cand_wef.exit_code,
+            termination_status=cand_wef.termination_status,
+            stdout_digest=cand_wef.stdout_digest,
+            stderr_digest=cand_wef.stderr_digest,
+            result_digest=cand_wef.result_digest,
+            outcome=cand_wef.outcome,
+            provenance=EvidenceProvenance.FIXTURE,
+        )
+        att = vault.attest_execution(
+            witness_id="WIT-ADV6",
+            requirement_id=req_id,
+            frozen_contract_digest=c_digest,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            base_execution=base_wef,
+            candidate_execution=cand_wef,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.FIXTURE,
+        )
+
+        # Attacker crafts receipt claiming LOCAL_EXECUTION
+        receipt_local = create_causal_receipt(
+            requirement_id=req_id,
+            frozen_contract_digest=c_digest,
+            witness_id="WIT-ADV6",
+            witness_digest=rec.seal_digest,
+            lock_digest="d" * 64,
+            base_execution=base_wef,
+            candidate_execution=cand_wef,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            narrative="Fabricated local execution attempt",
+            attestation=att,
+        )
+        cov = compute_causal_coverage(
+            frozen_contract=contract,
+            results={"REQ-001": receipt_local},
+            verifier_authority=vault,
+        )
+        assert cov.verified_count == 0
+        assert cov.overall_verdict != PreliminaryVerdict.VERIFIED
+
+    def test_adv_07_attempted_fixture_or_local_promotion_to_live_nebius_rejected(self) -> None:
+        """7. Attempted FIXTURE or LOCAL_EXECUTION promotion to LIVE_NEBIUS is rejected."""
+        vault = TrustedWitnessVault.create_authorized_vault()
+        # 1. Attesting LIVE_NEBIUS from fixture vault fails closed
+        with pytest.raises(UntrustedWitnessAuthorityError, match="not authorized to attest"):
+            vault.attest_execution(
+                witness_id="WIT-ADV7",
+                requirement_id="REQ-ADV7",
+                frozen_contract_digest="c" * 64,
+                source_commit_id="1" * 40,
+                base_execution=object(),
+                candidate_execution=object(),
+                transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+                verdict=PreliminaryVerdict.VERIFIED,
+                provenance=EvidenceProvenance.LIVE_NEBIUS,
+            )
+
+        # 2. Verifying receipt claiming LIVE_NEBIUS against fixture vault returns False
+        dummy_rc = create_causal_receipt(
+            requirement_id="REQ-ADV7",
+            frozen_contract_digest="c" * 64,
+            witness_id="WIT-ADV7",
+            witness_digest="a" * 64,
+            lock_digest="b" * 64,
+            base_execution=WorldExecutionFact(
+                world=ExecutionWorld.BASE,
+                sandbox_id="sbx-1",
+                source_commit_id="1" * 40,
+                tree_digest="2" * 40,
+                outcome=WitnessOutcome.FAIL,
+                exit_code=1,
+                termination_status=TerminationStatus.COMPLETED,
+                stdout_digest="3" * 64,
+                stderr_digest="4" * 64,
+                result_digest="8" * 64,
+                duration_seconds=1.0,
+            ),
+            candidate_execution=WorldExecutionFact(
+                world=ExecutionWorld.CANDIDATE,
+                sandbox_id="sbx-2",
+                source_commit_id="1" * 40,
+                tree_digest="5" * 40,
+                outcome=WitnessOutcome.PASS,
+                exit_code=0,
+                termination_status=TerminationStatus.COMPLETED,
+                stdout_digest="6" * 64,
+                stderr_digest="7" * 64,
+                result_digest="9" * 64,
+                duration_seconds=1.0,
+            ),
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LIVE_NEBIUS,
+            narrative="Promotion attempt",
+            attestation=None,
+        )
+        assert vault.verify_execution_authority(receipt=dummy_rc) is False
+        assert (
+            vault.verify_execution_authority(
+                receipt=dummy_rc, provenance=EvidenceProvenance.LIVE_NEBIUS
+            )
+            is False
+        )
