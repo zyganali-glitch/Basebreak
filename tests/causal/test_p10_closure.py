@@ -422,7 +422,7 @@ class TestP10CausalClosure:
             sandbox_adapter=adapter,
             materializer=materializer,
             vault=TrustedWitnessVault(b"test-secret-key-fresh-vault-32b"),
-            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            provenance=EvidenceProvenance.FIXTURE,
         )
 
         # Verify summary content
@@ -431,7 +431,7 @@ class TestP10CausalClosure:
         assert summary["preliminary_verdict"] == "VERIFIED"
         assert summary["is_causally_verified"] is True
         assert summary["causal_transition"] == "CAUSAL_BUG_FIX_VERIFIED"
-        assert summary["evidence_provenance"] == "LOCAL_EXECUTION"
+        assert summary["evidence_provenance"] == "FIXTURE"
         assert summary["cryptographic_digest_chain"]["chain_valid"] is True
 
         # Verify markdown layout

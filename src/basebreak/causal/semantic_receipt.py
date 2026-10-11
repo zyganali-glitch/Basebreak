@@ -270,7 +270,6 @@ class SemanticVerificationReceipt:
             payload["attestation"] = self.attestation.to_dict()
         return payload
 
-
     def to_json(self) -> str:
         """Convert to canonical JSON string."""
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -447,7 +446,6 @@ def create_semantic_receipt(
         is_authoritative=False,
         attestation=attestation,
     )
-
 
 
 def verify_semantic_receipt_integrity(receipt: SemanticVerificationReceipt) -> bool:

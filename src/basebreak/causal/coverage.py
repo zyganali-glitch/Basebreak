@@ -419,9 +419,7 @@ def compute_causal_coverage(
         )
 
     # Validate verifier authority boundary: caller-supplied functions rejected
-    if verifier_authority is not None and not isinstance(
-        verifier_authority, TrustedWitnessVault
-    ):
+    if verifier_authority is not None and not isinstance(verifier_authority, TrustedWitnessVault):
         vtype = type(verifier_authority).__name__
         raise CoverageIntegrityError(
             f"verifier_authority must be a TrustedWitnessVault instance, got {vtype}"

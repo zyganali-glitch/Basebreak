@@ -500,7 +500,7 @@ class TestP1104AndP1105CausalTripletExecution:
             sandbox_adapter=mock_adapter,
             materializer=materializer,
             vault=vault,
-            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            provenance=EvidenceProvenance.FIXTURE,
         )
 
         receipt = engine.execute_causal_triplet(
@@ -515,7 +515,7 @@ class TestP1104AndP1105CausalTripletExecution:
         assert receipt.verdict == PreliminaryVerdict.VERIFIED
         assert receipt.is_causally_verified is True
         assert receipt.transition == CausalTransition.CAUSAL_TRIPLET_VERIFIED
-        assert receipt.provenance == EvidenceProvenance.LOCAL_EXECUTION
+        assert receipt.provenance == EvidenceProvenance.FIXTURE
 
         # Assert 3-world execution facts
         assert receipt.base_execution.outcome == WitnessOutcome.FAIL

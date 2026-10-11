@@ -216,6 +216,42 @@ class TestBatchAAdversarialMatrix:
             source_commit_id="1" * 40,
             artifacts=[wa],
         )
+        vault.record_observed_execution(
+            witness_id="wit-1",
+            witness_digest=rec.seal_digest,
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            sandbox_id=base_wef.sandbox_id,
+            world=ExecutionWorld.BASE,
+            command=("pytest", "tests/test_wit.py"),
+            exit_code=base_wef.exit_code,
+            termination_status=base_wef.termination_status,
+            stdout_digest=base_wef.stdout_digest,
+            stderr_digest=base_wef.stderr_digest,
+            result_digest=base_wef.result_digest,
+            outcome=base_wef.outcome,
+            provenance=EvidenceProvenance.FIXTURE,
+        )
+        vault.record_observed_execution(
+            witness_id="wit-1",
+            witness_digest=rec.seal_digest,
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            sandbox_id=cand_wef.sandbox_id,
+            world=ExecutionWorld.CANDIDATE,
+            command=("pytest", "tests/test_wit.py"),
+            exit_code=cand_wef.exit_code,
+            termination_status=cand_wef.termination_status,
+            stdout_digest=cand_wef.stdout_digest,
+            stderr_digest=cand_wef.stderr_digest,
+            result_digest=cand_wef.result_digest,
+            outcome=cand_wef.outcome,
+            provenance=EvidenceProvenance.FIXTURE,
+        )
         attestation = vault.attest_execution(
             witness_id="wit-1",
             requirement_id="REQ-001",
@@ -227,7 +263,7 @@ class TestBatchAAdversarialMatrix:
             counterfactual_execution=None,
             transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
             verdict=PreliminaryVerdict.VERIFIED,
-            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            provenance=EvidenceProvenance.FIXTURE,
             witness_digest=rec.seal_digest,
         )
         local_rc = create_causal_receipt(
@@ -240,7 +276,7 @@ class TestBatchAAdversarialMatrix:
             candidate_execution=cand_wef,
             transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
             verdict=PreliminaryVerdict.VERIFIED,
-            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            provenance=EvidenceProvenance.FIXTURE,
             narrative="Proven",
             attestation=attestation,
         )
@@ -288,7 +324,7 @@ class TestBatchAAdversarialMatrix:
             executions=(base_exec, cand_exec),
             witnesses=(witness,),
             overall_verdict=PreliminaryVerdict.VERIFIED,
-            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            provenance=EvidenceProvenance.FIXTURE,
         )
 
         # Alter candidate_tree_digest without recomputing digest
@@ -362,6 +398,42 @@ class TestBatchAAdversarialMatrix:
             source_commit_id="1" * 40,
             artifacts=[wa],
         )
+        vault.record_observed_execution(
+            witness_id="wit-1",
+            witness_digest=rec.seal_digest,
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            sandbox_id=base_wef.sandbox_id,
+            world=ExecutionWorld.BASE,
+            command=("pytest", "tests/test_wit.py"),
+            exit_code=base_wef.exit_code,
+            termination_status=base_wef.termination_status,
+            stdout_digest=base_wef.stdout_digest,
+            stderr_digest=base_wef.stderr_digest,
+            result_digest=base_wef.result_digest,
+            outcome=base_wef.outcome,
+            provenance=EvidenceProvenance.FIXTURE,
+        )
+        vault.record_observed_execution(
+            witness_id="wit-1",
+            witness_digest=rec.seal_digest,
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            sandbox_id=cand_wef.sandbox_id,
+            world=ExecutionWorld.CANDIDATE,
+            command=("pytest", "tests/test_wit.py"),
+            exit_code=cand_wef.exit_code,
+            termination_status=cand_wef.termination_status,
+            stdout_digest=cand_wef.stdout_digest,
+            stderr_digest=cand_wef.stderr_digest,
+            result_digest=cand_wef.result_digest,
+            outcome=cand_wef.outcome,
+            provenance=EvidenceProvenance.FIXTURE,
+        )
         attestation = vault.attest_execution(
             witness_id="wit-1",
             requirement_id="REQ-001",
@@ -373,7 +445,7 @@ class TestBatchAAdversarialMatrix:
             counterfactual_execution=None,
             transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
             verdict=PreliminaryVerdict.VERIFIED,
-            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            provenance=EvidenceProvenance.FIXTURE,
             witness_digest=rec.seal_digest,
         )
         local_rc = create_causal_receipt(
@@ -386,7 +458,7 @@ class TestBatchAAdversarialMatrix:
             candidate_execution=cand_wef,
             transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
             verdict=PreliminaryVerdict.VERIFIED,
-            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            provenance=EvidenceProvenance.FIXTURE,
             narrative="Proven",
             attestation=attestation,
         )
@@ -435,7 +507,7 @@ class TestBatchAAdversarialMatrix:
                 executions=(base_exec_pass, cand_exec),
                 witnesses=(witness,),
                 overall_verdict=PreliminaryVerdict.VERIFIED,
-                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                provenance=EvidenceProvenance.FIXTURE,
             )
 
     def test_case_10_cli_and_api_reject_forged_receipts_on_retrieval(self, tmp_path: Path) -> None:

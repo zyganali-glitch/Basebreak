@@ -141,9 +141,42 @@ class CausalExecutionEngine:
             self.materializer = materializer
 
         self.vault = vault
-        if hasattr(self.vault, "_authorize_as_engine_root"):
+        is_mock_or_sim = self._is_mock_or_simulated(sandbox_adapter, self.materializer)
+        if is_mock_or_sim:
+            self.provenance = EvidenceProvenance.FIXTURE
+        else:
+            self.provenance = provenance
+
+        if hasattr(self.vault, "_authorize_verifier_runtime"):
+            self.vault._authorize_verifier_runtime(self, self.provenance)
+        elif hasattr(self.vault, "_authorize_as_engine_root"):
             self.vault._authorize_as_engine_root(self)
-        self.provenance = provenance
+
+    @staticmethod
+    def _is_mock_or_simulated(adapter: Any, materializer: Any) -> bool:
+        """Deterministically check if adapter or materializer is mock, fake, or simulation."""
+
+        def _is_untrusted(obj: Any) -> bool:
+            if obj is None:
+                return True
+            cls = type(obj)
+            mod_name = getattr(cls, "__module__", "") or ""
+            cls_name = getattr(cls, "__name__", "") or ""
+            if "unittest.mock" in mod_name or "mock" in cls_name.lower():
+                return True
+            if any(k in cls_name for k in ("Mock", "Fake", "Simulat", "Stub", "Scriptable")):
+                return True
+            if getattr(obj, "is_simulation", False) or getattr(obj, "is_mock", False):
+                return True
+            if hasattr(obj, "adapter") and obj.adapter is not obj:
+                if _is_untrusted(obj.adapter):
+                    return True
+            if hasattr(obj, "source_materializer") and obj.source_materializer is not obj:
+                if _is_untrusted(obj.source_materializer):
+                    return True
+            return False
+
+        return _is_untrusted(adapter) or _is_untrusted(materializer)
 
     def _deploy_witness_artifacts(
         self,
@@ -317,6 +350,27 @@ class CausalExecutionEngine:
                 max_output_bytes=context_envelope.execution_policy.max_output_bytes,
             )
 
+            # Record authentic verifier observation in vault
+            if hasattr(self.vault, "record_observed_execution"):
+                self.vault.record_observed_execution(
+                    witness_id=sealed_record.witness_id,
+                    witness_digest=sealed_record.seal_digest,
+                    requirement_id=sealed_record.requirement_id,
+                    frozen_contract_digest=sealed_record.frozen_contract_digest,
+                    source_commit_id=sealed_record.source_commit_id,
+                    candidate_tree_digest=session.materialized_tree_digest,
+                    sandbox_id=session.sandbox_identity.sandbox_id,
+                    world=world,
+                    command=execution_command,
+                    exit_code=normalized_result.exit_code,
+                    termination_status=normalized_result.termination_status,
+                    stdout_digest=normalized_result.stdout_digest,
+                    stderr_digest=normalized_result.stderr_digest,
+                    result_digest=normalized_result.result_digest,
+                    outcome=normalized_result.outcome,
+                    provenance=self.provenance,
+                )
+
             # 5. Vacuity checks
             code_vacuity = analyze_artifact_code_vacuity(sealed_record.artifacts)
             runtime_vacuity = analyze_runtime_execution_vacuity(normalized_result, code_vacuity)
@@ -453,7 +507,6 @@ class CausalExecutionEngine:
         )
 
         attestation = self.vault.attest_execution(
-
             witness_id=sealed_record.witness_id,
             requirement_id=sealed_record.requirement_id,
             frozen_contract_digest=sealed_record.frozen_contract_digest,
@@ -482,7 +535,6 @@ class CausalExecutionEngine:
         )
 
         return receipt
-
 
     def execute_causal_triplet(
         self,
@@ -717,4 +769,3 @@ class CausalExecutionEngine:
         )
 
         return receipt
-

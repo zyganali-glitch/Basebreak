@@ -94,6 +94,42 @@ def _sample_receipt() -> PublicVerificationReceipt:
         source_commit_id="1" * 40,
         artifacts=[wa],
     )
+    vault.record_observed_execution(
+        witness_id="WIT-001",
+        witness_digest=rec.seal_digest,
+        requirement_id="REQ-AUTH-01",
+        frozen_contract_digest="c" * 64,
+        source_commit_id="1" * 40,
+        candidate_tree_digest="5" * 40,
+        sandbox_id=base_wef.sandbox_id,
+        world=ExecutionWorld.BASE,
+        command=("pytest", "tests/test_auth_witness.py"),
+        exit_code=base_wef.exit_code,
+        termination_status=base_wef.termination_status,
+        stdout_digest=base_wef.stdout_digest,
+        stderr_digest=base_wef.stderr_digest,
+        result_digest=base_wef.result_digest,
+        outcome=base_wef.outcome,
+        provenance=EvidenceProvenance.FIXTURE,
+    )
+    vault.record_observed_execution(
+        witness_id="WIT-001",
+        witness_digest=rec.seal_digest,
+        requirement_id="REQ-AUTH-01",
+        frozen_contract_digest="c" * 64,
+        source_commit_id="1" * 40,
+        candidate_tree_digest="5" * 40,
+        sandbox_id=cand_wef.sandbox_id,
+        world=ExecutionWorld.CANDIDATE,
+        command=("pytest", "tests/test_auth_witness.py"),
+        exit_code=cand_wef.exit_code,
+        termination_status=cand_wef.termination_status,
+        stdout_digest=cand_wef.stdout_digest,
+        stderr_digest=cand_wef.stderr_digest,
+        result_digest=cand_wef.result_digest,
+        outcome=cand_wef.outcome,
+        provenance=EvidenceProvenance.FIXTURE,
+    )
     attestation = vault.attest_execution(
         requirement_id="REQ-AUTH-01",
         frozen_contract_digest="c" * 64,
@@ -105,7 +141,7 @@ def _sample_receipt() -> PublicVerificationReceipt:
         counterfactual_execution=None,
         transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
         verdict=PreliminaryVerdict.VERIFIED,
-        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        provenance=EvidenceProvenance.FIXTURE,
     )
     local_receipt = create_causal_receipt(
         requirement_id="REQ-AUTH-01",
@@ -117,7 +153,7 @@ def _sample_receipt() -> PublicVerificationReceipt:
         candidate_execution=cand_wef,
         transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
         verdict=PreliminaryVerdict.VERIFIED,
-        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        provenance=EvidenceProvenance.FIXTURE,
         narrative="Base failed, candidate passed",
         attestation=attestation,
     )
@@ -173,7 +209,7 @@ def _sample_receipt() -> PublicVerificationReceipt:
         executions=(base_exec, cand_exec),
         witnesses=(witness,),
         overall_verdict=PreliminaryVerdict.VERIFIED,
-        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        provenance=EvidenceProvenance.FIXTURE,
         runtime_identities=("sbx-base-123", "sbx-cand-456"),
     )
 
@@ -187,7 +223,7 @@ class TestPublicVerificationReceiptP18:
         assert receipt.schema_version == "1.0.0"
         assert len(receipt.receipt_digest) == 64
         assert receipt.overall_verdict == PreliminaryVerdict.VERIFIED
-        assert receipt.provenance == EvidenceProvenance.LOCAL_EXECUTION
+        assert receipt.provenance == EvidenceProvenance.FIXTURE
 
         # Verify integrity
         verify_public_receipt_integrity(receipt)
@@ -231,7 +267,7 @@ class TestPublicVerificationReceiptP18:
             executions=(*base_receipt.executions, cf_exec),
             witnesses=base_receipt.witnesses,
             overall_verdict=PreliminaryVerdict.VERIFIED,
-            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            provenance=EvidenceProvenance.FIXTURE,
             counterfactual=cf_fact,
         )
 
@@ -253,7 +289,7 @@ class TestPublicVerificationReceiptP18:
             executions=base_receipt.executions,
             witnesses=base_receipt.witnesses,
             overall_verdict=PreliminaryVerdict.VERIFIED,
-            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            provenance=EvidenceProvenance.FIXTURE,
             not_run_obligations=("Performance benchmark check NOT_RUN",),
             timing={"created_at_utc": "2026-10-10T21:00:00Z", "total_duration_seconds": 4.3},
         )
@@ -374,7 +410,7 @@ class TestPublicVerificationReceiptP18:
                 executions=(base_pass_exec, cand_exec),
                 witnesses=receipt.witnesses,
                 overall_verdict=PreliminaryVerdict.VERIFIED,
-                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                provenance=EvidenceProvenance.FIXTURE,
             )
 
     def test_adversarial_is_authoritative_promotion_without_signature_rejected(self) -> None:

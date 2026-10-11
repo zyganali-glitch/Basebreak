@@ -29,6 +29,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from basebreak.domain.causal import ExecutionWorld
+from basebreak.domain.execution import TerminationStatus
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.security.protected_surfaces import (
     PathSecurityError,
@@ -43,7 +45,6 @@ from basebreak.verifier.witness_result import WitnessOutcome
 
 _HEX_40_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-
 
 
 # --- Exceptions ---
@@ -474,6 +475,45 @@ class VerifierExecutionAttestation:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class VerifierObservedExecutionRecord:
+    """An immutable record of an execution observation witnessed by the authorized verifier runtime.
+
+    Binds the observed execution fact directly to:
+    - requirement_id
+    - frozen_contract_digest
+    - witness_id and sealed witness_digest
+    - source_commit_id
+    - candidate_tree_digest
+    - sandbox_id
+    - world (BASE, CANDIDATE, COUNTERFACTUAL)
+    - command
+    - exit_code
+    - termination_status
+    - stdout/stderr/result digests
+    - outcome (WitnessOutcome)
+    - provenance (EvidenceProvenance)
+    """
+
+    witness_id: str
+    witness_digest: str
+    requirement_id: str
+    frozen_contract_digest: str
+    source_commit_id: str
+    candidate_tree_digest: str
+    sandbox_id: str
+    world: ExecutionWorld
+    command: tuple[str, ...] | str
+    exit_code: int | None
+    termination_status: TerminationStatus
+    stdout_digest: str
+    stderr_digest: str
+    result_digest: str
+    outcome: WitnessOutcome
+    provenance: EvidenceProvenance
+    observed_at_utc: str
+
+
 # --- Trusted Witness Vault ---
 
 
@@ -489,30 +529,169 @@ class TrustedWitnessVault:
         self._registered_seals: dict[str, tuple[str, str]] = {}
         self._records: dict[str, SealedWitnessRecord] = {}
         self._registered_executions: dict[str, VerifierExecutionAttestation] = {}
-        self._observed_executions: dict[str, dict[str, Any]] = {}
-        self._is_authoritative_root: bool = False
+        self._observed_executions: dict[tuple[str, str], VerifierObservedExecutionRecord] = {}
+        self._authorized_provenances: frozenset[EvidenceProvenance] = frozenset()
         self._bound_engine: Any | None = None
 
     @property
     def is_authoritative_root(self) -> bool:
         """Return True if this vault is an authorized verifier execution authority root."""
-        return self._is_authoritative_root
+        return bool(self._authorized_provenances)
+
+    @property
+    def authorized_provenances(self) -> frozenset[EvidenceProvenance]:
+        """Return the frozenset of authorized EvidenceProvenance scopes for this vault."""
+        return self._authorized_provenances
+
+    def _authorize_verifier_runtime(
+        self,
+        runtime: Any,
+        provenance: EvidenceProvenance,
+    ) -> None:
+        """Authorize this vault for a specific provenance based on authentic verifier runtime.
+
+        Production authority must originate at the genuine verifier runtime boundary.
+        Mock/simulated runtimes cannot obtain LOCAL_EXECUTION or LIVE_NEBIUS authority.
+        """
+        if runtime is None:
+            raise UntrustedWitnessAuthorityError("runtime cannot be None")
+
+        is_mock = False
+        cls_name = type(runtime).__name__
+        if any(k in cls_name for k in ("Mock", "Fake", "Simulat", "Stub")):
+            is_mock = True
+        elif hasattr(runtime, "sandbox_adapter") and runtime.sandbox_adapter is not None:
+            ad_name = type(runtime.sandbox_adapter).__name__
+            if any(k in ad_name for k in ("Mock", "Fake", "Simulat", "Stub")) or getattr(
+                runtime.sandbox_adapter, "is_simulation", False
+            ):
+                is_mock = True
+        if hasattr(runtime, "materializer") and runtime.materializer is not None:
+            mat_name = type(runtime.materializer).__name__
+            if any(k in mat_name for k in ("Mock", "Fake", "Simulat", "Stub")):
+                is_mock = True
+
+        if is_mock or provenance == EvidenceProvenance.FIXTURE:
+            self._authorized_provenances = self._authorized_provenances | {
+                EvidenceProvenance.FIXTURE
+            }
+        else:
+            self._authorized_provenances = self._authorized_provenances | {provenance}
+
+        self._bound_engine = runtime
 
     def _authorize_as_engine_root(self, engine: Any) -> None:
-        """Authorize this vault as an execution authority root bound to an execution engine."""
-        self._bound_engine = engine
-        self._is_authoritative_root = True
+        """Authorize vault root bound to an execution engine, inspecting runtime provenance."""
+        prov = getattr(engine, "provenance", EvidenceProvenance.FIXTURE)
+        self._authorize_verifier_runtime(engine, prov)
 
     @classmethod
-    def create_authorized_vault(cls, vault_secret: bytes | None = None) -> TrustedWitnessVault:
-        """Create a vault explicitly authorized as a verifier authority root.
+    def create_authorized_vault(
+        cls,
+        vault_secret: bytes | None = None,
+        *,
+        fixture_only: bool = True,
+    ) -> TrustedWitnessVault:
+        """Create a vault explicitly authorized strictly for FIXTURE-scoped verification.
 
-        Used strictly by authorized verifier runtime contexts and integration harnesses.
+        Test-only authority factory strictly incapable of certifying real
+        LOCAL_EXECUTION or LIVE_NEBIUS evidence.
         """
         vault = cls(vault_secret=vault_secret)
-        vault._is_authoritative_root = True
+        vault._authorized_provenances = frozenset({EvidenceProvenance.FIXTURE})
         return vault
 
+    def record_observed_execution(
+        self,
+        *,
+        witness_id: str,
+        witness_digest: str,
+        requirement_id: str,
+        frozen_contract_digest: str,
+        source_commit_id: str,
+        candidate_tree_digest: str,
+        sandbox_id: str,
+        world: ExecutionWorld,
+        command: Sequence[str] | str = (),
+        exit_code: int | None,
+        termination_status: TerminationStatus,
+        stdout_digest: str,
+        stderr_digest: str,
+        result_digest: str,
+        outcome: WitnessOutcome,
+        provenance: EvidenceProvenance,
+        observed_at_utc: str | None = None,
+    ) -> VerifierObservedExecutionRecord:
+        """Record an execution observation independently witnessed by the verifier runtime."""
+        clean_wid = str(witness_id).strip()
+        if not clean_wid:
+            raise WitnessIntegrityError("witness_id must not be empty")
+
+        if provenance not in self._authorized_provenances:
+            raise UntrustedWitnessAuthorityError(
+                f"Vault is not authorized to record execution observations for {provenance.value}; "
+                f"authorized scopes: {[p.value for p in self._authorized_provenances]}"
+            )
+
+        sealed_record = self._records.get(clean_wid)
+        if sealed_record is None:
+            raise UntrustedWitnessAuthorityError(
+                f"Witness ID {clean_wid!r} must be sealed in the trusted vault "
+                "before recording observations"
+            )
+
+        self.verify_witness_integrity(sealed_record)
+
+        if sealed_record.seal_digest.lower() != witness_digest.lower():
+            raise WitnessTamperingError(
+                f"witness_digest mismatch for {clean_wid}: declared {witness_digest}, "
+                f"sealed {sealed_record.seal_digest}"
+            )
+        if sealed_record.requirement_id != requirement_id:
+            raise WitnessIntegrityError(
+                f"requirement_id mismatch: declared {requirement_id}, "
+                f"sealed {sealed_record.requirement_id}"
+            )
+        if sealed_record.frozen_contract_digest.lower() != frozen_contract_digest.lower():
+            raise WitnessIntegrityError("frozen_contract_digest mismatch")
+        if sealed_record.source_commit_id.lower() != source_commit_id.lower():
+            raise WitnessIntegrityError("source_commit_id mismatch")
+
+        if not isinstance(outcome, WitnessOutcome):
+            raise TypeError(f"outcome must be WitnessOutcome, got {type(outcome).__name__}")
+        if not isinstance(world, ExecutionWorld):
+            raise TypeError(f"world must be ExecutionWorld, got {type(world).__name__}")
+        if not isinstance(provenance, EvidenceProvenance):
+            raise TypeError(
+                f"provenance must be EvidenceProvenance, got {type(provenance).__name__}"
+            )
+
+        cmd_tuple = tuple(command) if isinstance(command, (list, tuple)) else str(command)
+        timestamp = observed_at_utc or datetime.now(timezone.utc).isoformat()
+
+        obs_record = VerifierObservedExecutionRecord(
+            witness_id=clean_wid,
+            witness_digest=sealed_record.seal_digest,
+            requirement_id=requirement_id,
+            frozen_contract_digest=frozen_contract_digest,
+            source_commit_id=source_commit_id,
+            candidate_tree_digest=candidate_tree_digest,
+            sandbox_id=sandbox_id,
+            world=world,
+            command=cmd_tuple,
+            exit_code=exit_code,
+            termination_status=termination_status,
+            stdout_digest=stdout_digest,
+            stderr_digest=stderr_digest,
+            result_digest=result_digest,
+            outcome=outcome,
+            provenance=provenance,
+            observed_at_utc=timestamp,
+        )
+
+        world_str = world.value if hasattr(world, "value") else str(world)
+        self._observed_executions[(clean_wid, world_str)] = obs_record
+        return obs_record
 
     def seal_witness(
         self,
@@ -672,23 +851,26 @@ class TrustedWitnessVault:
         """Record and cryptographically attest genuine verifier-side execution.
 
         Fail-closed authority invariants:
-        1. Authority Root: Vault must be an authorized verifier execution authority root.
-           Caller-owned fresh vaults possess zero authority to attest execution.
+        1. Authority Root: Vault must be authorized for the specified evidence provenance.
+           Caller-owned fresh vaults or fixture-scoped vaults possess zero authority
+           to attest production execution.
         2. Sealed Witness Mandatory: Witness must be previously sealed in this vault.
            Caller-supplied witness_digest without sealed record is strictly rejected.
         3. Real Execution Records Mandatory: base_execution and candidate_execution
            records observed by verifier execution are required. Directly supplying
            outcomes without execution records is strictly rejected.
-        4. Outcome Integrity: Outcomes are derived from execution records.
-           Directly supplied outcomes conflicting with execution records are rejected.
-        5. Execution Registration: Attestation and observed execution facts are
-           cryptographically signed and recorded in vault registries.
+        4. Verifier Pre-Observation Mandatory: Pre-existing execution records observed
+           and recorded by the verifier runtime before attestation are required.
+           Direct registration of caller claims without prior verifier observation
+           is strictly prohibited.
+        5. Factual Consistency: Caller-supplied facts and outcomes must match
+           pre-recorded verifier observations.
         """
         # 1. Authority root check
-        if not self._is_authoritative_root:
+        if provenance not in self._authorized_provenances:
             raise UntrustedWitnessAuthorityError(
-                "Vault is not an authorized verifier execution authority root; "
-                "caller-owned vault cannot attest execution"
+                f"Vault is not authorized to attest execution for {provenance.value}; "
+                "caller-owned vault or fixture-scoped vault cannot attest production execution"
             )
 
         clean_wid = str(witness_id).strip()
@@ -739,6 +921,25 @@ class TrustedWitnessVault:
                 "execution records is prohibited"
             )
 
+        # 4. Mandatory prior observation lookup (Defect B)
+        obs_base = self._observed_executions.get((clean_wid, "BASE"))
+        obs_cand = self._observed_executions.get((clean_wid, "CANDIDATE"))
+        if obs_base is None or obs_cand is None:
+            raise UntrustedWitnessAuthorityError(
+                "attest_execution requires pre-existing verifier-observed execution records; "
+                "direct registration of caller-supplied execution claims without prior "
+                "verifier observation is prohibited"
+            )
+
+        obs_cf = None
+        if counterfactual_execution is not None or counterfactual_outcome is not None:
+            obs_cf = self._observed_executions.get((clean_wid, "COUNTERFACTUAL"))
+            if obs_cf is None:
+                raise UntrustedWitnessAuthorityError(
+                    "attest_execution requires pre-existing verifier-observed execution record "
+                    "for COUNTERFACTUAL"
+                )
+
         b_outcome = getattr(base_execution, "outcome", None)
         c_outcome = getattr(candidate_execution, "outcome", None)
         cf_outcome = (
@@ -762,7 +963,81 @@ class TrustedWitnessVault:
                 "counterfactual_execution must contain a valid WitnessOutcome"
             )
 
-        # 4. Outcome integrity check
+        # Cross-check base_execution against obs_base
+        if b_outcome != obs_base.outcome:
+            raise WitnessTamperingError(
+                f"Caller-supplied base_execution outcome ({b_outcome}) conflicts with "
+                f"observed outcome ({obs_base.outcome})"
+            )
+        if getattr(base_execution, "sandbox_id", None) != obs_base.sandbox_id:
+            raise WitnessTamperingError(
+                "base_execution sandbox_id does not match observed execution"
+            )
+        if getattr(base_execution, "result_digest", None) != obs_base.result_digest:
+            raise WitnessTamperingError(
+                "base_execution result_digest does not match observed execution"
+            )
+        if (
+            getattr(base_execution, "source_commit_id", "").lower()
+            != obs_base.source_commit_id.lower()
+        ):
+            raise WitnessTamperingError(
+                "base_execution source_commit_id does not match observed execution"
+            )
+        if obs_base.provenance != provenance:
+            raise WitnessTamperingError(
+                f"Observed base provenance ({obs_base.provenance.value}) does not match "
+                f"attestation provenance ({provenance.value})"
+            )
+
+        # Cross-check candidate_execution against obs_cand
+        if c_outcome != obs_cand.outcome:
+            raise WitnessTamperingError(
+                f"Caller-supplied candidate_execution outcome ({c_outcome}) conflicts with "
+                f"observed outcome ({obs_cand.outcome})"
+            )
+        if getattr(candidate_execution, "sandbox_id", None) != obs_cand.sandbox_id:
+            raise WitnessTamperingError(
+                "candidate_execution sandbox_id does not match observed execution"
+            )
+        if getattr(candidate_execution, "result_digest", None) != obs_cand.result_digest:
+            raise WitnessTamperingError(
+                "candidate_execution result_digest does not match observed execution"
+            )
+        if (
+            getattr(candidate_execution, "tree_digest", "").lower()
+            != obs_cand.candidate_tree_digest.lower()
+        ):
+            raise WitnessTamperingError(
+                "candidate_execution tree_digest does not match observed execution"
+            )
+        if obs_cand.provenance != provenance:
+            raise WitnessTamperingError(
+                f"Observed candidate provenance ({obs_cand.provenance.value}) does not match "
+                f"attestation provenance ({provenance.value})"
+            )
+
+        # Cross-check counterfactual_execution against obs_cf
+        if counterfactual_execution is not None and obs_cf is not None:
+            if cf_outcome != obs_cf.outcome:
+                raise WitnessTamperingError(
+                    f"Caller-supplied counterfactual_execution outcome ({cf_outcome}) "
+                    f"conflicts with observed outcome ({obs_cf.outcome})"
+                )
+            if getattr(counterfactual_execution, "sandbox_id", None) != obs_cf.sandbox_id:
+                raise WitnessTamperingError(
+                    "counterfactual_execution sandbox_id does not match observed execution"
+                )
+            if getattr(counterfactual_execution, "result_digest", None) != obs_cf.result_digest:
+                raise WitnessTamperingError(
+                    "counterfactual_execution result_digest does not match observed execution"
+                )
+            if obs_cf.provenance != provenance:
+                raise WitnessTamperingError(
+                    "Observed counterfactual provenance does not match attestation provenance"
+                )
+
+        # Outcome integrity check against explicitly supplied outcomes
         if base_outcome is not None and base_outcome != b_outcome:
             raise WitnessTamperingError(
                 f"Caller-supplied base_outcome ({base_outcome}) conflicts with "
@@ -778,13 +1053,6 @@ class TrustedWitnessVault:
                 f"Caller-supplied counterfactual_outcome ({counterfactual_outcome}) conflicts with "
                 f"counterfactual_execution outcome ({cf_outcome})"
             )
-
-        # Store observed executions
-        self._observed_executions[clean_wid] = {
-            "base": base_execution,
-            "candidate": candidate_execution,
-            "counterfactual": counterfactual_execution,
-        }
 
         # 5. Build canonical payload and sign
         timestamp = created_at_utc or datetime.now(timezone.utc).isoformat()
@@ -855,27 +1123,29 @@ class TrustedWitnessVault:
         """Mechanically verify that reported execution facts carry genuine vault authority.
 
         Fail-closed rules:
-        1. Authority Root: Vault must be an authorized verifier execution authority root.
+        1. Authority Root: Vault must be authorized for the specified provenance.
         2. Attestation Present: Must be a genuine VerifierExecutionAttestation.
         3. Registered Execution: Must be actually registered in this vault.
         4. HMAC Signature: Must match vault private secret.
         5. Attestation Digest: Recomputed payload must match attestation digest.
         6. Sealed Witness: Witness must be sealed in this vault with matching digests.
-        7. Observed Executions: Outcomes must match observed execution records.
+        7. Observed Executions: Pre-existing verifier-observed executions are mandatory.
         8. Context Bindings: requirement_id, contract_digest, source_commit, tree match.
         9. Exact Provenance Equality: Attestation provenance must exactly match expected
            provenance and receipt provenance. Promotion is strictly rejected.
         10. Receipt Cross-Binding: No claim-to-attestation drift or tampering permitted.
         """
         # 1. Authority root check
-        if not self._is_authoritative_root:
+        if not self._authorized_provenances:
+            return False
+        if provenance is not None and provenance not in self._authorized_provenances:
             return False
 
         # 2. Extract attestation and receipt
         lookup_id = requirement_id or expected_requirement_id or ""
         is_att = isinstance(receipt_or_attestation, VerifierExecutionAttestation)
-        effective_receipt: Any | None = receipt if receipt is not None else (
-            receipt_or_attestation if not is_att else None
+        effective_receipt: Any | None = (
+            receipt if receipt is not None else (receipt_or_attestation if not is_att else None)
         )
         receipt = effective_receipt
         att: VerifierExecutionAttestation | None = None
@@ -889,6 +1159,9 @@ class TrustedWitnessVault:
             att = attestation or self._registered_executions.get(lookup_id)
 
         if att is None or not isinstance(att, VerifierExecutionAttestation):
+            return False
+
+        if att.provenance not in self._authorized_provenances:
             return False
 
         # 3. Check actual registration in vault
@@ -939,21 +1212,28 @@ class TrustedWitnessVault:
         if att.source_commit_id.lower() != rec.source_commit_id.lower():
             return False
 
-        # 7. Check observed executions in vault
-        obs = self._observed_executions.get(att.witness_id) or self._observed_executions.get(
-            att.requirement_id
-        )
-        if obs is not None:
-            if getattr(obs["base"], "outcome", None) != att.base_outcome:
+        # 7. Check observed executions in vault (MANDATORY prior observation)
+        obs_base = self._observed_executions.get((att.witness_id, "BASE"))
+        obs_cand = self._observed_executions.get((att.witness_id, "CANDIDATE"))
+        if obs_base is None or obs_cand is None:
+            return False
+        if obs_base.outcome != att.base_outcome:
+            return False
+        if obs_cand.outcome != att.candidate_outcome:
+            return False
+        if obs_base.provenance != att.provenance:
+            return False
+        if obs_cand.provenance != att.provenance:
+            return False
+
+        if att.counterfactual_outcome is not None:
+            obs_cf = self._observed_executions.get((att.witness_id, "COUNTERFACTUAL"))
+            if obs_cf is None:
                 return False
-            if getattr(obs["candidate"], "outcome", None) != att.candidate_outcome:
+            if obs_cf.outcome != att.counterfactual_outcome:
                 return False
-            if att.counterfactual_outcome is not None:
-                if (
-                    getattr(obs.get("counterfactual"), "outcome", None)
-                    != att.counterfactual_outcome
-                ):
-                    return False
+            if obs_cf.provenance != att.provenance:
+                return False
 
         # 8. Check factual bindings against execution context
         req_id = expected_requirement_id or requirement_id
@@ -1065,9 +1345,7 @@ class TrustedWitnessVault:
             r_verd = getattr(receipt, "verdict", None)
             if r_verd is not None:
                 r_v_str = r_verd.value if hasattr(r_verd, "value") else str(r_verd)
-                a_v_str = (
-                    att.verdict.value if hasattr(att.verdict, "value") else str(att.verdict)
-                )
+                a_v_str = att.verdict.value if hasattr(att.verdict, "value") else str(att.verdict)
                 if r_v_str != a_v_str:
                     return False
 
@@ -1097,23 +1375,40 @@ class TrustedWitnessVault:
             ):
                 return False
 
-            # Outcomes equality
+            # Outcomes and execution facts cross-bindings
             r_base = getattr(receipt, "base_execution", None)
-            if r_base is not None and getattr(r_base, "outcome", None) != att.base_outcome:
-                return False
+            if r_base is not None:
+                if getattr(r_base, "outcome", None) != att.base_outcome:
+                    return False
+                if getattr(r_base, "sandbox_id", None) != obs_base.sandbox_id:
+                    return False
+                if getattr(r_base, "result_digest", None) != obs_base.result_digest:
+                    return False
 
             r_cand = getattr(receipt, "candidate_execution", None)
-            if r_cand is not None and getattr(r_cand, "outcome", None) != att.candidate_outcome:
-                return False
+            if r_cand is not None:
+                if getattr(r_cand, "outcome", None) != att.candidate_outcome:
+                    return False
+                if getattr(r_cand, "sandbox_id", None) != obs_cand.sandbox_id:
+                    return False
+                if getattr(r_cand, "result_digest", None) != obs_cand.result_digest:
+                    return False
 
             r_cf = getattr(receipt, "counterfactual_execution", None)
-            if r_cf is not None and getattr(r_cf, "outcome", None) != att.counterfactual_outcome:
-                return False
+            if r_cf is not None and att.counterfactual_outcome is not None:
+                obs_cf_record = self._observed_executions.get((att.witness_id, "COUNTERFACTUAL"))
+                if obs_cf_record is None:
+                    return False
+                if getattr(r_cf, "outcome", None) != att.counterfactual_outcome:
+                    return False
+                if getattr(r_cf, "sandbox_id", None) != obs_cf_record.sandbox_id:
+                    return False
+                if getattr(r_cf, "result_digest", None) != obs_cf_record.result_digest:
+                    return False
             if r_cf is None and att.counterfactual_outcome is not None:
                 return False
 
         return True
-
 
     def get_attestation(self, requirement_id: str) -> VerifierExecutionAttestation:
         """Look up an execution attestation by requirement ID."""
@@ -1145,4 +1440,3 @@ __all__ = [
     "compute_attestation_digest",
     "compute_seal_digest",
 ]
-

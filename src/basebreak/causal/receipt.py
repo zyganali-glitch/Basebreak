@@ -452,7 +452,6 @@ def create_causal_triplet_receipt(
     )
 
 
-
 # Export canonical alias
 CausalTripletReceipt = LocalCausalReceipt
 

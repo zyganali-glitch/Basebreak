@@ -516,9 +516,7 @@ def _execute_trusted_demo_pipeline(
                 cmd, cwd=str(base_ws), capture_output=True, text=True, timeout=30
             )
             dur_base = time.perf_counter() - t0
-            outcome_base = (
-                WitnessOutcome.PASS if proc_base.returncode == 0 else WitnessOutcome.FAIL
-            )
+            outcome_base = WitnessOutcome.PASS if proc_base.returncode == 0 else WitnessOutcome.FAIL
             base_stdout = proc_base.stdout
             base_stderr = proc_base.stderr
             base_exit = proc_base.returncode
@@ -678,9 +676,7 @@ def _execute_trusted_demo_pipeline(
                 cmd, cwd=str(cand_ws), capture_output=True, text=True, timeout=30
             )
             dur_cand = time.perf_counter() - t0
-            outcome_cand = (
-                WitnessOutcome.PASS if proc_cand.returncode == 0 else WitnessOutcome.FAIL
-            )
+            outcome_cand = WitnessOutcome.PASS if proc_cand.returncode == 0 else WitnessOutcome.FAIL
             cand_stdout = proc_cand.stdout
             cand_stderr = proc_cand.stderr
             cand_exit = proc_cand.returncode

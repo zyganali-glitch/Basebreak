@@ -59,6 +59,14 @@ def _make_causal_receipt(
     vault: TrustedWitnessVault | None = None,
 ) -> LocalCausalReceipt:
     effective_wid = witness_id or f"wit-{requirement_id}"
+    effective_prov = provenance
+    if vault is not None and vault.authorized_provenances:
+        if (
+            provenance not in vault.authorized_provenances
+            and EvidenceProvenance.FIXTURE in vault.authorized_provenances
+        ):
+            effective_prov = EvidenceProvenance.FIXTURE
+
     base_exec = WorldExecutionFact(
         world=ExecutionWorld.BASE,
         sandbox_id="sbx-base-1",
@@ -103,6 +111,42 @@ def _make_causal_receipt(
             witness_digest = rec.seal_digest
         else:
             witness_digest = vault.get_witness(effective_wid).seal_digest
+        vault.record_observed_execution(
+            witness_id=effective_wid,
+            witness_digest=witness_digest,
+            requirement_id=requirement_id,
+            frozen_contract_digest=contract_digest,
+            source_commit_id=base_exec.source_commit_id,
+            candidate_tree_digest=cand_exec.tree_digest,
+            sandbox_id=base_exec.sandbox_id,
+            world=ExecutionWorld.BASE,
+            command=("pytest", f"tests/witness_{effective_wid}.py"),
+            exit_code=base_exec.exit_code,
+            termination_status=base_exec.termination_status,
+            stdout_digest=base_exec.stdout_digest,
+            stderr_digest=base_exec.stderr_digest,
+            result_digest=base_exec.result_digest,
+            outcome=base_exec.outcome,
+            provenance=effective_prov,
+        )
+        vault.record_observed_execution(
+            witness_id=effective_wid,
+            witness_digest=witness_digest,
+            requirement_id=requirement_id,
+            frozen_contract_digest=contract_digest,
+            source_commit_id=base_exec.source_commit_id,
+            candidate_tree_digest=cand_exec.tree_digest,
+            sandbox_id=cand_exec.sandbox_id,
+            world=ExecutionWorld.CANDIDATE,
+            command=("pytest", f"tests/witness_{effective_wid}.py"),
+            exit_code=cand_exec.exit_code,
+            termination_status=cand_exec.termination_status,
+            stdout_digest=cand_exec.stdout_digest,
+            stderr_digest=cand_exec.stderr_digest,
+            result_digest=cand_exec.result_digest,
+            outcome=cand_exec.outcome,
+            provenance=effective_prov,
+        )
         attestation = vault.attest_execution(
             witness_id=effective_wid,
             requirement_id=requirement_id,
@@ -114,7 +158,7 @@ def _make_causal_receipt(
             counterfactual_execution=None,
             transition=transition,
             verdict=verdict,
-            provenance=provenance,
+            provenance=effective_prov,
         )
     return create_causal_receipt(
         requirement_id=requirement_id,
@@ -126,7 +170,7 @@ def _make_causal_receipt(
         candidate_execution=cand_exec,
         transition=transition,
         verdict=verdict,
-        provenance=provenance,
+        provenance=effective_prov,
         narrative=narrative,
         attestation=attestation,
     )
@@ -145,6 +189,14 @@ def _make_semantic_receipt(
     vault: TrustedWitnessVault | None = None,
 ) -> SemanticVerificationReceipt:
     effective_wid = witness_id or f"wit-{requirement_id}"
+    effective_prov = provenance
+    if vault is not None and vault.authorized_provenances:
+        if (
+            provenance not in vault.authorized_provenances
+            and EvidenceProvenance.FIXTURE in vault.authorized_provenances
+        ):
+            effective_prov = EvidenceProvenance.FIXTURE
+
     breaking = change_class in (
         ChangeClass.BUG_FIX,
         ChangeClass.FEATURE,
@@ -194,6 +246,42 @@ def _make_semantic_receipt(
             witness_digest = rec.seal_digest
         else:
             witness_digest = vault.get_witness(effective_wid).seal_digest
+        vault.record_observed_execution(
+            witness_id=effective_wid,
+            witness_digest=witness_digest,
+            requirement_id=requirement_id,
+            frozen_contract_digest=contract_digest,
+            source_commit_id=base_exec.source_commit_id,
+            candidate_tree_digest=cand_exec.tree_digest,
+            sandbox_id=base_exec.sandbox_id,
+            world=ExecutionWorld.BASE,
+            command=("pytest", f"tests/witness_{effective_wid}.py"),
+            exit_code=base_exec.exit_code,
+            termination_status=base_exec.termination_status,
+            stdout_digest=base_exec.stdout_digest,
+            stderr_digest=base_exec.stderr_digest,
+            result_digest=base_exec.result_digest,
+            outcome=base_exec.outcome,
+            provenance=effective_prov,
+        )
+        vault.record_observed_execution(
+            witness_id=effective_wid,
+            witness_digest=witness_digest,
+            requirement_id=requirement_id,
+            frozen_contract_digest=contract_digest,
+            source_commit_id=base_exec.source_commit_id,
+            candidate_tree_digest=cand_exec.tree_digest,
+            sandbox_id=cand_exec.sandbox_id,
+            world=ExecutionWorld.CANDIDATE,
+            command=("pytest", f"tests/witness_{effective_wid}.py"),
+            exit_code=cand_exec.exit_code,
+            termination_status=cand_exec.termination_status,
+            stdout_digest=cand_exec.stdout_digest,
+            stderr_digest=cand_exec.stderr_digest,
+            result_digest=cand_exec.result_digest,
+            outcome=cand_exec.outcome,
+            provenance=effective_prov,
+        )
         attestation = vault.attest_execution(
             witness_id=effective_wid,
             requirement_id=requirement_id,
@@ -205,7 +293,7 @@ def _make_semantic_receipt(
             counterfactual_execution=None,
             transition=transition,
             verdict=verdict,
-            provenance=provenance,
+            provenance=effective_prov,
         )
     return create_semantic_receipt(
         change_class=change_class,
@@ -222,7 +310,7 @@ def _make_semantic_receipt(
         transition=transition,
         verdict=verdict,
         is_causally_verified=(verdict == PreliminaryVerdict.VERIFIED),
-        provenance=provenance,
+        provenance=effective_prov,
         narrative=narrative,
         attestation=attestation,
     )
@@ -737,4 +825,3 @@ class TestCausalCoverageP17:
         assert summary.verified_count == 0
         assert summary.inconclusive_count == 1
         assert summary.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
-
