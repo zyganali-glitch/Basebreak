@@ -62,8 +62,14 @@ from basebreak.domain.causal import ExecutionWorld
 from basebreak.domain.execution import TerminationStatus
 from basebreak.domain.semantics import ChangeClass
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
+from basebreak.verifier.witness_lock import create_witness_lock
 from basebreak.verifier.witness_result import WitnessOutcome
-from basebreak.verifier.witness_store import TrustedWitnessVault
+from basebreak.verifier.witness_store import (
+    TrustedWitnessVault,
+    UntrustedWitnessAuthorityError,
+    WitnessArtifact,
+    WitnessTamperingError,
+)
 
 
 def _demo_target_path() -> str:
@@ -136,7 +142,24 @@ def _make_sample_causal_receipt(
         duration_seconds=1.0,
     )
     attestation = None
+    witness_digest = "a" * 64
     if vault is not None:
+        if "WIT-001" not in vault.list_sealed_witness_ids():
+            wa = WitnessArtifact.from_text(
+                path="tests/test_wit.py",
+                content="def test_w(): pass\n",
+            )
+            rec = vault.seal_witness(
+                witness_id="WIT-001",
+                requirement_id=requirement_id,
+                frozen_contract_digest=contract_digest,
+                source_commit_id="1" * 40,
+                artifacts=[wa],
+            )
+            witness_digest = rec.seal_digest
+        else:
+            witness_digest = vault.get_witness("WIT-001").seal_digest
+
         attestation = vault.attest_execution(
             witness_id="WIT-001",
             requirement_id=requirement_id,
@@ -149,13 +172,13 @@ def _make_sample_causal_receipt(
             transition=transition,
             verdict=verdict,
             provenance=provenance,
-            witness_digest="a" * 64,
+            witness_digest=witness_digest,
         )
     return create_causal_receipt(
         requirement_id=requirement_id,
         frozen_contract_digest=contract_digest,
         witness_id="WIT-001",
-        witness_digest="a" * 64,
+        witness_digest=witness_digest,
         lock_digest="d" * 64,
         base_execution=base_wef,
         candidate_execution=cand_wef,
@@ -176,7 +199,7 @@ def _make_class_specific_public_receipt(
     vault: TrustedWitnessVault | None = None,
 ) -> PublicVerificationReceipt:
     if vault is None:
-        vault = TrustedWitnessVault()
+        vault = TrustedWitnessVault.create_authorized_vault()
     contract = _make_test_contract(
         [("REQ-001", change_class, f"Requirement for {change_class.value}")]
     )
@@ -228,6 +251,22 @@ def _make_class_specific_public_receipt(
         duration_seconds=1.0,
     )
 
+    if "WIT-001" not in vault.list_sealed_witness_ids():
+        wa = WitnessArtifact.from_text(
+            path="tests/test_wit.py",
+            content="def test_w(): pass\n",
+        )
+        rec = vault.seal_witness(
+            witness_id="WIT-001",
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            artifacts=[wa],
+        )
+        wit_digest = rec.seal_digest
+    else:
+        wit_digest = vault.get_witness("WIT-001").seal_digest
+
     attestation = None
     if overall_verdict == PreliminaryVerdict.VERIFIED:
         attestation = vault.attest_execution(
@@ -242,7 +281,7 @@ def _make_class_specific_public_receipt(
             transition=transition,
             verdict=overall_verdict,
             provenance=EvidenceProvenance.LOCAL_EXECUTION,
-            witness_digest="a" * 64,
+            witness_digest=wit_digest,
         )
 
     sem_receipt = create_semantic_receipt(
@@ -250,7 +289,7 @@ def _make_class_specific_public_receipt(
         requirement_id="REQ-001",
         frozen_contract_digest="c" * 64,
         witness_id="WIT-001",
-        witness_digest="a" * 64,
+        witness_digest=wit_digest,
         lock_digest="d" * 64,
         source_commit_id="1" * 40,
         candidate_tree_digest="5" * 40,
@@ -559,7 +598,7 @@ class TestBatchARepairAdversarialMatrix:
         authoritative.
         """
         contract = _make_test_contract([("REQ-001", ChangeClass.BUG_FIX, "Bug fix")])
-        vault = TrustedWitnessVault()
+        vault = TrustedWitnessVault.create_authorized_vault()
         local_rc = _make_sample_causal_receipt(vault=vault)
         coverage = compute_causal_coverage(
             frozen_contract=contract,
@@ -793,7 +832,7 @@ class TestBatchARepairAdversarialMatrix:
         assert cov_sem.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
 
         # 16c: Positive reconciliation with genuine TrustedWitnessVault authority
-        trusted_vault = TrustedWitnessVault()
+        trusted_vault = TrustedWitnessVault.create_authorized_vault()
         attested_causal = _make_sample_causal_receipt(
             requirement_id="REQ-001",
             contract_digest=contract.contract_digest,
@@ -808,4 +847,484 @@ class TestBatchARepairAdversarialMatrix:
         assert cov_auth.verified_count == 1
         assert cov_auth.inconclusive_count == 0
         assert cov_auth.overall_verdict == PreliminaryVerdict.VERIFIED
+
+
+class TestBatchAFinalAuthorityBoundary:
+    """Mandatory adversarial tests for Batch A Final Authority-Boundary Repair.
+
+    Strictly proves that:
+    1. verifier_authority=lambda *_: True cannot award VERIFIED coverage.
+    2. A fabricated, digest-valid receipt plus a caller-owned fresh vault cannot award VERIFIED.
+    3. Direct attest_execution() with only a witness digest and fabricated outcome values
+       cannot produce independent verified authority.
+    4. A legitimate attestation cannot certify a receipt with altered witness ID/digest,
+       source identity, candidate tree, outcome, transition or verdict.
+    5. An attestation for LOCAL_EXECUTION cannot certify a receipt claiming LIVE_NEBIUS.
+    6. Authentic verifier-side BASE/CANDIDATE/COUNTERFACTUAL execution still produces valid
+       authority and VERIFIED coverage when the required causal transition is genuinely observed.
+    """
+
+    def test_01_caller_supplied_callable_authority_bypass_rejected(self) -> None:
+        """1. verifier_authority=lambda *_: True cannot award VERIFIED coverage."""
+        contract = _make_test_contract([("REQ-001", ChangeClass.BUG_FIX, "Fix bug")])
+        receipt = _make_sample_causal_receipt(
+            requirement_id="REQ-001",
+            contract_digest=contract.contract_digest,
+            verdict=PreliminaryVerdict.VERIFIED,
+            vault=None,
+        )
+        with pytest.raises(
+            CoverageIntegrityError, match="verifier_authority must be a TrustedWitnessVault"
+        ):
+            compute_causal_coverage(
+                frozen_contract=contract,
+                results={"REQ-001": receipt},
+                verifier_authority=lambda *_: True,
+            )
+
+    def test_02_fabricated_receipt_plus_caller_owned_fresh_vault_cannot_award_verified(
+        self,
+    ) -> None:
+        """2. A fabricated, digest-valid receipt plus a caller-owned fresh vault
+        cannot award VERIFIED.
+        """
+        contract = _make_test_contract([("REQ-001", ChangeClass.BUG_FIX, "Fix bug")])
+        caller_vault = TrustedWitnessVault()
+        assert not caller_vault.is_authoritative_root
+
+        # Caller vault cannot issue attestations
+        base_wef = WorldExecutionFact(
+            world=ExecutionWorld.BASE,
+            sandbox_id="sbx-base",
+            source_commit_id="1" * 40,
+            tree_digest="2" * 40,
+            outcome=WitnessOutcome.FAIL,
+            exit_code=1,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="3" * 64,
+            stderr_digest="4" * 64,
+            result_digest="8" * 64,
+            duration_seconds=1.0,
+        )
+        cand_wef = WorldExecutionFact(
+            world=ExecutionWorld.CANDIDATE,
+            sandbox_id="sbx-cand",
+            source_commit_id="1" * 40,
+            tree_digest="5" * 40,
+            outcome=WitnessOutcome.PASS,
+            exit_code=0,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="6" * 64,
+            stderr_digest="7" * 64,
+            result_digest="9" * 64,
+            duration_seconds=1.0,
+        )
+        with pytest.raises(
+            UntrustedWitnessAuthorityError,
+            match="not an authorized verifier execution authority root",
+        ):
+            caller_vault.attest_execution(
+                witness_id="WIT-001",
+                requirement_id="REQ-001",
+                frozen_contract_digest=contract.contract_digest,
+                source_commit_id="1" * 40,
+                base_execution=base_wef,
+                candidate_execution=cand_wef,
+                transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+                verdict=PreliminaryVerdict.VERIFIED,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            )
+
+        # Unattested receipt evaluated under caller vault fails closed
+        unattested_rc = _make_sample_causal_receipt(
+            requirement_id="REQ-001",
+            contract_digest=contract.contract_digest,
+            verdict=PreliminaryVerdict.VERIFIED,
+            vault=None,
+        )
+        cov = compute_causal_coverage(
+            frozen_contract=contract,
+            results={"REQ-001": unattested_rc},
+            verifier_authority=caller_vault,
+        )
+        assert cov.verified_count == 0
+        assert cov.inconclusive_count == 1
+        assert cov.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
+
+    def test_03_direct_attest_execution_with_unsealed_witness_and_fabricated_outcomes_rejected(
+        self,
+    ) -> None:
+        """3. Direct attest_execution() with only a witness digest and fabricated outcome values
+        cannot produce independent verified authority.
+        """
+        vault = TrustedWitnessVault.create_authorized_vault()
+        base_wef = WorldExecutionFact(
+            world=ExecutionWorld.BASE,
+            sandbox_id="sbx-base",
+            source_commit_id="1" * 40,
+            tree_digest="2" * 40,
+            outcome=WitnessOutcome.FAIL,
+            exit_code=1,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="3" * 64,
+            stderr_digest="4" * 64,
+            result_digest="8" * 64,
+            duration_seconds=1.0,
+        )
+        cand_wef = WorldExecutionFact(
+            world=ExecutionWorld.CANDIDATE,
+            sandbox_id="sbx-cand",
+            source_commit_id="1" * 40,
+            tree_digest="5" * 40,
+            outcome=WitnessOutcome.PASS,
+            exit_code=0,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="6" * 64,
+            stderr_digest="7" * 64,
+            result_digest="9" * 64,
+            duration_seconds=1.0,
+        )
+
+        # 3a. Unsealed witness rejected even if witness_digest is supplied
+        with pytest.raises(
+            UntrustedWitnessAuthorityError, match="must be sealed in the trusted vault"
+        ):
+            vault.attest_execution(
+                witness_id="unsealed-wit-999",
+                requirement_id="REQ-001",
+                frozen_contract_digest="c" * 64,
+                source_commit_id="1" * 40,
+                base_execution=base_wef,
+                candidate_execution=cand_wef,
+                transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+                verdict=PreliminaryVerdict.VERIFIED,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+                witness_digest="a" * 64,
+            )
+
+        # Seal the witness properly
+        wa = WitnessArtifact.from_text(path="tests/test_w.py", content="def test_w(): pass\n")
+        vault.seal_witness(
+            witness_id="WIT-001",
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            artifacts=[wa],
+        )
+
+        # 3b. Direct outcome values without execution records rejected
+        with pytest.raises(
+            UntrustedWitnessAuthorityError, match="requires verifier execution records"
+        ):
+            vault.attest_execution(
+                witness_id="WIT-001",
+                requirement_id="REQ-001",
+                frozen_contract_digest="c" * 64,
+                source_commit_id="1" * 40,
+                base_execution=None,
+                candidate_execution=None,
+                base_outcome=WitnessOutcome.FAIL,
+                candidate_outcome=WitnessOutcome.PASS,
+                transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+                verdict=PreliminaryVerdict.VERIFIED,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            )
+
+        # 3c. Direct outcome values conflicting with execution records rejected
+        with pytest.raises(WitnessTamperingError, match="conflicts with"):
+            vault.attest_execution(
+                witness_id="WIT-001",
+                requirement_id="REQ-001",
+                frozen_contract_digest="c" * 64,
+                source_commit_id="1" * 40,
+                base_execution=base_wef,  # has outcome=FAIL
+                candidate_execution=cand_wef,
+                base_outcome=WitnessOutcome.PASS,  # tampered conflict
+                transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+                verdict=PreliminaryVerdict.VERIFIED,
+                provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            )
+
+    def test_04_legitimate_attestation_cannot_certify_tampered_receipt(self) -> None:
+        """4. A legitimate attestation cannot certify a receipt with altered witness ID/digest,
+        source identity, candidate tree, outcome, transition or verdict.
+        """
+        vault = TrustedWitnessVault.create_authorized_vault()
+        wa = WitnessArtifact.from_text(path="tests/test_w.py", content="def test_w(): pass\n")
+        rec = vault.seal_witness(
+            witness_id="WIT-001",
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            artifacts=[wa],
+        )
+        base_wef = WorldExecutionFact(
+            world=ExecutionWorld.BASE,
+            sandbox_id="sbx-base",
+            source_commit_id="1" * 40,
+            tree_digest="2" * 40,
+            outcome=WitnessOutcome.FAIL,
+            exit_code=1,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="3" * 64,
+            stderr_digest="4" * 64,
+            result_digest="8" * 64,
+            duration_seconds=1.0,
+        )
+        cand_wef = WorldExecutionFact(
+            world=ExecutionWorld.CANDIDATE,
+            sandbox_id="sbx-cand",
+            source_commit_id="1" * 40,
+            tree_digest="5" * 40,
+            outcome=WitnessOutcome.PASS,
+            exit_code=0,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="6" * 64,
+            stderr_digest="7" * 64,
+            result_digest="9" * 64,
+            duration_seconds=1.0,
+        )
+        attestation = vault.attest_execution(
+            witness_id="WIT-001",
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            base_execution=base_wef,
+            candidate_execution=cand_wef,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+
+        legit_rc = create_causal_receipt(
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            witness_id="WIT-001",
+            witness_digest=rec.seal_digest,
+            lock_digest="d" * 64,
+            base_execution=base_wef,
+            candidate_execution=cand_wef,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            narrative="Genuine execution",
+            attestation=attestation,
+        )
+        assert vault.verify_execution_authority(receipt=legit_rc) is True
+
+        # Tampered witness_id in receipt
+        tampered_wid_rc = object.__new__(LocalCausalReceipt)
+        for k in legit_rc.__dataclass_fields__:
+            object.__setattr__(tampered_wid_rc, k, getattr(legit_rc, k))
+        object.__setattr__(tampered_wid_rc, "witness_id", "WIT-TAMPERED")
+        assert vault.verify_execution_authority(receipt=tampered_wid_rc) is False
+
+        # Tampered verdict in receipt
+        tampered_verdict_rc = object.__new__(LocalCausalReceipt)
+        for k in legit_rc.__dataclass_fields__:
+            object.__setattr__(tampered_verdict_rc, k, getattr(legit_rc, k))
+        object.__setattr__(tampered_verdict_rc, "verdict", PreliminaryVerdict.CONTRADICTED)
+        assert vault.verify_execution_authority(receipt=tampered_verdict_rc) is False
+
+        # Tampered unhashed receipt rejected by coverage integrity check
+        contract = _make_test_contract([("REQ-001", ChangeClass.BUG_FIX, "Fix bug")])
+        with pytest.raises(CoverageIntegrityError):
+            compute_causal_coverage(
+                frozen_contract=contract,
+                results={"REQ-001": tampered_wid_rc},
+                verifier_authority=vault,
+            )
+
+        # Internally consistent receipt re-created with altered witness but legitimate attestation
+        # rejected by vault authority check, remaining INCONCLUSIVE
+        recreated_tampered_rc = create_causal_receipt(
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            witness_id="WIT-TAMPERED",
+            witness_digest=rec.seal_digest,
+            lock_digest="d" * 64,
+            base_execution=base_wef,
+            candidate_execution=cand_wef,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            narrative="Tampered witness ID with legitimate attestation",
+            attestation=attestation,
+        )
+        cov = compute_causal_coverage(
+            frozen_contract=contract,
+            results={"REQ-001": recreated_tampered_rc},
+            verifier_authority=vault,
+        )
+        assert cov.verified_count == 0
+        assert cov.inconclusive_count == 1
+        assert cov.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
+
+    def test_05_attestation_provenance_mismatch_rejected(self) -> None:
+        """5. An attestation for LOCAL_EXECUTION cannot certify a receipt claiming LIVE_NEBIUS."""
+        vault = TrustedWitnessVault.create_authorized_vault()
+        wa = WitnessArtifact.from_text(path="tests/test_w.py", content="def test_w(): pass\n")
+        rec = vault.seal_witness(
+            witness_id="WIT-001",
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            artifacts=[wa],
+        )
+        base_wef = WorldExecutionFact(
+            world=ExecutionWorld.BASE,
+            sandbox_id="sbx-base",
+            source_commit_id="1" * 40,
+            tree_digest="2" * 40,
+            outcome=WitnessOutcome.FAIL,
+            exit_code=1,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="3" * 64,
+            stderr_digest="4" * 64,
+            result_digest="8" * 64,
+            duration_seconds=1.0,
+        )
+        cand_wef = WorldExecutionFact(
+            world=ExecutionWorld.CANDIDATE,
+            sandbox_id="sbx-cand",
+            source_commit_id="1" * 40,
+            tree_digest="5" * 40,
+            outcome=WitnessOutcome.PASS,
+            exit_code=0,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="6" * 64,
+            stderr_digest="7" * 64,
+            result_digest="9" * 64,
+            duration_seconds=1.0,
+        )
+        attestation = vault.attest_execution(
+            witness_id="WIT-001",
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            base_execution=base_wef,
+            candidate_execution=cand_wef,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+
+        # Receipt claiming LIVE_NEBIUS with LOCAL_EXECUTION attestation
+        receipt_live = create_causal_receipt(
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            witness_id="WIT-001",
+            witness_digest=rec.seal_digest,
+            lock_digest="d" * 64,
+            base_execution=base_wef,
+            candidate_execution=cand_wef,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LIVE_NEBIUS,  # Claimed LIVE_NEBIUS
+            narrative="Attempted promotion",
+            attestation=attestation,
+        )
+        assert vault.verify_execution_authority(receipt=receipt_live) is False
+
+        # Expected LIVE_NEBIUS check against LOCAL_EXECUTION attestation
+        receipt_local = create_causal_receipt(
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            witness_id="WIT-001",
+            witness_digest=rec.seal_digest,
+            lock_digest="d" * 64,
+            base_execution=base_wef,
+            candidate_execution=cand_wef,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            narrative="Local execution",
+            attestation=attestation,
+        )
+        assert vault.verify_execution_authority(
+            receipt=receipt_local,
+            provenance=EvidenceProvenance.LIVE_NEBIUS,
+        ) is False
+
+        contract = _make_test_contract([("REQ-001", ChangeClass.BUG_FIX, "Fix bug")])
+        cov = compute_causal_coverage(
+            frozen_contract=contract,
+            results={"REQ-001": receipt_live},
+            verifier_authority=vault,
+        )
+        assert cov.verified_count == 0
+        assert cov.inconclusive_count == 1
+
+    def test_06_authentic_verifier_execution_produces_valid_authority_and_verified_coverage(
+        self,
+    ) -> None:
+        """6. Authentic verifier-side BASE/CANDIDATE execution produces valid authority
+        and VERIFIED coverage when the required causal transition is genuinely observed.
+        """
+        import sys
+        from unittest.mock import MagicMock
+
+        from basebreak.causal.engine import CausalExecutionEngine
+        from basebreak.domain.execution import SandboxIdentity
+        from basebreak.verifier.sandbox import VerifierSandboxManager
+        causal_tests_dir = str(Path(__file__).resolve().parent)
+        if causal_tests_dir not in sys.path:
+            sys.path.insert(0, causal_tests_dir)
+        import test_engine
+
+        envelope, sealed_record, vault = test_engine._build_test_contract_and_envelope()
+        MockMaterializer = test_engine.MockMaterializer
+        MockSandboxResult = test_engine.MockSandboxResult
+        lock = create_witness_lock(record=sealed_record, vault=vault)
+
+        mock_adapter = MagicMock()
+        sbx_count = 0
+
+        def create_sandbox_side_effect(*args: Any, **kwargs: Any) -> SandboxIdentity:
+            nonlocal sbx_count
+            sbx_count += 1
+            return SandboxIdentity(sandbox_id=f"sbx-auth-{sbx_count:03d}")
+
+        mock_adapter.create_sandbox.side_effect = create_sandbox_side_effect
+
+        def exec_side_effect(sbx: Any, cmd: Any, **kwargs: Any) -> Any:
+            if "printf" in cmd:
+                return MockSandboxResult(exit_code=0)
+            if "sbx-auth-001" in str(sbx):
+                return MockSandboxResult(exit_code=1, stderr="AssertionError: quiet flag broken")
+            return MockSandboxResult(exit_code=0, stdout="1 passed")
+
+        mock_adapter.execute_command.side_effect = exec_side_effect
+
+        manager = VerifierSandboxManager()
+        engine = CausalExecutionEngine(
+            sandbox_manager=manager,
+            sandbox_adapter=mock_adapter,
+            materializer=MockMaterializer(),
+            vault=vault,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+
+        receipt = engine.execute_causal_pair(
+            context_envelope=envelope,
+            sealed_record=sealed_record,
+            witness_lock=lock,
+            execution_command=("pytest", "tests/test_quiet_behavior.py"),
+        )
+
+        assert receipt.is_causally_verified is True
+        assert receipt.verdict == PreliminaryVerdict.VERIFIED
+        assert receipt.attestation is not None
+
+        # Verify coverage under authentic engine vault
+        cov = compute_causal_coverage(
+            frozen_contract=envelope.frozen_contract,
+            results={sealed_record.requirement_id: receipt},
+            verifier_authority=engine.vault,
+        )
+        assert cov.verified_count == 1
+        assert cov.inconclusive_count == 0
+        assert cov.overall_verdict == PreliminaryVerdict.VERIFIED
 

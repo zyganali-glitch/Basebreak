@@ -47,7 +47,7 @@ from basebreak.integrations.github.mutation_boundary import (
     UnauthorizedMutationError,
 )
 from basebreak.verifier.witness_result import WitnessOutcome
-from basebreak.verifier.witness_store import TrustedWitnessVault
+from basebreak.verifier.witness_store import TrustedWitnessVault, WitnessArtifact
 
 
 def _make_sample_contract(change_class: ChangeClass = ChangeClass.BUG_FIX) -> FrozenContract:
@@ -204,7 +204,18 @@ class TestBatchAAdversarialMatrix:
             result_digest="9" * 64,
             duration_seconds=1.0,
         )
-        vault = TrustedWitnessVault()
+        vault = TrustedWitnessVault.create_authorized_vault()
+        wa = WitnessArtifact.from_text(
+            path="tests/test_wit.py",
+            content="def test_w(): pass\n",
+        )
+        rec = vault.seal_witness(
+            witness_id="wit-1",
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            artifacts=[wa],
+        )
         attestation = vault.attest_execution(
             witness_id="wit-1",
             requirement_id="REQ-001",
@@ -217,13 +228,13 @@ class TestBatchAAdversarialMatrix:
             transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
             verdict=PreliminaryVerdict.VERIFIED,
             provenance=EvidenceProvenance.LOCAL_EXECUTION,
-            witness_digest="a" * 64,
+            witness_digest=rec.seal_digest,
         )
         local_rc = create_causal_receipt(
             requirement_id="REQ-001",
             frozen_contract_digest="c" * 64,
             witness_id="wit-1",
-            witness_digest="a" * 64,
+            witness_digest=rec.seal_digest,
             lock_digest="d" * 64,
             base_execution=base_wef,
             candidate_execution=cand_wef,
@@ -339,7 +350,18 @@ class TestBatchAAdversarialMatrix:
             result_digest="9" * 64,
             duration_seconds=1.0,
         )
-        vault = TrustedWitnessVault()
+        vault = TrustedWitnessVault.create_authorized_vault()
+        wa = WitnessArtifact.from_text(
+            path="tests/test_wit.py",
+            content="def test_w(): pass\n",
+        )
+        rec = vault.seal_witness(
+            witness_id="wit-1",
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            artifacts=[wa],
+        )
         attestation = vault.attest_execution(
             witness_id="wit-1",
             requirement_id="REQ-001",
@@ -352,13 +374,13 @@ class TestBatchAAdversarialMatrix:
             transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
             verdict=PreliminaryVerdict.VERIFIED,
             provenance=EvidenceProvenance.LOCAL_EXECUTION,
-            witness_digest="a" * 64,
+            witness_digest=rec.seal_digest,
         )
         local_rc = create_causal_receipt(
             requirement_id="REQ-001",
             frozen_contract_digest="c" * 64,
             witness_id="wit-1",
-            witness_digest="a" * 64,
+            witness_digest=rec.seal_digest,
             lock_digest="d" * 64,
             base_execution=base_wef,
             candidate_execution=cand_wef,

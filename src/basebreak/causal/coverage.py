@@ -42,6 +42,7 @@ from basebreak.causal.semantic_receipt import SemanticVerificationReceipt
 from basebreak.compiler.freeze import FrozenContract, FrozenRequirement
 from basebreak.domain.semantics import ChangeClass, get_verification_requirements
 from basebreak.domain.verdict import PreliminaryVerdict
+from basebreak.verifier.witness_store import TrustedWitnessVault
 
 _HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _REQUIREMENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
@@ -417,6 +418,15 @@ def compute_causal_coverage(
             f"Model confidence parameter(s) {keys_str} strictly forbidden in Causal Coverage math."
         )
 
+    # Validate verifier authority boundary: caller-supplied functions rejected
+    if verifier_authority is not None and not isinstance(
+        verifier_authority, TrustedWitnessVault
+    ):
+        vtype = type(verifier_authority).__name__
+        raise CoverageIntegrityError(
+            f"verifier_authority must be a TrustedWitnessVault instance, got {vtype}"
+        )
+
     # Validate contract binding
     if expected_contract_digest is not None:
         if expected_contract_digest.strip().lower() != frozen_contract.contract_digest.lower():
@@ -594,17 +604,14 @@ def compute_causal_coverage(
             witness_digest = res.witness_digest
 
             is_authority_valid = False
-            if verifier_authority is not None:
-                if hasattr(verifier_authority, "verify_execution_authority"):
-                    is_authority_valid = verifier_authority.verify_execution_authority(
-                        receipt_or_attestation=res,
-                        expected_requirement_id=req.requirement_id,
-                        expected_contract_digest=frozen_contract.contract_digest,
-                    )
-                elif callable(verifier_authority):
-                    is_authority_valid = bool(
-                        verifier_authority(res, req.requirement_id, frozen_contract.contract_digest)
-                    )
+            if verifier_authority is not None and isinstance(
+                verifier_authority, TrustedWitnessVault
+            ):
+                is_authority_valid = verifier_authority.verify_execution_authority(
+                    receipt_or_attestation=res,
+                    expected_requirement_id=req.requirement_id,
+                    expected_contract_digest=frozen_contract.contract_digest,
+                )
 
             if is_authority_valid:
                 verdict = res.verdict
@@ -646,17 +653,14 @@ def compute_causal_coverage(
             witness_digest = res.witness_digest
 
             is_authority_valid = False
-            if verifier_authority is not None:
-                if hasattr(verifier_authority, "verify_execution_authority"):
-                    is_authority_valid = verifier_authority.verify_execution_authority(
-                        receipt_or_attestation=res,
-                        expected_requirement_id=req.requirement_id,
-                        expected_contract_digest=frozen_contract.contract_digest,
-                    )
-                elif callable(verifier_authority):
-                    is_authority_valid = bool(
-                        verifier_authority(res, req.requirement_id, frozen_contract.contract_digest)
-                    )
+            if verifier_authority is not None and isinstance(
+                verifier_authority, TrustedWitnessVault
+            ):
+                is_authority_valid = verifier_authority.verify_execution_authority(
+                    receipt_or_attestation=res,
+                    expected_requirement_id=req.requirement_id,
+                    expected_contract_digest=frozen_contract.contract_digest,
+                )
 
             if is_authority_valid:
                 verdict = res.verdict

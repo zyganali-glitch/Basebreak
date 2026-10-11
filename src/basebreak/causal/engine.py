@@ -141,6 +141,8 @@ class CausalExecutionEngine:
             self.materializer = materializer
 
         self.vault = vault
+        if hasattr(self.vault, "_authorize_as_engine_root"):
+            self.vault._authorize_as_engine_root(self)
         self.provenance = provenance
 
     def _deploy_witness_artifacts(

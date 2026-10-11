@@ -489,6 +489,29 @@ class TrustedWitnessVault:
         self._registered_seals: dict[str, tuple[str, str]] = {}
         self._records: dict[str, SealedWitnessRecord] = {}
         self._registered_executions: dict[str, VerifierExecutionAttestation] = {}
+        self._observed_executions: dict[str, dict[str, Any]] = {}
+        self._is_authoritative_root: bool = False
+        self._bound_engine: Any | None = None
+
+    @property
+    def is_authoritative_root(self) -> bool:
+        """Return True if this vault is an authorized verifier execution authority root."""
+        return self._is_authoritative_root
+
+    def _authorize_as_engine_root(self, engine: Any) -> None:
+        """Authorize this vault as an execution authority root bound to an execution engine."""
+        self._bound_engine = engine
+        self._is_authoritative_root = True
+
+    @classmethod
+    def create_authorized_vault(cls, vault_secret: bytes | None = None) -> TrustedWitnessVault:
+        """Create a vault explicitly authorized as a verifier authority root.
+
+        Used strictly by authorized verifier runtime contexts and integration harnesses.
+        """
+        vault = cls(vault_secret=vault_secret)
+        vault._is_authoritative_root = True
+        return vault
 
 
     def seal_witness(
@@ -646,12 +669,33 @@ class TrustedWitnessVault:
         provenance: EvidenceProvenance,
         created_at_utc: str | None = None,
     ) -> VerifierExecutionAttestation:
-        """Record and cryptographically attest genuine verifier-side execution."""
+        """Record and cryptographically attest genuine verifier-side execution.
+
+        Fail-closed authority invariants:
+        1. Authority Root: Vault must be an authorized verifier execution authority root.
+           Caller-owned fresh vaults possess zero authority to attest execution.
+        2. Sealed Witness Mandatory: Witness must be previously sealed in this vault.
+           Caller-supplied witness_digest without sealed record is strictly rejected.
+        3. Real Execution Records Mandatory: base_execution and candidate_execution
+           records observed by verifier execution are required. Directly supplying
+           outcomes without execution records is strictly rejected.
+        4. Outcome Integrity: Outcomes are derived from execution records.
+           Directly supplied outcomes conflicting with execution records are rejected.
+        5. Execution Registration: Attestation and observed execution facts are
+           cryptographically signed and recorded in vault registries.
+        """
+        # 1. Authority root check
+        if not self._is_authoritative_root:
+            raise UntrustedWitnessAuthorityError(
+                "Vault is not an authorized verifier execution authority root; "
+                "caller-owned vault cannot attest execution"
+            )
+
         clean_wid = str(witness_id).strip()
         if not clean_wid:
             raise WitnessIntegrityError("witness_id must not be empty")
 
-        effective_witness_digest: str
+        # 2. Sealed witness check
         record = self._records.get(clean_wid)
         if record is None:
             if witness_artifacts is not None:
@@ -663,11 +707,10 @@ class TrustedWitnessVault:
                     artifacts=witness_artifacts,
                 )
                 effective_witness_digest = record.seal_digest
-            elif witness_digest is not None:
-                effective_witness_digest = witness_digest
             else:
                 raise UntrustedWitnessAuthorityError(
-                    f"Witness ID {clean_wid!r} was not sealed by this trusted vault"
+                    f"Witness ID {clean_wid!r} must be sealed in the trusted vault "
+                    "before execution attestation"
                 )
         else:
             self.verify_witness_integrity(record)
@@ -684,24 +727,66 @@ class TrustedWitnessVault:
                 raise WitnessIntegrityError(
                     "Witness source commit does not match execution context"
                 )
+            if witness_digest is not None and witness_digest.lower() != record.seal_digest.lower():
+                raise WitnessIntegrityError("witness_digest does not match sealed record")
             effective_witness_digest = record.seal_digest
 
-        b_outcome = (
-            base_outcome
-            if base_outcome is not None
-            else getattr(base_execution, "outcome", None)
-        )
-        c_outcome = (
-            candidate_outcome
-            if candidate_outcome is not None
-            else getattr(candidate_execution, "outcome", None)
-        )
+        # 3. Verifier execution records check
+        if base_execution is None or candidate_execution is None:
+            raise UntrustedWitnessAuthorityError(
+                "attest_execution requires verifier execution records (base_execution and "
+                "candidate_execution); direct outcome specification without verifier "
+                "execution records is prohibited"
+            )
+
+        b_outcome = getattr(base_execution, "outcome", None)
+        c_outcome = getattr(candidate_execution, "outcome", None)
         cf_outcome = (
-            counterfactual_outcome
-            if counterfactual_outcome is not None
-            else getattr(counterfactual_execution, "outcome", None)
+            getattr(counterfactual_execution, "outcome", None)
+            if counterfactual_execution is not None
+            else None
         )
 
+        if b_outcome is None or not isinstance(b_outcome, WitnessOutcome):
+            raise UntrustedWitnessAuthorityError(
+                "base_execution must contain a valid WitnessOutcome"
+            )
+        if c_outcome is None or not isinstance(c_outcome, WitnessOutcome):
+            raise UntrustedWitnessAuthorityError(
+                "candidate_execution must contain a valid WitnessOutcome"
+            )
+        if counterfactual_execution is not None and (
+            cf_outcome is None or not isinstance(cf_outcome, WitnessOutcome)
+        ):
+            raise UntrustedWitnessAuthorityError(
+                "counterfactual_execution must contain a valid WitnessOutcome"
+            )
+
+        # 4. Outcome integrity check
+        if base_outcome is not None and base_outcome != b_outcome:
+            raise WitnessTamperingError(
+                f"Caller-supplied base_outcome ({base_outcome}) conflicts with "
+                f"base_execution outcome ({b_outcome})"
+            )
+        if candidate_outcome is not None and candidate_outcome != c_outcome:
+            raise WitnessTamperingError(
+                f"Caller-supplied candidate_outcome ({candidate_outcome}) conflicts with "
+                f"candidate_execution outcome ({c_outcome})"
+            )
+        if counterfactual_outcome is not None and counterfactual_outcome != cf_outcome:
+            raise WitnessTamperingError(
+                f"Caller-supplied counterfactual_outcome ({counterfactual_outcome}) conflicts with "
+                f"counterfactual_execution outcome ({cf_outcome})"
+            )
+
+        # Store observed executions
+        self._observed_executions[clean_wid] = {
+            "base": base_execution,
+            "candidate": candidate_execution,
+            "counterfactual": counterfactual_execution,
+        }
+
+        # 5. Build canonical payload and sign
         timestamp = created_at_utc or datetime.now(timezone.utc).isoformat()
         payload = build_canonical_execution_attestation_payload(
             requirement_id=requirement_id,
@@ -749,6 +834,7 @@ class TrustedWitnessVault:
         self,
         *,
         receipt_or_attestation: VerifierExecutionAttestation | Any | None = None,
+        receipt: Any | None = None,
         expected_requirement_id: str | None = None,
         expected_contract_digest: str | None = None,
         expected_source_commit_id: str | None = None,
@@ -766,52 +852,62 @@ class TrustedWitnessVault:
         provenance: EvidenceProvenance | None = None,
         attestation: VerifierExecutionAttestation | None = None,
     ) -> bool:
-        """Mechanically verify that reported execution facts carry genuine vault authority."""
+        """Mechanically verify that reported execution facts carry genuine vault authority.
+
+        Fail-closed rules:
+        1. Authority Root: Vault must be an authorized verifier execution authority root.
+        2. Attestation Present: Must be a genuine VerifierExecutionAttestation.
+        3. Registered Execution: Must be actually registered in this vault.
+        4. HMAC Signature: Must match vault private secret.
+        5. Attestation Digest: Recomputed payload must match attestation digest.
+        6. Sealed Witness: Witness must be sealed in this vault with matching digests.
+        7. Observed Executions: Outcomes must match observed execution records.
+        8. Context Bindings: requirement_id, contract_digest, source_commit, tree match.
+        9. Exact Provenance Equality: Attestation provenance must exactly match expected
+           provenance and receipt provenance. Promotion is strictly rejected.
+        10. Receipt Cross-Binding: No claim-to-attestation drift or tampering permitted.
+        """
+        # 1. Authority root check
+        if not self._is_authoritative_root:
+            return False
+
+        # 2. Extract attestation and receipt
         lookup_id = requirement_id or expected_requirement_id or ""
-        att = (
-            receipt_or_attestation
-            if isinstance(receipt_or_attestation, VerifierExecutionAttestation)
-            else (
-                getattr(receipt_or_attestation, "attestation", None)
-                if receipt_or_attestation is not None
-                else (attestation or self._registered_executions.get(lookup_id))
-            )
+        is_att = isinstance(receipt_or_attestation, VerifierExecutionAttestation)
+        effective_receipt: Any | None = receipt if receipt is not None else (
+            receipt_or_attestation if not is_att else None
         )
+        receipt = effective_receipt
+        att: VerifierExecutionAttestation | None = None
+
+        if isinstance(receipt_or_attestation, VerifierExecutionAttestation):
+            att = receipt_or_attestation
+        elif receipt is not None:
+            att = getattr(receipt, "attestation", None)
+
         if att is None:
+            att = attestation or self._registered_executions.get(lookup_id)
+
+        if att is None or not isinstance(att, VerifierExecutionAttestation):
             return False
 
-        if not isinstance(att, VerifierExecutionAttestation):
+        # 3. Check actual registration in vault
+        reg = self._registered_executions.get(att.requirement_id)
+        if reg is None:
+            return False
+        if not hmac.compare_digest(att.vault_signature, reg.vault_signature):
+            return False
+        if att.attestation_digest != reg.attestation_digest:
             return False
 
-        req_id = (
-            expected_requirement_id
-            or requirement_id
-            or getattr(receipt_or_attestation, "requirement_id", None)
-        )
-        cd = (
-            expected_contract_digest
-            or frozen_contract_digest
-            or getattr(receipt_or_attestation, "frozen_contract_digest", None)
-        )
-        sc = (
-            expected_source_commit_id
-            or source_commit_id
-            or getattr(receipt_or_attestation, "source_commit_id", None)
-        )
-        ct = (
-            expected_candidate_tree_digest
-            or candidate_tree_digest
-            or getattr(receipt_or_attestation, "candidate_tree_digest", None)
-        )
-
-        # 1. HMAC signature verification against this vault's private secret
+        # 4. HMAC signature verification against this vault's private secret
         expected_sig = hmac.new(
             self._vault_secret, att.attestation_digest.encode("utf-8"), hashlib.sha256
         ).hexdigest()
         if not hmac.compare_digest(att.vault_signature, expected_sig):
             return False
 
-        # 2. Recompute attestation digest
+        # 5. Recompute attestation digest from canonical payload
         payload = build_canonical_execution_attestation_payload(
             requirement_id=att.requirement_id,
             frozen_contract_digest=att.frozen_contract_digest,
@@ -830,29 +926,54 @@ class TrustedWitnessVault:
         if att.attestation_digest != compute_attestation_digest(payload):
             return False
 
-        # 3. Check registration if present in registry
-        if att.requirement_id in self._registered_executions:
-            reg = self._registered_executions[att.requirement_id]
-            if not hmac.compare_digest(att.vault_signature, reg.vault_signature):
-                return False
+        # 6. Check sealed witness in vault
+        rec = self._records.get(att.witness_id)
+        if rec is None:
+            return False
+        if att.witness_digest.lower() != rec.seal_digest.lower():
+            return False
+        if att.requirement_id != rec.requirement_id:
+            return False
+        if att.frozen_contract_digest.lower() != rec.frozen_contract_digest.lower():
+            return False
+        if att.source_commit_id.lower() != rec.source_commit_id.lower():
+            return False
 
-        # 4. Check factual bindings against current claim
+        # 7. Check observed executions in vault
+        obs = self._observed_executions.get(att.witness_id) or self._observed_executions.get(
+            att.requirement_id
+        )
+        if obs is not None:
+            if getattr(obs["base"], "outcome", None) != att.base_outcome:
+                return False
+            if getattr(obs["candidate"], "outcome", None) != att.candidate_outcome:
+                return False
+            if att.counterfactual_outcome is not None:
+                if (
+                    getattr(obs.get("counterfactual"), "outcome", None)
+                    != att.counterfactual_outcome
+                ):
+                    return False
+
+        # 8. Check factual bindings against execution context
+        req_id = expected_requirement_id or requirement_id
         if req_id and att.requirement_id != req_id:
             return False
+
+        cd = expected_contract_digest or frozen_contract_digest
         if cd and att.frozen_contract_digest.lower() != cd.lower():
             return False
+
+        sc = expected_source_commit_id or source_commit_id
         if sc and att.source_commit_id.lower() != sc.lower():
             return False
+
+        ct = expected_candidate_tree_digest or candidate_tree_digest
         if ct and att.candidate_tree_digest.lower() != ct.lower():
             return False
 
         if witness_id and att.witness_id != str(witness_id).strip():
             return False
-
-        if att.witness_id in self._records:
-            rec = self._records[att.witness_id]
-            if att.witness_digest.lower() != rec.seal_digest.lower():
-                return False
 
         # Check transition if specified
         if transition is not None:
@@ -887,16 +1008,112 @@ class TrustedWitnessVault:
             if att.counterfactual_outcome != cf_out:
                 return False
 
-        # 5. Strict anti-laundering check: FIXTURE cannot certify LOCAL or LIVE
-        claim_prov = getattr(receipt_or_attestation, "provenance", provenance)
-        if claim_prov is not None:
-            c_prov = claim_prov.value if hasattr(claim_prov, "value") else str(claim_prov)
-            att_p = att.provenance
-            a_prov = att_p.value if hasattr(att_p, "value") else str(att_p)
-            if c_prov != "FIXTURE" and a_prov == "FIXTURE":
+        # 9. Exact provenance equality check
+        if provenance is not None:
+            p_val = (
+                provenance
+                if isinstance(provenance, EvidenceProvenance)
+                else EvidenceProvenance(str(provenance))
+            )
+            if att.provenance != p_val:
+                return False
+
+        # 10. Exact cross-binding with receipt
+        if receipt is not None:
+            # Requirement binding
+            r_req = getattr(receipt, "requirement_id", None)
+            if r_req is not None and r_req != att.requirement_id:
+                return False
+
+            # Contract binding
+            r_cd = getattr(receipt, "frozen_contract_digest", None)
+            if r_cd is not None and r_cd.lower() != att.frozen_contract_digest.lower():
+                return False
+
+            # Witness binding
+            r_wid = getattr(receipt, "witness_id", None)
+            if r_wid is not None and r_wid != att.witness_id:
+                return False
+            r_wdig = getattr(receipt, "witness_digest", None)
+            if r_wdig is not None and r_wdig.lower() != att.witness_digest.lower():
+                return False
+
+            # Exact provenance equality
+            r_prov = getattr(receipt, "provenance", None)
+            if r_prov is not None:
+                r_p = (
+                    r_prov
+                    if isinstance(r_prov, EvidenceProvenance)
+                    else EvidenceProvenance(str(r_prov))
+                )
+                if r_p != att.provenance:
+                    return False
+
+            # Transition equality
+            r_trans = getattr(receipt, "transition", None)
+            if r_trans is not None:
+                r_t_str = r_trans.value if hasattr(r_trans, "value") else str(r_trans)
+                a_t_str = (
+                    att.transition.value
+                    if hasattr(att.transition, "value")
+                    else str(att.transition)
+                )
+                if r_t_str != a_t_str:
+                    return False
+
+            # Verdict equality
+            r_verd = getattr(receipt, "verdict", None)
+            if r_verd is not None:
+                r_v_str = r_verd.value if hasattr(r_verd, "value") else str(r_verd)
+                a_v_str = (
+                    att.verdict.value if hasattr(att.verdict, "value") else str(att.verdict)
+                )
+                if r_v_str != a_v_str:
+                    return False
+
+            # Source commit equality
+            r_sc = getattr(receipt, "source_commit_id", None)
+            if (
+                r_sc is None
+                and hasattr(receipt, "base_execution")
+                and receipt.base_execution is not None
+            ):
+                r_sc = getattr(receipt.base_execution, "source_commit_id", None)
+            if r_sc and r_sc.lower() != att.source_commit_id.lower():
+                return False
+
+            # Candidate tree equality
+            r_ct = getattr(receipt, "candidate_tree_digest", None)
+            if (
+                r_ct is None
+                and hasattr(receipt, "candidate_execution")
+                and receipt.candidate_execution is not None
+            ):
+                r_ct = getattr(receipt.candidate_execution, "tree_digest", None)
+            if (
+                r_ct
+                and att.candidate_tree_digest
+                and r_ct.lower() != att.candidate_tree_digest.lower()
+            ):
+                return False
+
+            # Outcomes equality
+            r_base = getattr(receipt, "base_execution", None)
+            if r_base is not None and getattr(r_base, "outcome", None) != att.base_outcome:
+                return False
+
+            r_cand = getattr(receipt, "candidate_execution", None)
+            if r_cand is not None and getattr(r_cand, "outcome", None) != att.candidate_outcome:
+                return False
+
+            r_cf = getattr(receipt, "counterfactual_execution", None)
+            if r_cf is not None and getattr(r_cf, "outcome", None) != att.counterfactual_outcome:
+                return False
+            if r_cf is None and att.counterfactual_outcome is not None:
                 return False
 
         return True
+
 
     def get_attestation(self, requirement_id: str) -> VerifierExecutionAttestation:
         """Look up an execution attestation by requirement ID."""

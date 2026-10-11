@@ -36,7 +36,7 @@ from basebreak.domain.execution import TerminationStatus
 from basebreak.domain.semantics import ChangeClass
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.verifier.witness_result import WitnessOutcome
-from basebreak.verifier.witness_store import TrustedWitnessVault
+from basebreak.verifier.witness_store import TrustedWitnessVault, WitnessArtifact
 
 
 def _sample_receipt() -> PublicVerificationReceipt:
@@ -82,17 +82,27 @@ def _sample_receipt() -> PublicVerificationReceipt:
         result_digest="9" * 64,
         duration_seconds=1.8,
     )
-    vault = TrustedWitnessVault()
+    vault = TrustedWitnessVault.create_authorized_vault()
+    wa = WitnessArtifact.from_text(
+        path="tests/test_auth_witness.py",
+        content="def test_auth(): assert True\n",
+    )
+    rec = vault.seal_witness(
+        witness_id="WIT-001",
+        requirement_id="REQ-AUTH-01",
+        frozen_contract_digest="c" * 64,
+        source_commit_id="1" * 40,
+        artifacts=[wa],
+    )
     attestation = vault.attest_execution(
         requirement_id="REQ-AUTH-01",
         frozen_contract_digest="c" * 64,
         witness_id="WIT-001",
-        witness_digest="a" * 64,
         source_commit_id="1" * 40,
         candidate_tree_digest="5" * 40,
-        base_outcome=WitnessOutcome.FAIL,
-        candidate_outcome=WitnessOutcome.PASS,
-        counterfactual_outcome=WitnessOutcome.FAIL,
+        base_execution=base_wef,
+        candidate_execution=cand_wef,
+        counterfactual_execution=None,
         transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
         verdict=PreliminaryVerdict.VERIFIED,
         provenance=EvidenceProvenance.LOCAL_EXECUTION,
@@ -101,7 +111,7 @@ def _sample_receipt() -> PublicVerificationReceipt:
         requirement_id="REQ-AUTH-01",
         frozen_contract_digest="c" * 64,
         witness_id="WIT-001",
-        witness_digest="a" * 64,
+        witness_digest=rec.seal_digest,
         lock_digest="d" * 64,
         base_execution=base_wef,
         candidate_execution=cand_wef,
@@ -120,7 +130,7 @@ def _sample_receipt() -> PublicVerificationReceipt:
 
     witness = PublicWitnessFact(
         witness_id="WIT-001",
-        witness_digest="a" * 64,
+        witness_digest=rec.seal_digest,
         requirement_id="REQ-AUTH-01",
         execution_command=("pytest", "tests/witness.py"),
         timeout_seconds=20.0,

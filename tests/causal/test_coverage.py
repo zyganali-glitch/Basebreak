@@ -41,7 +41,10 @@ from basebreak.domain.execution import TerminationStatus
 from basebreak.domain.semantics import ChangeClass
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.verifier.witness_result import WitnessOutcome
-from basebreak.verifier.witness_store import TrustedWitnessVault
+from basebreak.verifier.witness_store import (
+    TrustedWitnessVault,
+    WitnessArtifact,
+)
 
 
 def _make_causal_receipt(
@@ -49,12 +52,13 @@ def _make_causal_receipt(
     contract_digest: str = "a" * 64,
     transition: CausalTransition = CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
     verdict: PreliminaryVerdict = PreliminaryVerdict.VERIFIED,
-    witness_id: str = "wit-1",
+    witness_id: str | None = None,
     witness_digest: str = "b" * 64,
     narrative: str = "Base failed, candidate passed",
     provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
     vault: TrustedWitnessVault | None = None,
 ) -> LocalCausalReceipt:
+    effective_wid = witness_id or f"wit-{requirement_id}"
     base_exec = WorldExecutionFact(
         world=ExecutionWorld.BASE,
         sandbox_id="sbx-base-1",
@@ -84,8 +88,23 @@ def _make_causal_receipt(
     )
     attestation = None
     if vault is not None:
+        if effective_wid not in vault.list_sealed_witness_ids():
+            artifact = WitnessArtifact.from_text(
+                path=f"tests/witness_{effective_wid}.py",
+                content=f"def test_{effective_wid}(): assert True\n",
+            )
+            rec = vault.seal_witness(
+                witness_id=effective_wid,
+                requirement_id=requirement_id,
+                frozen_contract_digest=contract_digest,
+                source_commit_id=base_exec.source_commit_id,
+                artifacts=[artifact],
+            )
+            witness_digest = rec.seal_digest
+        else:
+            witness_digest = vault.get_witness(effective_wid).seal_digest
         attestation = vault.attest_execution(
-            witness_id=witness_id,
+            witness_id=effective_wid,
             requirement_id=requirement_id,
             frozen_contract_digest=contract_digest,
             source_commit_id=base_exec.source_commit_id,
@@ -96,12 +115,11 @@ def _make_causal_receipt(
             transition=transition,
             verdict=verdict,
             provenance=provenance,
-            witness_digest=witness_digest,
         )
     return create_causal_receipt(
         requirement_id=requirement_id,
         frozen_contract_digest=contract_digest,
-        witness_id=witness_id,
+        witness_id=effective_wid,
         witness_digest=witness_digest,
         lock_digest="d" * 64,
         base_execution=base_exec,
@@ -120,12 +138,13 @@ def _make_semantic_receipt(
     contract_digest: str = "a" * 64,
     transition: CausalTransition = CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
     verdict: PreliminaryVerdict = PreliminaryVerdict.VERIFIED,
-    witness_id: str = "wit-1",
+    witness_id: str | None = None,
     witness_digest: str = "b" * 64,
     narrative: str = "Verified",
     provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
     vault: TrustedWitnessVault | None = None,
 ) -> SemanticVerificationReceipt:
+    effective_wid = witness_id or f"wit-{requirement_id}"
     breaking = change_class in (
         ChangeClass.BUG_FIX,
         ChangeClass.FEATURE,
@@ -160,8 +179,23 @@ def _make_semantic_receipt(
     )
     attestation = None
     if vault is not None:
+        if effective_wid not in vault.list_sealed_witness_ids():
+            artifact = WitnessArtifact.from_text(
+                path=f"tests/witness_{effective_wid}.py",
+                content=f"def test_{effective_wid}(): assert True\n",
+            )
+            rec = vault.seal_witness(
+                witness_id=effective_wid,
+                requirement_id=requirement_id,
+                frozen_contract_digest=contract_digest,
+                source_commit_id=base_exec.source_commit_id,
+                artifacts=[artifact],
+            )
+            witness_digest = rec.seal_digest
+        else:
+            witness_digest = vault.get_witness(effective_wid).seal_digest
         attestation = vault.attest_execution(
-            witness_id=witness_id,
+            witness_id=effective_wid,
             requirement_id=requirement_id,
             frozen_contract_digest=contract_digest,
             source_commit_id=base_exec.source_commit_id,
@@ -172,13 +206,12 @@ def _make_semantic_receipt(
             transition=transition,
             verdict=verdict,
             provenance=provenance,
-            witness_digest=witness_digest,
         )
     return create_semantic_receipt(
         change_class=change_class,
         requirement_id=requirement_id,
         frozen_contract_digest=contract_digest,
-        witness_id=witness_id,
+        witness_id=effective_wid,
         witness_digest=witness_digest,
         lock_digest="d" * 64,
         source_commit_id="1" * 40,
@@ -235,7 +268,7 @@ class TestCausalCoverageP17:
     """Test suite covering P-17.01 through P-17.05."""
 
     def setup_method(self) -> None:
-        self.vault = TrustedWitnessVault()
+        self.vault = TrustedWitnessVault.create_authorized_vault()
 
     def test_p17_01_denominator_derived_from_eligible_requirements(self) -> None:
         """P-17.01: Eligibility denominator excludes non-behavioral requirements."""
@@ -683,8 +716,12 @@ class TestCausalCoverageP17:
     def test_adversarial_forged_vault_signature_rejected(self) -> None:
         """Adversarial (Defect B): An attestation signed with an untrusted key/vault is rejected."""
         contract = _make_frozen_contract([("REQ-1", ChangeClass.BUG_FIX, "Fix bug")])
-        attacker_vault = TrustedWitnessVault(vault_secret=b"attacker_secret_key_1234567890123")
-        honest_vault = TrustedWitnessVault(vault_secret=b"honest_verifier_key_12345678901234")
+        attacker_vault = TrustedWitnessVault.create_authorized_vault(
+            vault_secret=b"attacker_secret_key_1234567890123"
+        )
+        honest_vault = TrustedWitnessVault.create_authorized_vault(
+            vault_secret=b"honest_verifier_key_12345678901234"
+        )
 
         signed_by_attacker = _make_causal_receipt(
             requirement_id="REQ-1",
