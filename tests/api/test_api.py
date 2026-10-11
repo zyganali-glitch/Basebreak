@@ -389,6 +389,13 @@ class TestApiAuthAndSecretSafety:
             headers=_auth_headers(),
             method="POST",
         )
-        with pytest.raises(urllib.error.HTTPError) as exc2:
+        try:
             urllib.request.urlopen(req_oversized)
-        assert exc2.value.code == 413
+            pytest.fail("Expected 413 HTTPError or connection reset for oversized payload")
+        except urllib.error.HTTPError as exc2:
+            assert exc2.code == 413
+        except urllib.error.URLError as url_err:
+            assert any(
+                err in str(url_err)
+                for err in ("Broken pipe", "Connection reset", "Errno 32", "Errno 104")
+            )

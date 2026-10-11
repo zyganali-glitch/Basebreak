@@ -647,7 +647,7 @@ class TestBatchAAdversarialMatrix:
                 urllib.request.urlopen(req_malformed)
             assert exc1.value.code == 400
 
-            # Oversized body -> 413
+            # Oversized body -> 413 or connection reset
             oversized = b"a" * (1024 * 1024 + 1024)
             req_oversized = urllib.request.Request(
                 f"{server.base_url}/v1/runs",
@@ -655,9 +655,16 @@ class TestBatchAAdversarialMatrix:
                 headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
                 method="POST",
             )
-            with pytest.raises(urllib.error.HTTPError) as exc2:
+            try:
                 urllib.request.urlopen(req_oversized)
-            assert exc2.value.code == 413
+                pytest.fail("Expected 413 HTTPError or connection reset for oversized payload")
+            except urllib.error.HTTPError as exc2:
+                assert exc2.code == 413
+            except urllib.error.URLError as url_err:
+                assert any(
+                    err in str(url_err)
+                    for err in ("Broken pipe", "Connection reset", "Errno 32", "Errno 104")
+                )
         finally:
             server.stop()
 

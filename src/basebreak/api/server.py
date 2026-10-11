@@ -66,6 +66,18 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
                 self._send_error(400, "Request body cannot be empty.")
                 return
             if content_len > MAX_REQUEST_BODY_BYTES:
+                remaining = content_len
+                drain_cap = 2 * 1024 * 1024
+                while remaining > 0 and drain_cap > 0:
+                    chunk_sz = min(remaining, 65536, drain_cap)
+                    try:
+                        discarded = self.rfile.read(chunk_sz)
+                        if not discarded:
+                            break
+                        remaining -= len(discarded)
+                        drain_cap -= len(discarded)
+                    except Exception:
+                        break
                 self._send_error(
                     413,
                     f"Request payload too large: {content_len} bytes "
