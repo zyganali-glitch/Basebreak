@@ -10,6 +10,7 @@ import json
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -46,6 +47,7 @@ from basebreak.integrations.github.mutation_boundary import (
     UnauthorizedMutationError,
 )
 from basebreak.verifier.witness_result import WitnessOutcome
+from basebreak.verifier.witness_store import TrustedWitnessVault
 
 
 def _make_sample_contract(change_class: ChangeClass = ChangeClass.BUG_FIX) -> FrozenContract:
@@ -126,7 +128,8 @@ class TestBatchAAdversarialMatrix:
         )
         assert res.receipt is not None
         assert res.receipt.provenance == EvidenceProvenance.FIXTURE
-        assert res.receipt.provenance != EvidenceProvenance.LOCAL_EXECUTION
+        prov: Any = res.receipt.provenance
+        assert prov != EvidenceProvenance.LOCAL_EXECUTION
 
     def test_case_05_missing_source_identity_cannot_be_replaced_by_synthetic_success(
         self, tmp_path: Path
@@ -201,6 +204,21 @@ class TestBatchAAdversarialMatrix:
             result_digest="9" * 64,
             duration_seconds=1.0,
         )
+        vault = TrustedWitnessVault()
+        attestation = vault.attest_execution(
+            witness_id="wit-1",
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            base_execution=base_wef,
+            candidate_execution=cand_wef,
+            counterfactual_execution=None,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            witness_digest="a" * 64,
+        )
         local_rc = create_causal_receipt(
             requirement_id="REQ-001",
             frozen_contract_digest="c" * 64,
@@ -213,10 +231,12 @@ class TestBatchAAdversarialMatrix:
             verdict=PreliminaryVerdict.VERIFIED,
             provenance=EvidenceProvenance.LOCAL_EXECUTION,
             narrative="Proven",
+            attestation=attestation,
         )
         coverage = compute_causal_coverage(
             frozen_contract=contract,
             results={"REQ-001": local_rc},
+            verifier_authority=vault,
         )
         base_exec = PublicExecutionFact(
             world=ExecutionWorld.BASE,
@@ -319,6 +339,21 @@ class TestBatchAAdversarialMatrix:
             result_digest="9" * 64,
             duration_seconds=1.0,
         )
+        vault = TrustedWitnessVault()
+        attestation = vault.attest_execution(
+            witness_id="wit-1",
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            base_execution=base_wef,
+            candidate_execution=cand_wef,
+            counterfactual_execution=None,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            witness_digest="a" * 64,
+        )
         local_rc = create_causal_receipt(
             requirement_id="REQ-001",
             frozen_contract_digest="c" * 64,
@@ -331,10 +366,12 @@ class TestBatchAAdversarialMatrix:
             verdict=PreliminaryVerdict.VERIFIED,
             provenance=EvidenceProvenance.LOCAL_EXECUTION,
             narrative="Proven",
+            attestation=attestation,
         )
         coverage = compute_causal_coverage(
             frozen_contract=contract,
             results={"REQ-001": local_rc},
+            verifier_authority=vault,
         )
         base_exec_pass = PublicExecutionFact(
             world=ExecutionWorld.BASE,

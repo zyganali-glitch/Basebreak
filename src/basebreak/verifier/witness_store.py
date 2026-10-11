@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.security.protected_surfaces import (
     PathSecurityError,
     PathTraversalError,
@@ -38,9 +39,11 @@ from basebreak.security.protected_surfaces import (
     normalize_repo_path,
 )
 from basebreak.security.secret_policy import contains_secret
+from basebreak.verifier.witness_result import WitnessOutcome
 
 _HEX_40_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
 
 
 # --- Exceptions ---
@@ -331,6 +334,146 @@ class SealedWitnessRecord:
         }
 
 
+def build_canonical_execution_attestation_payload(
+    *,
+    requirement_id: str,
+    frozen_contract_digest: str,
+    witness_id: str,
+    witness_digest: str,
+    source_commit_id: str,
+    candidate_tree_digest: str | None = None,
+    base_outcome: WitnessOutcome | None = None,
+    candidate_outcome: WitnessOutcome | None = None,
+    counterfactual_outcome: WitnessOutcome | None = None,
+    transition: Any = None,
+    verdict: PreliminaryVerdict = PreliminaryVerdict.VERIFIED,
+    provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
+    created_at_utc: str = "",
+) -> dict[str, Any]:
+    """Construct deterministic payload for execution attestation digest computation."""
+    trans_val = transition.value if hasattr(transition, "value") else str(transition)
+    return {
+        "base_outcome": base_outcome.value if base_outcome is not None else None,
+        "candidate_outcome": candidate_outcome.value if candidate_outcome is not None else None,
+        "candidate_tree_digest": str(candidate_tree_digest or "").strip().lower(),
+        "counterfactual_outcome": (
+            counterfactual_outcome.value if counterfactual_outcome is not None else None
+        ),
+        "created_at_utc": str(created_at_utc).strip(),
+        "frozen_contract_digest": str(frozen_contract_digest).strip().lower(),
+        "provenance": provenance.value,
+        "requirement_id": str(requirement_id).strip(),
+        "source_commit_id": str(source_commit_id).strip().lower(),
+        "transition": str(trans_val),
+        "verdict": verdict.value,
+        "witness_digest": str(witness_digest).strip().lower(),
+        "witness_id": str(witness_id).strip(),
+    }
+
+
+def compute_attestation_digest(payload: Mapping[str, Any]) -> str:
+    """Compute deterministic SHA-256 digest over canonical JSON bytes."""
+    canonical_bytes = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return hashlib.sha256(canonical_bytes).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class VerifierExecutionAttestation:
+    """Cryptographic attestation from TrustedWitnessVault certifying verifier-side execution.
+
+    Possesses authority strictly when validated by TrustedWitnessVault.
+    """
+
+    requirement_id: str
+    frozen_contract_digest: str
+    witness_id: str
+    witness_digest: str
+    source_commit_id: str
+    candidate_tree_digest: str
+    base_outcome: WitnessOutcome | None
+    candidate_outcome: WitnessOutcome | None
+    counterfactual_outcome: WitnessOutcome | None
+    transition: Any
+    verdict: PreliminaryVerdict
+    provenance: EvidenceProvenance
+    attestation_digest: str
+    vault_signature: str
+    created_at_utc: str
+    is_authoritative: bool = True
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.requirement_id, str) or not self.requirement_id.strip():
+            raise WitnessIntegrityError("requirement_id must be a non-empty string")
+        if not isinstance(self.frozen_contract_digest, str) or not _HEX_64_PATTERN.match(
+            self.frozen_contract_digest
+        ):
+            raise WitnessIntegrityError("frozen_contract_digest must be a 64-char hex string")
+        if not isinstance(self.witness_id, str) or not self.witness_id.strip():
+            raise WitnessIntegrityError("witness_id must be a non-empty string")
+        if not isinstance(self.witness_digest, str) or not _HEX_64_PATTERN.match(
+            self.witness_digest
+        ):
+            raise WitnessIntegrityError("witness_digest must be a 64-char hex string")
+        if not isinstance(self.source_commit_id, str) or not _HEX_40_PATTERN.match(
+            self.source_commit_id
+        ):
+            raise WitnessIntegrityError("source_commit_id must be a 40-char commit SHA")
+        if not isinstance(self.candidate_tree_digest, str) or not (
+            _HEX_40_PATTERN.match(self.candidate_tree_digest)
+            or _HEX_64_PATTERN.match(self.candidate_tree_digest)
+        ):
+            raise WitnessIntegrityError("candidate_tree_digest must be 40 or 64 hex chars")
+        trans_str = (
+            self.transition.value if hasattr(self.transition, "value") else str(self.transition)
+        )
+        if not trans_str or not trans_str.strip():
+            raise WitnessIntegrityError("transition must be a non-empty string or CausalTransition")
+        if not isinstance(self.verdict, PreliminaryVerdict):
+            raise TypeError("verdict must be PreliminaryVerdict")
+        if not isinstance(self.provenance, EvidenceProvenance):
+            raise TypeError("provenance must be EvidenceProvenance")
+        if not isinstance(self.attestation_digest, str) or not _HEX_64_PATTERN.match(
+            self.attestation_digest
+        ):
+            raise WitnessIntegrityError("attestation_digest must be a 64-char hex string")
+        if not isinstance(self.vault_signature, str) or not _HEX_64_PATTERN.match(
+            self.vault_signature
+        ):
+            raise WitnessIntegrityError("vault_signature must be a 64-char hex string")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize attestation to JSON-safe dictionary."""
+        trans_val = (
+            self.transition.value if hasattr(self.transition, "value") else str(self.transition)
+        )
+        return {
+            "attestation_digest": self.attestation_digest,
+            "base_outcome": self.base_outcome.value if self.base_outcome is not None else None,
+            "candidate_outcome": (
+                self.candidate_outcome.value if self.candidate_outcome is not None else None
+            ),
+            "candidate_tree_digest": self.candidate_tree_digest,
+            "counterfactual_outcome": (
+                self.counterfactual_outcome.value
+                if self.counterfactual_outcome is not None
+                else None
+            ),
+            "created_at_utc": self.created_at_utc,
+            "frozen_contract_digest": self.frozen_contract_digest,
+            "is_authoritative": self.is_authoritative,
+            "provenance": self.provenance.value,
+            "requirement_id": self.requirement_id,
+            "source_commit_id": self.source_commit_id,
+            "transition": str(trans_val),
+            "vault_signature": self.vault_signature,
+            "verdict": self.verdict.value,
+            "witness_digest": self.witness_digest,
+            "witness_id": self.witness_id,
+        }
+
+
 # --- Trusted Witness Vault ---
 
 
@@ -345,6 +488,8 @@ class TrustedWitnessVault:
         self._vault_secret = vault_secret or os.urandom(32)
         self._registered_seals: dict[str, tuple[str, str]] = {}
         self._records: dict[str, SealedWitnessRecord] = {}
+        self._registered_executions: dict[str, VerifierExecutionAttestation] = {}
+
 
     def seal_witness(
         self,
@@ -479,3 +624,308 @@ class TrustedWitnessVault:
     def list_sealed_witness_ids(self) -> tuple[str, ...]:
         """Return canonically sorted tuple of sealed witness IDs in vault."""
         return tuple(sorted(self._records.keys()))
+
+    def attest_execution(
+        self,
+        *,
+        witness_id: str,
+        requirement_id: str,
+        frozen_contract_digest: str,
+        source_commit_id: str,
+        candidate_tree_digest: str | None = None,
+        witness_digest: str | None = None,
+        witness_artifacts: Sequence[WitnessArtifact] | None = None,
+        base_execution: Any | None = None,
+        candidate_execution: Any | None = None,
+        counterfactual_execution: Any | None = None,
+        base_outcome: WitnessOutcome | None = None,
+        candidate_outcome: WitnessOutcome | None = None,
+        counterfactual_outcome: WitnessOutcome | None = None,
+        transition: Any,
+        verdict: PreliminaryVerdict,
+        provenance: EvidenceProvenance,
+        created_at_utc: str | None = None,
+    ) -> VerifierExecutionAttestation:
+        """Record and cryptographically attest genuine verifier-side execution."""
+        clean_wid = str(witness_id).strip()
+        if not clean_wid:
+            raise WitnessIntegrityError("witness_id must not be empty")
+
+        effective_witness_digest: str
+        record = self._records.get(clean_wid)
+        if record is None:
+            if witness_artifacts is not None:
+                record = self.seal_witness(
+                    witness_id=clean_wid,
+                    requirement_id=requirement_id,
+                    frozen_contract_digest=frozen_contract_digest,
+                    source_commit_id=source_commit_id,
+                    artifacts=witness_artifacts,
+                )
+                effective_witness_digest = record.seal_digest
+            elif witness_digest is not None:
+                effective_witness_digest = witness_digest
+            else:
+                raise UntrustedWitnessAuthorityError(
+                    f"Witness ID {clean_wid!r} was not sealed by this trusted vault"
+                )
+        else:
+            self.verify_witness_integrity(record)
+            if record.requirement_id != requirement_id:
+                raise WitnessIntegrityError(
+                    f"Witness requirement {record.requirement_id!r} does not match "
+                    f"{requirement_id!r}"
+                )
+            if record.frozen_contract_digest.lower() != frozen_contract_digest.lower():
+                raise WitnessIntegrityError(
+                    "Witness contract digest does not match execution context"
+                )
+            if record.source_commit_id.lower() != source_commit_id.lower():
+                raise WitnessIntegrityError(
+                    "Witness source commit does not match execution context"
+                )
+            effective_witness_digest = record.seal_digest
+
+        b_outcome = (
+            base_outcome
+            if base_outcome is not None
+            else getattr(base_execution, "outcome", None)
+        )
+        c_outcome = (
+            candidate_outcome
+            if candidate_outcome is not None
+            else getattr(candidate_execution, "outcome", None)
+        )
+        cf_outcome = (
+            counterfactual_outcome
+            if counterfactual_outcome is not None
+            else getattr(counterfactual_execution, "outcome", None)
+        )
+
+        timestamp = created_at_utc or datetime.now(timezone.utc).isoformat()
+        payload = build_canonical_execution_attestation_payload(
+            requirement_id=requirement_id,
+            frozen_contract_digest=frozen_contract_digest,
+            witness_id=clean_wid,
+            witness_digest=effective_witness_digest,
+            source_commit_id=source_commit_id,
+            candidate_tree_digest=candidate_tree_digest,
+            base_outcome=b_outcome,
+            candidate_outcome=c_outcome,
+            counterfactual_outcome=cf_outcome,
+            transition=transition,
+            verdict=verdict,
+            provenance=provenance,
+            created_at_utc=timestamp,
+        )
+        att_digest = compute_attestation_digest(payload)
+        vault_sig = hmac.new(
+            self._vault_secret, att_digest.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
+
+        attestation = VerifierExecutionAttestation(
+            requirement_id=requirement_id,
+            frozen_contract_digest=frozen_contract_digest,
+            witness_id=clean_wid,
+            witness_digest=effective_witness_digest,
+            source_commit_id=source_commit_id,
+            candidate_tree_digest=candidate_tree_digest or "",
+            base_outcome=b_outcome,
+            candidate_outcome=c_outcome,
+            counterfactual_outcome=cf_outcome,
+            transition=transition,
+            verdict=verdict,
+            provenance=provenance,
+            attestation_digest=att_digest,
+            vault_signature=vault_sig,
+            created_at_utc=timestamp,
+            is_authoritative=True,
+        )
+
+        self._registered_executions[requirement_id] = attestation
+        return attestation
+
+    def verify_execution_authority(
+        self,
+        *,
+        receipt_or_attestation: VerifierExecutionAttestation | Any | None = None,
+        expected_requirement_id: str | None = None,
+        expected_contract_digest: str | None = None,
+        expected_source_commit_id: str | None = None,
+        expected_candidate_tree_digest: str | None = None,
+        requirement_id: str | None = None,
+        frozen_contract_digest: str | None = None,
+        source_commit_id: str | None = None,
+        candidate_tree_digest: str | None = None,
+        witness_id: str | None = None,
+        base_execution: Any | None = None,
+        candidate_execution: Any | None = None,
+        counterfactual_execution: Any | None = None,
+        transition: Any | None = None,
+        verdict: PreliminaryVerdict | None = None,
+        provenance: EvidenceProvenance | None = None,
+        attestation: VerifierExecutionAttestation | None = None,
+    ) -> bool:
+        """Mechanically verify that reported execution facts carry genuine vault authority."""
+        lookup_id = requirement_id or expected_requirement_id or ""
+        att = (
+            receipt_or_attestation
+            if isinstance(receipt_or_attestation, VerifierExecutionAttestation)
+            else (
+                getattr(receipt_or_attestation, "attestation", None)
+                if receipt_or_attestation is not None
+                else (attestation or self._registered_executions.get(lookup_id))
+            )
+        )
+        if att is None:
+            return False
+
+        if not isinstance(att, VerifierExecutionAttestation):
+            return False
+
+        req_id = (
+            expected_requirement_id
+            or requirement_id
+            or getattr(receipt_or_attestation, "requirement_id", None)
+        )
+        cd = (
+            expected_contract_digest
+            or frozen_contract_digest
+            or getattr(receipt_or_attestation, "frozen_contract_digest", None)
+        )
+        sc = (
+            expected_source_commit_id
+            or source_commit_id
+            or getattr(receipt_or_attestation, "source_commit_id", None)
+        )
+        ct = (
+            expected_candidate_tree_digest
+            or candidate_tree_digest
+            or getattr(receipt_or_attestation, "candidate_tree_digest", None)
+        )
+
+        # 1. HMAC signature verification against this vault's private secret
+        expected_sig = hmac.new(
+            self._vault_secret, att.attestation_digest.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(att.vault_signature, expected_sig):
+            return False
+
+        # 2. Recompute attestation digest
+        payload = build_canonical_execution_attestation_payload(
+            requirement_id=att.requirement_id,
+            frozen_contract_digest=att.frozen_contract_digest,
+            witness_id=att.witness_id,
+            witness_digest=att.witness_digest,
+            source_commit_id=att.source_commit_id,
+            candidate_tree_digest=att.candidate_tree_digest,
+            base_outcome=att.base_outcome,
+            candidate_outcome=att.candidate_outcome,
+            counterfactual_outcome=att.counterfactual_outcome,
+            transition=att.transition,
+            verdict=att.verdict,
+            provenance=att.provenance,
+            created_at_utc=att.created_at_utc,
+        )
+        if att.attestation_digest != compute_attestation_digest(payload):
+            return False
+
+        # 3. Check registration if present in registry
+        if att.requirement_id in self._registered_executions:
+            reg = self._registered_executions[att.requirement_id]
+            if not hmac.compare_digest(att.vault_signature, reg.vault_signature):
+                return False
+
+        # 4. Check factual bindings against current claim
+        if req_id and att.requirement_id != req_id:
+            return False
+        if cd and att.frozen_contract_digest.lower() != cd.lower():
+            return False
+        if sc and att.source_commit_id.lower() != sc.lower():
+            return False
+        if ct and att.candidate_tree_digest.lower() != ct.lower():
+            return False
+
+        if witness_id and att.witness_id != str(witness_id).strip():
+            return False
+
+        if att.witness_id in self._records:
+            rec = self._records[att.witness_id]
+            if att.witness_digest.lower() != rec.seal_digest.lower():
+                return False
+
+        # Check transition if specified
+        if transition is not None:
+            trans_val = transition.value if hasattr(transition, "value") else str(transition)
+            att_t = att.transition
+            att_trans = att_t.value if hasattr(att_t, "value") else str(att_t)
+            if att_trans != trans_val:
+                return False
+
+        # Check verdict
+        if verdict is not None:
+            v_val = verdict.value if hasattr(verdict, "value") else str(verdict)
+            att_v = att.verdict.value if hasattr(att.verdict, "value") else str(att.verdict)
+            if att_v != v_val:
+                return False
+        else:
+            att_v = att.verdict.value if hasattr(att.verdict, "value") else str(att.verdict)
+            if att_v != "VERIFIED":
+                return False
+
+        # Check outcomes if execution objects provided
+        if base_execution is not None:
+            b_out = getattr(base_execution, "outcome", base_execution)
+            if att.base_outcome != b_out:
+                return False
+        if candidate_execution is not None:
+            c_out = getattr(candidate_execution, "outcome", candidate_execution)
+            if att.candidate_outcome != c_out:
+                return False
+        if counterfactual_execution is not None:
+            cf_out = getattr(counterfactual_execution, "outcome", counterfactual_execution)
+            if att.counterfactual_outcome != cf_out:
+                return False
+
+        # 5. Strict anti-laundering check: FIXTURE cannot certify LOCAL or LIVE
+        claim_prov = getattr(receipt_or_attestation, "provenance", provenance)
+        if claim_prov is not None:
+            c_prov = claim_prov.value if hasattr(claim_prov, "value") else str(claim_prov)
+            att_p = att.provenance
+            a_prov = att_p.value if hasattr(att_p, "value") else str(att_p)
+            if c_prov != "FIXTURE" and a_prov == "FIXTURE":
+                return False
+
+        return True
+
+    def get_attestation(self, requirement_id: str) -> VerifierExecutionAttestation:
+        """Look up an execution attestation by requirement ID."""
+        att = self._registered_executions.get(requirement_id)
+        if att is None:
+            raise KeyError(
+                f"No execution attestation registered for requirement {requirement_id!r}"
+            )
+        return att
+
+    def list_attested_requirement_ids(self) -> tuple[str, ...]:
+        """Return canonically sorted tuple of requirement IDs with registered attestations."""
+        return tuple(sorted(self._registered_executions.keys()))
+
+
+__all__ = [
+    "SealedWitnessRecord",
+    "TrustedWitnessVault",
+    "UntrustedWitnessAuthorityError",
+    "VerifierExecutionAttestation",
+    "WitnessArtifact",
+    "WitnessIntegrityError",
+    "WitnessPathSecurityError",
+    "WitnessProtectedSurfaceCollisionError",
+    "WitnessSecretError",
+    "WitnessTamperingError",
+    "build_canonical_execution_attestation_payload",
+    "build_canonical_witness_identity_payload",
+    "compute_attestation_digest",
+    "compute_seal_digest",
+]
+

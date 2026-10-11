@@ -23,6 +23,7 @@ Covers the 14 minimal regression acceptance criteria from Section 5:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -62,6 +63,7 @@ from basebreak.domain.execution import TerminationStatus
 from basebreak.domain.semantics import ChangeClass
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.verifier.witness_result import WitnessOutcome
+from basebreak.verifier.witness_store import TrustedWitnessVault
 
 
 def _demo_target_path() -> str:
@@ -104,6 +106,7 @@ def _make_sample_causal_receipt(
     verdict: PreliminaryVerdict = PreliminaryVerdict.VERIFIED,
     transition: CausalTransition = CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
     provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
+    vault: TrustedWitnessVault | None = None,
 ) -> LocalCausalReceipt:
     base_wef = WorldExecutionFact(
         world=ExecutionWorld.BASE,
@@ -132,6 +135,22 @@ def _make_sample_causal_receipt(
         result_digest="9" * 64,
         duration_seconds=1.0,
     )
+    attestation = None
+    if vault is not None:
+        attestation = vault.attest_execution(
+            witness_id="WIT-001",
+            requirement_id=requirement_id,
+            frozen_contract_digest=contract_digest,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            base_execution=base_wef,
+            candidate_execution=cand_wef,
+            counterfactual_execution=None,
+            transition=transition,
+            verdict=verdict,
+            provenance=provenance,
+            witness_digest="a" * 64,
+        )
     return create_causal_receipt(
         requirement_id=requirement_id,
         frozen_contract_digest=contract_digest,
@@ -144,6 +163,7 @@ def _make_sample_causal_receipt(
         verdict=verdict,
         provenance=provenance,
         narrative="Test execution fact",
+        attestation=attestation,
     )
 
 
@@ -153,7 +173,10 @@ def _make_class_specific_public_receipt(
     cand_outcome: WitnessOutcome,
     cf_outcome: WitnessOutcome | None = None,
     overall_verdict: PreliminaryVerdict = PreliminaryVerdict.VERIFIED,
+    vault: TrustedWitnessVault | None = None,
 ) -> PublicVerificationReceipt:
+    if vault is None:
+        vault = TrustedWitnessVault()
     contract = _make_test_contract(
         [("REQ-001", change_class, f"Requirement for {change_class.value}")]
     )
@@ -205,6 +228,23 @@ def _make_class_specific_public_receipt(
         duration_seconds=1.0,
     )
 
+    attestation = None
+    if overall_verdict == PreliminaryVerdict.VERIFIED:
+        attestation = vault.attest_execution(
+            witness_id="WIT-001",
+            requirement_id="REQ-001",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            base_execution=base_wef,
+            candidate_execution=cand_wef,
+            counterfactual_execution=None,
+            transition=transition,
+            verdict=overall_verdict,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            witness_digest="a" * 64,
+        )
+
     sem_receipt = create_semantic_receipt(
         change_class=change_class,
         requirement_id="REQ-001",
@@ -222,12 +262,14 @@ def _make_class_specific_public_receipt(
         is_causally_verified=(overall_verdict == PreliminaryVerdict.VERIFIED),
         provenance=EvidenceProvenance.LOCAL_EXECUTION,
         narrative=f"Verification for {change_class.value}",
+        attestation=attestation,
     )
 
     coverage = compute_causal_coverage(
         frozen_contract=contract,
         results={"REQ-001": sem_receipt},
         requirement_classes=req_classes,
+        verifier_authority=vault,
     )
 
     base_pub = PublicExecutionFact(
@@ -311,7 +353,7 @@ class TestBatchARepairAdversarialMatrix:
             "new file mode 100644\n"
             "index 0000000..e69de29\n"
         )
-        cfg = BasebreakConfig(runs_dir=tmp_path / "runs")
+        cfg = BasebreakConfig(runs_dir=str(tmp_path / "runs"))
         result = execute_verification_pipeline(
             target=_demo_target_path(),
             patch=unrelated_patch,
@@ -325,7 +367,7 @@ class TestBatchARepairAdversarialMatrix:
     def test_02_malformed_patch_cannot_receive_verified(self, tmp_path: Path) -> None:
         """2. A malformed patch cannot receive VERIFIED."""
         malformed_patch = "This is not a unified diff format\n+++ invalid lines\n"
-        cfg = BasebreakConfig(runs_dir=tmp_path / "runs")
+        cfg = BasebreakConfig(runs_dir=str(tmp_path / "runs"))
         result = execute_verification_pipeline(
             target=_demo_target_path(),
             patch=malformed_patch,
@@ -338,7 +380,7 @@ class TestBatchARepairAdversarialMatrix:
 
     def test_03_genuine_intended_patch_applied_to_candidate_tree(self, tmp_path: Path) -> None:
         """3. The genuine intended patch must be applied to the actual candidate tree."""
-        cfg = BasebreakConfig(runs_dir=tmp_path / "runs")
+        cfg = BasebreakConfig(runs_dir=str(tmp_path / "runs"))
         result = execute_verification_pipeline(
             target=_demo_target_path(),
             patch=CANONICAL_DEMO_PATCH,
@@ -352,7 +394,7 @@ class TestBatchARepairAdversarialMatrix:
 
     def test_04_changing_patch_changes_candidate_identity_or_fails(self, tmp_path: Path) -> None:
         """4. Changing the patch changes candidate identity or fails validation."""
-        cfg = BasebreakConfig(runs_dir=tmp_path / "runs")
+        cfg = BasebreakConfig(runs_dir=str(tmp_path / "runs"))
         # Attempt to run with forged candidate_sha
         forged_cand_sha = "0" * 64
         result = execute_verification_pipeline(
@@ -370,7 +412,7 @@ class TestBatchARepairAdversarialMatrix:
     ) -> None:
         """5. Counterfactual subtraction must match actual source reconstruction."""
         # On positive verification, verify that cf_tree matches base_tree
-        cfg = BasebreakConfig(runs_dir=tmp_path / "runs")
+        cfg = BasebreakConfig(runs_dir=str(tmp_path / "runs"))
         result = execute_verification_pipeline(
             target=_demo_target_path(),
             patch=CANONICAL_DEMO_PATCH,
@@ -385,7 +427,7 @@ class TestBatchARepairAdversarialMatrix:
 
     def test_06_arbitrary_base_sha_cannot_be_accepted(self, tmp_path: Path) -> None:
         """6. An arbitrary base_sha cannot be accepted as executed source identity."""
-        cfg = BasebreakConfig(runs_dir=tmp_path / "runs")
+        cfg = BasebreakConfig(runs_dir=str(tmp_path / "runs"))
         result = execute_verification_pipeline(
             target=_demo_target_path(),
             base_sha="1" * 40,
@@ -403,7 +445,7 @@ class TestBatchARepairAdversarialMatrix:
         link_path = tmp_path / "link_to_target"
         try:
             link_path.symlink_to(symlink_target, target_is_directory=True)
-            cfg = BasebreakConfig(runs_dir=tmp_path / "runs")
+            cfg = BasebreakConfig(runs_dir=str(tmp_path / "runs"))
             result = execute_verification_pipeline(
                 target=str(link_path),
                 config=cfg,
@@ -413,20 +455,9 @@ class TestBatchARepairAdversarialMatrix:
         except OSError:
             # On Windows without developer mode symlink creation may require privilege;
             # verify that non-allowlisted directory is blocked:
-            cfg = BasebreakConfig(runs_dir=tmp_path / "runs")
+            cfg = BasebreakConfig(runs_dir=str(tmp_path / "runs"))
             result = execute_verification_pipeline(
                 target=str(symlink_target),
-                config=cfg,
-            )
-            assert result.exit_code == 2
-            assert result.status == "BLOCKED"
-            assert result.status == "BLOCKED"
-        except OSError:
-            # On Windows without developer mode symlink creation may require privilege;
-            # verify that non-allowlisted directory is blocked:
-            cfg = BasebreakConfig(runs_dir=tmp_path / "runs")
-            result = execute_verification_pipeline(
-                target_locator=str(symlink_target),
                 config=cfg,
             )
             assert result.exit_code == 2
@@ -528,10 +559,12 @@ class TestBatchARepairAdversarialMatrix:
         authoritative.
         """
         contract = _make_test_contract([("REQ-001", ChangeClass.BUG_FIX, "Bug fix")])
-        local_rc = _make_sample_causal_receipt()
+        vault = TrustedWitnessVault()
+        local_rc = _make_sample_causal_receipt(vault=vault)
         coverage = compute_causal_coverage(
             frozen_contract=contract,
             results={"REQ-001": local_rc},
+            verifier_authority=vault,
         )
         base_exec = PublicExecutionFact(
             world=ExecutionWorld.BASE,
@@ -626,3 +659,153 @@ class TestBatchARepairAdversarialMatrix:
                 receipt_digest=rc.receipt_digest,
                 narrative=rc.narrative,
             )
+
+    def test_15_adversarial_defect_a_multi_file_patch_rejected_before_candidate_subprocess(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Adversarial (Defect A): A patch modifying target AND auxiliary files
+        (e.g., conftest.py) must be rejected BEFORE any candidate subprocess is invoked.
+        """
+        import subprocess
+
+        multi_file_patch = (
+            "--- a/src/demo_target/cli.py\n"
+            "+++ b/src/demo_target/cli.py\n"
+            "@@ -1,3 +1,3 @@\n"
+            "-def run(): pass\n"
+            "+def run(): return 0\n"
+            "--- a/tests/conftest.py\n"
+            "+++ b/tests/conftest.py\n"
+            "@@ -0,0 +1,2 @@\n"
+            "+# auxiliary injection\n"
+            "+def pytest_configure(): pass\n"
+        )
+        real_subprocess_run = subprocess.run
+        invoked_commands: list[list[str]] = []
+
+        def spy_subprocess_run(cmd: Any, *args: Any, **kwargs: Any) -> Any:
+            invoked_commands.append(list(cmd) if isinstance(cmd, (list, tuple)) else [str(cmd)])
+            return real_subprocess_run(cmd, *args, **kwargs)
+
+        monkeypatch.setattr(subprocess, "run", spy_subprocess_run)
+
+        cfg = BasebreakConfig(runs_dir=str(tmp_path / "runs"))
+        result = execute_verification_pipeline(
+            target=_demo_target_path(),
+            patch=multi_file_patch,
+            config=cfg,
+        )
+
+        assert result.exit_code == 1
+        assert result.status == "CONTRADICTED"
+        assert result.causal_transition == "PATCH_APPLICATION_FAILED"
+        assert "Unauthorized patch modification" in result.message
+
+        # Assert no candidate or counterfactual pytest execution was ever reached!
+        candidate_or_cf_calls = [
+            cmd
+            for cmd in invoked_commands
+            if any(
+                "candidate" in str(arg).lower() or "counterfactual" in str(arg).lower()
+                for arg in cmd
+            )
+        ]
+        assert len(candidate_or_cf_calls) == 0
+
+    def test_16_adversarial_defect_b_fabricated_receipts_cannot_acquire_authority(
+        self,
+    ) -> None:
+        """Adversarial (Defect B): Construct a self-consistent LocalCausalReceipt and
+        SemanticVerificationReceipt with valid SHA-256 digests claiming LOCAL_EXECUTION.
+        Prove neither can produce an authoritative VERIFIED coverage result without
+        trusted verifier-side execution evidence.
+        """
+        contract = _make_test_contract([("REQ-001", ChangeClass.BUG_FIX, "Fix bug")])
+
+        # 16a: LocalCausalReceipt with no attestation
+        unattested_causal = _make_sample_causal_receipt(
+            requirement_id="REQ-001",
+            contract_digest=contract.contract_digest,
+            verdict=PreliminaryVerdict.VERIFIED,
+            vault=None,
+        )
+        cov_causal = compute_causal_coverage(
+            frozen_contract=contract,
+            results={"REQ-001": unattested_causal},
+        )
+        assert cov_causal.verified_count == 0
+        assert cov_causal.inconclusive_count == 1
+        assert cov_causal.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
+
+        # 16b: SemanticVerificationReceipt with no attestation
+        base_wef = WorldExecutionFact(
+            world=ExecutionWorld.BASE,
+            sandbox_id="sbx-base",
+            source_commit_id="1" * 40,
+            tree_digest="2" * 40,
+            outcome=WitnessOutcome.FAIL,
+            exit_code=1,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="3" * 64,
+            stderr_digest="4" * 64,
+            result_digest="8" * 64,
+            duration_seconds=1.0,
+        )
+        cand_wef = WorldExecutionFact(
+            world=ExecutionWorld.CANDIDATE,
+            sandbox_id="sbx-cand",
+            source_commit_id="1" * 40,
+            tree_digest="5" * 40,
+            outcome=WitnessOutcome.PASS,
+            exit_code=0,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="6" * 64,
+            stderr_digest="7" * 64,
+            result_digest="9" * 64,
+            duration_seconds=1.0,
+        )
+        unattested_semantic = create_semantic_receipt(
+            change_class=ChangeClass.BUG_FIX,
+            requirement_id="REQ-001",
+            frozen_contract_digest=contract.contract_digest,
+            witness_id="WIT-001",
+            witness_digest="a" * 64,
+            lock_digest="d" * 64,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            base_execution=base_wef,
+            candidate_execution=cand_wef,
+            class_specific_payload={},
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            is_causally_verified=True,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            narrative="Fabricated without verifier authority",
+            attestation=None,
+        )
+        cov_sem = compute_causal_coverage(
+            frozen_contract=contract,
+            results={"REQ-001": unattested_semantic},
+            requirement_classes={"REQ-001": ChangeClass.BUG_FIX},
+        )
+        assert cov_sem.verified_count == 0
+        assert cov_sem.inconclusive_count == 1
+        assert cov_sem.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
+
+        # 16c: Positive reconciliation with genuine TrustedWitnessVault authority
+        trusted_vault = TrustedWitnessVault()
+        attested_causal = _make_sample_causal_receipt(
+            requirement_id="REQ-001",
+            contract_digest=contract.contract_digest,
+            verdict=PreliminaryVerdict.VERIFIED,
+            vault=trusted_vault,
+        )
+        cov_auth = compute_causal_coverage(
+            frozen_contract=contract,
+            results={"REQ-001": attested_causal},
+            verifier_authority=trusted_vault,
+        )
+        assert cov_auth.verified_count == 1
+        assert cov_auth.inconclusive_count == 0
+        assert cov_auth.overall_verdict == PreliminaryVerdict.VERIFIED
+

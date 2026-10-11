@@ -41,6 +41,7 @@ from basebreak.domain.execution import TerminationStatus
 from basebreak.domain.semantics import ChangeClass
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.verifier.witness_result import WitnessOutcome
+from basebreak.verifier.witness_store import TrustedWitnessVault
 
 
 def _make_causal_receipt(
@@ -52,6 +53,7 @@ def _make_causal_receipt(
     witness_digest: str = "b" * 64,
     narrative: str = "Base failed, candidate passed",
     provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
+    vault: TrustedWitnessVault | None = None,
 ) -> LocalCausalReceipt:
     base_exec = WorldExecutionFact(
         world=ExecutionWorld.BASE,
@@ -80,6 +82,22 @@ def _make_causal_receipt(
         result_digest="9" * 64,
         duration_seconds=1.0,
     )
+    attestation = None
+    if vault is not None:
+        attestation = vault.attest_execution(
+            witness_id=witness_id,
+            requirement_id=requirement_id,
+            frozen_contract_digest=contract_digest,
+            source_commit_id=base_exec.source_commit_id,
+            candidate_tree_digest=cand_exec.tree_digest,
+            base_execution=base_exec,
+            candidate_execution=cand_exec,
+            counterfactual_execution=None,
+            transition=transition,
+            verdict=verdict,
+            provenance=provenance,
+            witness_digest=witness_digest,
+        )
     return create_causal_receipt(
         requirement_id=requirement_id,
         frozen_contract_digest=contract_digest,
@@ -92,6 +110,7 @@ def _make_causal_receipt(
         verdict=verdict,
         provenance=provenance,
         narrative=narrative,
+        attestation=attestation,
     )
 
 
@@ -105,6 +124,7 @@ def _make_semantic_receipt(
     witness_digest: str = "b" * 64,
     narrative: str = "Verified",
     provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
+    vault: TrustedWitnessVault | None = None,
 ) -> SemanticVerificationReceipt:
     breaking = change_class in (
         ChangeClass.BUG_FIX,
@@ -138,6 +158,22 @@ def _make_semantic_receipt(
         result_digest="9" * 64,
         duration_seconds=1.0,
     )
+    attestation = None
+    if vault is not None:
+        attestation = vault.attest_execution(
+            witness_id=witness_id,
+            requirement_id=requirement_id,
+            frozen_contract_digest=contract_digest,
+            source_commit_id=base_exec.source_commit_id,
+            candidate_tree_digest=cand_exec.tree_digest,
+            base_execution=base_exec,
+            candidate_execution=cand_exec,
+            counterfactual_execution=None,
+            transition=transition,
+            verdict=verdict,
+            provenance=provenance,
+            witness_digest=witness_digest,
+        )
     return create_semantic_receipt(
         change_class=change_class,
         requirement_id=requirement_id,
@@ -155,6 +191,7 @@ def _make_semantic_receipt(
         is_causally_verified=(verdict == PreliminaryVerdict.VERIFIED),
         provenance=provenance,
         narrative=narrative,
+        attestation=attestation,
     )
 
 
@@ -197,6 +234,9 @@ def _make_frozen_contract(
 class TestCausalCoverageP17:
     """Test suite covering P-17.01 through P-17.05."""
 
+    def setup_method(self) -> None:
+        self.vault = TrustedWitnessVault()
+
     def test_p17_01_denominator_derived_from_eligible_requirements(self) -> None:
         """P-17.01: Eligibility denominator excludes non-behavioral requirements."""
         contract = _make_frozen_contract(
@@ -217,6 +257,7 @@ class TestCausalCoverageP17:
                 contract_digest=contract.contract_digest,
                 transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
                 verdict=PreliminaryVerdict.VERIFIED,
+                vault=self.vault,
             )
         }
 
@@ -225,6 +266,7 @@ class TestCausalCoverageP17:
             results=results,
             eligibility_overrides=overrides,
             exclusion_rationales=rationales,
+            verifier_authority=self.vault,
         )
 
         assert summary.total_requirements == 3
@@ -252,6 +294,7 @@ class TestCausalCoverageP17:
             results={},
             eligibility_overrides=overrides,
             exclusion_rationales=rationales,
+            verifier_authority=self.vault,
         )
 
         assert summary.total_requirements == 1
@@ -278,16 +321,22 @@ class TestCausalCoverageP17:
                 contract_digest=contract.contract_digest,
                 transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
                 verdict=PreliminaryVerdict.VERIFIED,
+                vault=self.vault,
             ),
             "REQ-2": _make_causal_receipt(
                 requirement_id="REQ-2",
                 contract_digest=contract.contract_digest,
                 transition=CausalTransition.UNVERIFIED_DEFECT_PERSISTS,
                 verdict=PreliminaryVerdict.CONTRADICTED,
+                vault=self.vault,
             ),
         }
 
-        summary = compute_causal_coverage(frozen_contract=contract, results=results)
+        summary = compute_causal_coverage(
+            frozen_contract=contract,
+            results=results,
+            verifier_authority=self.vault,
+        )
 
         assert len(summary.per_requirement_facts) == 2
         f1, f2 = summary.per_requirement_facts
@@ -316,14 +365,20 @@ class TestCausalCoverageP17:
             "REQ-1": _make_causal_receipt(
                 requirement_id="REQ-1",
                 contract_digest=contract.contract_digest,
+                vault=self.vault,
             ),
             "REQ-2": _make_causal_receipt(
                 requirement_id="REQ-2",
                 contract_digest=contract.contract_digest,
+                vault=self.vault,
             ),
         }
 
-        summary = compute_causal_coverage(frozen_contract=contract, results=results)
+        summary = compute_causal_coverage(
+            frozen_contract=contract,
+            results=results,
+            verifier_authority=self.vault,
+        )
 
         assert summary.eligible_count == 2
         assert summary.verified_count == 2
@@ -369,6 +424,7 @@ class TestCausalCoverageP17:
                 contract_digest=contract.contract_digest,
                 transition=transitions[rid],
                 verdict=PreliminaryVerdict.VERIFIED,
+                vault=self.vault,
             )
             for rid in req_classes
         }
@@ -377,6 +433,7 @@ class TestCausalCoverageP17:
             frozen_contract=contract,
             results=results,
             requirement_classes=req_classes,
+            verifier_authority=self.vault,
         )
 
         assert summary.eligible_count == 6
@@ -401,14 +458,20 @@ class TestCausalCoverageP17:
             "REQ-1": _make_causal_receipt(
                 requirement_id="REQ-1",
                 contract_digest=contract.contract_digest,
+                vault=self.vault,
             )
         }
 
-        summary = compute_causal_coverage(frozen_contract=contract, results=results)
+        summary = compute_causal_coverage(
+            frozen_contract=contract,
+            results=results,
+            verifier_authority=self.vault,
+        )
 
         # Denominator must remain 3!
         assert summary.eligible_count == 3
         assert summary.verified_count == 1
+        assert summary.not_run_count == 2
         assert summary.not_run_count == 2
         assert summary.coverage_ratio == round(1 / 3, 6)
         assert summary.overall_verdict == PreliminaryVerdict.PARTIALLY_VERIFIED
@@ -558,3 +621,83 @@ class TestCausalCoverageP17:
 
         with pytest.raises(CoverageIntegrityError, match="Coverage digest tampering detected"):
             verify_coverage_integrity(tampered_summary)
+
+    def test_adversarial_fabricated_local_causal_receipt_rejected(self) -> None:
+        """Adversarial (Defect B): A self-consistent LocalCausalReceipt with correct digest and
+        claimed LOCAL_EXECUTION cannot produce VERIFIED coverage without trusted verifier authority.
+        """
+        contract = _make_frozen_contract([("REQ-1", ChangeClass.BUG_FIX, "Fix bug")])
+        fabricated_rc = _make_causal_receipt(
+            requirement_id="REQ-1",
+            contract_digest=contract.contract_digest,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        # Attempt compute_causal_coverage without verifier authority
+        summary_no_auth = compute_causal_coverage(
+            frozen_contract=contract,
+            results={"REQ-1": fabricated_rc},
+        )
+        assert summary_no_auth.verified_count == 0
+        assert summary_no_auth.inconclusive_count == 1
+        assert summary_no_auth.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
+        assert (
+            summary_no_auth.per_requirement_facts[0].causal_state
+            == RequirementCausalState.INCONCLUSIVE
+        )
+
+        # Attempt compute_causal_coverage with an independent vault where receipt has NO attestation
+        foreign_vault = TrustedWitnessVault()
+        summary_foreign = compute_causal_coverage(
+            frozen_contract=contract,
+            results={"REQ-1": fabricated_rc},
+            verifier_authority=foreign_vault,
+        )
+        assert summary_foreign.verified_count == 0
+        assert summary_foreign.inconclusive_count == 1
+        assert summary_foreign.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
+
+    def test_adversarial_fabricated_semantic_receipt_rejected(self) -> None:
+        """Adversarial (Defect B): A self-consistent SemanticVerificationReceipt with
+        correct digest and claimed LOCAL_EXECUTION cannot produce VERIFIED coverage
+        without trusted verifier authority.
+        """
+        contract = _make_frozen_contract([("REQ-1", ChangeClass.BUG_FIX, "Fix bug")])
+        fabricated_sem = _make_semantic_receipt(
+            requirement_id="REQ-1",
+            change_class=ChangeClass.BUG_FIX,
+            contract_digest=contract.contract_digest,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+        )
+        summary = compute_causal_coverage(
+            frozen_contract=contract,
+            results={"REQ-1": fabricated_sem},
+        )
+        assert summary.verified_count == 0
+        assert summary.inconclusive_count == 1
+        assert summary.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
+
+    def test_adversarial_forged_vault_signature_rejected(self) -> None:
+        """Adversarial (Defect B): An attestation signed with an untrusted key/vault is rejected."""
+        contract = _make_frozen_contract([("REQ-1", ChangeClass.BUG_FIX, "Fix bug")])
+        attacker_vault = TrustedWitnessVault(vault_secret=b"attacker_secret_key_1234567890123")
+        honest_vault = TrustedWitnessVault(vault_secret=b"honest_verifier_key_12345678901234")
+
+        signed_by_attacker = _make_causal_receipt(
+            requirement_id="REQ-1",
+            contract_digest=contract.contract_digest,
+            vault=attacker_vault,
+        )
+        # Honest verifier evaluating coverage must reject the attacker's signature
+        summary = compute_causal_coverage(
+            frozen_contract=contract,
+            results={"REQ-1": signed_by_attacker},
+            verifier_authority=honest_vault,
+        )
+        assert summary.verified_count == 0
+        assert summary.inconclusive_count == 1
+        assert summary.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
+

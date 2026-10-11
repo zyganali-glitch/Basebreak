@@ -381,6 +381,7 @@ def compute_causal_coverage(
     exclusion_rationales: Mapping[str, str] | None = None,
     requirement_classes: Mapping[str, ChangeClass] | None = None,
     expected_contract_digest: str | None = None,
+    verifier_authority: Any | None = None,
     **kwargs: Any,
 ) -> CausalCoverageSummary:
     """Deterministically compute project-level Causal Coverage from frozen contract and results.
@@ -589,11 +590,39 @@ def compute_causal_coverage(
                     f"{req.requirement_id}"
                 )
             transition = res.transition
-            verdict = res.verdict
-            is_verified = res.is_causally_verified and res.verdict == PreliminaryVerdict.VERIFIED
             witness_id = res.witness_id
             witness_digest = res.witness_digest
-            rationale = res.narrative
+
+            is_authority_valid = False
+            if verifier_authority is not None:
+                if hasattr(verifier_authority, "verify_execution_authority"):
+                    is_authority_valid = verifier_authority.verify_execution_authority(
+                        receipt_or_attestation=res,
+                        expected_requirement_id=req.requirement_id,
+                        expected_contract_digest=frozen_contract.contract_digest,
+                    )
+                elif callable(verifier_authority):
+                    is_authority_valid = bool(
+                        verifier_authority(res, req.requirement_id, frozen_contract.contract_digest)
+                    )
+
+            if is_authority_valid:
+                verdict = res.verdict
+                is_verified = (
+                    res.is_causally_verified and res.verdict == PreliminaryVerdict.VERIFIED
+                )
+                rationale = res.narrative
+            else:
+                is_verified = False
+                if res.verdict == PreliminaryVerdict.VERIFIED or res.is_causally_verified:
+                    verdict = PreliminaryVerdict.INCONCLUSIVE
+                    rationale = (
+                        "Unattested receipt lacks independent verifier execution authority: "
+                        "unattested, invalid signature, or unverified execution facts."
+                    )
+                else:
+                    verdict = res.verdict
+                    rationale = res.narrative
         elif isinstance(res, LocalCausalReceipt):
             if res.frozen_contract_digest.lower() != frozen_contract.contract_digest.lower():
                 raise ContractDigestMismatchError(
@@ -613,11 +642,39 @@ def compute_causal_coverage(
                     f"{req.requirement_id}"
                 )
             transition = res.transition
-            verdict = res.verdict
-            is_verified = res.is_causally_verified and res.verdict == PreliminaryVerdict.VERIFIED
             witness_id = res.witness_id
             witness_digest = res.witness_digest
-            rationale = res.narrative
+
+            is_authority_valid = False
+            if verifier_authority is not None:
+                if hasattr(verifier_authority, "verify_execution_authority"):
+                    is_authority_valid = verifier_authority.verify_execution_authority(
+                        receipt_or_attestation=res,
+                        expected_requirement_id=req.requirement_id,
+                        expected_contract_digest=frozen_contract.contract_digest,
+                    )
+                elif callable(verifier_authority):
+                    is_authority_valid = bool(
+                        verifier_authority(res, req.requirement_id, frozen_contract.contract_digest)
+                    )
+
+            if is_authority_valid:
+                verdict = res.verdict
+                is_verified = (
+                    res.is_causally_verified and res.verdict == PreliminaryVerdict.VERIFIED
+                )
+                rationale = res.narrative
+            else:
+                is_verified = False
+                if res.verdict == PreliminaryVerdict.VERIFIED or res.is_causally_verified:
+                    verdict = PreliminaryVerdict.INCONCLUSIVE
+                    rationale = (
+                        "Unattested receipt lacks independent verifier execution authority: "
+                        "unattested, invalid signature, or unverified execution facts."
+                    )
+                else:
+                    verdict = res.verdict
+                    rationale = res.narrative
         elif isinstance(res, dict):
             # Check for model confidence injection in dict
             for k in res:

@@ -36,6 +36,7 @@ from basebreak.domain.execution import TerminationStatus
 from basebreak.domain.semantics import ChangeClass
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.verifier.witness_result import WitnessOutcome
+from basebreak.verifier.witness_store import TrustedWitnessVault
 
 
 def _sample_receipt() -> PublicVerificationReceipt:
@@ -81,6 +82,21 @@ def _sample_receipt() -> PublicVerificationReceipt:
         result_digest="9" * 64,
         duration_seconds=1.8,
     )
+    vault = TrustedWitnessVault()
+    attestation = vault.attest_execution(
+        requirement_id="REQ-AUTH-01",
+        frozen_contract_digest="c" * 64,
+        witness_id="WIT-001",
+        witness_digest="a" * 64,
+        source_commit_id="1" * 40,
+        candidate_tree_digest="5" * 40,
+        base_outcome=WitnessOutcome.FAIL,
+        candidate_outcome=WitnessOutcome.PASS,
+        counterfactual_outcome=WitnessOutcome.FAIL,
+        transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+        verdict=PreliminaryVerdict.VERIFIED,
+        provenance=EvidenceProvenance.LOCAL_EXECUTION,
+    )
     local_receipt = create_causal_receipt(
         requirement_id="REQ-AUTH-01",
         frozen_contract_digest="c" * 64,
@@ -93,11 +109,13 @@ def _sample_receipt() -> PublicVerificationReceipt:
         verdict=PreliminaryVerdict.VERIFIED,
         provenance=EvidenceProvenance.LOCAL_EXECUTION,
         narrative="Base failed, candidate passed",
+        attestation=attestation,
     )
 
     coverage = compute_causal_coverage(
         frozen_contract=contract,
         results={"REQ-AUTH-01": local_receipt},
+        verifier_authority=vault,
     )
 
     witness = PublicWitnessFact(

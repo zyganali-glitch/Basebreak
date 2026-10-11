@@ -132,6 +132,43 @@ def _compute_dir_tree_digest(root_dir: Path) -> str:
     return hasher.hexdigest()
 
 
+def _extract_diff_modified_files(diff_text: str) -> set[str]:
+    """Parse diff and extract all repo-relative file paths touched by the diff."""
+    if not diff_text.strip():
+        return set()
+    from basebreak.security.protected_surfaces import parse_unified_diff_changes
+
+    changes = parse_unified_diff_changes(diff_text)
+    touched: set[str] = set()
+    for c in changes:
+        if c.path:
+            touched.add(c.path.replace("\\", "/"))
+        if c.old_path:
+            touched.add(c.old_path.replace("\\", "/"))
+    return touched
+
+
+def _validate_demo_patch(patch_text: str) -> None:
+    """Validate that patch touches ONLY authorized file and matches allowlisted bytes."""
+    # 1. Parse unified diff changes and extract all touched files
+    touched_files = _extract_diff_modified_files(patch_text)
+    allowed_files = {"src/demo_target/cli.py"}
+    if touched_files != allowed_files:
+        raise ValueError(
+            "Unauthorized patch modification: demo target patch must modify strictly "
+            f"{sorted(allowed_files)}, got {sorted(touched_files)}"
+        )
+
+    # 2. Byte-level allowlist check against immutable canonical demo patch
+    norm_candidate = patch_text.replace("\r\n", "\n").strip()
+    norm_canonical = CANONICAL_DEMO_PATCH.replace("\r\n", "\n").strip()
+    if norm_candidate != norm_canonical:
+        raise ValueError(
+            "Unauthorized patch content: demo execution strictly rejects "
+            "non-allowlisted patch bytes."
+        )
+
+
 def _execute_trusted_demo_pipeline(
     *,
     run_id: str,
@@ -215,13 +252,26 @@ def _execute_trusted_demo_pipeline(
         committed_fixture_tree = proc_tree.stdout.strip().lower()
 
         proc_status = subprocess.run(
-            ["git", "status", "--porcelain", "--", "tests/fixtures/demo_target"],
+            [
+                "git",
+                "status",
+                "--porcelain",
+                "-uall",
+                "--ignored",
+                "--",
+                "tests/fixtures/demo_target",
+            ],
             cwd=str(repo_root),
             capture_output=True,
             text=True,
             check=True,
         )
-        if proc_status.stdout.strip():
+        status_lines = [
+            line.strip()
+            for line in proc_status.stdout.splitlines()
+            if line.strip() and "__pycache__" not in line and not line.endswith(".pyc")
+        ]
+        if status_lines:
             result = CliRunResult(
                 run_id=run_id,
                 status="BLOCKED",
@@ -229,7 +279,7 @@ def _execute_trusted_demo_pipeline(
                 thesis=BASEBREAK_THESIS,
                 message=(
                     "BLOCKED: Trusted demo fixture on disk has uncommitted "
-                    "modifications or tampering relative to git HEAD."
+                    "modifications, untracked additions, or ignored files relative to git HEAD."
                 ),
                 world_states={},
                 causal_transition=None,
@@ -400,8 +450,9 @@ def _execute_trusted_demo_pipeline(
         persistence.save_run(run_id, result.metadata)
         return result
 
-    # Validate secret safety and protected surfaces on patch
+    # Validate demo patch allowlist, secret safety, and protected surfaces BEFORE execution
     try:
+        _validate_demo_patch(patch_text)
         validate_no_secrets(patch_text, path="demo_target_patch")
         manifest = get_canonical_basebreak_protected_manifest()
         validate_diff(patch_text, manifest)
@@ -460,11 +511,32 @@ def _execute_trusted_demo_pipeline(
 
         cmd = [sys.executable, "-m", "pytest", "-q", "tests/test_witness.py"]
         t0 = time.perf_counter()
-        proc_base = subprocess.run(
-            cmd, cwd=str(base_ws), capture_output=True, text=True, timeout=30
-        )
-        dur_base = time.perf_counter() - t0
-        outcome_base = WitnessOutcome.PASS if proc_base.returncode == 0 else WitnessOutcome.FAIL
+        try:
+            proc_base = subprocess.run(
+                cmd, cwd=str(base_ws), capture_output=True, text=True, timeout=30
+            )
+            dur_base = time.perf_counter() - t0
+            outcome_base = (
+                WitnessOutcome.PASS if proc_base.returncode == 0 else WitnessOutcome.FAIL
+            )
+            base_stdout = proc_base.stdout
+            base_stderr = proc_base.stderr
+            base_exit = proc_base.returncode
+            base_term = TerminationStatus.COMPLETED
+        except subprocess.TimeoutExpired as exc:
+            dur_base = 30.0
+            outcome_base = WitnessOutcome.TIMEOUT
+            base_stdout = exc.stdout or "" if isinstance(exc.stdout, str) else ""
+            base_stderr = "Witness process timed out after 30 seconds."
+            base_exit = -1
+            base_term = TerminationStatus.TIMED_OUT
+        except Exception as exc:
+            dur_base = time.perf_counter() - t0
+            outcome_base = WitnessOutcome.ERROR
+            base_stdout = ""
+            base_stderr = f"Witness process execution error: {exc}"
+            base_exit = -1
+            base_term = TerminationStatus.FAILED_TO_START
 
         # 2. CANDIDATE world execution (materialize by applying the actual patch)
         cand_ws = td_path / "cand"
@@ -601,11 +673,32 @@ def _execute_trusted_demo_pipeline(
 
         (cand_ws / "tests" / "test_witness.py").write_text(witness_code, encoding="utf-8")
         t0 = time.perf_counter()
-        proc_cand = subprocess.run(
-            cmd, cwd=str(cand_ws), capture_output=True, text=True, timeout=30
-        )
-        dur_cand = time.perf_counter() - t0
-        outcome_cand = WitnessOutcome.PASS if proc_cand.returncode == 0 else WitnessOutcome.FAIL
+        try:
+            proc_cand = subprocess.run(
+                cmd, cwd=str(cand_ws), capture_output=True, text=True, timeout=30
+            )
+            dur_cand = time.perf_counter() - t0
+            outcome_cand = (
+                WitnessOutcome.PASS if proc_cand.returncode == 0 else WitnessOutcome.FAIL
+            )
+            cand_stdout = proc_cand.stdout
+            cand_stderr = proc_cand.stderr
+            cand_exit = proc_cand.returncode
+            cand_term = TerminationStatus.COMPLETED
+        except subprocess.TimeoutExpired as exc:
+            dur_cand = 30.0
+            outcome_cand = WitnessOutcome.TIMEOUT
+            cand_stdout = exc.stdout or "" if isinstance(exc.stdout, str) else ""
+            cand_stderr = "Witness process timed out after 30 seconds."
+            cand_exit = -1
+            cand_term = TerminationStatus.TIMED_OUT
+        except Exception as exc:
+            dur_cand = time.perf_counter() - t0
+            outcome_cand = WitnessOutcome.ERROR
+            cand_stdout = ""
+            cand_stderr = f"Witness process execution error: {exc}"
+            cand_exit = -1
+            cand_term = TerminationStatus.FAILED_TO_START
 
         # 3. COUNTERFACTUAL world execution (delta subtracted genuinely via git apply --reverse)
         cf_ws = td_path / "cf"
@@ -676,9 +769,30 @@ def _execute_trusted_demo_pipeline(
 
         (cf_ws / "tests" / "test_witness.py").write_text(witness_code, encoding="utf-8")
         t0 = time.perf_counter()
-        proc_cf = subprocess.run(cmd, cwd=str(cf_ws), capture_output=True, text=True, timeout=30)
-        dur_cf = time.perf_counter() - t0
-        outcome_cf = WitnessOutcome.PASS if proc_cf.returncode == 0 else WitnessOutcome.FAIL
+        try:
+            proc_cf = subprocess.run(
+                cmd, cwd=str(cf_ws), capture_output=True, text=True, timeout=30
+            )
+            dur_cf = time.perf_counter() - t0
+            outcome_cf = WitnessOutcome.PASS if proc_cf.returncode == 0 else WitnessOutcome.FAIL
+            cf_stdout = proc_cf.stdout
+            cf_stderr = proc_cf.stderr
+            cf_exit = proc_cf.returncode
+            cf_term = TerminationStatus.COMPLETED
+        except subprocess.TimeoutExpired as exc:
+            dur_cf = 30.0
+            outcome_cf = WitnessOutcome.TIMEOUT
+            cf_stdout = exc.stdout or "" if isinstance(exc.stdout, str) else ""
+            cf_stderr = "Witness process timed out after 30 seconds."
+            cf_exit = -1
+            cf_term = TerminationStatus.TIMED_OUT
+        except Exception as exc:
+            dur_cf = time.perf_counter() - t0
+            outcome_cf = WitnessOutcome.ERROR
+            cf_stdout = ""
+            cf_stderr = f"Witness process execution error: {exc}"
+            cf_exit = -1
+            cf_term = TerminationStatus.FAILED_TO_START
 
     # Causal evaluation
     if (
@@ -693,6 +807,20 @@ def _execute_trusted_demo_pipeline(
         message = (
             "VERIFIED: Base broke, candidate passed, counterfactual broke. Causal link proven."
         )
+    elif (
+        outcome_base in (WitnessOutcome.TIMEOUT, WitnessOutcome.ERROR)
+        or outcome_cand in (WitnessOutcome.TIMEOUT, WitnessOutcome.ERROR)
+        or outcome_cf in (WitnessOutcome.TIMEOUT, WitnessOutcome.ERROR)
+    ):
+        status = "INCONCLUSIVE"
+        exit_code = 2
+        overall_verdict = PreliminaryVerdict.INCONCLUSIVE
+        transition_enum = (
+            CausalTransition.NON_VERIFIED_TIMEOUT
+            if any(o == WitnessOutcome.TIMEOUT for o in (outcome_base, outcome_cand, outcome_cf))
+            else CausalTransition.NON_VERIFIED_EXECUTION_ERROR
+        )
+        message = "INCONCLUSIVE: Witness execution timed out or encountered an execution failure."
     elif outcome_base == WitnessOutcome.PASS:
         status = "CONTRADICTED"
         exit_code = 1
@@ -721,13 +849,13 @@ def _execute_trusted_demo_pipeline(
         source_commit_id=resolved_base_sha,
         tree_digest=base_tree_digest,
         outcome=outcome_base,
-        exit_code=proc_base.returncode,
-        termination_status=TerminationStatus.COMPLETED,
+        exit_code=base_exit,
+        termination_status=base_term,
         duration_seconds=round(dur_base, 3),
-        stdout_digest=hashlib.sha256(proc_base.stdout.encode("utf-8")).hexdigest(),
-        stderr_digest=hashlib.sha256(proc_base.stderr.encode("utf-8")).hexdigest(),
-        stdout_excerpt=proc_base.stdout[:200],
-        stderr_excerpt=proc_base.stderr[:200],
+        stdout_digest=hashlib.sha256(base_stdout.encode("utf-8")).hexdigest(),
+        stderr_digest=hashlib.sha256(base_stderr.encode("utf-8")).hexdigest(),
+        stdout_excerpt=base_stdout[:200],
+        stderr_excerpt=base_stderr[:200],
     )
     cand_exec = PublicExecutionFact(
         world=ExecutionWorld.CANDIDATE,
@@ -735,13 +863,13 @@ def _execute_trusted_demo_pipeline(
         source_commit_id=resolved_base_sha,
         tree_digest=cand_tree_digest,
         outcome=outcome_cand,
-        exit_code=proc_cand.returncode,
-        termination_status=TerminationStatus.COMPLETED,
+        exit_code=cand_exit,
+        termination_status=cand_term,
         duration_seconds=round(dur_cand, 3),
-        stdout_digest=hashlib.sha256(proc_cand.stdout.encode("utf-8")).hexdigest(),
-        stderr_digest=hashlib.sha256(proc_cand.stderr.encode("utf-8")).hexdigest(),
-        stdout_excerpt=proc_cand.stdout[:200],
-        stderr_excerpt=proc_cand.stderr[:200],
+        stdout_digest=hashlib.sha256(cand_stdout.encode("utf-8")).hexdigest(),
+        stderr_digest=hashlib.sha256(cand_stderr.encode("utf-8")).hexdigest(),
+        stdout_excerpt=cand_stdout[:200],
+        stderr_excerpt=cand_stderr[:200],
     )
     cf_exec = PublicExecutionFact(
         world=ExecutionWorld.COUNTERFACTUAL,
@@ -749,13 +877,13 @@ def _execute_trusted_demo_pipeline(
         source_commit_id=resolved_base_sha,
         tree_digest=cf_tree_digest,
         outcome=outcome_cf,
-        exit_code=proc_cf.returncode,
-        termination_status=TerminationStatus.COMPLETED,
+        exit_code=cf_exit,
+        termination_status=cf_term,
         duration_seconds=round(dur_cf, 3),
-        stdout_digest=hashlib.sha256(proc_cf.stdout.encode("utf-8")).hexdigest(),
-        stderr_digest=hashlib.sha256(proc_cf.stderr.encode("utf-8")).hexdigest(),
-        stdout_excerpt=proc_cf.stdout[:200],
-        stderr_excerpt=proc_cf.stderr[:200],
+        stdout_digest=hashlib.sha256(cf_stdout.encode("utf-8")).hexdigest(),
+        stderr_digest=hashlib.sha256(cf_stderr.encode("utf-8")).hexdigest(),
+        stdout_excerpt=cf_stdout[:200],
+        stderr_excerpt=cf_stderr[:200],
     )
 
     cf_fact = PublicCounterfactualFact(

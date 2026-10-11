@@ -35,8 +35,10 @@ from basebreak.domain.execution import TerminationStatus
 from basebreak.domain.semantics import ChangeClass
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.verifier.witness_result import WitnessOutcome
+from basebreak.verifier.witness_store import VerifierExecutionAttestation
 
 SEMANTIC_RECEIPT_SCHEMA_VERSION: str = "1.0.0"
+
 
 _HEX_40_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -143,8 +145,10 @@ class SemanticVerificationReceipt:
     created_at_utc: str
     receipt_digest: str
     is_authoritative: bool = False  # Invariant: zero self-certification
+    attestation: VerifierExecutionAttestation | None = None
 
     def __post_init__(self) -> None:
+
         if not isinstance(self.change_class, ChangeClass):
             raise TypeError(
                 f"change_class must be ChangeClass, got {type(self.change_class).__name__}"
@@ -262,7 +266,10 @@ class SemanticVerificationReceipt:
         )
         payload["is_authoritative"] = False
         payload["receipt_digest"] = self.receipt_digest
+        if self.attestation is not None:
+            payload["attestation"] = self.attestation.to_dict()
         return payload
+
 
     def to_json(self) -> str:
         """Convert to canonical JSON string."""
@@ -389,6 +396,7 @@ def create_semantic_receipt(
     provenance: EvidenceProvenance,
     narrative: str,
     created_at_utc: str | None = None,
+    attestation: VerifierExecutionAttestation | None = None,
 ) -> SemanticVerificationReceipt:
     """Factory creating an authenticated SemanticVerificationReceipt with deterministic SHA-256."""
     if created_at_utc is None:
@@ -437,7 +445,9 @@ def create_semantic_receipt(
         created_at_utc=created_at_utc,
         receipt_digest=receipt_digest,
         is_authoritative=False,
+        attestation=attestation,
     )
+
 
 
 def verify_semantic_receipt_integrity(receipt: SemanticVerificationReceipt) -> bool:

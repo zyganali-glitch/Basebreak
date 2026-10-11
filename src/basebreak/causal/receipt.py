@@ -28,8 +28,10 @@ from basebreak.domain.causal import ExecutionWorld
 from basebreak.domain.execution import TerminationStatus
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.verifier.witness_result import NormalizedWitnessResult, WitnessOutcome
+from basebreak.verifier.witness_store import VerifierExecutionAttestation
 
 CAUSAL_RECEIPT_SCHEMA_VERSION: str = "1.0.0"
+
 
 _HEX_40_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -207,8 +209,10 @@ class LocalCausalReceipt:
     counterfactual_execution: WorldExecutionFact | None = None
     counterfactual_id: str | None = None
     delta_digest: str | None = None
+    attestation: VerifierExecutionAttestation | None = None
 
     def __post_init__(self) -> None:
+
         if self.schema_version != CAUSAL_RECEIPT_SCHEMA_VERSION:
             raise CausalReceiptIntegrityError(
                 f"Unsupported schema_version: {self.schema_version!r}, "
@@ -339,6 +343,8 @@ class LocalCausalReceipt:
             res["counterfactual_id"] = self.counterfactual_id
         if self.delta_digest is not None:
             res["delta_digest"] = self.delta_digest
+        if self.attestation is not None:
+            res["attestation"] = self.attestation.to_dict()
         return res
 
 
@@ -360,6 +366,7 @@ def create_causal_receipt(
     counterfactual_execution: WorldExecutionFact | None = None,
     counterfactual_id: str | None = None,
     delta_digest: str | None = None,
+    attestation: VerifierExecutionAttestation | None = None,
 ) -> LocalCausalReceipt:
     """Construct an authentic, cryptographically bound LocalCausalReceipt."""
     timestamp = created_at_utc or datetime.now(timezone.utc).isoformat()
@@ -399,6 +406,7 @@ def create_causal_receipt(
         counterfactual_execution=counterfactual_execution,
         counterfactual_id=counterfactual_id,
         delta_digest=delta_digest,
+        attestation=attestation,
     )
 
 
@@ -420,6 +428,7 @@ def create_causal_triplet_receipt(
     narrative: str = "",
     created_at_utc: str | None = None,
     schema_version: str = CAUSAL_RECEIPT_SCHEMA_VERSION,
+    attestation: VerifierExecutionAttestation | None = None,
 ) -> LocalCausalReceipt:
     """Construct an authentic LocalCausalReceipt for a 3-world causal triplet."""
     return create_causal_receipt(
@@ -439,7 +448,9 @@ def create_causal_triplet_receipt(
         narrative=narrative,
         created_at_utc=created_at_utc,
         schema_version=schema_version,
+        attestation=attestation,
     )
+
 
 
 # Export canonical alias

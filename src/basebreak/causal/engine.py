@@ -450,6 +450,20 @@ class CausalExecutionEngine:
             tree_digest=candidate_output.tree_digest,
         )
 
+        attestation = self.vault.attest_execution(
+
+            witness_id=sealed_record.witness_id,
+            requirement_id=sealed_record.requirement_id,
+            frozen_contract_digest=sealed_record.frozen_contract_digest,
+            source_commit_id=context_envelope.source_identity.resolved_commit_id,
+            candidate_tree_digest=context_envelope.candidate_tree_digest,
+            base_execution=base_fact,
+            candidate_execution=candidate_fact,
+            transition=reconciliation.transition,
+            verdict=reconciliation.verdict,
+            provenance=self.provenance,
+        )
+
         receipt = create_causal_receipt(
             requirement_id=sealed_record.requirement_id,
             frozen_contract_digest=sealed_record.frozen_contract_digest,
@@ -462,9 +476,11 @@ class CausalExecutionEngine:
             verdict=reconciliation.verdict,
             provenance=self.provenance,
             narrative=reconciliation.rationale,
+            attestation=attestation,
         )
 
         return receipt
+
 
     def execute_causal_triplet(
         self,
@@ -666,6 +682,20 @@ class CausalExecutionEngine:
             else None
         )
 
+        attestation = self.vault.attest_execution(
+            witness_id=sealed_record.witness_id,
+            requirement_id=sealed_record.requirement_id,
+            frozen_contract_digest=sealed_record.frozen_contract_digest,
+            source_commit_id=context_envelope.source_identity.resolved_commit_id,
+            candidate_tree_digest=context_envelope.candidate_tree_digest,
+            base_execution=base_fact,
+            candidate_execution=candidate_fact,
+            counterfactual_execution=cf_fact,
+            transition=reconciliation.transition,
+            verdict=reconciliation.verdict,
+            provenance=self.provenance,
+        )
+
         receipt = create_causal_triplet_receipt(
             requirement_id=sealed_record.requirement_id,
             frozen_contract_digest=sealed_record.frozen_contract_digest,
@@ -681,6 +711,8 @@ class CausalExecutionEngine:
             verdict=reconciliation.verdict,
             provenance=self.provenance,
             narrative=reconciliation.rationale,
+            attestation=attestation,
         )
 
         return receipt
+
