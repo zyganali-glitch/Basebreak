@@ -119,10 +119,10 @@ Prior LIVE_NEBIUS-tested implementation SHA: `62b24c69a819c0ddcf15b455a237568059
 P-16.05 live Tavily execution remains held strictly at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. No real Tavily API call was executed. A stored preflight observation does not certify current execution authority; required current grounding must remain BLOCKED when trustworthy provider/runtime authority is absent. P-16.05 is not a prerequisite for provider-neutral Batch A (P-17–P-21) execution.
 
 ### Current QA candidate
-Batch A candidate — P-17 through P-21 (exactly 25 micro-tasks) are SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE.
+Batch A candidate — P-17 through P-21 (exactly 25 micro-tasks) final authority-issuance surgical repair and CI closure completed. Remote SHA `fa4d26f787d33b33eb265b7365c36acb678c4c0b` verified GREEN on GitHub Actions CI (Run 38139762517).
 
 ### Active exact task
-Batch A final authority-boundary repair (Defect A caller-supplied authority bypass eliminated in coverage.py, Defect B self-issued attestation prevented via authoritative root and sealed witness enforcement in witness_store.py, Defect C complete claim-to-attestation validation and exact provenance equality enforced) completed. Full test suite clean (2,578 non-live tests passing, 22 repair matrix tests passing including 6 dedicated final authority boundary tests, ruff and mypy passing clean with 0 errors). Awaiting independent QA review. P-22+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
+Batch A final authority-boundary repair (Defect A caller-supplied authority bypass eliminated, Defect B self-registered execution claims prevented via mandatory verifier observation records, Defect C complete claim-to-attestation validation and exact provenance equality enforced, A1-A8 adversarial acceptance tests passed) completed. Remote GitHub Actions CI restored to GREEN on `main`. Awaiting independent QA review. P-22+ are strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
 
 ## Parallelization boundary & rules
 - **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are independently VERIFIED / PASS. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. P-17 through P-21 are SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN.
