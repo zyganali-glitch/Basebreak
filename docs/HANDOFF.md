@@ -119,13 +119,21 @@ Prior LIVE_NEBIUS-tested implementation SHA: `62b24c69a819c0ddcf15b455a237568059
 P-16.05 live Tavily execution remains held strictly at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. No real Tavily API call was executed. A stored preflight observation does not certify current execution authority; required current grounding must remain BLOCKED when trustworthy provider/runtime authority is absent. P-16.05 is not a prerequisite for provider-neutral Batch A (P-17–P-21) execution.
 
 ### Current QA candidate
-Batch A candidate — P-17 through P-21 (exactly 25 micro-tasks) final trust-authority and authority-origin repair completed. Caller-mintable production verifier authority eliminated via positive runtime verification, immutable provenance state guard, caller-originated production observation block, and 7 mandatory adversarial regression tests verified.
+Batch A candidate — P-17 through P-21 Production Verifier Trust-Bridge repair completed. Addressed the architectural regression where in-process fabricated attestation blocking previously disabled legitimate production verification (`LOCAL_EXECUTION` and `LIVE_NEBIUS`). Implemented a separately controlled verifier execution boundary (`VerifierAuthorityRoot`, `TrustedVerifierWorker`, `verify_trusted_production_evidence`) using P-08/P-10/P-11 primitives.
 
 ### Active exact task
-Batch A final authority-origin repair completed: eliminated negative mock-name heuristic bypasses in `_authorize_verifier_runtime`, prevented arbitrary caller production authorization via `_authorize_as_engine_root`, enforced immutability on vault authorization attributes via `__setattr__` guard, and blocked caller-originated production observation recording without trusted verifier execution. All 7 adversarial regression vectors (`test_adv_01` through `test_adv_07`) verified. Awaiting independent QA review. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
+P-17–P-21 Final Production Verification Authority Repair completed:
+1. Builder and arbitrary callers cannot manufacture production observations; in-process vault remains fixture-scoped and rejects production claims.
+2. Authority belongs to a separate execution boundary (`VerifierAuthorityRoot`, `TrustedVerifierWorker`).
+3. Verifier accepts only pinned contracts, sealed witnesses, and valid candidate context envelopes.
+4. Cryptographic HMAC attestation binds exact frozen contract digest, witness seal, source commit, candidate tree digest, sandbox identities, execution commands, base/candidate outcomes, causal transition, verdict, issuer ID, and execution origin.
+5. Receiving application (`compute_causal_coverage`) independently verifies production evidence via `verify_trusted_production_evidence`.
+6. Missing isolation or credentials raises `VerifierExecutionBlockedError` (explicit `BLOCKED` / `NOT_RUN`, never silent fallback to `FIXTURE`).
+7. Full regression suite (2,606 passed, 1 skipped, 10 deselected) and dedicated trust bridge acceptance tests (`test_01` through `test_08`) pass cleanly.
+Awaiting independent QA review. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are independently VERIFIED / PASS. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. P-17 through P-21 are SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are independently VERIFIED / PASS. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. P-17 through P-21 are REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, Causal primitives, Causal Slice contracts, Change-Semantics verifiers, Sealed Repair Loop primitives, Risk-Adaptive Verification Budget primitives, Grounding primitives, Causal Coverage primitives, Public Receipt primitives, CLI tools, GitHub integration, and API orchestrator remain strictly provider-neutral with zero provider-specific identifiers.
 - **Phase status:** P-00 through P-15 phases are independently CLOSED / PASS. P-16 phase remains OPEN. P-17 through P-21 phases are SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE. P-22+ are strictly NOT AUTHORIZED / NOT_RUN.
 - **Batch authorization & hard stop:** Batch A (P-17 through P-21) completed sequentially. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.

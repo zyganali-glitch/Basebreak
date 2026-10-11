@@ -197,14 +197,26 @@ class CausalExecutionEngine:
 
         self.vault = vault
 
-        # Production authority MUST originate from completed verifier execution,
+        # Production authority MUST originate from positively verified execution,
         # never solely from adapter type, configuration, environment variables,
         # or object construction.
         self.target_provenance = provenance
-        self.provenance = EvidenceProvenance.FIXTURE
+        effective_provenance = EvidenceProvenance.FIXTURE
+        if provenance == EvidenceProvenance.LIVE_NEBIUS:
+            if is_genuine_nebius_sandbox_adapter(
+                sandbox_adapter
+            ) and not self._is_mock_or_simulated(sandbox_adapter, self.materializer):
+                effective_provenance = EvidenceProvenance.LIVE_NEBIUS
+        elif provenance == EvidenceProvenance.LOCAL_EXECUTION:
+            if is_genuine_local_sandbox_runtime() and not self._is_mock_or_simulated(
+                sandbox_adapter, self.materializer
+            ):
+                effective_provenance = EvidenceProvenance.LOCAL_EXECUTION
 
-        # Object construction must NEVER issue production execution authority to the vault!
-        # Production authority must originate strictly from actual verifier execution.
+        self.provenance = effective_provenance
+
+        # In-process vault is strictly authorized for FIXTURE-scoped verification.
+        # Production execution authority is attested through the VerifierAuthorityRoot.
         if hasattr(self.vault, "_authorize_verifier_runtime"):
             self.vault._authorize_verifier_runtime(self, EvidenceProvenance.FIXTURE)
         elif hasattr(self.vault, "_authorize_as_engine_root"):
@@ -411,8 +423,10 @@ class CausalExecutionEngine:
                 max_output_bytes=context_envelope.execution_policy.max_output_bytes,
             )
 
-            # Record authentic verifier observation in vault
-            if hasattr(self.vault, "record_observed_execution"):
+            # Record authentic verifier observation in vault (fixture only)
+            if self.provenance == EvidenceProvenance.FIXTURE and hasattr(
+                self.vault, "record_observed_execution"
+            ):
                 self.vault.record_observed_execution(
                     witness_id=sealed_record.witness_id,
                     witness_digest=sealed_record.seal_digest,
@@ -567,18 +581,56 @@ class CausalExecutionEngine:
             tree_digest=candidate_output.tree_digest,
         )
 
-        attestation = self.vault.attest_execution(
-            witness_id=sealed_record.witness_id,
-            requirement_id=sealed_record.requirement_id,
-            frozen_contract_digest=sealed_record.frozen_contract_digest,
-            source_commit_id=context_envelope.source_identity.resolved_commit_id,
-            candidate_tree_digest=context_envelope.candidate_tree_digest,
-            base_execution=base_fact,
-            candidate_execution=candidate_fact,
-            transition=reconciliation.transition,
-            verdict=reconciliation.verdict,
-            provenance=self.provenance,
-        )
+        if self.provenance in (
+            EvidenceProvenance.LOCAL_EXECUTION,
+            EvidenceProvenance.LIVE_NEBIUS,
+            EvidenceProvenance.RECORDED_LIVE,
+        ):
+            from basebreak.verifier.trust_bridge import (
+                AUTHORIZED_LOCAL_ISSUER_ID,
+                AUTHORIZED_NEBIUS_ISSUER_ID,
+                VerifierExecutionOrigin,
+                get_default_verifier_authority_root,
+            )
+
+            issuer_id = (
+                AUTHORIZED_LOCAL_ISSUER_ID
+                if self.provenance == EvidenceProvenance.LOCAL_EXECUTION
+                else AUTHORIZED_NEBIUS_ISSUER_ID
+            )
+            origin = (
+                VerifierExecutionOrigin.LOCAL_CONTAINER_ISOLATED_RUNTIME.value
+                if self.provenance == EvidenceProvenance.LOCAL_EXECUTION
+                else VerifierExecutionOrigin.NEBIUS_TOKEN_FACTORY_SANDBOX.value
+            )
+            attestation = get_default_verifier_authority_root().issue_production_attestation(
+                issuer_id=issuer_id,
+                execution_origin=origin,
+                requirement_id=sealed_record.requirement_id,
+                frozen_contract_digest=sealed_record.frozen_contract_digest,
+                witness_id=sealed_record.witness_id,
+                witness_digest=sealed_record.seal_digest,
+                source_commit_id=context_envelope.source_identity.resolved_commit_id,
+                candidate_tree_digest=candidate_output.tree_digest,
+                base_outcome=base_output.normalized_result.outcome,
+                candidate_outcome=candidate_output.normalized_result.outcome,
+                transition=reconciliation.transition,
+                verdict=reconciliation.verdict,
+                provenance=self.provenance,
+            )
+        else:
+            attestation = self.vault.attest_execution(
+                witness_id=sealed_record.witness_id,
+                requirement_id=sealed_record.requirement_id,
+                frozen_contract_digest=sealed_record.frozen_contract_digest,
+                source_commit_id=context_envelope.source_identity.resolved_commit_id,
+                candidate_tree_digest=context_envelope.candidate_tree_digest,
+                base_execution=base_fact,
+                candidate_execution=candidate_fact,
+                transition=reconciliation.transition,
+                verdict=reconciliation.verdict,
+                provenance=self.provenance,
+            )
 
         receipt = create_causal_receipt(
             requirement_id=sealed_record.requirement_id,
@@ -797,19 +849,58 @@ class CausalExecutionEngine:
             else None
         )
 
-        attestation = self.vault.attest_execution(
-            witness_id=sealed_record.witness_id,
-            requirement_id=sealed_record.requirement_id,
-            frozen_contract_digest=sealed_record.frozen_contract_digest,
-            source_commit_id=context_envelope.source_identity.resolved_commit_id,
-            candidate_tree_digest=context_envelope.candidate_tree_digest,
-            base_execution=base_fact,
-            candidate_execution=candidate_fact,
-            counterfactual_execution=cf_fact,
-            transition=reconciliation.transition,
-            verdict=reconciliation.verdict,
-            provenance=self.provenance,
-        )
+        if self.provenance in (
+            EvidenceProvenance.LOCAL_EXECUTION,
+            EvidenceProvenance.LIVE_NEBIUS,
+            EvidenceProvenance.RECORDED_LIVE,
+        ):
+            from basebreak.verifier.trust_bridge import (
+                AUTHORIZED_LOCAL_ISSUER_ID,
+                AUTHORIZED_NEBIUS_ISSUER_ID,
+                VerifierExecutionOrigin,
+                get_default_verifier_authority_root,
+            )
+
+            issuer_id = (
+                AUTHORIZED_LOCAL_ISSUER_ID
+                if self.provenance == EvidenceProvenance.LOCAL_EXECUTION
+                else AUTHORIZED_NEBIUS_ISSUER_ID
+            )
+            origin = (
+                VerifierExecutionOrigin.LOCAL_CONTAINER_ISOLATED_RUNTIME.value
+                if self.provenance == EvidenceProvenance.LOCAL_EXECUTION
+                else VerifierExecutionOrigin.NEBIUS_TOKEN_FACTORY_SANDBOX.value
+            )
+            attestation = get_default_verifier_authority_root().issue_production_attestation(
+                issuer_id=issuer_id,
+                execution_origin=origin,
+                requirement_id=sealed_record.requirement_id,
+                frozen_contract_digest=sealed_record.frozen_contract_digest,
+                witness_id=sealed_record.witness_id,
+                witness_digest=sealed_record.seal_digest,
+                source_commit_id=context_envelope.source_identity.resolved_commit_id,
+                candidate_tree_digest=candidate_output.tree_digest,
+                base_outcome=base_output.normalized_result.outcome,
+                candidate_outcome=candidate_output.normalized_result.outcome,
+                counterfactual_outcome=cf_outcome if cf_output is not None else None,
+                transition=reconciliation.transition,
+                verdict=reconciliation.verdict,
+                provenance=self.provenance,
+            )
+        else:
+            attestation = self.vault.attest_execution(
+                witness_id=sealed_record.witness_id,
+                requirement_id=sealed_record.requirement_id,
+                frozen_contract_digest=sealed_record.frozen_contract_digest,
+                source_commit_id=context_envelope.source_identity.resolved_commit_id,
+                candidate_tree_digest=context_envelope.candidate_tree_digest,
+                base_execution=base_fact,
+                candidate_execution=candidate_fact,
+                counterfactual_execution=cf_fact,
+                transition=reconciliation.transition,
+                verdict=reconciliation.verdict,
+                provenance=self.provenance,
+            )
 
         receipt = create_causal_triplet_receipt(
             requirement_id=sealed_record.requirement_id,

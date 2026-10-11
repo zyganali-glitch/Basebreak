@@ -350,10 +350,12 @@ def build_canonical_execution_attestation_payload(
     verdict: PreliminaryVerdict = PreliminaryVerdict.VERIFIED,
     provenance: EvidenceProvenance = EvidenceProvenance.LOCAL_EXECUTION,
     created_at_utc: str = "",
+    issuer_id: str = "",
+    execution_origin: str = "",
 ) -> dict[str, Any]:
     """Construct deterministic payload for execution attestation digest computation."""
     trans_val = transition.value if hasattr(transition, "value") else str(transition)
-    return {
+    payload: dict[str, Any] = {
         "base_outcome": base_outcome.value if base_outcome is not None else None,
         "candidate_outcome": candidate_outcome.value if candidate_outcome is not None else None,
         "candidate_tree_digest": str(candidate_tree_digest or "").strip().lower(),
@@ -370,6 +372,11 @@ def build_canonical_execution_attestation_payload(
         "witness_digest": str(witness_digest).strip().lower(),
         "witness_id": str(witness_id).strip(),
     }
+    if issuer_id:
+        payload["issuer_id"] = str(issuer_id).strip()
+    if execution_origin:
+        payload["execution_origin"] = str(execution_origin).strip()
+    return payload
 
 
 def compute_attestation_digest(payload: Mapping[str, Any]) -> str:
@@ -382,9 +389,10 @@ def compute_attestation_digest(payload: Mapping[str, Any]) -> str:
 
 @dataclass(frozen=True, slots=True)
 class VerifierExecutionAttestation:
-    """Cryptographic attestation from TrustedWitnessVault certifying verifier-side execution.
+    """Cryptographic attestation certifying verifier-side execution authority.
 
-    Possesses authority strictly when validated by TrustedWitnessVault.
+    Possesses authority strictly when validated by TrustedWitnessVault or
+    the trusted verifier authority bridge.
     """
 
     requirement_id: str
@@ -403,6 +411,8 @@ class VerifierExecutionAttestation:
     vault_signature: str
     created_at_utc: str
     is_authoritative: bool = True
+    issuer_id: str = ""
+    execution_origin: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.requirement_id, str) or not self.requirement_id.strip():
@@ -449,7 +459,7 @@ class VerifierExecutionAttestation:
         trans_val = (
             self.transition.value if hasattr(self.transition, "value") else str(self.transition)
         )
-        return {
+        data = {
             "attestation_digest": self.attestation_digest,
             "base_outcome": self.base_outcome.value if self.base_outcome is not None else None,
             "candidate_outcome": (
@@ -473,6 +483,11 @@ class VerifierExecutionAttestation:
             "witness_digest": self.witness_digest,
             "witness_id": self.witness_id,
         }
+        if self.issuer_id:
+            data["issuer_id"] = self.issuer_id
+        if self.execution_origin:
+            data["execution_origin"] = self.execution_origin
+        return data
 
 
 @dataclass(frozen=True, slots=True)
@@ -1218,30 +1233,24 @@ class TrustedWitnessVault:
         if att is None or not isinstance(att, VerifierExecutionAttestation):
             return False
 
-        # In-process vault possesses authority strictly for FIXTURE-scoped verification.
         # Production execution claims (LOCAL_EXECUTION, LIVE_NEBIUS, RECORDED_LIVE)
-        # cannot be validated by an in-process caller vault.
-        # Direct object.__setattr__() mutation of vault cannot confer production authority.
+        # are independently verified against the trusted verifier authority root.
+        # Direct in-process vault mutation cannot confer production authority.
         if att.provenance in (
             EvidenceProvenance.LOCAL_EXECUTION,
             EvidenceProvenance.LIVE_NEBIUS,
             EvidenceProvenance.RECORDED_LIVE,
         ):
-            return False
-        if provenance in (
-            EvidenceProvenance.LOCAL_EXECUTION,
-            EvidenceProvenance.LIVE_NEBIUS,
-            EvidenceProvenance.RECORDED_LIVE,
-        ):
-            return False
-        if receipt is not None:
-            r_prov = getattr(receipt, "provenance", None)
-            if r_prov in (
-                EvidenceProvenance.LOCAL_EXECUTION,
-                EvidenceProvenance.LIVE_NEBIUS,
-                EvidenceProvenance.RECORDED_LIVE,
-            ):
-                return False
+            from basebreak.verifier.trust_bridge import verify_trusted_production_evidence
+
+            return verify_trusted_production_evidence(
+                receipt=receipt,
+                attestation=att,
+                expected_requirement_id=expected_requirement_id,
+                expected_contract_digest=expected_contract_digest,
+                expected_provenance=provenance,
+                verifier_authority=self,
+            )
 
         if att.provenance not in self._authorized_provenances:
             return False

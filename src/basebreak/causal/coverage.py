@@ -419,10 +419,15 @@ def compute_causal_coverage(
         )
 
     # Validate verifier authority boundary: caller-supplied functions rejected
-    if verifier_authority is not None and not isinstance(verifier_authority, TrustedWitnessVault):
+    from basebreak.verifier.trust_bridge import TrustedVerifierWorker, VerifierAuthorityRoot
+
+    if verifier_authority is not None and not isinstance(
+        verifier_authority, (TrustedWitnessVault, VerifierAuthorityRoot, TrustedVerifierWorker)
+    ):
         vtype = type(verifier_authority).__name__
         raise CoverageIntegrityError(
-            f"verifier_authority must be a TrustedWitnessVault instance, got {vtype}"
+            "verifier_authority must be a TrustedWitnessVault or "
+            f"VerifierAuthorityRoot instance, got {vtype}"
         )
 
     # Validate contract binding
@@ -602,17 +607,29 @@ def compute_causal_coverage(
             witness_digest = res.witness_digest
 
             is_authority_valid = False
-            if (
-                verifier_authority is not None
-                and isinstance(verifier_authority, TrustedWitnessVault)
-                and res.provenance == EvidenceProvenance.FIXTURE
-            ):
-                is_authority_valid = verifier_authority.verify_execution_authority(
-                    receipt_or_attestation=res,
-                    expected_requirement_id=req.requirement_id,
-                    expected_contract_digest=frozen_contract.contract_digest,
-                    provenance=EvidenceProvenance.FIXTURE,
-                )
+            if verifier_authority is not None:
+                if res.provenance == EvidenceProvenance.FIXTURE:
+                    if isinstance(verifier_authority, TrustedWitnessVault):
+                        is_authority_valid = verifier_authority.verify_execution_authority(
+                            receipt_or_attestation=res,
+                            expected_requirement_id=req.requirement_id,
+                            expected_contract_digest=frozen_contract.contract_digest,
+                            provenance=EvidenceProvenance.FIXTURE,
+                        )
+                elif res.provenance in (
+                    EvidenceProvenance.LOCAL_EXECUTION,
+                    EvidenceProvenance.LIVE_NEBIUS,
+                    EvidenceProvenance.RECORDED_LIVE,
+                ):
+                    from basebreak.verifier.trust_bridge import verify_trusted_production_evidence
+
+                    is_authority_valid = verify_trusted_production_evidence(
+                        receipt=res,
+                        expected_requirement_id=req.requirement_id,
+                        expected_contract_digest=frozen_contract.contract_digest,
+                        expected_provenance=res.provenance,
+                        verifier_authority=verifier_authority,
+                    )
 
             if is_authority_valid:
                 verdict = res.verdict
@@ -655,17 +672,29 @@ def compute_causal_coverage(
             witness_digest = res.witness_digest
 
             is_authority_valid = False
-            if (
-                verifier_authority is not None
-                and isinstance(verifier_authority, TrustedWitnessVault)
-                and res.provenance == EvidenceProvenance.FIXTURE
-            ):
-                is_authority_valid = verifier_authority.verify_execution_authority(
-                    receipt_or_attestation=res,
-                    expected_requirement_id=req.requirement_id,
-                    expected_contract_digest=frozen_contract.contract_digest,
-                    provenance=EvidenceProvenance.FIXTURE,
-                )
+            if verifier_authority is not None:
+                if res.provenance == EvidenceProvenance.FIXTURE:
+                    if isinstance(verifier_authority, TrustedWitnessVault):
+                        is_authority_valid = verifier_authority.verify_execution_authority(
+                            receipt_or_attestation=res,
+                            expected_requirement_id=req.requirement_id,
+                            expected_contract_digest=frozen_contract.contract_digest,
+                            provenance=EvidenceProvenance.FIXTURE,
+                        )
+                elif res.provenance in (
+                    EvidenceProvenance.LOCAL_EXECUTION,
+                    EvidenceProvenance.LIVE_NEBIUS,
+                    EvidenceProvenance.RECORDED_LIVE,
+                ):
+                    from basebreak.verifier.trust_bridge import verify_trusted_production_evidence
+
+                    is_authority_valid = verify_trusted_production_evidence(
+                        receipt=res,
+                        expected_requirement_id=req.requirement_id,
+                        expected_contract_digest=frozen_contract.contract_digest,
+                        expected_provenance=res.provenance,
+                        verifier_authority=verifier_authority,
+                    )
 
             if is_authority_valid:
                 verdict = res.verdict
