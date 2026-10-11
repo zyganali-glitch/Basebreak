@@ -398,6 +398,15 @@ class VerifierAuthorityRoot:
     exponent: int = PINNED_VERIFIER_EXPONENT
     authorized_issuers: frozenset[str] = AUTHORIZED_ISSUER_IDS
 
+    @property
+    def is_canonical_anchor(self) -> bool:
+        """Return True if this authority root represents the pinned canonical trust anchor."""
+        return (
+            self.modulus == PINNED_VERIFIER_MODULUS
+            and self.exponent == PINNED_VERIFIER_EXPONENT
+            and self.authorized_issuers == AUTHORIZED_ISSUER_IDS
+        )
+
     def verify_production_attestation(
         self,
         attestation: VerifierExecutionAttestation,
@@ -620,6 +629,9 @@ def verify_trusted_production_evidence(
     """Independently verify production execution evidence before accepting VERIFIED coverage.
 
     Called by compute_causal_coverage and TrustedWitnessVault.verify_execution_authority.
+    Enforces a non-substitutable production verification trust anchor. Caller-supplied
+    substitute authority roots, custom modulus/exponent, ephemeral keypairs, or
+    caller-created workers are rejected and can never replace the canonical anchor.
     """
     effective_att = attestation
     if effective_att is None and receipt is not None:
@@ -628,12 +640,18 @@ def verify_trusted_production_evidence(
     if effective_att is None or not isinstance(effective_att, VerifierExecutionAttestation):
         return False
 
-    root = (
-        verifier_authority
-        if isinstance(verifier_authority, VerifierAuthorityRoot)
-        else get_default_verifier_authority_root()
-    )
-    return root.verify_production_attestation(
+    if verifier_authority is not None:
+        if isinstance(verifier_authority, VerifierAuthorityRoot):
+            if not verifier_authority.is_canonical_anchor:
+                return False
+        elif isinstance(verifier_authority, TrustedVerifierWorker):
+            if not verifier_authority.authority_root.is_canonical_anchor:
+                return False
+        elif not isinstance(verifier_authority, TrustedWitnessVault):
+            return False
+
+    canonical_root = get_default_verifier_authority_root()
+    return canonical_root.verify_production_attestation(
         attestation=effective_att,
         receipt=receipt,
         expected_requirement_id=expected_requirement_id,

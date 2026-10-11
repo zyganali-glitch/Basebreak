@@ -119,17 +119,17 @@ Prior LIVE_NEBIUS-tested implementation SHA: `62b24c69a819c0ddcf15b455a237568059
 P-16.05 live Tavily execution remains held strictly at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. No real Tavily API call was executed. A stored preflight observation does not certify current execution authority; required current grounding must remain BLOCKED when trustworthy provider/runtime authority is absent. P-16.05 is not a prerequisite for provider-neutral Batch A (P-17–P-21) execution.
 
 ### Current QA candidate
-Batch A candidate — P-17 through P-21 Production Verifier Signer-Isolation & False-Live Repair completed. Addressed the authority-forgery defect:
-1. Eliminated the hardcoded/shared production signing secret completely.
-2. Separated privileged attestation issuance (`_PrivilegedVerifierSigner`) from unprivileged verification (`VerifierAuthorityRoot`).
-3. Production signing authority is restricted to the isolated verifier execution boundary (`TrustedVerifierWorker`) via pinned 2048-bit RSA key architecture.
-4. Builder/application code (`CausalExecutionEngine`) cannot self-issue production attestations (`attestation = None`).
-5. Canonical attestation payload cryptographically binds exact execution commands, sandbox identities, exit codes, termination statuses, result digests, stdout/stderr digests, and tree digests.
-6. Mandatory adversarial acceptance test reproduces the exact false-live scenario (fabricated facts, zero Nebius execution, all publicly accessible constructors/roots/workers attempted), strictly requiring `verified_count == 0` and `PreliminaryVerdict.INCONCLUSIVE`.
-7. Full regression suite (2,607 passed, 2 skipped, 10 deselected) and dedicated trust bridge acceptance tests (`test_01` through `test_10`) pass cleanly.
+Batch A candidate — P-17 through P-21 Production Verifier Trust Anchor & Non-Substitutability Repair completed. Addressed both the signing-isolation and caller-controlled trust-root substitution defects:
+1. Eliminated the hardcoded/shared production signing secret completely; separated privileged attestation issuance (`_PrivilegedVerifierSigner`) from unprivileged verification (`VerifierAuthorityRoot`).
+2. Production signing authority is restricted to the isolated verifier execution boundary (`TrustedVerifierWorker`) via pinned 2048-bit RSA key architecture.
+3. Enforced a non-substitutable production verification trust anchor in `verify_trusted_production_evidence()`: production evidence acceptance strictly uses the pinned canonical verifier public-key identity.
+4. Any caller-supplied substitute `VerifierAuthorityRoot` (custom modulus/exponent, ephemeral keypair) or caller-created worker is strictly rejected (`is_canonical_anchor == False -> return False`).
+5. Preserved ephemeral signing and verification helpers for fixture-level cryptographic unit tests (`ephemeral_root.verify_production_attestation(...)` passes in isolation), while strictly preventing their results from conferring authoritative production coverage (`verify_trusted_production_evidence(...)` returns `False`, `compute_causal_coverage(...)` returns `verified_count == 0` and `INCONCLUSIVE`).
+6. Mandatory adversarial regression tests reproduce the exact attack: ephemeral keypair, valid frozen BUG_FIX contract, fabricated execution facts, and substitution attempts via `verifier_authority=attacker_root`, `verifier_authority=attacker_worker.authority_root`, and `verifier_authority=attacker_worker`, all yielding `verified_count == 0` and `INCONCLUSIVE`.
+7. Full regression suite (2,611 passed, 2 skipped, 10 deselected) and dedicated trust bridge acceptance tests (13 passed, 1 skipped) pass cleanly.
 
 ### Active exact task
-P-17–P-21 Final Production Verification Authority & False-Live Repair completed. Awaiting independent QA review. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
+P-17–P-21 Caller-Controlled Trust Root Repair completed. Awaiting independent QA review. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
 
 ## Parallelization boundary & rules
 - **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are independently VERIFIED / PASS. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. P-17 through P-21 are REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN.

@@ -779,3 +779,298 @@ class TestProductionVerifierTrustBridge:
         assert cov.verified_count == 1
         assert cov.overall_verdict == PreliminaryVerdict.VERIFIED
         assert receipt.provenance == EvidenceProvenance.FIXTURE
+
+    def test_caller_controlled_trust_root_substitution_attack_rejected(self) -> None:
+        """Mandatory adversarial regression: Caller-controlled trust root substitution is rejected.
+
+        Attack scenario:
+        1. Create an attacker-controlled ephemeral RSA keypair using existing test helpers.
+        2. Construct a valid frozen BUG_FIX contract.
+        3. Fabricate BASE=FAIL and CANDIDATE=PASS facts with internally consistent
+           identities and hashes.
+        4. Sign a production LIVE_NEBIUS attestation using the attacker-controlled private key,
+           without sandbox or Nebius execution.
+        5. Create a structurally and cryptographically consistent receipt bound to the actual
+           frozen contract.
+        6. Supply attacker-controlled matching VerifierAuthorityRoot to
+           verify_trusted_production_evidence().
+        7. Supply that same root to compute_causal_coverage().
+
+        Required results:
+        - Independent production verification returns False.
+        - verified_count == 0.
+        - Overall verdict is not VERIFIED.
+        - No valid production authority is acquired.
+        """
+        # 1. Attacker creates ephemeral RSA keypair
+        attacker_signer, attacker_root = _PrivilegedVerifierSigner.create_ephemeral_pair()
+        assert not attacker_root.is_canonical_anchor
+
+        # 2. Valid frozen BUG_FIX contract
+        contract = _make_sample_contract(requirement_id="REQ-SUB-ATTACK")
+        base_fact, cand_fact = _make_production_facts()
+
+        # 3 & 4. Attacker signs LIVE_NEBIUS attestation with attacker key without execution
+        attacker_attestation = attacker_signer.issue_production_attestation(
+            issuer_id=AUTHORIZED_NEBIUS_ISSUER_ID,
+            execution_origin=VerifierExecutionOrigin.NEBIUS_TOKEN_FACTORY_SANDBOX.value,
+            requirement_id="REQ-SUB-ATTACK",
+            frozen_contract_digest="c" * 64,
+            witness_id="wit-nebius-attack",
+            witness_digest="a" * 64,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            base_outcome=WitnessOutcome.FAIL,
+            candidate_outcome=WitnessOutcome.PASS,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LIVE_NEBIUS,
+            execution_command="pytest",
+            base_sandbox_id=base_fact.sandbox_id,
+            candidate_sandbox_id=cand_fact.sandbox_id,
+            base_exit_code=base_fact.exit_code,
+            candidate_exit_code=cand_fact.exit_code,
+            base_termination_status=base_fact.termination_status,
+            candidate_termination_status=cand_fact.termination_status,
+            base_result_digest=base_fact.result_digest,
+            candidate_result_digest=cand_fact.result_digest,
+        )
+
+        # 5. Structurally and cryptographically consistent receipt bound to actual contract
+        receipt = create_causal_receipt(
+            requirement_id="REQ-SUB-ATTACK",
+            frozen_contract_digest="c" * 64,
+            witness_id="wit-nebius-attack",
+            witness_digest="a" * 64,
+            lock_digest="d" * 64,
+            base_execution=base_fact,
+            candidate_execution=cand_fact,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LIVE_NEBIUS,
+            narrative="Attacker substituted root LIVE_NEBIUS receipt",
+            attestation=attacker_attestation,
+        )
+
+        # 6. Supply attacker-controlled VerifierAuthorityRoot to verification
+        assert (
+            verify_trusted_production_evidence(receipt=receipt, verifier_authority=attacker_root)
+            is False
+        )
+        assert verify_trusted_production_evidence(receipt=receipt) is False
+
+        # 7. Supply attacker-controlled root to compute_causal_coverage()
+        cov = compute_causal_coverage(
+            frozen_contract=contract,
+            results={"REQ-SUB-ATTACK": receipt},
+            verifier_authority=attacker_root,
+        )
+
+        # Required results:
+        assert cov.verified_count == 0
+        assert cov.overall_verdict != PreliminaryVerdict.VERIFIED
+        assert cov.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
+        assert cov.inconclusive_count == 1
+        assert cov.is_fully_verified is False
+
+    def test_caller_controlled_worker_authority_root_substitution_attack_rejected(self) -> None:
+        """Repeat trust-root substitution attack through Accepted TrustedVerifierWorker routes.
+
+        Both passing worker.authority_root and passing worker directly must be rejected.
+        """
+        attacker_signer, _ = _PrivilegedVerifierSigner.create_ephemeral_pair()
+        attacker_worker = TrustedVerifierWorker(signer=attacker_signer)
+        assert not attacker_worker.authority_root.is_canonical_anchor
+
+        contract = _make_sample_contract(requirement_id="REQ-WORKER-ATTACK")
+        base_fact, cand_fact = _make_production_facts()
+
+        attacker_attestation = attacker_signer.issue_production_attestation(
+            issuer_id=AUTHORIZED_LOCAL_ISSUER_ID,
+            execution_origin=VerifierExecutionOrigin.LOCAL_CONTAINER_ISOLATED_RUNTIME.value,
+            requirement_id="REQ-WORKER-ATTACK",
+            frozen_contract_digest="c" * 64,
+            witness_id="wit-local-attack",
+            witness_digest="a" * 64,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            base_outcome=WitnessOutcome.FAIL,
+            candidate_outcome=WitnessOutcome.PASS,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            execution_command="pytest",
+            base_sandbox_id=base_fact.sandbox_id,
+            candidate_sandbox_id=cand_fact.sandbox_id,
+            base_exit_code=base_fact.exit_code,
+            candidate_exit_code=cand_fact.exit_code,
+            base_result_digest=base_fact.result_digest,
+            candidate_result_digest=cand_fact.result_digest,
+        )
+
+        receipt = create_causal_receipt(
+            requirement_id="REQ-WORKER-ATTACK",
+            frozen_contract_digest="c" * 64,
+            witness_id="wit-local-attack",
+            witness_digest="a" * 64,
+            lock_digest="d" * 64,
+            base_execution=base_fact,
+            candidate_execution=cand_fact,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            narrative="Attacker substituted worker receipt",
+            attestation=attacker_attestation,
+        )
+
+        # Route A: Passing worker.authority_root
+        assert (
+            verify_trusted_production_evidence(
+                receipt=receipt, verifier_authority=attacker_worker.authority_root
+            )
+            is False
+        )
+        cov_a = compute_causal_coverage(
+            frozen_contract=contract,
+            results={"REQ-WORKER-ATTACK": receipt},
+            verifier_authority=attacker_worker.authority_root,
+        )
+        assert cov_a.verified_count == 0
+        assert cov_a.overall_verdict != PreliminaryVerdict.VERIFIED
+        assert cov_a.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
+        assert cov_a.is_fully_verified is False
+
+        # Route B: Passing worker directly
+        assert (
+            verify_trusted_production_evidence(receipt=receipt, verifier_authority=attacker_worker)
+            is False
+        )
+        cov_b = compute_causal_coverage(
+            frozen_contract=contract,
+            results={"REQ-WORKER-ATTACK": receipt},
+            verifier_authority=attacker_worker,
+        )
+        assert cov_b.verified_count == 0
+        assert cov_b.overall_verdict != PreliminaryVerdict.VERIFIED
+        assert cov_b.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
+        assert cov_b.is_fully_verified is False
+
+    def test_isolated_ephemeral_keypair_verifies_signature_in_isolation_only(self) -> None:
+        """Isolated cryptographic unit test: Ephemeral keypair verifies in isolation only.
+
+        An ephemeral keypair can cryptographically verify its own signature in unit isolation,
+        but that isolated result does NOT qualify as trusted production verification.
+        """
+        signer, ephemeral_root = _PrivilegedVerifierSigner.create_ephemeral_pair()
+        base_fact, cand_fact = _make_production_facts()
+        contract = _make_sample_contract(requirement_id="REQ-EPHEM-01")
+
+        attestation = signer.issue_production_attestation(
+            issuer_id=AUTHORIZED_LOCAL_ISSUER_ID,
+            execution_origin=VerifierExecutionOrigin.LOCAL_CONTAINER_ISOLATED_RUNTIME.value,
+            requirement_id="REQ-EPHEM-01",
+            frozen_contract_digest="c" * 64,
+            witness_id="wit-ephem-1",
+            witness_digest="a" * 64,
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            base_outcome=WitnessOutcome.FAIL,
+            candidate_outcome=WitnessOutcome.PASS,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            execution_command="pytest",
+            base_sandbox_id=base_fact.sandbox_id,
+            candidate_sandbox_id=cand_fact.sandbox_id,
+            base_exit_code=base_fact.exit_code,
+            candidate_exit_code=cand_fact.exit_code,
+            base_termination_status=base_fact.termination_status,
+            candidate_termination_status=cand_fact.termination_status,
+            base_result_digest=base_fact.result_digest,
+            candidate_result_digest=cand_fact.result_digest,
+        )
+
+        receipt = create_causal_receipt(
+            requirement_id="REQ-EPHEM-01",
+            frozen_contract_digest="c" * 64,
+            witness_id="wit-ephem-1",
+            witness_digest="a" * 64,
+            lock_digest="d" * 64,
+            base_execution=base_fact,
+            candidate_execution=cand_fact,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            verdict=PreliminaryVerdict.VERIFIED,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            narrative="Ephemeral test receipt",
+            attestation=attestation,
+        )
+
+        # In isolation, the ephemeral root verifies its own cryptographic signature
+        assert ephemeral_root.verify_production_attestation(attestation, receipt=receipt) is True
+
+        # But that isolated result does NOT qualify as trusted production verification
+        assert (
+            verify_trusted_production_evidence(receipt=receipt, verifier_authority=ephemeral_root)
+            is False
+        )
+        assert verify_trusted_production_evidence(receipt=receipt) is False
+
+        cov = compute_causal_coverage(
+            frozen_contract=contract,
+            results={"REQ-EPHEM-01": receipt},
+            verifier_authority=ephemeral_root,
+        )
+        assert cov.verified_count == 0
+        assert cov.overall_verdict != PreliminaryVerdict.VERIFIED
+        assert cov.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
+        assert cov.is_fully_verified is False
+
+    def test_canonical_pinned_trust_anchor_structure_and_fail_closed_contract(self) -> None:
+        """Verify the pinned canonical trust anchor structure and fail-closed behavior."""
+        canonical_root = get_default_verifier_authority_root()
+        assert canonical_root.is_canonical_anchor is True
+        assert canonical_root.modulus == PINNED_VERIFIER_MODULUS
+        assert canonical_root.exponent == PINNED_VERIFIER_EXPONENT
+
+        default_worker = TrustedVerifierWorker()
+        assert default_worker.authority_root.is_canonical_anchor is True
+
+        # Without genuine execution environment/credentials, worker execution fails closed
+        contract = _make_sample_contract(requirement_id="REQ-CANONICAL-01")
+        vault = TrustedWitnessVault()
+        wa = WitnessArtifact.from_text("tests/test_c.py", "def test_c(): pass\n")
+        sealed = vault.seal_witness(
+            witness_id="wit-c-1",
+            requirement_id="REQ-CANONICAL-01",
+            frozen_contract_digest="c" * 64,
+            source_commit_id="1" * 40,
+            artifacts=[wa],
+        )
+        lock = create_witness_lock(record=sealed, vault=vault)
+        patch_text = "--- a/c\n+++ b/c\n@@ -1 +1 @@\n-fail\n+pass\n"
+        patch_digest = hashlib.sha256(patch_text.encode("utf-8")).hexdigest()
+        from basebreak.domain.causal import CandidateIdentity
+        from basebreak.domain.source import CommitRevision, SourceIdentity
+
+        src_id = SourceIdentity("https://github.com/example/repo.git", CommitRevision("1" * 40))
+        cand_id = CandidateIdentity("cand-c", src_id, patch_digest)
+        envelope = VerifierContextEnvelope.create(
+            frozen_contract=contract,
+            source_identity=src_id,
+            candidate_identity=cand_id,
+            candidate_patch_text=patch_text,
+            candidate_tree_digest="5" * 40,
+        )
+
+        with pytest.raises(VerifierExecutionBlockedError):
+            default_worker.execute_causal_pair(
+                context_envelope=envelope,
+                sealed_record=sealed,
+                witness_lock=lock,
+                execution_command=("pytest",),
+                provenance=EvidenceProvenance.LIVE_NEBIUS,
+                sandbox_manager=VerifierSandboxManager(),
+                sandbox_adapter=object(),
+                materializer=object(),
+                vault=vault,
+            )
