@@ -26,6 +26,7 @@ import inspect
 import os
 import posixpath
 import shlex
+import subprocess
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -122,9 +123,35 @@ def is_genuine_nebius_sandbox_adapter(adapter: Any) -> bool:
     return True
 
 
+def _probe_local_container_isolation() -> bool:
+    """Probe for an active, functional container runtime providing real isolation."""
+    try:
+        proc = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+        if proc.returncode != 0:
+            return False
+        stdout_lower = proc.stdout.lower()
+        stderr_lower = proc.stderr.lower()
+        if "cannot connect" in stdout_lower or "failed to connect" in stderr_lower:
+            return False
+        return "server:" in stdout_lower
+    except Exception:
+        return False
+
+
 def is_genuine_local_sandbox_runtime() -> bool:
-    """Positively verify that authorized isolated local sandbox runtime is available."""
-    return os.environ.get("BASEBREAK_ENABLE_LOCAL_SANDBOX_RUNTIME") == "1"
+    """Positively verify that authorized isolated local container runtime is available.
+
+    Setting BASEBREAK_ENABLE_LOCAL_SANDBOX_RUNTIME=1 without an authentic, operational
+    isolated container runtime does not grant production authority.
+    """
+    if os.environ.get("BASEBREAK_ENABLE_LOCAL_SANDBOX_RUNTIME") != "1":
+        return False
+    return _probe_local_container_isolation()
 
 
 class CausalExecutionEngine:
@@ -170,50 +197,45 @@ class CausalExecutionEngine:
 
         self.vault = vault
 
-        # Production authority MUST originate from an actual trusted verifier execution boundary,
-        # positively verified, not negative naming heuristics.
-        effective_provenance = EvidenceProvenance.FIXTURE
-        if provenance == EvidenceProvenance.LIVE_NEBIUS:
-            if is_genuine_nebius_sandbox_adapter(
-                sandbox_adapter
-            ) and not self._is_mock_or_simulated(sandbox_adapter, self.materializer):
-                effective_provenance = EvidenceProvenance.LIVE_NEBIUS
-        elif provenance == EvidenceProvenance.LOCAL_EXECUTION:
-            if is_genuine_local_sandbox_runtime() and not self._is_mock_or_simulated(
-                sandbox_adapter, self.materializer
-            ):
-                effective_provenance = EvidenceProvenance.LOCAL_EXECUTION
+        # Production authority MUST originate from completed verifier execution,
+        # never solely from adapter type, configuration, environment variables,
+        # or object construction.
+        self.target_provenance = provenance
+        self.provenance = EvidenceProvenance.FIXTURE
 
-        self.provenance = effective_provenance
-
+        # Object construction must NEVER issue production execution authority to the vault!
+        # Production authority must originate strictly from actual verifier execution.
         if hasattr(self.vault, "_authorize_verifier_runtime"):
-            self.vault._authorize_verifier_runtime(self, self.provenance)
+            self.vault._authorize_verifier_runtime(self, EvidenceProvenance.FIXTURE)
         elif hasattr(self.vault, "_authorize_as_engine_root"):
             self.vault._authorize_as_engine_root(self)
 
-    @staticmethod
-    def _is_mock_or_simulated(adapter: Any, materializer: Any) -> bool:
-        """Deterministically check if adapter or materializer is mock, fake, or simulation."""
+    @classmethod
+    def _is_mock_or_simulated(cls, adapter: Any, materializer: Any) -> bool:
+        """Check if adapter or materializer is mock, fake, simulation, or custom."""
+        from basebreak.adapters.nebius.materialization import NebiusSourceMaterializer
+        from basebreak.adapters.nebius.sandbox import NebiusSandboxAdapter
+        from basebreak.causal.materializer import CausalRepositoryMaterializer
 
         def _is_untrusted(obj: Any) -> bool:
             if obj is None:
                 return True
-            cls = type(obj)
-            mod_name = getattr(cls, "__module__", "") or ""
-            cls_name = getattr(cls, "__name__", "") or ""
-            if "unittest.mock" in mod_name or "mock" in cls_name.lower():
-                return True
-            if any(k in cls_name for k in ("Mock", "Fake", "Simulat", "Stub", "Scriptable")):
-                return True
-            if getattr(obj, "is_simulation", False) or getattr(obj, "is_mock", False):
-                return True
-            if hasattr(obj, "adapter") and obj.adapter is not obj:
-                if _is_untrusted(obj.adapter):
+            obj_type = type(obj)
+            # Positive verification for Nebius adapter
+            if obj_type is NebiusSandboxAdapter:
+                if getattr(obj, "is_simulation", False) or getattr(obj, "is_mock", False):
                     return True
-            if hasattr(obj, "source_materializer") and obj.source_materializer is not obj:
-                if _is_untrusted(obj.source_materializer):
-                    return True
-            return False
+                return False
+            # Positive verification for materializers
+            if obj_type in (NebiusSourceMaterializer, CausalRepositoryMaterializer):
+                if hasattr(obj, "adapter") and obj.adapter is not obj:
+                    return _is_untrusted(obj.adapter)
+                if hasattr(obj, "source_materializer") and obj.source_materializer is not obj:
+                    return _is_untrusted(obj.source_materializer)
+                return False
+
+            # Any custom adapter or materializer not matching canonical classes is untrusted
+            return True
 
         return _is_untrusted(adapter) or _is_untrusted(materializer)
 

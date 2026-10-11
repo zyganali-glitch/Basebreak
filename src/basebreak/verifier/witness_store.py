@@ -572,11 +572,7 @@ class TrustedWitnessVault:
         if runtime is None:
             raise UntrustedWitnessAuthorityError("runtime cannot be None")
 
-        from basebreak.causal.engine import (
-            CausalExecutionEngine,
-            is_genuine_local_sandbox_runtime,
-            is_genuine_nebius_sandbox_adapter,
-        )
+        from basebreak.causal.engine import CausalExecutionEngine
 
         if not isinstance(runtime, CausalExecutionEngine):
             raise UntrustedWitnessAuthorityError(
@@ -589,35 +585,15 @@ class TrustedWitnessVault:
                 f"provenance must be EvidenceProvenance, got {type(provenance).__name__}"
             )
 
-        if provenance == EvidenceProvenance.LIVE_NEBIUS:
-            if not is_genuine_nebius_sandbox_adapter(getattr(runtime, "sandbox_adapter", None)):
-                raise UntrustedWitnessAuthorityError(
-                    "LIVE_NEBIUS authority requires genuine NebiusSandboxAdapter "
-                    "runtime execution boundary"
-                )
-            if getattr(runtime, "provenance", None) != EvidenceProvenance.LIVE_NEBIUS:
-                raise UntrustedWitnessAuthorityError(
-                    "Engine provenance does not match requested LIVE_NEBIUS authority"
-                )
-            object.__setattr__(
-                self,
-                "_authorized_provenances",
-                self._authorized_provenances | {EvidenceProvenance.LIVE_NEBIUS},
-            )
-        elif provenance == EvidenceProvenance.LOCAL_EXECUTION:
-            if not is_genuine_local_sandbox_runtime():
-                raise UntrustedWitnessAuthorityError(
-                    "LOCAL_EXECUTION authority requires an authorized isolated "
-                    "local sandbox runtime"
-                )
-            if getattr(runtime, "provenance", None) != EvidenceProvenance.LOCAL_EXECUTION:
-                raise UntrustedWitnessAuthorityError(
-                    "Engine provenance does not match requested LOCAL_EXECUTION authority"
-                )
-            object.__setattr__(
-                self,
-                "_authorized_provenances",
-                self._authorized_provenances | {EvidenceProvenance.LOCAL_EXECUTION},
+        if provenance in (
+            EvidenceProvenance.LIVE_NEBIUS,
+            EvidenceProvenance.LOCAL_EXECUTION,
+            EvidenceProvenance.RECORDED_LIVE,
+        ):
+            raise UntrustedWitnessAuthorityError(
+                f"In-process vault cannot be granted production execution authority "
+                f"({provenance.value}); production authority cannot be issued from "
+                f"in-process runtime objects"
             )
         elif provenance == EvidenceProvenance.FIXTURE:
             object.__setattr__(
@@ -693,11 +669,11 @@ class TrustedWitnessVault:
             EvidenceProvenance.LIVE_NEBIUS,
             EvidenceProvenance.RECORDED_LIVE,
         ):
-            if self._bound_engine is None or provenance not in self._authorized_provenances:
-                raise UntrustedWitnessAuthorityError(
-                    f"Caller-originated record_observed_execution() for production provenance "
-                    f"({provenance.value}) without trusted execution is strictly prohibited"
-                )
+            raise UntrustedWitnessAuthorityError(
+                f"Caller-originated record_observed_execution() for production "
+                f"provenance ({provenance.value}) is strictly prohibited; production observations "
+                f"cannot be minted through in-process method invocation"
+            )
 
         if provenance not in self._authorized_provenances:
             raise UntrustedWitnessAuthorityError(
@@ -939,6 +915,15 @@ class TrustedWitnessVault:
            pre-recorded verifier observations.
         """
         # 1. Authority root check
+        if provenance in (
+            EvidenceProvenance.LOCAL_EXECUTION,
+            EvidenceProvenance.LIVE_NEBIUS,
+            EvidenceProvenance.RECORDED_LIVE,
+        ):
+            raise UntrustedWitnessAuthorityError(
+                f"Vault is not authorized to attest execution for {provenance.value}; "
+                f"in-process vault cannot attest execution for production provenance"
+            )
         if provenance not in self._authorized_provenances:
             raise UntrustedWitnessAuthorityError(
                 f"Vault is not authorized to attest execution for {provenance.value}; "
@@ -1232,6 +1217,31 @@ class TrustedWitnessVault:
 
         if att is None or not isinstance(att, VerifierExecutionAttestation):
             return False
+
+        # In-process vault possesses authority strictly for FIXTURE-scoped verification.
+        # Production execution claims (LOCAL_EXECUTION, LIVE_NEBIUS, RECORDED_LIVE)
+        # cannot be validated by an in-process caller vault.
+        # Direct object.__setattr__() mutation of vault cannot confer production authority.
+        if att.provenance in (
+            EvidenceProvenance.LOCAL_EXECUTION,
+            EvidenceProvenance.LIVE_NEBIUS,
+            EvidenceProvenance.RECORDED_LIVE,
+        ):
+            return False
+        if provenance in (
+            EvidenceProvenance.LOCAL_EXECUTION,
+            EvidenceProvenance.LIVE_NEBIUS,
+            EvidenceProvenance.RECORDED_LIVE,
+        ):
+            return False
+        if receipt is not None:
+            r_prov = getattr(receipt, "provenance", None)
+            if r_prov in (
+                EvidenceProvenance.LOCAL_EXECUTION,
+                EvidenceProvenance.LIVE_NEBIUS,
+                EvidenceProvenance.RECORDED_LIVE,
+            ):
+                return False
 
         if att.provenance not in self._authorized_provenances:
             return False

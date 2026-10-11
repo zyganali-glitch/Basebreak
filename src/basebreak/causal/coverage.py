@@ -41,7 +41,7 @@ from basebreak.causal.reconciliation import CausalTransition, ReconciliationFact
 from basebreak.causal.semantic_receipt import SemanticVerificationReceipt
 from basebreak.compiler.freeze import FrozenContract, FrozenRequirement
 from basebreak.domain.semantics import ChangeClass, get_verification_requirements
-from basebreak.domain.verdict import PreliminaryVerdict
+from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.verifier.witness_store import TrustedWitnessVault
 
 _HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -602,13 +602,16 @@ def compute_causal_coverage(
             witness_digest = res.witness_digest
 
             is_authority_valid = False
-            if verifier_authority is not None and isinstance(
-                verifier_authority, TrustedWitnessVault
+            if (
+                verifier_authority is not None
+                and isinstance(verifier_authority, TrustedWitnessVault)
+                and res.provenance == EvidenceProvenance.FIXTURE
             ):
                 is_authority_valid = verifier_authority.verify_execution_authority(
                     receipt_or_attestation=res,
                     expected_requirement_id=req.requirement_id,
                     expected_contract_digest=frozen_contract.contract_digest,
+                    provenance=EvidenceProvenance.FIXTURE,
                 )
 
             if is_authority_valid:
@@ -623,7 +626,8 @@ def compute_causal_coverage(
                     verdict = PreliminaryVerdict.INCONCLUSIVE
                     rationale = (
                         "Unattested receipt lacks independent verifier execution authority: "
-                        "unattested, invalid signature, or unverified execution facts."
+                        "unattested, invalid signature, unverified execution facts, or "
+                        "unauthorized production provenance claim."
                     )
                 else:
                     verdict = res.verdict
@@ -651,13 +655,16 @@ def compute_causal_coverage(
             witness_digest = res.witness_digest
 
             is_authority_valid = False
-            if verifier_authority is not None and isinstance(
-                verifier_authority, TrustedWitnessVault
+            if (
+                verifier_authority is not None
+                and isinstance(verifier_authority, TrustedWitnessVault)
+                and res.provenance == EvidenceProvenance.FIXTURE
             ):
                 is_authority_valid = verifier_authority.verify_execution_authority(
                     receipt_or_attestation=res,
                     expected_requirement_id=req.requirement_id,
                     expected_contract_digest=frozen_contract.contract_digest,
+                    provenance=EvidenceProvenance.FIXTURE,
                 )
 
             if is_authority_valid:
@@ -672,7 +679,8 @@ def compute_causal_coverage(
                     verdict = PreliminaryVerdict.INCONCLUSIVE
                     rationale = (
                         "Unattested receipt lacks independent verifier execution authority: "
-                        "unattested, invalid signature, or unverified execution facts."
+                        "unattested, invalid signature, unverified execution facts, or "
+                        "unauthorized production provenance claim."
                     )
                 else:
                     verdict = res.verdict
