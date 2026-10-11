@@ -586,38 +586,10 @@ class CausalExecutionEngine:
             EvidenceProvenance.LIVE_NEBIUS,
             EvidenceProvenance.RECORDED_LIVE,
         ):
-            from basebreak.verifier.trust_bridge import (
-                AUTHORIZED_LOCAL_ISSUER_ID,
-                AUTHORIZED_NEBIUS_ISSUER_ID,
-                VerifierExecutionOrigin,
-                get_default_verifier_authority_root,
-            )
-
-            issuer_id = (
-                AUTHORIZED_LOCAL_ISSUER_ID
-                if self.provenance == EvidenceProvenance.LOCAL_EXECUTION
-                else AUTHORIZED_NEBIUS_ISSUER_ID
-            )
-            origin = (
-                VerifierExecutionOrigin.LOCAL_CONTAINER_ISOLATED_RUNTIME.value
-                if self.provenance == EvidenceProvenance.LOCAL_EXECUTION
-                else VerifierExecutionOrigin.NEBIUS_TOKEN_FACTORY_SANDBOX.value
-            )
-            attestation = get_default_verifier_authority_root().issue_production_attestation(
-                issuer_id=issuer_id,
-                execution_origin=origin,
-                requirement_id=sealed_record.requirement_id,
-                frozen_contract_digest=sealed_record.frozen_contract_digest,
-                witness_id=sealed_record.witness_id,
-                witness_digest=sealed_record.seal_digest,
-                source_commit_id=context_envelope.source_identity.resolved_commit_id,
-                candidate_tree_digest=candidate_output.tree_digest,
-                base_outcome=base_output.normalized_result.outcome,
-                candidate_outcome=candidate_output.normalized_result.outcome,
-                transition=reconciliation.transition,
-                verdict=reconciliation.verdict,
-                provenance=self.provenance,
-            )
+            # Production execution authority resides strictly in the isolated
+            # TrustedVerifierWorker boundary; Builder/Engine cannot self-issue
+            # production attestations.
+            attestation = None
         else:
             attestation = self.vault.attest_execution(
                 witness_id=sealed_record.witness_id,
@@ -854,39 +826,10 @@ class CausalExecutionEngine:
             EvidenceProvenance.LIVE_NEBIUS,
             EvidenceProvenance.RECORDED_LIVE,
         ):
-            from basebreak.verifier.trust_bridge import (
-                AUTHORIZED_LOCAL_ISSUER_ID,
-                AUTHORIZED_NEBIUS_ISSUER_ID,
-                VerifierExecutionOrigin,
-                get_default_verifier_authority_root,
-            )
-
-            issuer_id = (
-                AUTHORIZED_LOCAL_ISSUER_ID
-                if self.provenance == EvidenceProvenance.LOCAL_EXECUTION
-                else AUTHORIZED_NEBIUS_ISSUER_ID
-            )
-            origin = (
-                VerifierExecutionOrigin.LOCAL_CONTAINER_ISOLATED_RUNTIME.value
-                if self.provenance == EvidenceProvenance.LOCAL_EXECUTION
-                else VerifierExecutionOrigin.NEBIUS_TOKEN_FACTORY_SANDBOX.value
-            )
-            attestation = get_default_verifier_authority_root().issue_production_attestation(
-                issuer_id=issuer_id,
-                execution_origin=origin,
-                requirement_id=sealed_record.requirement_id,
-                frozen_contract_digest=sealed_record.frozen_contract_digest,
-                witness_id=sealed_record.witness_id,
-                witness_digest=sealed_record.seal_digest,
-                source_commit_id=context_envelope.source_identity.resolved_commit_id,
-                candidate_tree_digest=candidate_output.tree_digest,
-                base_outcome=base_output.normalized_result.outcome,
-                candidate_outcome=candidate_output.normalized_result.outcome,
-                counterfactual_outcome=cf_outcome if cf_output is not None else None,
-                transition=reconciliation.transition,
-                verdict=reconciliation.verdict,
-                provenance=self.provenance,
-            )
+            # Production execution authority resides strictly in the isolated
+            # TrustedVerifierWorker boundary; Builder/Engine cannot self-issue
+            # production attestations.
+            attestation = None
         else:
             attestation = self.vault.attest_execution(
                 witness_id=sealed_record.witness_id,

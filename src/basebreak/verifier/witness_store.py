@@ -45,6 +45,7 @@ from basebreak.verifier.witness_result import WitnessOutcome
 
 _HEX_40_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_HEX_64_TO_512_PATTERN = re.compile(r"^[0-9a-f]{64,512}$")
 
 
 # --- Exceptions ---
@@ -352,17 +353,108 @@ def build_canonical_execution_attestation_payload(
     created_at_utc: str = "",
     issuer_id: str = "",
     execution_origin: str = "",
+    execution_command: Sequence[str] | str = "",
+    base_sandbox_id: str = "",
+    candidate_sandbox_id: str = "",
+    counterfactual_sandbox_id: str | None = None,
+    base_exit_code: int | None = None,
+    candidate_exit_code: int | None = None,
+    counterfactual_exit_code: int | None = None,
+    base_termination_status: TerminationStatus | str | None = None,
+    candidate_termination_status: TerminationStatus | str | None = None,
+    counterfactual_termination_status: TerminationStatus | str | None = None,
+    base_result_digest: str = "",
+    candidate_result_digest: str = "",
+    counterfactual_result_digest: str | None = None,
+    base_stdout_digest: str = "",
+    base_stderr_digest: str = "",
+    candidate_stdout_digest: str = "",
+    candidate_stderr_digest: str = "",
+    counterfactual_stdout_digest: str | None = None,
+    counterfactual_stderr_digest: str | None = None,
+    base_tree_digest: str = "",
+    counterfactual_tree_digest: str | None = None,
 ) -> dict[str, Any]:
     """Construct deterministic payload for execution attestation digest computation."""
     trans_val = transition.value if hasattr(transition, "value") else str(transition)
+    cmd_str = (
+        " ".join(str(c) for c in execution_command)
+        if isinstance(execution_command, (list, tuple))
+        else str(execution_command or "").strip()
+    )
+    b_term = (
+        base_termination_status.value
+        if base_termination_status is not None and hasattr(base_termination_status, "value")
+        else (str(base_termination_status) if base_termination_status is not None else None)
+    )
+    c_term = (
+        candidate_termination_status.value
+        if candidate_termination_status is not None
+        and hasattr(candidate_termination_status, "value")
+        else (
+            str(candidate_termination_status) if candidate_termination_status is not None else None
+        )
+    )
+    cf_term = (
+        counterfactual_termination_status.value
+        if counterfactual_termination_status is not None
+        and hasattr(counterfactual_termination_status, "value")
+        else (
+            str(counterfactual_termination_status)
+            if counterfactual_termination_status is not None
+            else None
+        )
+    )
+
     payload: dict[str, Any] = {
+        "base_exit_code": base_exit_code,
         "base_outcome": base_outcome.value if base_outcome is not None else None,
+        "base_result_digest": str(base_result_digest or "").strip().lower(),
+        "base_sandbox_id": str(base_sandbox_id or "").strip(),
+        "base_stderr_digest": str(base_stderr_digest or "").strip().lower(),
+        "base_stdout_digest": str(base_stdout_digest or "").strip().lower(),
+        "base_termination_status": b_term,
+        "base_tree_digest": str(base_tree_digest or "").strip().lower(),
+        "candidate_exit_code": candidate_exit_code,
         "candidate_outcome": candidate_outcome.value if candidate_outcome is not None else None,
+        "candidate_result_digest": str(candidate_result_digest or "").strip().lower(),
+        "candidate_sandbox_id": str(candidate_sandbox_id or "").strip(),
+        "candidate_stderr_digest": str(candidate_stderr_digest or "").strip().lower(),
+        "candidate_stdout_digest": str(candidate_stdout_digest or "").strip().lower(),
+        "candidate_termination_status": c_term,
         "candidate_tree_digest": str(candidate_tree_digest or "").strip().lower(),
+        "counterfactual_exit_code": counterfactual_exit_code,
         "counterfactual_outcome": (
             counterfactual_outcome.value if counterfactual_outcome is not None else None
         ),
+        "counterfactual_result_digest": (
+            str(counterfactual_result_digest or "").strip().lower()
+            if counterfactual_result_digest is not None
+            else None
+        ),
+        "counterfactual_sandbox_id": (
+            str(counterfactual_sandbox_id or "").strip()
+            if counterfactual_sandbox_id is not None
+            else None
+        ),
+        "counterfactual_stderr_digest": (
+            str(counterfactual_stderr_digest or "").strip().lower()
+            if counterfactual_stderr_digest is not None
+            else None
+        ),
+        "counterfactual_stdout_digest": (
+            str(counterfactual_stdout_digest or "").strip().lower()
+            if counterfactual_stdout_digest is not None
+            else None
+        ),
+        "counterfactual_termination_status": cf_term,
+        "counterfactual_tree_digest": (
+            str(counterfactual_tree_digest or "").strip().lower()
+            if counterfactual_tree_digest is not None
+            else None
+        ),
         "created_at_utc": str(created_at_utc).strip(),
+        "execution_command": cmd_str,
         "frozen_contract_digest": str(frozen_contract_digest).strip().lower(),
         "provenance": provenance.value,
         "requirement_id": str(requirement_id).strip(),
@@ -403,7 +495,6 @@ class VerifierExecutionAttestation:
     candidate_tree_digest: str
     base_outcome: WitnessOutcome | None
     candidate_outcome: WitnessOutcome | None
-    counterfactual_outcome: WitnessOutcome | None
     transition: Any
     verdict: PreliminaryVerdict
     provenance: EvidenceProvenance
@@ -411,8 +502,30 @@ class VerifierExecutionAttestation:
     vault_signature: str
     created_at_utc: str
     is_authoritative: bool = True
+    counterfactual_outcome: WitnessOutcome | None = None
     issuer_id: str = ""
     execution_origin: str = ""
+    execution_command: str = ""
+    base_sandbox_id: str = ""
+    candidate_sandbox_id: str = ""
+    counterfactual_sandbox_id: str | None = None
+    base_exit_code: int | None = None
+    candidate_exit_code: int | None = None
+    counterfactual_exit_code: int | None = None
+    base_termination_status: str | None = None
+    candidate_termination_status: str | None = None
+    counterfactual_termination_status: str | None = None
+    base_result_digest: str = ""
+    candidate_result_digest: str = ""
+    counterfactual_result_digest: str | None = None
+    base_stdout_digest: str = ""
+    base_stderr_digest: str = ""
+    candidate_stdout_digest: str = ""
+    candidate_stderr_digest: str = ""
+    counterfactual_stdout_digest: str | None = None
+    counterfactual_stderr_digest: str | None = None
+    base_tree_digest: str = ""
+    counterfactual_tree_digest: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.requirement_id, str) or not self.requirement_id.strip():
@@ -449,10 +562,10 @@ class VerifierExecutionAttestation:
             self.attestation_digest
         ):
             raise WitnessIntegrityError("attestation_digest must be a 64-char hex string")
-        if not isinstance(self.vault_signature, str) or not _HEX_64_PATTERN.match(
+        if not isinstance(self.vault_signature, str) or not _HEX_64_TO_512_PATTERN.match(
             self.vault_signature
         ):
-            raise WitnessIntegrityError("vault_signature must be a 64-char hex string")
+            raise WitnessIntegrityError("vault_signature must be a 64- to 512-char hex string")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize attestation to JSON-safe dictionary."""
@@ -461,17 +574,38 @@ class VerifierExecutionAttestation:
         )
         data = {
             "attestation_digest": self.attestation_digest,
+            "base_exit_code": self.base_exit_code,
             "base_outcome": self.base_outcome.value if self.base_outcome is not None else None,
+            "base_result_digest": self.base_result_digest,
+            "base_sandbox_id": self.base_sandbox_id,
+            "base_stderr_digest": self.base_stderr_digest,
+            "base_stdout_digest": self.base_stdout_digest,
+            "base_termination_status": self.base_termination_status,
+            "base_tree_digest": self.base_tree_digest,
+            "candidate_exit_code": self.candidate_exit_code,
             "candidate_outcome": (
                 self.candidate_outcome.value if self.candidate_outcome is not None else None
             ),
+            "candidate_result_digest": self.candidate_result_digest,
+            "candidate_sandbox_id": self.candidate_sandbox_id,
+            "candidate_stderr_digest": self.candidate_stderr_digest,
+            "candidate_stdout_digest": self.candidate_stdout_digest,
+            "candidate_termination_status": self.candidate_termination_status,
             "candidate_tree_digest": self.candidate_tree_digest,
+            "counterfactual_exit_code": self.counterfactual_exit_code,
             "counterfactual_outcome": (
                 self.counterfactual_outcome.value
                 if self.counterfactual_outcome is not None
                 else None
             ),
+            "counterfactual_result_digest": self.counterfactual_result_digest,
+            "counterfactual_sandbox_id": self.counterfactual_sandbox_id,
+            "counterfactual_stderr_digest": self.counterfactual_stderr_digest,
+            "counterfactual_stdout_digest": self.counterfactual_stdout_digest,
+            "counterfactual_termination_status": self.counterfactual_termination_status,
+            "counterfactual_tree_digest": self.counterfactual_tree_digest,
             "created_at_utc": self.created_at_utc,
+            "execution_command": self.execution_command,
             "frozen_contract_digest": self.frozen_contract_digest,
             "is_authoritative": self.is_authoritative,
             "provenance": self.provenance.value,
@@ -1128,6 +1262,107 @@ class TrustedWitnessVault:
 
         # 5. Build canonical payload and sign
         timestamp = created_at_utc or datetime.now(timezone.utc).isoformat()
+
+        b_sbx = getattr(base_execution, "sandbox_id", "") or (
+            obs_base.sandbox_id if obs_base else ""
+        )
+        c_sbx = getattr(candidate_execution, "sandbox_id", "") or (
+            obs_cand.sandbox_id if obs_cand else ""
+        )
+        cf_sbx = getattr(counterfactual_execution, "sandbox_id", None) or (
+            obs_cf.sandbox_id if obs_cf else None
+        )
+
+        b_cmd = obs_base.command if obs_base else ""
+        c_cmd = obs_cand.command if obs_cand else ""
+        eff_cmd = b_cmd or c_cmd or ""
+
+        b_exit = (
+            getattr(base_execution, "exit_code", None)
+            if base_execution is not None
+            else (obs_base.exit_code if obs_base else None)
+        )
+        c_exit = (
+            getattr(candidate_execution, "exit_code", None)
+            if candidate_execution is not None
+            else (obs_cand.exit_code if obs_cand else None)
+        )
+        cf_exit = (
+            getattr(counterfactual_execution, "exit_code", None)
+            if counterfactual_execution is not None
+            else (obs_cf.exit_code if obs_cf else None)
+        )
+
+        b_term = (
+            getattr(base_execution, "termination_status", None)
+            if base_execution is not None
+            else (obs_base.termination_status if obs_base else None)
+        )
+        c_term = (
+            getattr(candidate_execution, "termination_status", None)
+            if candidate_execution is not None
+            else (obs_cand.termination_status if obs_cand else None)
+        )
+        cf_term = (
+            getattr(counterfactual_execution, "termination_status", None)
+            if counterfactual_execution is not None
+            else (obs_cf.termination_status if obs_cf else None)
+        )
+
+        b_res_dig = (
+            getattr(base_execution, "result_digest", "")
+            if base_execution is not None
+            else (obs_base.result_digest if obs_base else "")
+        )
+        c_res_dig = (
+            getattr(candidate_execution, "result_digest", "")
+            if candidate_execution is not None
+            else (obs_cand.result_digest if obs_cand else "")
+        )
+        cf_res_dig = (
+            getattr(counterfactual_execution, "result_digest", None)
+            if counterfactual_execution is not None
+            else (obs_cf.result_digest if obs_cf else None)
+        )
+
+        b_out_dig = (
+            getattr(base_execution, "stdout_digest", "")
+            if base_execution is not None
+            else (obs_base.stdout_digest if obs_base else "")
+        )
+        b_err_dig = (
+            getattr(base_execution, "stderr_digest", "")
+            if base_execution is not None
+            else (obs_base.stderr_digest if obs_base else "")
+        )
+        c_out_dig = (
+            getattr(candidate_execution, "stdout_digest", "")
+            if candidate_execution is not None
+            else (obs_cand.stdout_digest if obs_cand else "")
+        )
+        c_err_dig = (
+            getattr(candidate_execution, "stderr_digest", "")
+            if candidate_execution is not None
+            else (obs_cand.stderr_digest if obs_cand else "")
+        )
+        cf_out_dig = (
+            getattr(counterfactual_execution, "stdout_digest", None)
+            if counterfactual_execution is not None
+            else (obs_cf.stdout_digest if obs_cf else None)
+        )
+        cf_err_dig = (
+            getattr(counterfactual_execution, "stderr_digest", None)
+            if counterfactual_execution is not None
+            else (obs_cf.stderr_digest if obs_cf else None)
+        )
+
+        b_tree = getattr(base_execution, "tree_digest", "") if base_execution is not None else ""
+        cf_tree = (
+            getattr(counterfactual_execution, "tree_digest", None)
+            if counterfactual_execution is not None
+            else None
+        )
+
         payload = build_canonical_execution_attestation_payload(
             requirement_id=requirement_id,
             frozen_contract_digest=frozen_contract_digest,
@@ -1142,6 +1377,27 @@ class TrustedWitnessVault:
             verdict=verdict,
             provenance=provenance,
             created_at_utc=timestamp,
+            execution_command=eff_cmd,
+            base_sandbox_id=b_sbx,
+            candidate_sandbox_id=c_sbx,
+            counterfactual_sandbox_id=cf_sbx,
+            base_exit_code=b_exit,
+            candidate_exit_code=c_exit,
+            counterfactual_exit_code=cf_exit,
+            base_termination_status=b_term,
+            candidate_termination_status=c_term,
+            counterfactual_termination_status=cf_term,
+            base_result_digest=b_res_dig,
+            candidate_result_digest=c_res_dig,
+            counterfactual_result_digest=cf_res_dig,
+            base_stdout_digest=b_out_dig,
+            base_stderr_digest=b_err_dig,
+            candidate_stdout_digest=c_out_dig,
+            candidate_stderr_digest=c_err_dig,
+            counterfactual_stdout_digest=cf_out_dig,
+            counterfactual_stderr_digest=cf_err_dig,
+            base_tree_digest=b_tree,
+            counterfactual_tree_digest=cf_tree,
         )
         att_digest = compute_attestation_digest(payload)
         vault_sig = hmac.new(
@@ -1165,6 +1421,43 @@ class TrustedWitnessVault:
             vault_signature=vault_sig,
             created_at_utc=timestamp,
             is_authoritative=True,
+            execution_command=(
+                " ".join(str(c) for c in eff_cmd)
+                if isinstance(eff_cmd, (list, tuple))
+                else str(eff_cmd or "").strip()
+            ),
+            base_sandbox_id=b_sbx,
+            candidate_sandbox_id=c_sbx,
+            counterfactual_sandbox_id=cf_sbx,
+            base_exit_code=b_exit,
+            candidate_exit_code=c_exit,
+            counterfactual_exit_code=cf_exit,
+            base_termination_status=(
+                b_term.value
+                if b_term is not None and hasattr(b_term, "value")
+                else (str(b_term) if b_term else None)
+            ),
+            candidate_termination_status=(
+                c_term.value
+                if c_term is not None and hasattr(c_term, "value")
+                else (str(c_term) if c_term else None)
+            ),
+            counterfactual_termination_status=(
+                cf_term.value
+                if cf_term is not None and hasattr(cf_term, "value")
+                else (str(cf_term) if cf_term else None)
+            ),
+            base_result_digest=b_res_dig,
+            candidate_result_digest=c_res_dig,
+            counterfactual_result_digest=cf_res_dig,
+            base_stdout_digest=b_out_dig,
+            base_stderr_digest=b_err_dig,
+            candidate_stdout_digest=c_out_dig,
+            candidate_stderr_digest=c_err_dig,
+            counterfactual_stdout_digest=cf_out_dig,
+            counterfactual_stderr_digest=cf_err_dig,
+            base_tree_digest=b_tree,
+            counterfactual_tree_digest=cf_tree,
         )
 
         self._registered_executions[requirement_id] = attestation
@@ -1286,6 +1579,29 @@ class TrustedWitnessVault:
             verdict=att.verdict,
             provenance=att.provenance,
             created_at_utc=att.created_at_utc,
+            issuer_id=att.issuer_id,
+            execution_origin=att.execution_origin,
+            execution_command=att.execution_command,
+            base_sandbox_id=att.base_sandbox_id,
+            candidate_sandbox_id=att.candidate_sandbox_id,
+            counterfactual_sandbox_id=att.counterfactual_sandbox_id,
+            base_exit_code=att.base_exit_code,
+            candidate_exit_code=att.candidate_exit_code,
+            counterfactual_exit_code=att.counterfactual_exit_code,
+            base_termination_status=att.base_termination_status,
+            candidate_termination_status=att.candidate_termination_status,
+            counterfactual_termination_status=att.counterfactual_termination_status,
+            base_result_digest=att.base_result_digest,
+            candidate_result_digest=att.candidate_result_digest,
+            counterfactual_result_digest=att.counterfactual_result_digest,
+            base_stdout_digest=att.base_stdout_digest,
+            base_stderr_digest=att.base_stderr_digest,
+            candidate_stdout_digest=att.candidate_stdout_digest,
+            candidate_stderr_digest=att.candidate_stderr_digest,
+            counterfactual_stdout_digest=att.counterfactual_stdout_digest,
+            counterfactual_stderr_digest=att.counterfactual_stderr_digest,
+            base_tree_digest=att.base_tree_digest,
+            counterfactual_tree_digest=att.counterfactual_tree_digest,
         )
         if att.attestation_digest != compute_attestation_digest(payload):
             return False
