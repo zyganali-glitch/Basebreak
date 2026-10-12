@@ -10,6 +10,7 @@ P-22.06: Responsive judge mode with no fake animations/data
 
 from __future__ import annotations
 
+import json
 import urllib.request
 from collections.abc import Generator
 from pathlib import Path
@@ -375,3 +376,242 @@ class TestJudgeUiIntegration:
         content = out_html.read_text(encoding="utf-8")
         assert "“If the patch matters, the base must break.”" in content
         assert "FIXTURE" in content
+
+    def test_adversarial_tampered_task_id_receipt_cannot_be_exported_or_certified(
+        self, tmp_path: Path, sample_receipt: PublicVerificationReceipt
+    ) -> None:
+        """Adversarial: Mutating task_id without updating digest causes CLI export to fail
+        nonzero without creating a file, and public HTTP endpoints to reject with 400.
+        """
+        runs_dir = tmp_path / "runs_tampered"
+        store = ApiRunStore(runs_dir=runs_dir)
+        run_id = "test-tampered-task-id"
+
+        # 1. Persist valid run and receipt, then explicitly publish it
+        store.persistence.save_run(
+            run_id=run_id,
+            metadata={
+                "run_id": run_id,
+                "status": "VERIFIED",
+                "exit_code": 0,
+                "is_published": True,
+            },
+            receipt=sample_receipt.to_dict(),
+        )
+        store.publish_run(run_id)
+
+        # 2. Mutate task_id directly in persisted receipt.json without updating digest
+        rc_file = store.persistence.get_run_dir(run_id) / "receipt.json"
+        with rc_file.open("r", encoding="utf-8") as f:
+            rc_json = json.load(f)
+        rc_json["task_id"] = "tampered-adversarial-task-id"
+        with rc_file.open("w", encoding="utf-8") as f:
+            json.dump(rc_json, f, indent=2)
+
+        # 3. CLI export MUST exit nonzero and MUST NOT write misleading HTML
+        out_html = tmp_path / "misleading_output.html"
+        exit_code = main(["--runs-dir", str(runs_dir), "ui", run_id, "--output", str(out_html)])
+        assert exit_code != 0
+        assert not out_html.exists(), (
+            "Misleading HTML file must NOT be written when receipt is tampered!"
+        )
+
+        # 4. Public judge HTTP path MUST reject with 400 and NOT certify as authentic
+        auth = ApiAuthManager()
+        server = BasebreakApiServer(store=store, auth=auth, host="127.0.0.1", port=0)
+        server.start()
+        try:
+            # 4a. GET /judge/{run_id} rejects with 400 Bad Request
+            req_ui = urllib.request.Request(f"{server.base_url}/judge/{run_id}")
+            with pytest.raises(urllib.error.HTTPError) as exc_ui:
+                urllib.request.urlopen(req_ui)
+            assert exc_ui.value.code == 400
+            err_body = exc_ui.value.read().decode("utf-8")
+            assert "Receipt Integrity Verification Failed" in err_body
+            assert "AUTHENTIC (SHA-256 Verified)" not in err_body
+
+            # 4b. GET /v1/runs/{run_id}/receipt rejects with 400 Bad Request
+            req_rc = urllib.request.Request(f"{server.base_url}/v1/runs/{run_id}/receipt")
+            with pytest.raises(urllib.error.HTTPError) as exc_rc:
+                urllib.request.urlopen(req_rc)
+            assert exc_rc.value.code == 400
+            rc_err_body = exc_rc.value.read().decode("utf-8")
+            assert "Receipt integrity verification failed" in rc_err_body
+        finally:
+            server.stop()
+
+    def test_adversarial_secret_bearing_receipt_cannot_be_exported(
+        self, tmp_path: Path, sample_receipt: PublicVerificationReceipt
+    ) -> None:
+        """Adversarial: Secret-bearing receipt cannot be exported via CLI."""
+        runs_dir = tmp_path / "runs_secret"
+        store = ApiRunStore(runs_dir=runs_dir)
+        run_id = "test-secret-receipt"
+
+        rc_dict = sample_receipt.to_dict()
+        rc_dict["repo_locator"] = "token=ghp_fakeabcdefghijklmnopqrstuvwxyz123456"
+
+        store.persistence.save_run(
+            run_id=run_id,
+            metadata={"run_id": run_id, "status": "VERIFIED"},
+            receipt=rc_dict,
+        )
+
+        out_html = tmp_path / "secret_leak.html"
+        exit_code = main(["--runs-dir", str(runs_dir), "ui", run_id, "--output", str(out_html)])
+        assert exit_code != 0
+        assert not out_html.exists()
+
+    def test_legitimate_contradicted_receipt_exportable_without_invented_pass(
+        self, tmp_path: Path, sample_receipt: PublicVerificationReceipt
+    ) -> None:
+        """Legitimate CONTRADICTED receipts remain exportable as authentic without invented PASS."""
+        from basebreak.causal.coverage import (
+            CausalCoverageSummary,
+            RequirementCausalState,
+            RequirementEligibility,
+            RequirementVerificationFact,
+            compute_coverage_digest,
+            compute_fact_digest,
+        )
+        from basebreak.causal.public_receipt import (
+            PublicExecutionFact,
+            create_public_verification_receipt,
+        )
+        from basebreak.compiler.freeze import FrozenContract, FrozenRequirement
+        from basebreak.compiler.semantics import CertaintyLevel
+        from basebreak.domain.causal import ExecutionWorld
+        from basebreak.domain.execution import TerminationStatus
+        from basebreak.domain.semantics import ChangeClass
+        from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
+        from basebreak.verifier.witness_result import WitnessOutcome
+
+        req = FrozenRequirement(
+            requirement_id="REQ-BUG-01",
+            statement="Fix bug",
+            citation="fix",
+            citation_start=0,
+            citation_end=3,
+            rationale="Bug fix",
+        )
+        contract = object.__new__(FrozenContract)
+        object.__setattr__(contract, "schema_version", "1.0.0")
+        object.__setattr__(contract, "task_digest", "b" * 64)
+        object.__setattr__(contract, "change_class", ChangeClass.BUG_FIX)
+        object.__setattr__(contract, "certainty", CertaintyLevel.CONFIDENT)
+        object.__setattr__(contract, "requirements", (req,))
+        object.__setattr__(contract, "contract_digest", "c" * 64)
+
+        base_fact = PublicExecutionFact(
+            world=ExecutionWorld.BASE,
+            sandbox_id="sbx-b",
+            source_commit_id="1" * 40,
+            tree_digest="2" * 40,
+            outcome=WitnessOutcome.FAIL,
+            exit_code=1,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="3" * 64,
+            stderr_digest="4" * 64,
+            duration_seconds=1.0,
+        )
+        cand_fact = PublicExecutionFact(
+            world=ExecutionWorld.CANDIDATE,
+            sandbox_id="sbx-c",
+            source_commit_id="1" * 40,
+            tree_digest="5" * 40,
+            outcome=WitnessOutcome.FAIL,
+            exit_code=1,
+            termination_status=TerminationStatus.COMPLETED,
+            stdout_digest="6" * 64,
+            stderr_digest="7" * 64,
+            duration_seconds=1.0,
+        )
+        fact_digest = compute_fact_digest(
+            requirement_id="REQ-BUG-01",
+            change_class=ChangeClass.BUG_FIX,
+            eligibility=RequirementEligibility.ELIGIBLE,
+            causal_state=RequirementCausalState.CONTRADICTED,
+            preliminary_verdict=PreliminaryVerdict.CONTRADICTED,
+            transition=None,
+            witness_id="WIT-001",
+            witness_digest="w" * 64,
+            execution_obligation="MUST_PASS",
+            rationale="Candidate failed",
+        )
+        rf = RequirementVerificationFact(
+            requirement_id="REQ-BUG-01",
+            change_class=ChangeClass.BUG_FIX,
+            eligibility=RequirementEligibility.ELIGIBLE,
+            causal_state=RequirementCausalState.CONTRADICTED,
+            preliminary_verdict=PreliminaryVerdict.CONTRADICTED,
+            transition=None,
+            witness_id="WIT-001",
+            witness_digest="w" * 64,
+            execution_obligation="MUST_PASS",
+            rationale="Candidate failed",
+            fact_digest=fact_digest,
+        )
+        cov_digest = compute_coverage_digest(
+            contract_digest="c" * 64,
+            total_requirements=1,
+            eligible_count=1,
+            excluded_count=0,
+            verified_count=0,
+            not_run_count=0,
+            inconclusive_count=0,
+            contradicted_count=1,
+            blocked_count=0,
+            coverage_ratio=0.0,
+            coverage_percentage=0.0,
+            is_fully_verified=False,
+            overall_verdict=PreliminaryVerdict.CONTRADICTED,
+            per_requirement_facts=(rf,),
+        )
+        cov = CausalCoverageSummary(
+            contract_digest="c" * 64,
+            total_requirements=1,
+            eligible_count=1,
+            excluded_count=0,
+            verified_count=0,
+            not_run_count=0,
+            inconclusive_count=0,
+            contradicted_count=1,
+            blocked_count=0,
+            coverage_ratio=0.0,
+            coverage_percentage=0.0,
+            is_fully_verified=False,
+            overall_verdict=PreliminaryVerdict.CONTRADICTED,
+            per_requirement_facts=(rf,),
+            coverage_digest=cov_digest,
+        )
+        receipt = create_public_verification_receipt(
+            frozen_contract_digest="c" * 64,
+            task_id="task-contradicted-01",
+            repo_locator="https://github.com/example/repo.git",
+            source_commit_id="1" * 40,
+            candidate_tree_digest="5" * 40,
+            coverage_summary=cov,
+            witnesses=sample_receipt.witnesses,
+            executions=(base_fact, cand_fact),
+            overall_verdict=PreliminaryVerdict.CONTRADICTED,
+            provenance=EvidenceProvenance.FIXTURE,
+        )
+
+        runs_dir = tmp_path / "runs_contra"
+        store = ApiRunStore(runs_dir=runs_dir)
+        run_id = "run-contra"
+        store.persistence.save_run(
+            run_id=run_id,
+            metadata={"run_id": run_id, "status": "CONTRADICTED"},
+            receipt=receipt.to_dict(),
+        )
+
+        out_html = tmp_path / "contra_view.html"
+        exit_code = main(["--runs-dir", str(runs_dir), "ui", run_id, "--output", str(out_html)])
+        assert exit_code == 0
+        assert out_html.is_file()
+        content = out_html.read_text(encoding="utf-8")
+        assert "AUTHENTIC (SHA-256 Verified)" in content
+        assert "CONTRADICTED" in content
+        assert '<span class="badge badge-contradicted">CONTRADICTED</span>' in content
+        assert '<span class="badge badge-verified">VERIFIED</span>' not in content

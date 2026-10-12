@@ -242,7 +242,7 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
                 )
                 return
 
-            rendered = render_judge_ui_html(receipt, run_meta=run_meta)
+            rendered = render_judge_ui_html(verified_rc, run_meta=run_meta)
             self._send_html(200, rendered)
             return
 

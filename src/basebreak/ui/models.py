@@ -29,6 +29,7 @@ from basebreak.domain.causal import ExecutionWorld
 from basebreak.domain.execution import TerminationStatus
 from basebreak.domain.semantics import ChangeClass
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
+from basebreak.security.secret_policy import contains_secret
 from basebreak.verifier.witness_result import WitnessOutcome
 
 
@@ -249,18 +250,29 @@ def build_judge_view_data(
     events: list[Any] | None = None,
 ) -> JudgeViewData:
     """Construct a JudgeViewData instance from authentic execution facts."""
-    receipt_verified = True
+    receipt_verified = False
     if isinstance(receipt_or_dict, dict):
         try:
-            rc = PublicVerificationReceipt.from_dict(receipt_or_dict)
+            raw_json = json.dumps(receipt_or_dict)
+            if contains_secret(raw_json):
+                receipt_verified = False
+                rc = _parse_receipt_unvalidated(receipt_or_dict)
+            else:
+                rc = PublicVerificationReceipt.from_dict(receipt_or_dict)
+                verify_public_receipt_integrity(rc)
+                receipt_verified = True
         except Exception:
             receipt_verified = False
             rc = _parse_receipt_unvalidated(receipt_or_dict)
     else:
         rc = receipt_or_dict
         try:
-            verify_public_receipt_integrity(rc)
-            receipt_verified = True
+            raw_json = json.dumps(rc.to_dict())
+            if contains_secret(raw_json):
+                receipt_verified = False
+            else:
+                verify_public_receipt_integrity(rc)
+                receipt_verified = True
         except Exception:
             receipt_verified = False
 

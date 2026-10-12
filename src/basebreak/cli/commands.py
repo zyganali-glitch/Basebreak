@@ -298,9 +298,38 @@ def run_ui_command(args: argparse.Namespace, config: BasebreakConfig) -> int:
         _print_safe(f"Error: Public receipt for run '{run_id}' not found.", file=sys.stderr)
         return 2
 
+    from basebreak.causal.public_receipt import (
+        PublicVerificationReceipt,
+        verify_public_receipt_integrity,
+    )
+    from basebreak.security.secret_policy import contains_secret
+
+    raw_receipt_json = json.dumps(receipt)
+    if contains_secret(raw_receipt_json):
+        _print_safe(
+            f"Error: Public receipt for run '{run_id}' contains unredacted secrets. "
+            "Export blocked.",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        if isinstance(receipt, dict):
+            rc_obj = PublicVerificationReceipt.from_dict(receipt)
+        else:
+            rc_obj = receipt
+        verify_public_receipt_integrity(rc_obj)
+    except Exception as exc:
+        _print_safe(
+            f"Error: Public receipt for run '{run_id}' failed integrity verification: {exc}. "
+            "Export blocked.",
+            file=sys.stderr,
+        )
+        return 2
+
     from basebreak.ui.renderer import render_judge_ui_html
 
-    html_content = render_judge_ui_html(receipt, run_meta=run_meta)
+    html_content = render_judge_ui_html(rc_obj, run_meta=run_meta)
 
     if output_path:
         out_file = Path(output_path)
