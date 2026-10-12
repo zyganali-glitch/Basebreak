@@ -590,6 +590,161 @@ class TestRealWorldReplay:
         with pytest.raises(FabricatedReplayError, match="cannot claim VERIFIED upstream"):
             verify_replay_outcome_integrity(outcome)
 
+    def test_p23_08_docker_mock_does_not_authorize_host_execution(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """P-23.08 A: Docker availability mock must NOT authorize host subprocess execution."""
+        from unittest.mock import MagicMock
+
+        import basebreak.replays.real_world as rw
+
+        # Mock docker binary found and docker info returns 0
+        monkeypatch.setattr(
+            shutil, "which", lambda cmd: "/usr/bin/docker" if cmd == "docker" else None
+        )
+
+        # Verify is_safe_execution_boundary_available fails closed regardless
+        assert rw.is_safe_execution_boundary_available() is False
+
+        # Spy on _run_bounded_subproc to ensure host subprocess is NEVER executed
+        mock_subproc = MagicMock()
+        monkeypatch.setattr(rw, "_run_bounded_subproc", mock_subproc)
+
+        with tempfile.TemporaryDirectory(prefix="basebreak_p23_docker_") as temp_dir:
+            temp_path = Path(temp_dir)
+            base_dir = temp_path / "base"
+            cand_dir = temp_path / "cand"
+            base_dir.mkdir()
+            cand_dir.mkdir()
+
+            outcome = execute_real_world_replay(
+                replay_record=CANONICAL_CLICK_REPLAY,
+                base_source_path=base_dir,
+                candidate_source_path=cand_dir,
+                is_local_reconstruction=False,
+            )
+
+            # Invariant: Untrusted upstream replay MUST return BLOCKED without host execution
+            assert outcome.verdict == PreliminaryVerdict.BLOCKED
+            assert outcome.base_exit_code is None
+            assert outcome.candidate_exit_code is None
+            assert mock_subproc.call_count == 0, (
+                "Host subprocess must NEVER execute untrusted upstream code"
+            )
+
+    def test_p23_08_forged_manifest_cannot_certify_source_attestation(self) -> None:
+        """P-23.08 B: Unsigned or attacker-authored manifest cannot certify source authority."""
+        with tempfile.TemporaryDirectory(prefix="basebreak_p23_forged_") as temp_dir:
+            temp_path = Path(temp_dir)
+            base_dir = temp_path / "fake_base"
+            base_dir.mkdir()
+
+            # Attacker drops forged manifest into directory
+            manifest = base_dir / ".basebreak_attestation.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "repo_name": "pallets/click",
+                        "commit_sha": CANONICAL_CLICK_REPLAY.base_commit_sha,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            status, detail = verify_source_directory_attestation(
+                base_dir, CANONICAL_CLICK_REPLAY.base_commit_sha, "pallets/click"
+            )
+            assert status == SourceAttestationStatus.UNVERIFIED_DIRECTORY
+            assert "attestation manifest cannot certify" in detail
+
+            # Replay using forged directory must fail closed as BLOCKED
+            outcome = execute_real_world_replay(
+                replay_record=CANONICAL_CLICK_REPLAY,
+                base_source_path=base_dir,
+                candidate_source_path=base_dir,
+                is_local_reconstruction=False,
+            )
+            assert outcome.verdict == PreliminaryVerdict.BLOCKED
+            assert outcome.is_source_attested is False
+
+    def test_p23_08_modified_source_with_matching_head_fails_attestation(self) -> None:
+        """P-23.08 B: A matching HEAD with modified source files fails attestation."""
+        with tempfile.TemporaryDirectory(prefix="basebreak_p23_dirty_") as temp_dir:
+            repo_path = Path(temp_dir)
+            # Initialize real git repo
+            subprocess.run(["git", "init"], cwd=str(repo_path), capture_output=True, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@basebreak.local"],
+                cwd=str(repo_path),
+                capture_output=True,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test Runner"],
+                cwd=str(repo_path),
+                capture_output=True,
+                check=True,
+            )
+
+            tracked_file = repo_path / "module.py"
+            tracked_file.write_text("x = 1\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "add", "module.py"], cwd=str(repo_path), capture_output=True, check=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "Initial commit"],
+                cwd=str(repo_path),
+                capture_output=True,
+                check=True,
+            )
+
+            rev_res = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(repo_path),
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            real_sha = rev_res.stdout.strip().lower()
+
+            # Clean repo passes attestation
+            clean_status, clean_detail = verify_source_directory_attestation(
+                repo_path, real_sha, "test/repo"
+            )
+            assert clean_status == SourceAttestationStatus.VERIFIED_GIT_HEAD
+            assert "clean tree" in clean_detail
+
+            # Modify tracked source file: HEAD still matches real_sha, but tree is modified
+            tracked_file.write_text("x = 999  # attacker modification\n", encoding="utf-8")
+
+            dirty_status, dirty_detail = verify_source_directory_attestation(
+                repo_path, real_sha, "test/repo"
+            )
+            assert dirty_status == SourceAttestationStatus.UNVERIFIED_DIRECTORY
+            assert "modified source files" in dirty_detail
+
+            # Modified tree must fail replay attestation
+            outcome = execute_real_world_replay(
+                replay_record=CANONICAL_CLICK_REPLAY,
+                base_source_path=repo_path,
+                candidate_source_path=repo_path,
+                is_local_reconstruction=False,
+            )
+            assert outcome.verdict == PreliminaryVerdict.BLOCKED
+            assert outcome.is_source_attested is False
+
+    def test_p23_08_forged_git_head_file_without_repo_fails_attestation(self) -> None:
+        """P-23.08 B: Bare .git/HEAD file without genuine git repository cannot certify."""
+        with tempfile.TemporaryDirectory(prefix="basebreak_p23_fakehead_") as temp_dir:
+            path = Path(temp_dir)
+            git_dir = path / ".git"
+            git_dir.mkdir()
+            fake_head = git_dir / "HEAD"
+            fake_head.write_text("a" * 40, encoding="utf-8")
+
+            status, _ = verify_source_directory_attestation(path, "a" * 40, "test/repo")
+            assert status == SourceAttestationStatus.UNVERIFIED_DIRECTORY
+
 
 class TestWitnessNormalizationAdversarial:
     """Defect 2: Adversarial tests proving arbitrary failed commands cannot manufacture VERIFIED."""
@@ -685,6 +840,89 @@ class TestWitnessNormalizationAdversarial:
         # Causal reconciliation mandates BASE=FAIL for CAUSAL_BUG_FIX_VERIFIED
         assert base_outcome.value != "FAIL"
         assert (base_outcome.value, cand_outcome.value) != ("FAIL", "PASS")
+
+    def test_adversarial_exit_0_without_demonstrated_executed_witness_fails_closed(self) -> None:
+        """P-23.08 C: Exit 0 without recognized executed test fails closed."""
+        # Arbitrary success string
+        outcome1, detail1 = classify_witness_outcome(
+            exit_code=0,
+            stdout="Successfully compiled application\nProcess finished.",
+            stderr="",
+        )
+        assert outcome1 == WitnessOutcome.INVALID_PRECONDITION
+        assert "Exit 0 without a demonstrated executed witness" in detail1
+
+        # Empty output
+        outcome2, detail2 = classify_witness_outcome(
+            exit_code=0,
+            stdout="",
+            stderr="",
+        )
+        assert outcome2 == WitnessOutcome.INVALID_PRECONDITION
+
+        # 0 passed / collected 0 items
+        outcome3, detail3 = classify_witness_outcome(
+            exit_code=0,
+            stdout="collected 0 items\n0 passed",
+            stderr="",
+        )
+        assert outcome3 == WitnessOutcome.INVALID_PRECONDITION
+
+    def test_adversarial_exit_1_with_unrelated_failed_text_is_error_not_fail(self) -> None:
+        """P-23.08 C: Exit 1 containing unrelated 'failed' text fails closed as ERROR, not FAIL."""
+        # Unrelated connection failure
+        outcome1, detail1 = classify_witness_outcome(
+            exit_code=1,
+            stdout="",
+            stderr="Error: connection to database failed after 30s timeout",
+        )
+        assert outcome1 == WitnessOutcome.ERROR
+
+        # Unrelated build failure
+        outcome2, detail2 = classify_witness_outcome(
+            exit_code=1,
+            stdout="Build failed: missing header dependency foo.h",
+            stderr="",
+        )
+        assert outcome2 == WitnessOutcome.ERROR
+
+        # Unrelated command failure
+        outcome3, detail3 = classify_witness_outcome(
+            exit_code=1,
+            stdout="Operation failed: disk quota exceeded",
+            stderr="",
+        )
+        assert outcome3 == WitnessOutcome.ERROR
+
+    def test_p23_08_valid_reset_vault_pytest_pass_and_assertion_fail(self) -> None:
+        """P-23.08 C: Existing valid ResetVault pytest PASS and assertion FAIL."""
+        # Valid candidate pytest PASS
+        pass_stdout = ". [100%]\n1 passed in 0.02s"
+        cand_outcome, cand_detail = classify_witness_outcome(
+            exit_code=0,
+            stdout=pass_stdout,
+            stderr="",
+        )
+        assert cand_outcome == WitnessOutcome.PASS
+        assert "Witness executed and passed all assertions" in cand_detail
+
+        # Valid base pytest assertion FAIL
+        fail_stdout = (
+            "F                                                                        [100%]\n"
+            "================================== FAILURES ===================================\n"
+            "___________________ test_reset_token_is_strictly_single_use ___________________\n"
+            "E       AssertionError: Replay vulnerability detected: reset token 'abc' was reused.\n"
+            "=========================== short test summary info ===========================\n"
+            "FAILED witness/test_single_use_witness.py::test_reset_token_is_strictly_single_use\n"
+            "1 failed in 0.04s\n"
+        )
+        base_outcome, base_detail = classify_witness_outcome(
+            exit_code=1,
+            stdout=fail_stdout,
+            stderr="",
+        )
+        assert base_outcome == WitnessOutcome.FAIL
+        assert "Behavioral witness assertion failed as expected" in base_detail
 
 
 class TestUntrustedSubprocessExecutionIsolation:

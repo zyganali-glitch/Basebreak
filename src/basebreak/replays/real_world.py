@@ -9,9 +9,8 @@ credential boundary isolation, and robust witness outcome normalization.
 from __future__ import annotations
 
 import hashlib
-import json
 import os
-import shutil
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -142,71 +141,105 @@ def verify_source_directory_attestation(
     expected_commit_sha: str,
     repo_name: str,
 ) -> tuple[SourceAttestationStatus, str]:
-    """Verify that a source directory corresponds to declared commit."""
+    """Verify that a source directory corresponds to declared commit.
+
+    Guarantees:
+    - Never trusts arbitrary or self-asserted .git/HEAD files without deterministic
+      git repository verification.
+    - Never certifies a commit if the working tree contains modified source files.
+    - Never trusts unsigned or attacker-authored attestation manifests.
+    - Lacking deterministic verification, returns UNVERIFIED_DIRECTORY (fails closed).
+    """
     if source_path is None:
         return SourceAttestationStatus.MISSING_SOURCE, "Source path is None"
     path = Path(source_path)
     if not path.exists():
         return SourceAttestationStatus.MISSING_SOURCE, f"Source path does not exist: {path}"
 
-    # 1. Check git repository attestation
+    # 1. Deterministic git repository attestation
     git_dir = path / ".git"
     if git_dir.exists():
-        head_file = git_dir / "HEAD"
         actual_sha = None
-        if head_file.is_file():
-            head_content = head_file.read_text(encoding="utf-8").strip()
-            if len(head_content) == 40 and all(c in "0123456789abcdefABCDEF" for c in head_content):
-                actual_sha = head_content.lower()
-            elif head_content.startswith("ref: "):
-                ref_path = git_dir / head_content[5:].strip()
-                if ref_path.is_file():
-                    actual_sha = ref_path.read_text(encoding="utf-8").strip().lower()
+        try:
+            res = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(path),
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if res.returncode == 0:
+                actual_sha = res.stdout.strip().lower()
+        except Exception:
+            actual_sha = None
 
-        if actual_sha is None:
+        if actual_sha:
+            if actual_sha != expected_commit_sha.lower():
+                return (
+                    SourceAttestationStatus.COMMIT_MISMATCH,
+                    f"Git HEAD {actual_sha} does not match expected {expected_commit_sha}",
+                )
+
+            # Invariant: A matching HEAD with modified source files must never certify
+            # the claimed immutable tree. Deterministically verify clean tree.
             try:
-                res = subprocess.run(
-                    ["git", "rev-parse", "HEAD"],
+                diff_res = subprocess.run(
+                    ["git", "diff", "--name-only", "HEAD"],
                     cwd=str(path),
                     capture_output=True,
                     text=True,
                     timeout=5,
                 )
-                if res.returncode == 0:
-                    actual_sha = res.stdout.strip().lower()
-            except Exception:
-                actual_sha = None
+                if diff_res.returncode != 0 or diff_res.stdout.strip():
+                    return (
+                        SourceAttestationStatus.UNVERIFIED_DIRECTORY,
+                        f"Git commit HEAD matches expected commit {expected_commit_sha}, but "
+                        "working tree contains modified source files. Immutable tree not verified.",
+                    )
 
-        if actual_sha:
-            if actual_sha == expected_commit_sha.lower():
-                return (
-                    SourceAttestationStatus.VERIFIED_GIT_HEAD,
-                    f"Git commit HEAD matches expected commit {expected_commit_sha}",
+                status_res = subprocess.run(
+                    ["git", "status", "--porcelain"],
+                    cwd=str(path),
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
+                if status_res.returncode == 0 and status_res.stdout.strip():
+                    lines = [
+                        line.strip()
+                        for line in status_res.stdout.strip().splitlines()
+                        if line.strip()
+                    ]
+                    has_modified_source = any(
+                        not line.endswith((".pyc", ".pytest_cache"))
+                        and not any(ignored in line for ignored in ("__pycache__", ".pytest_cache"))
+                        for line in lines
+                    )
+                    if has_modified_source:
+                        return (
+                            SourceAttestationStatus.UNVERIFIED_DIRECTORY,
+                            f"Git commit HEAD matches expected commit {expected_commit_sha}, but "
+                            "working tree contains modified or untracked source files.",
+                        )
+            except Exception:
+                return (
+                    SourceAttestationStatus.UNVERIFIED_DIRECTORY,
+                    "Failed to verify working tree cleanliness against HEAD",
+                )
+
             return (
-                SourceAttestationStatus.COMMIT_MISMATCH,
-                f"Git HEAD {actual_sha} does not match expected {expected_commit_sha}",
+                SourceAttestationStatus.VERIFIED_GIT_HEAD,
+                f"Git commit HEAD matches expected commit {expected_commit_sha} with clean tree",
             )
 
-    # 2. Check cryptographic manifest attestation
+    # 2. Check manifest attestation - unsigned manifests cannot certify upstream authority
     manifest_path = path / ".basebreak_attestation.json"
     if manifest_path.is_file():
-        try:
-            data = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if (
-                data.get("repo_name") == repo_name
-                and data.get("commit_sha", "").lower() == expected_commit_sha.lower()
-            ):
-                return (
-                    SourceAttestationStatus.VERIFIED_MANIFEST,
-                    f"Attestation manifest verified for {expected_commit_sha}",
-                )
-            return (
-                SourceAttestationStatus.COMMIT_MISMATCH,
-                "Attestation manifest does not match declared repository or commit",
-            )
-        except Exception:
-            return SourceAttestationStatus.UNVERIFIED_DIRECTORY, "Corrupted attestation manifest"
+        return (
+            SourceAttestationStatus.UNVERIFIED_DIRECTORY,
+            "Unsigned or self-asserted attestation manifest cannot certify "
+            "upstream source authority",
+        )
 
     return SourceAttestationStatus.UNVERIFIED_DIRECTORY, (
         f"Directory lacks git commit or attestation matching {repo_name}@{expected_commit_sha}"
@@ -214,16 +247,15 @@ def verify_source_directory_attestation(
 
 
 def is_safe_execution_boundary_available() -> bool:
-    """Determine if a verified isolated sandbox boundary is available for untrusted execution."""
-    docker_bin = shutil.which("docker")
-    if docker_bin:
-        try:
-            res = subprocess.run([docker_bin, "info"], capture_output=True, timeout=3)
-            if res.returncode == 0:
-                return True
-        except Exception:
-            pass
-    # Live Token Factory Sandboxes are held at operator credit gate (NOT_RUN)
+    """Determine if a verified isolated sandbox boundary is available for untrusted execution.
+
+    Host subprocess execution is not an isolation boundary. A successful `docker info`
+    on the host must NOT authorize host subprocess execution for untrusted code.
+    Until an integrated trusted sandbox adapter executes commands inside an enforced
+    isolation boundary, untrusted upstream replay must fail closed.
+    """
+    # Docker presence on host does not authorize host subprocess execution.
+    # Live Token Factory Sandboxes are held at operator credit gate (NOT_RUN).
     return False
 
 
@@ -279,8 +311,10 @@ def classify_witness_outcome(
 
     Guarantees:
     - Never collapses timeout, import error, syntax error, crash, or execution denial into FAIL.
-    - Requires genuine assertion failure for FAIL.
-    - Requires clean test execution with >0 tests for PASS.
+    - Requires a recognized, nonempty witness test result for PASS (never promotes exit 0).
+    - Requires genuine assertion failure within a recognized test framework for FAIL
+      (never promotes generic 'failed' text).
+    - Unknown output fails closed as INVALID_PRECONDITION or ERROR.
     """
     if timed_out:
         return WitnessOutcome.TIMEOUT, "Execution timed out"
@@ -296,7 +330,22 @@ def classify_witness_outcome(
             or "0 passed" in combined_output
         ):
             return WitnessOutcome.INVALID_PRECONDITION, "Witness collected 0 items or no tests ran"
-        return WitnessOutcome.PASS, "Witness executed and passed all assertions"
+
+        # Require a recognized, nonempty test success pattern (e.g. pytest '1 passed',
+        # 'PASSED', unittest 'Ran 1 test... OK')
+        has_passed_test = bool(
+            re.search(r"\b([1-9]\d*)\s+passed\b", combined_output)
+            or re.search(r"\bPASSED\b", stdout)
+            or re.search(r"\bRan\s+([1-9]\d*)\s+tests?.*OK\b", combined_output, re.DOTALL)
+        )
+        if has_passed_test:
+            return WitnessOutcome.PASS, "Witness executed and passed all assertions"
+
+        # Exit 0 without demonstrated executed witness fails closed
+        return (
+            WitnessOutcome.INVALID_PRECONDITION,
+            "Exit 0 without a demonstrated executed witness result",
+        )
 
     # Non-zero exit code analysis
     if exit_code in (124, 137):
@@ -347,15 +396,26 @@ def classify_witness_outcome(
             "keyerror:",
         )
     ):
-        if "assertionerror" not in combined_output and " failed" not in combined_output:
+        if "assertionerror" not in combined_output:
             return WitnessOutcome.ERROR, "Unhandled runtime exception outside test assertion"
 
-    # Genuine behavioral assertion failure
-    if (
+    # Genuine behavioral assertion failure requires:
+    # 1. Evidence of recognized test runner failure report (pytest FAILED, 'N failed', unittest)
+    # 2. Genuine assertion failure indicator (AssertionError, 'assert ', 'replay vulnerability')
+    has_test_failure_report = bool(
+        re.search(r"\bFAILED\s+\S+", stdout)
+        or re.search(r"\bFAILED\s+\S+", stderr)
+        or re.search(r"\b([1-9]\d*)\s+failed\b", combined_output)
+        or re.search(r"\bFAIL:\s+\S+", combined_output)
+        or re.search(r"\bFAILED\s*\(failures=", combined_output)
+    )
+    has_assertion_failure = bool(
         "assertionerror" in combined_output
-        or "failed" in combined_output
+        or "assert " in combined_output
         or "replay vulnerability detected" in combined_output
-    ):
+    )
+
+    if has_test_failure_report and has_assertion_failure:
         return WitnessOutcome.FAIL, "Behavioral witness assertion failed as expected"
 
     return WitnessOutcome.ERROR, f"Execution failed with unclassified error (exit {exit_code})"
@@ -518,46 +578,47 @@ def execute_real_world_replay(
         cand_path, replay_record.fixed_commit_sha, replay_record.repo_name
     )
 
-    is_attested = base_att_status in (
-        SourceAttestationStatus.VERIFIED_GIT_HEAD,
-        SourceAttestationStatus.VERIFIED_MANIFEST,
-    ) and cand_att_status in (
-        SourceAttestationStatus.VERIFIED_GIT_HEAD,
-        SourceAttestationStatus.VERIFIED_MANIFEST,
+    is_attested = (
+        base_att_status == SourceAttestationStatus.VERIFIED_GIT_HEAD
+        and cand_att_status == SourceAttestationStatus.VERIFIED_GIT_HEAD
     )
 
-    # If untrusted upstream execution is attempted without a verified safe sandbox boundary:
+    # If untrusted upstream execution is attempted without an integrated trusted sandbox boundary:
     if not is_local_reconstruction:
-        if not is_safe_execution_boundary_available():
-            outcome = RealWorldReplayOutcome(
-                replay_record=replay_record,
-                provenance_digest=replay_record.compute_provenance_digest(),
-                provenance=provenance,
-                verdict=PreliminaryVerdict.BLOCKED,
-                transition=CausalTransition.UNVERIFIED_DEFECT_PERSISTS,
-                base_outcome=None,
-                base_exit_code=None,
-                base_command=None,
-                candidate_outcome=None,
-                candidate_exit_code=None,
-                candidate_command=None,
-                base_source_digest=_compute_dir_or_file_digest(base_path),
-                candidate_source_digest=_compute_dir_or_file_digest(cand_path),
-                witness_detail=(
-                    f"Untrusted code execution for upstream repo {replay_record.repo_name} "
-                    "requires an isolated sandbox boundary. No container runtime on host "
-                    "and live sandboxes held at operator authorization gate. "
-                    "Failing closed as BLOCKED under Untrusted Subprocess Execution safety."
-                ),
-                is_source_attested=is_attested,
-                source_attestation_status=(
-                    base_att_status
-                    if not is_attested
-                    else SourceAttestationStatus.VERIFIED_GIT_HEAD
-                ),
-            )
-            verify_replay_outcome_integrity(outcome)
-            return outcome
+        # Untrusted upstream replay requires an enforced, isolated sandbox boundary.
+        # Docker presence on the host does not authorize host execution, and
+        # _run_bounded_subproc executes directly on the host.
+        # Until a genuinely integrated trusted sandbox adapter executes commands inside
+        # an enforced isolation boundary, untrusted upstream replay must return BLOCKED
+        # without executing either repository.
+        outcome = RealWorldReplayOutcome(
+            replay_record=replay_record,
+            provenance_digest=replay_record.compute_provenance_digest(),
+            provenance=provenance,
+            verdict=PreliminaryVerdict.BLOCKED,
+            transition=CausalTransition.UNVERIFIED_DEFECT_PERSISTS,
+            base_outcome=None,
+            base_exit_code=None,
+            base_command=None,
+            candidate_outcome=None,
+            candidate_exit_code=None,
+            candidate_command=None,
+            base_source_digest=_compute_dir_or_file_digest(base_path),
+            candidate_source_digest=_compute_dir_or_file_digest(cand_path),
+            witness_detail=(
+                f"Untrusted code execution for upstream repo {replay_record.repo_name} "
+                "requires an isolated sandbox boundary. Host subprocess execution is not "
+                "an isolation boundary. No integrated trusted sandbox runtime is active, "
+                "and live sandboxes are held at operator authorization gate. "
+                "Failing closed as BLOCKED without executing either repository."
+            ),
+            is_source_attested=is_attested,
+            source_attestation_status=(
+                base_att_status if not is_attested else SourceAttestationStatus.VERIFIED_GIT_HEAD
+            ),
+        )
+        verify_replay_outcome_integrity(outcome)
+        return outcome
 
     # If source is NOT attested (arbitrary directory substitution or mismatched commits):
     if not is_attested and not is_local_reconstruction:
