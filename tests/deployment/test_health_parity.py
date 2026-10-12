@@ -72,3 +72,31 @@ def test_health_parity_connection_failure() -> None:
     assert res.status_code == 0
     assert res.is_sha_matched is False
     assert "failed to connect" in res.message.lower()
+
+
+def test_health_parity_rejects_unknown_build_sha(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """verify_health_parity fails closed when the server reports UNKNOWN_BUILD_SHA."""
+    monkeypatch.setenv("BASEBREAK_BUILD_COMMIT_SHA", "UNKNOWN_BUILD_SHA")
+
+    runs_dir = tmp_path / "unknown_runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    store = ApiRunStore(runs_dir=runs_dir)
+    server = BasebreakApiServer(store=store, host="127.0.0.1", port=0)
+    server.start()
+
+    try:
+        res = verify_health_parity(
+            expected_sha="UNKNOWN_BUILD_SHA",
+            base_url=server.base_url,
+        )
+        assert res.success is False
+        assert res.is_sha_matched is False
+        is_unknown_msg = (
+            "build sha unknown" in res.message.lower()
+            or "not a valid 40-character" in res.message.lower()
+        )
+        assert is_unknown_msg
+    finally:
+        server.stop()

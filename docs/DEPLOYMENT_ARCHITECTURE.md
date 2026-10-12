@@ -5,7 +5,7 @@
 This document establishes the deployment architecture for **Basebreak** in compliance with the **Nebius x NVIDIA Global AI Hackathon** rules, the official Hackathon FAQ, and the **Zero-Cost Law**.
 
 - **Product Thesis:** *"If the patch matters, the base must break."*
-- **Judging Period:** Project submissions freeze late October 2026; judging and review continue through **December 15, 2026**.
+- **Judging Window:** Project submissions freeze late October 2026; judging and review continue through **December 15, 2026**.
 - **Target Personal Spend:** Exactly **$0.00**.
 - **Promotional Budget Guard:** `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` safety floor.
 
@@ -22,54 +22,84 @@ This document establishes the deployment architecture for **Basebreak** in compl
 - **Judge Access Requirement:**
   > *"Submissions must provide a working demo or test build accessible to judges free of charge through the judging period."*
 
-### 2.2 Nebius Cloud Pricing & Platform Reality
-1. **Nebius Token Factory / Studio:**
-   - Serverless LLM inference API (OpenAI-compatible) for open-source models including `nvidia/Nemotron-3_5-Lightning` and `nvidia/nemotron-3-super-120b-a12b`.
-   - Bounded Token Factory Sandbox execution for isolated ephemeral environments.
-   - Pay-per-token / metered billing against promotional credits.
-   - **Critical Fact:** Nebius does NOT provide a permanent free web hosting tier for persistent 24/7 web application servers. Running a persistent GPU or CPU VM on Nebius Compute incurs hourly charges that would rapidly drain promotional credits or incur personal credit-card charges over the 6-8 week judging window.
-2. **Personal Spend Protection ($0.00 Law):**
-   - Hosting a 24/7 web service directly on paid Nebius Compute is strictly forbidden under the Zero-Cost Law.
-   - Unauthenticated public endpoints that trigger live Nebius inference are strictly forbidden because bots or judges could silently drain promotional credits.
+### 2.2 Hosting Platform Constraints & Card Policy Realities
+1. **Nebius Cloud Compute:**
+   - Nebius Token Factory provides serverless API inference for NVIDIA models (`nvidia/Nemotron-3_5-Lightning`).
+   - Nebius does NOT provide a permanent free web hosting tier for persistent 24/7 web applications. Running a persistent VM on Nebius Compute incurs hourly charges that would rapidly drain promotional credits or bill personal payment cards over the judging window.
+2. **Hugging Face Spaces (Compute / Docker):**
+   - **Current Platform Reality:** While CPU Basic hardware has a $0/hr rate, Hugging Face **requires a paid subscription (PRO account) or an attached payment card** to create new Docker/compute Spaces.
+   - Instructing a non-expert operator to create a Docker Space violates the Zero-Cost Law unless the operator already possesses an existing paid entitlement.
+   - If an operator with pre-existing entitlement deploys to HF Spaces Docker, the configuration requires `app_port: 8080` in `README.md` YAML frontmatter.
+3. **GitHub Pages (Primary Zero-Cost Judge Access Path):**
+   - **100% Free, Zero Card Required:** Built into GitHub for public repositories.
+   - **Guaranteed Availability:** Accessible 24/7 through the December 15, 2026 judging period and beyond without ephemeral container sleep, teardown, or billing risk.
+   - **Decoupled Architecture:** Serves pre-compiled, secret-safe, integrity-verified Basebreak Judge UI HTML (generated via `basebreak ui <run_id> --output ...`) and canonical public receipt JSON (`basebreak receipt <run_id> --format json --output ...`).
+   - **Persistence Guarantee:** Public artifacts are committed to git or GitHub Pages branch, making evidence immune to container restarts or ephemeral disk wipes.
+4. **Hugging Face Static Spaces (Alternative Zero-Cost Static Path):**
+   - Free static HTML/JS hosting (`sdk: static`) on Hugging Face without requiring Docker compute or payment card.
 
 ---
 
-## 3. Comparison of Deployment Options
+## 3. Platform Comparison Matrix
 
-| Architecture Option | Web/API Server Host | Inference Runtime | Estimated Spend (Oct–Dec 2026) | Judge Access | Security / Quota Protection | Eligibility Compliance |
+| Hosting Option | Web / UI Host | Execution Runtime | Personal Spend | Card Required | Uptime / Sleep Risk | Eligibility Compliance |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Option A: Pure Nebius Compute VM** | Nebius Cloud VM (Ubuntu/Docker) | Nebius Token Factory | **>$50 - $200+** (Violates $0 Law) | Free | High Risk: Card billed after promo exhaustion | Compliant, but financially non-viable |
-| **Option B: Serverless Container + Token Factory** | Hugging Face Spaces (Docker) / Render Free / Fly.io Free | Nebius Token Factory | **$0.00** | Free public URL | Fail-closed Bearer auth for mutations; public read-only judge UI | **Fully Compliant (FAQ explicitly validates)** |
-| **Option C: Reproducible Standalone Docker Package** | Local/Operator Container or Self-Hosted | Nebius Token Factory | **$0.00** | Reproducible local & curl verification | Local-first, zero egress risk | **Fully Compliant as test build** |
+| **Option A: GitHub Pages (Selected Primary)** | GitHub Pages CDN | Operator local / CI CLI | **$0.00** | **NO** | 100% Uptime (Global CDN) | **Fully Compliant (Zero-spend test build)** |
+| **Option B: HF Static Space** | Hugging Face Static | Operator local / CI CLI | **$0.00** | **NO** | High (Static CDN) | **Fully Compliant** |
+| **Option C: HF Docker Space** | Hugging Face Docker | Deployed Container | $0.00 (if PRO/card held) | **YES (Card/PRO needed to create)** | Sleeps on inactivity | Compliant only with pre-existing entitlement |
+| **Option D: Nebius Compute VM** | Nebius Cloud VM | Nebius VM | >$50 - $200+ | **YES (Violates $0 Law)** | High cost | Disqualified by Zero-Cost Law |
 
 ---
 
-## 4. Selected Architecture Decision: Hybrid Standalone / Container with Zero-Cost Public Read-Only Judge Mode
+## 4. Selected Architecture: Decoupled Public Judge Presentation & Trusted Execution Runtime
 
-### 4.1 Topology
-1. **Application Core:**
-   - Standalone Python 3.11+ zero-external-framework HTTP daemon (`BasebreakApiServer`).
-   - Serves both REST API (`/v1/runs`, `/v1/runs/{id}/receipt`, `/v1/runs/{id}/evidence`) and responsive Judge UI (`/`, `/judge`, `/judge/{run_id}`).
-   - Embedded static assets, zero CDN dependencies, zero external npm/node requirements.
-2. **Public Read-Only Judge Experience:**
-   - Signed-out judges access `/`, `/judge`, and `/judge/{run_id}` freely without credentials, accounts, or payment.
-   - Published verified receipts and factual verification runs are delivered with cryptographic SHA-256 integrity checks.
-   - No inference is run for read-only viewing; zero promotional credits consumed by judges.
-3. **Execution Boundary / Live Inference:**
-   - POST `/v1/runs` (verification run creation) strictly requires `Authorization: Bearer <token>`.
-   - Fail-closed: anonymous callers cannot execute verifications or drain API credits.
-   - Live Nebius calls require operator credential configuration (`NEBIUS_API_KEY`, `NEBIUS_PROJECT_ID`) and explicit `allow_live=True` flag.
-4. **Containerization & Deployment Target:**
-   - Minimal reproducible OCI/Docker container image based on `python:3.11-slim`.
-   - Single command local run: `docker run -p 8080:8080 basebreak:latest`.
-   - Production deployment targets supported: Hugging Face Spaces Docker (free tier, persistent public HTTPS URL) or Render Free Web Service.
-   - Source commit SHA, version, and build timestamp injected at build time and served at `/health` and `/v1/status`.
+```
+   ┌─────────────────────────────────────────────────────────────┐
+   │                  PUBLIC JUDGE ACCESS LAYER                  │
+   │  GitHub Pages / HF Static Space (Zero Cost, No Card Needed) │
+   │                                                             │
+   │  ┌───────────────────────┐     ┌─────────────────────────┐  │
+   │  │ Single-Screen Judge   │     │ Canonical Public        │  │
+   │  │ Verification UI (HTML)│     │ Receipt (JSON)          │  │
+   │  └───────────────────────┘     └─────────────────────────┘  │
+   │         ▲                                   ▲               │
+   └─────────┼───────────────────────────────────┼───────────────┘
+             │ Exported HTML                     │ Exported JSON
+             │ (basebreak ui --output ...)       │ (basebreak receipt ...)
+   ┌─────────┴───────────────────────────────────┴───────────────┐
+   │             TRUSTED OPERATOR EXECUTION RUNTIME              │
+   │     Local Machine / Isolated CI / Container Environment     │
+   │                                                             │
+   │  - Verification Orchestrator (BasebreakApiServer / CLI)     │
+   │  - Three-World Causal Verification Engine                   │
+   │  - Protected Surfaces & Secret Redaction Policy             │
+   │  - Nebius Token Factory Adapter (Protected Operator Token)  │
+   │  - Durable Local Persistence (/data/runs or --runs-dir)     │
+   └─────────────────────────────────────────────────────────────┘
+```
+
+### 4.1 Topology & Responsibilities
+1. **Public Read-Only Judge Experience:**
+   - Signed-out judges access the published verification UI freely without accounts, credentials, or payment.
+   - Public artifacts are generated directly from genuine verification runs using `basebreak ui <run_id> --output ...` and `basebreak receipt <run_id> --format json --output ...`.
+   - Never fabricates evidence, live runs, or demo results.
+   - Zero promotional or personal money consumed by judges.
+2. **Trusted Execution Boundary:**
+   - Verification execution (POST `/v1/runs`) and run publication (POST `/v1/runs/{id}/publish`) are strictly protected by `BASEBREAK_BEARER_TOKEN` (or `BASEBREAK_API_TOKEN`).
+   - Mutations fail closed: anonymous callers can never execute verifications or drain API credits.
+3. **Durable Persistence Across Restarts:**
+   - Stored in persistent runs directory via `BASEBREAK_RUNS_DIR` environment variable or `--runs-dir` CLI option.
+   - Survives process restart; `recover_from_disk` validates receipt integrity before restoring publication state.
+4. **Reproducible Container Package:**
+   - Multi-stage Docker image built on `python:3.11-slim` with rootless user `appuser:appgroup` (UID 10001).
+   - Injects exact git commit SHA at build time via `BUILD_COMMIT_SHA` argument.
+   - Verified via automated GitHub Actions `container-build` smoke test.
 
 ---
 
 ## 5. Security & Operator Guardrails
 
-- **Secret Safety:** No credentials baked into Dockerfile, images, or default configs.
-- **Fail-Closed Default:** Server defaults to read-only judge mode if no `BASEBREAK_BEARER_TOKEN` is configured; mutation endpoints return `401 Unauthorized`.
+- **Zero Personal Spend:** Target spend strictly $0.00.
+- **Fail-Closed Default:** Server defaults to read-only judge mode if no Bearer token is configured; all mutation endpoints return `401 Unauthorized`.
 - **Integrity Guarantee:** Every public receipt served is cryptographically checked via `verify_public_receipt_integrity`. Tampered records are rejected with `400 Bad Request`.
-- **Public Deployment Authorization Gate:** Public deployment to external cloud hosts requires explicit operator approval before launching cloud instances.
+- **Public Cloud Deployment Boundary:** Actual public cloud deployment remains `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN` until explicit operator approval.

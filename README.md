@@ -171,17 +171,17 @@ These are planned provenance labels, not PASS/FAIL verdicts. Basebreak will neve
 basebreak serve --host 127.0.0.1 --port 8080
 
 # 2. Build and run reproducible container locally
-docker build -t basebreak .
-docker run -p 8080:8080 -e BASEBREAK_API_TOKEN=secret basebreak
+docker build --build-arg BUILD_COMMIT_SHA=$(git rev-parse HEAD) -t basebreak .
+docker run -p 8080:8080 -e BASEBREAK_BEARER_TOKEN=secret -e BASEBREAK_RUNS_DIR=/data/runs basebreak
 ```
 
-Unauthenticated callers can freely inspect:
-- `GET /` or `GET /judge` — Judge dashboard
+Unauthenticated signed-out judges can freely inspect published verification runs:
+- `GET /` or `GET /judge` — Published judge dashboard
 - `GET /health` — Health readiness and source commit SHA parity
-- `GET /judge/{run_id}` — Published run visual evidence
-- `GET /v1/runs/{run_id}/receipt` — Cryptographic verification receipt
+- `GET /judge/{run_id}` — Published run visual evidence (tamper-checked before rendering)
+- `GET /v1/runs/{run_id}/receipt` — Cryptographic public verification receipt
 
-Mutating endpoints (`POST /v1/runs`, `POST /v1/runs/{run_id}/publish`) and private runs strictly require `Authorization: Bearer <token>`.
+Mutating endpoints (`POST /v1/runs`, `POST /v1/runs/{run_id}/publish`), private runs, and raw execution internals (`/evidence`, `/events`, raw run metadata) strictly require operator `Authorization: Bearer <token>`. Both `BASEBREAK_BEARER_TOKEN` and `BASEBREAK_API_TOKEN` are supported environment variables.
 
 ---
 

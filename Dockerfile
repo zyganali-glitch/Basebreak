@@ -7,6 +7,7 @@ FROM python:3.11-slim AS runtime
 # 1. Environment configuration
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app/src \
     PORT=8080 \
     BASEBREAK_HOST=0.0.0.0 \
     BASEBREAK_PORT=8080 \
@@ -28,8 +29,8 @@ WORKDIR /app
 COPY --chown=appuser:appgroup pyproject.toml README.md LICENSE ./
 COPY --chown=appuser:appgroup src ./src
 
-# Install basebreak in standard environment without external dependencies
-RUN pip install --no-cache-dir --no-deps -e .
+# Install hatchling build backend and install basebreak in editable mode
+RUN pip install --no-cache-dir hatchling && pip install --no-cache-dir --no-deps -e .
 
 # 5. Switch to non-root user
 USER appuser

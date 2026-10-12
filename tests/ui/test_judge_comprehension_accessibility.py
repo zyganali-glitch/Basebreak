@@ -387,3 +387,24 @@ def test_p28_05_keyboard_and_responsive_features() -> None:
     assert "word-break: break-all" in rendered
     assert 'role="region"' in rendered
     assert 'aria-label="Scrollable requirements table"' in rendered
+
+
+def test_honest_facts_and_unmetered_telemetry() -> None:
+    """Truthfully surfaces unmetered tokens/cost and un-sliced status."""
+    rc = _create_mock_receipt(PreliminaryVerdict.VERIFIED)
+    vd = build_judge_view_data(rc)
+
+    # Cost accounting is unmetered by default in mock receipt
+    assert vd.cost_accounting["total_tokens"] is None
+    assert vd.cost_accounting["estimated_cost_usd"] is None
+    assert vd.cost_accounting["is_metered"] is False
+
+    # Slice status is honest UNSLICED / N/A
+    for req in vd.requirements:
+        assert req.slice_status == "UNSLICED"
+        assert req.slice_detail == "N/A"
+
+    rendered = render_judge_ui_html(vd)
+    assert "Tokens: UNMETERED / NOT_RUN" in rendered
+    assert "Cost: UNMETERED / NOT_RUN" in rendered
+    assert "Slice minimizer NOT_RUN" in rendered

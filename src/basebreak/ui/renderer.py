@@ -132,11 +132,23 @@ def render_judge_ui_html(
     cf_exit_safe = html.escape(str(data.counterfactual_world["exit_code"]))
     cf_delta_short = html.escape(str(data.counterfactual_world["delta_digest"])[:12])
 
-    tokens_in = data.cost_accounting["input_tokens"]
-    tokens_out = data.cost_accounting["output_tokens"]
-    tokens_tot = data.cost_accounting["total_tokens"]
-    sbx_count = data.cost_accounting["sandboxes_created"]
-    cost_usd = data.cost_accounting["estimated_cost_usd"]
+    tokens_in = data.cost_accounting.get("input_tokens")
+    tokens_out = data.cost_accounting.get("output_tokens")
+    tokens_tot = data.cost_accounting.get("total_tokens")
+    sbx_count = data.cost_accounting.get("sandboxes_created", 0)
+    cost_usd = data.cost_accounting.get("estimated_cost_usd")
+
+    if tokens_tot is not None:
+        in_cnt = tokens_in or 0
+        out_cnt = tokens_out or 0
+        telemetry_tokens_str = f"Tokens: {tokens_tot:,} (in: {in_cnt:,}, out: {out_cnt:,})"
+    else:
+        telemetry_tokens_str = "Tokens: UNMETERED / NOT_RUN"
+
+    if cost_usd is not None:
+        telemetry_cost_str = f"Cost: ${cost_usd:.4f}"
+    else:
+        telemetry_cost_str = "Cost: UNMETERED / NOT_RUN"
 
     # Format distinct verdict banner (P-28.04)
     v_upper = data.verdict.upper()
@@ -704,9 +716,9 @@ def render_judge_ui_html(
 
                 <h3 style="margin-top: 1rem;">Verification Telemetry</h3>
                 <div class="telemetry-row">
-                    <span>Tokens: {tokens_tot:,} (in: {tokens_in:,}, out: {tokens_out:,})</span>
+                    <span>{telemetry_tokens_str}</span>
                     <span>Sandboxes: {sbx_count}</span>
-                    <span>Cost: ${cost_usd:.4f}</span>
+                    <span>{telemetry_cost_str}</span>
                 </div>
 
                 {not_run_html}

@@ -331,8 +331,14 @@ def run_serve_command(args: argparse.Namespace, config: BasebreakConfig) -> int:
     else:
         port = port_val
 
-    bearer_token = getattr(args, "bearer_token", None) or os.environ.get("BASEBREAK_BEARER_TOKEN")
-    runs_dir = getattr(args, "runs_dir", None) or config.runs_dir
+    bearer_token = (
+        getattr(args, "bearer_token", None)
+        or os.environ.get("BASEBREAK_BEARER_TOKEN")
+        or os.environ.get("BASEBREAK_API_TOKEN")
+    )
+    runs_dir = (
+        getattr(args, "runs_dir", None) or os.environ.get("BASEBREAK_RUNS_DIR") or config.runs_dir
+    )
 
     store = ApiRunStore(runs_dir=runs_dir)
     auth = ApiAuthManager(bearer_token=bearer_token)

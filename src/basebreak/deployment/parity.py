@@ -86,12 +86,21 @@ def verify_health_parity(
     clean_expected = expected_sha.strip().lower()
     clean_reported = reported_sha.lower()
 
-    is_matched = clean_expected == clean_reported and len(clean_expected) == 40
+    is_matched = (
+        clean_expected == clean_reported
+        and len(clean_expected) == 40
+        and clean_reported not in ("unknown_build_sha", "unknown", "")
+    )
     is_healthy = service_status.lower() in ("healthy", "ok")
 
     success = is_healthy and is_matched
 
-    if not is_healthy:
+    if clean_reported in ("unknown_build_sha", "unknown", "") or len(clean_reported) != 40:
+        msg = (
+            f"Reported commit SHA '{reported_sha}' is not a valid 40-character git SHA "
+            f"(build SHA unknown); production parity cannot pass."
+        )
+    elif not is_healthy:
         msg = f"Service reported unhealthy status: '{service_status}'"
     elif not is_matched:
         msg = (

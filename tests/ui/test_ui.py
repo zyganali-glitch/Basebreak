@@ -314,10 +314,12 @@ class TestJudgeUiIntegration:
                 "status": "VERIFIED",
                 "exit_code": 0,
                 "target": "https://github.com/example/auth-service.git",
+                "is_published": True,
             },
             receipt=sample_receipt.to_dict(),
         )
         store.recover_from_disk()
+        store.publish_run(run_id)
 
         auth = ApiAuthManager()  # Read-only inspection allowed
         server = BasebreakApiServer(store=store, auth=auth, host="127.0.0.1", port=0)

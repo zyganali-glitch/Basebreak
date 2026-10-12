@@ -30,7 +30,7 @@ def _http_get(url: str, token: str | None = None) -> tuple[int, str, dict[str, A
         headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
+        with urllib.request.urlopen(req, timeout=30.0) as resp:
             body = resp.read().decode("utf-8")
             try:
                 data = json.loads(body)
@@ -56,7 +56,7 @@ def _http_post(
     data_bytes = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data_bytes, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
+        with urllib.request.urlopen(req, timeout=30.0) as resp:
             body = resp.read().decode("utf-8")
             try:
                 data = json.loads(body)
@@ -217,3 +217,282 @@ def test_operator_publish_endpoint_workflow(
     assert rc_status_after == 200
     assert rc_data_after is not None
     assert "receipt_digest" in rc_data_after
+
+
+def test_unconfigured_server_fails_closed_and_protects_private_runs(
+    tmp_path: Path,
+) -> None:
+    """Server without Bearer token configured fails closed for mutations and private access."""
+    runs_dir = tmp_path / "unconf_runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    store = ApiRunStore(runs_dir=runs_dir)
+    auth = ApiAuthManager(bearer_token=None)  # No token configured
+    server = BasebreakApiServer(store=store, auth=auth, host="127.0.0.1", port=0)
+    server.start()
+    base_url = server.base_url
+
+    try:
+        # 1. Health probe works unauthenticated
+        h_code, _, h_data = _http_get(f"{base_url}/health")
+        assert h_code == 200
+        assert h_data is not None
+        assert h_data.get("status") == "healthy"
+
+        # 2. Mutation attempt without server token fails closed (401)
+        post_code, _, _ = _http_post(
+            f"{base_url}/v1/runs",
+            {"target": "tests/fixtures/demo_target", "change_class": "BUG_FIX"},
+        )
+        assert post_code == 401
+
+        # 3. Publish attempt fails closed (401)
+        pub_code, _, _ = _http_post(f"{base_url}/v1/runs/any-run/publish", {})
+        assert pub_code == 401
+
+        # 4. Create an unpublished run directly on disk
+        from basebreak.cli.config import BasebreakConfig
+        from basebreak.cli.runner import execute_verification_pipeline
+
+        cfg = BasebreakConfig(runs_dir=str(runs_dir))
+        res = execute_verification_pipeline(
+            target="tests/fixtures/demo_target", change_class_name="BUG_FIX", config=cfg
+        )
+        store.persistence.save_run(
+            res.run_id,
+            res.metadata,
+            evidence=res.evidence,
+            receipt=res.receipt.to_dict() if res.receipt else None,
+        )
+
+        # Anonymous cannot access private UI or receipt or metadata
+        ui_code, _, _ = _http_get(f"{base_url}/judge/{res.run_id}")
+        assert ui_code == 401
+        rc_code, _, _ = _http_get(f"{base_url}/v1/runs/{res.run_id}/receipt")
+        assert rc_code == 401
+        meta_code, _, _ = _http_get(f"{base_url}/v1/runs/{res.run_id}")
+        assert meta_code == 401
+
+        # 5. When explicitly published in store, anonymous can inspect UI and receipt
+        store.publish_run(res.run_id)
+        ui_pub_code, ui_pub_body, _ = _http_get(f"{base_url}/judge/{res.run_id}")
+        assert ui_pub_code == 200
+        assert res.run_id in ui_pub_body
+        rc_pub_code, _, rc_pub_data = _http_get(f"{base_url}/v1/runs/{res.run_id}/receipt")
+        assert rc_pub_code == 200
+        assert rc_pub_data is not None
+        assert "receipt_digest" in rc_pub_data
+
+        # But raw metadata still requires operator (returns 401 since no operator can exist)
+        meta_pub_code, _, _ = _http_get(f"{base_url}/v1/runs/{res.run_id}")
+        assert meta_pub_code == 401
+    finally:
+        server.stop()
+
+
+def test_auth_header_negative_cases(
+    auth_server: tuple[BasebreakApiServer, ApiRunStore, str, str],
+) -> None:
+    """Invalid tokens, absent tokens, and malformed auth headers are all rejected with 401."""
+    _, _, _, base_url = auth_server
+    payload = {"target": "tests/fixtures/demo_target", "change_class": "BUG_FIX"}
+
+    # No token
+    c1, _, _ = _http_post(f"{base_url}/v1/runs", payload, token=None)
+    assert c1 == 401
+
+    # Wrong token
+    c2, _, _ = _http_post(f"{base_url}/v1/runs", payload, token="wrong-operator-token")
+    assert c2 == 401
+
+    # Malformed non-Bearer header
+    headers = {"Authorization": "Basic dXNlcjpwYXNz", "Content-Type": "application/json"}
+    req = urllib.request.Request(
+        f"{base_url}/v1/runs",
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req)
+    assert exc_info.value.code == 401
+
+
+def test_published_run_does_not_leak_raw_internals_to_anonymous(
+    auth_server: tuple[BasebreakApiServer, ApiRunStore, str, str],
+) -> None:
+    """Anonymous callers cannot access raw internal evidence, events, or run metadata."""
+    _, store, token, base_url = auth_server
+
+    payload = {
+        "target": "tests/fixtures/demo_target",
+        "change_class": "BUG_FIX",
+        "publish": True,
+    }
+    status, _, data = _http_post(f"{base_url}/v1/runs", payload, token=token)
+    assert status == 201
+    assert data is not None
+    run_id = data["run_id"]
+    assert store.is_run_published(run_id) is True
+
+    # Anonymous access to public surfaces succeeds
+    rc_code, _, _ = _http_get(f"{base_url}/v1/runs/{run_id}/receipt", token=None)
+    assert rc_code == 200
+    ui_code, _, _ = _http_get(f"{base_url}/judge/{run_id}", token=None)
+    assert ui_code == 200
+
+    # Anonymous access to internal surfaces is strictly rejected with 401
+    meta_code, _, _ = _http_get(f"{base_url}/v1/runs/{run_id}", token=None)
+    assert meta_code == 401
+    evid_code, _, _ = _http_get(f"{base_url}/v1/runs/{run_id}/evidence", token=None)
+    assert evid_code == 401
+    ev_code, _, _ = _http_get(f"{base_url}/v1/runs/{run_id}/events", token=None)
+    assert ev_code == 401
+
+    # Authenticated operator can access raw internal surfaces
+    op_meta_code, _, op_meta = _http_get(f"{base_url}/v1/runs/{run_id}", token=token)
+    assert op_meta_code == 200
+    assert op_meta is not None
+    assert op_meta.get("run_id") == run_id
+
+    op_evid_code, _, op_evid = _http_get(f"{base_url}/v1/runs/{run_id}/evidence", token=token)
+    assert op_evid_code == 200
+    assert op_evid is not None
+    assert "evidence" in op_evid
+
+
+def test_unpublishable_run_rejections(
+    auth_server: tuple[BasebreakApiServer, ApiRunStore, str, str],
+) -> None:
+    """Runs with missing receipts, tampered receipts, or raw secrets cannot be published."""
+    _, store, token, base_url = auth_server
+
+    # 1. Run without receipt cannot be published
+    from basebreak.cli.config import BasebreakConfig
+    from basebreak.cli.runner import execute_verification_pipeline
+
+    cfg = BasebreakConfig(runs_dir=str(store.runs_dir))
+
+    # A run with invalid patch fails before generating a receipt
+    res_no_rc = execute_verification_pipeline(
+        target="tests/fixtures/demo_target",
+        patch="invalid non-diff garbage",
+        change_class_name="BUG_FIX",
+        config=cfg,
+    )
+    store.persistence.save_run(
+        res_no_rc.run_id,
+        res_no_rc.metadata,
+        evidence=res_no_rc.evidence,
+        receipt=None,
+    )
+    pub_code, _, pub_err = _http_post(
+        f"{base_url}/v1/runs/{res_no_rc.run_id}/publish", {}, token=token
+    )
+    assert pub_code == 422
+    assert "missing public verification receipt" in str(pub_err)
+
+    # 2. Run with valid receipt but tampered hash cannot be published
+    res_valid = execute_verification_pipeline(
+        target="tests/fixtures/demo_target",
+        change_class_name="BUG_FIX",
+        config=cfg,
+    )
+    assert res_valid.receipt is not None
+    tampered_dict = res_valid.receipt.to_dict()
+    tampered_dict["task_id"] = "tampered-task-id"  # Mutate field to invalidate digest
+    store.persistence.save_run(
+        res_valid.run_id,
+        res_valid.metadata,
+        evidence=res_valid.evidence,
+        receipt=tampered_dict,
+    )
+    pub_code2, _, pub_err2 = _http_post(
+        f"{base_url}/v1/runs/{res_valid.run_id}/publish", {}, token=token
+    )
+    assert pub_code2 == 422
+    assert "receipt integrity verification failed" in str(pub_err2)
+
+    # 3. Run with secret in receipt cannot be published
+    secret_dict = res_valid.receipt.to_dict()
+    secret_dict["repo_locator"] = "token=ghp_fakeabcdefghijklmnopqrstuvwxyz123456"
+    store.persistence.save_run(
+        "secret-run-id",
+        {"run_id": "secret-run-id", "status": "VERIFIED"},
+        evidence=[],
+        receipt=secret_dict,
+    )
+    pub_code3, _, pub_err3 = _http_post(
+        f"{base_url}/v1/runs/secret-run-id/publish", {}, token=token
+    )
+    assert pub_code3 == 422
+    assert "receipt contains raw recognized secrets" in str(pub_err3)
+
+
+def test_tampered_receipt_rejected_before_rendering_judge_ui(
+    auth_server: tuple[BasebreakApiServer, ApiRunStore, str, str],
+) -> None:
+    """Tampered published receipts on disk reject GET /judge/{id} with 400 Bad Request."""
+    _, store, token, base_url = auth_server
+
+    payload = {"target": "tests/fixtures/demo_target", "change_class": "BUG_FIX", "publish": True}
+    status, _, data = _http_post(f"{base_url}/v1/runs", payload, token=token)
+    assert status == 201
+    assert data is not None
+    run_id = data["run_id"]
+
+    # Tamper with receipt file on disk
+    rc_file = store.persistence.get_run_dir(run_id) / "receipt.json"
+    with rc_file.open("r", encoding="utf-8") as f:
+        rc_json = json.load(f)
+    rc_json["task_id"] = "tampered-after-publish"
+    with rc_file.open("w", encoding="utf-8") as f:
+        json.dump(rc_json, f, indent=2)
+
+    # GET /judge/{run_id} rejects before rendering UI
+    ui_status, ui_body, _ = _http_get(f"{base_url}/judge/{run_id}", token=None)
+    assert ui_status == 400
+    assert "Receipt Integrity Verification Failed" in ui_body
+
+
+def test_restart_and_recovery_of_publication_state(tmp_path: Path) -> None:
+    """Published runs recover safely across restart; tampered receipts are discarded."""
+    runs_dir = tmp_path / "persist_runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    token = "persisted-operator-token"
+
+    # Phase 1: create server and published run
+    store1 = ApiRunStore(runs_dir=runs_dir)
+    auth1 = ApiAuthManager(bearer_token=token)
+    server1 = BasebreakApiServer(store=store1, auth=auth1, host="127.0.0.1", port=0)
+    server1.start()
+    try:
+        payload = {
+            "target": "tests/fixtures/demo_target",
+            "change_class": "BUG_FIX",
+            "publish": True,
+        }
+        code, _, data = _http_post(f"{server1.base_url}/v1/runs", payload, token=token)
+        assert code == 201
+        assert data is not None
+        run_id = data["run_id"]
+        assert store1.is_run_published(run_id) is True
+    finally:
+        server1.stop()
+
+    # Phase 2: restart server and verify publication state is recovered
+    store2 = ApiRunStore(runs_dir=runs_dir)
+    assert store2.is_run_published(run_id) is True
+    assert run_id in store2.list_published_runs()
+
+    # Phase 3: tamper with receipt file on disk and re-initialize store
+    rc_file = store2.persistence.get_run_dir(run_id) / "receipt.json"
+    with rc_file.open("r", encoding="utf-8") as f:
+        rc_json = json.load(f)
+    rc_json["task_id"] = "corrupted-for-recovery-test"
+    with rc_file.open("w", encoding="utf-8") as f:
+        json.dump(rc_json, f, indent=2)
+
+    store3 = ApiRunStore(runs_dir=runs_dir)
+    # Recovery must reject the tampered receipt and discard the run from published list
+    assert store3.is_run_published(run_id) is False
+    assert run_id not in store3.list_published_runs()

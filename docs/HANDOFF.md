@@ -133,18 +133,20 @@ Judge claim:
 No cost-consuming external API calls or public deployments were executed without explicit authorization. Zero-personal-spend ($0.00) policy preserved.
 
 ### Current QA candidate
-Batch C Candidate — Deployment Readiness & Judge Product Experience:
-1. P-27 Deployment Readiness: rootless reproducible `Dockerfile` (UID 10001), `docker-compose.yml`, health readiness probe (`/health`), CLI `basebreak serve`, health/source SHA parity verification, and secure dual-mode signed-out judge access (read-only published runs accessible without credentials; mutations and private runs strictly reject unauthenticated requests with 401). Public cloud deployment and live deployed runtime proof held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
-2. P-28 Judge Product Experience: 30-second comprehension audit, prominent thesis anchor, plain-English "Why Ordinary Green CI Lies • What Basebreak Proves" card, 3-world step tags (`[1. Reproduce Defect on Base]`, `[2. Confirm Fix on Candidate]`, `[3. Prove Delta Necessity]`), explicit causal transition formula, distinct honest status banners for all 5 verdict states (`VERIFIED`, `CONTRADICTED`, `INCONCLUSIVE`, `BLOCKED`, `NOT_RUN`), WCAG AA/AAA color contrast palette (> 4.5:1), `:focus-visible` keyboard accessibility, responsive viewport and grid layouts, and strict HTML escaping.
-3. Full regression suite: 22 new tests passing across `tests/deployment/` and `tests/ui/test_judge_comprehension_accessibility.py`.
+Batch C Candidate — Consolidated Public-Judge Safety & Deployability Repair:
+1. DEFECT A (Anonymous Auth Bypass Repaired): Cleanly separated anonymous read-only judge permission from authenticated operator identity (`ApiAuthManager.is_authenticated_operator`). When no server Bearer token is configured, all mutations and private runs fail closed with 401 Unauthorized; anonymous callers can never access unpublished runs.
+2. DEFECT B (Unsafe Publication Boundary Repaired): Introduced `UnpublishableRunError` in `ApiRunStore`. Publishing strictly requires an explicit operator action and an integrity-verified, secret-safe public receipt. Legitimate `CONTRADICTED`, `INCONCLUSIVE`, and `BLOCKED` runs with valid receipts can be published without fabricating verdicts. Anonymous callers cannot access raw internal evidence, events, or unrestricted metadata. Tampered receipts are rejected with 400 Bad Request before rendering the judge UI. Durable restart and recovery of publication state validates receipt integrity before restoring published status.
+3. DEFECT C (Hosting Eligibility, Build Reality & Persistence Repaired): Recognized official Hugging Face policy requiring paid plan/credit card for Docker compute Spaces. Selected GitHub Pages as primary guaranteed 100% zero-card judge presentation path (permanent through Dec 15, 2026). Replaced operator instructions with beginner-grade Turkish guide for GitHub Pages. Updated CLI and container configuration to support `BASEBREAK_RUNS_DIR`, `BASEBREAK_BEARER_TOKEN`, and `BASEBREAK_API_TOKEN`. Added automated GitHub Actions `container-build` job with exact commit SHA injection and `/health` smoke test. Enforced rejection of `UNKNOWN_BUILD_SHA` in `verify_health_parity`.
+4. DEFECT D (Unsupported UI & Live Proof Claims Repaired): Eliminated synthetic `"sbx-cf"` sandbox ID, assumed timestamps, fabricated hunk retention counts, and unsupported cost zeroes from `src/basebreak/ui/models.py`. Truthfully surfaces `UNMETERED / NOT_RUN` tokens/costs, `UNSLICED` status, and `N/A` details in `src/basebreak/ui/renderer.py`. Rewrote `docs/P27_06_DEPLOYED_NEBIUS_RUNTIME_PROOF.md` to reflect that `allow_live=True` currently blocks fail-closed under Zero-Cost Law and aligned receipt schema with actual `PublicVerificationReceipt`.
+5. Full regression suite: 28 tests passing across `tests/deployment/` and `tests/ui/`.
 
 ### Active exact task
-Batch C Consolidated Execution complete across P-27 and P-28. Awaiting external independent QA evaluation. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-28.
+Batch C Consolidated Public-Judge Safety & Deployability Repair complete across DEFECTS A, B, C, D. Awaiting external independent QA evaluation. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-28.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-26 independently VERIFIED / PASS or accepted at baseline SHA `80b43b...`. P-16.05, P-23.04–P-23.07, P-26.02, P-27.03, P-27.06 held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. P-23.08 held fail-closed at `BLOCKED`. Batch C (P-27 and P-28) is IMPLEMENTED_AND_TESTED offline. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-26 independently VERIFIED / PASS or accepted at baseline SHA `80b43b...`. P-16.05, P-23.04–P-23.07, P-26.02, P-27.03, P-27.06 held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. P-23.08 held fail-closed at `BLOCKED`. Batch C (P-27 and P-28) consolidated repair is IMPLEMENTED_AND_TESTED offline. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Provider neutrality:** All deployment packaging, health parity checks, signed-out judge access models, and UI components remain strictly provider-neutral.
-- **Batch authorization & hard stop:** Batch C completed. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-28.
+- **Batch authorization & hard stop:** Batch C repair completed. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-28.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -162,8 +164,9 @@ Batch C Consolidated Execution complete across P-27 and P-28. Awaiting external 
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit consolidated Batch C execution report to external QA authority.
+1. Submit consolidated Batch C repair report to external QA authority.
 2. Await independent QA evaluation.
 3. Enforce hard stop after P-28; do not activate P-29+.
+
 
 

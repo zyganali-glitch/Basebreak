@@ -23,13 +23,17 @@ class IdempotencyConflictError(Exception):
     """Raised when an idempotency key is reused with a different request payload."""
 
 
+class UnpublishableRunError(Exception):
+    """Raised when a run cannot be published due to missing, invalid, or secret-bearing receipt."""
+
+
 class ApiRunStore:
     """Manages runs, idempotency mapping, and live event streams."""
 
     def __init__(self, runs_dir: str | Path = ".basebreak/runs") -> None:
         self.runs_dir = Path(runs_dir)
         self.persistence = RunPersistenceManager(self.runs_dir)
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._runs: dict[str, dict[str, Any]] = {}
         self._idempotency_records: dict[str, dict[str, str]] = {}
         self._events: dict[str, list[ApiEvent]] = {}
@@ -64,7 +68,10 @@ class ApiRunStore:
                         ApiEvent.create("run.recovered", run_id, {"status": meta.get("status")})
                     ]
                 if meta.get("is_published") is True:
-                    self._published_runs.add(run_id)
+                    if self.is_run_published(run_id):
+                        self._published_runs.add(run_id)
+                    else:
+                        meta["is_published"] = False
                 recovered_count += 1
             except Exception:
                 continue
@@ -83,7 +90,9 @@ class ApiRunStore:
                 with self._published_file.open("r", encoding="utf-8") as f:
                     pub_list = json.load(f)
                     if isinstance(pub_list, list):
-                        self._published_runs.update(pub_list)
+                        for pub_id in pub_list:
+                            if self.is_run_published(pub_id):
+                                self._published_runs.add(pub_id)
             except Exception:
                 pass
 
@@ -121,21 +130,91 @@ class ApiRunStore:
         """List all stored run IDs."""
         return self.persistence.list_runs()
 
-    def is_run_published(self, run_id: str) -> bool:
-        """Check whether a run is explicitly published for signed-out judge access."""
+    def has_published_status(self, run_id: str) -> bool:
+        """Check whether a run was recorded as published by the operator."""
         if run_id in self._published_runs:
             return True
         meta = self.get_run(run_id)
-        if meta and meta.get("is_published") is True:
-            self._published_runs.add(run_id)
-            return True
-        return False
+        return bool(meta and meta.get("is_published") is True)
+
+    def is_run_published(self, run_id: str) -> bool:
+        """Check whether a run is explicitly published for signed-out judge access.
+
+        Requires that the run is recorded as published AND has an integrity-validated,
+        secret-safe public verification receipt.
+        """
+        if not self.has_published_status(run_id):
+            return False
+
+        # Validate that the published run actually has a valid, untampered receipt
+        receipt_dict = self.get_receipt(run_id)
+        if receipt_dict is None:
+            self._published_runs.discard(run_id)
+            return False
+
+        from basebreak.causal.public_receipt import (
+            PublicVerificationReceipt,
+            verify_public_receipt_integrity,
+        )
+        from basebreak.security.secret_policy import contains_secret
+
+        try:
+            rc_obj = PublicVerificationReceipt.from_dict(receipt_dict)
+            verify_public_receipt_integrity(rc_obj)
+            if contains_secret(json.dumps(receipt_dict)):
+                self._published_runs.discard(run_id)
+                return False
+        except Exception:
+            self._published_runs.discard(run_id)
+            return False
+
+        self._published_runs.add(run_id)
+        return True
 
     def publish_run(self, run_id: str) -> bool:
-        """Explicitly publish a verified run for signed-out judge access."""
+        """Explicitly publish a verified run for signed-out judge access.
+
+        Requires:
+        1. Run must exist.
+        2. A public receipt must exist.
+        3. The public receipt must pass cryptographic integrity verification.
+        4. The public receipt must not contain raw recognized secrets.
+
+        Preserves legitimate CONTRADICTED/INCONCLUSIVE/BLOCKED runs with valid receipts;
+        does not require a fabricated VERIFIED verdict.
+
+        Raises:
+            KeyError: If run does not exist.
+            UnpublishableRunError: If receipt is missing, tampered, or contains secrets.
+        """
         meta = self.get_run(run_id)
         if meta is None:
-            return False
+            raise KeyError(f"Run '{run_id}' not found.")
+
+        receipt_dict = self.get_receipt(run_id)
+        if receipt_dict is None:
+            raise UnpublishableRunError(
+                f"Run '{run_id}' cannot be published: missing public verification receipt."
+            )
+
+        from basebreak.causal.public_receipt import (
+            PublicVerificationReceipt,
+            verify_public_receipt_integrity,
+        )
+        from basebreak.security.secret_policy import contains_secret
+
+        if contains_secret(json.dumps(receipt_dict)):
+            raise UnpublishableRunError(
+                f"Run '{run_id}' cannot be published: receipt contains raw recognized secrets."
+            )
+
+        try:
+            rc_obj = PublicVerificationReceipt.from_dict(receipt_dict)
+            verify_public_receipt_integrity(rc_obj)
+        except Exception as exc:
+            raise UnpublishableRunError(
+                f"Run '{run_id}' cannot be published: receipt integrity verification failed: {exc}"
+            ) from exc
 
         with self._lock:
             meta["is_published"] = True
@@ -153,7 +232,11 @@ class ApiRunStore:
 
     def list_published_runs(self) -> list[str]:
         """List all published run IDs available for signed-out judge inspection."""
-        return sorted(list(self._published_runs))
+        valid_published: list[str] = []
+        for r in sorted(list(self._published_runs)):
+            if self.is_run_published(r):
+                valid_published.append(r)
+        return valid_published
 
     def _persist_published_records(self) -> None:
         """Durable persistence of published run IDs."""
@@ -285,12 +368,7 @@ class ApiRunStore:
 
             self._events[run_id] = events
 
-            if request.publish:
-                res.metadata["is_published"] = True
-                self._published_runs.add(run_id)
-                self._persist_published_records()
-
-            # Persist run state and events to disk
+            # Persist run state and events to disk first
             self.persistence.save_run(
                 run_id=run_id,
                 metadata=res.metadata,
@@ -306,5 +384,9 @@ class ApiRunStore:
                     "run_id": run_id,
                 }
                 self._persist_idempotency_records()
+
+            # If publication requested, explicitly validate and publish
+            if request.publish:
+                self.publish_run(run_id)
 
             return res.metadata, True

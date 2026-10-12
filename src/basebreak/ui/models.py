@@ -360,7 +360,7 @@ def build_judge_view_data(
             "outcome": cf_fact.outcome.value.upper(),
             "digest": "none",
             "delta_digest": cf_fact.delta_digest or "none",
-            "sandbox_id": "sbx-cf",
+            "sandbox_id": "N/A",
         }
         cf_label = cf_fact.outcome.value.upper()
     else:
@@ -381,7 +381,7 @@ def build_judge_view_data(
 
     # Timing
     timing_dict = rc.timing or {}
-    created_at_utc = timing_dict.get("created_at_utc", "2026-10-12T00:00:00Z")
+    created_at_utc = timing_dict.get("created_at_utc", "UNKNOWN")
     duration_seconds = timing_dict.get("total_duration_seconds")
 
     # Factual timeline
@@ -440,14 +440,8 @@ def build_judge_view_data(
         TimelineStep(
             name="7. Minimal Causal Slice",
             stage_id="causal_slice",
-            status="COMPLETED"
-            if (rc.candidate_patch_digest and cf_world["present"])
-            else "NOT_RUN",
-            details=(
-                "Retained 1 necessary hunk; discarded irrelevant hunks."
-                if (rc.candidate_patch_digest and cf_world["present"])
-                else "Slice minimizer not requested."
-            ),
+            status="NOT_RUN",
+            details="Slice minimizer NOT_RUN (no causal slice record).",
             is_live_action=False,
         ),
         TimelineStep(
@@ -479,8 +473,8 @@ def build_judge_view_data(
                     else str(fact.preliminary_verdict),
                     witness_id=fact.witness_id or "wit-sealed",
                     witness_digest=fact.witness_digest or "sealed",
-                    slice_status="MINIMAL" if cf_world["present"] else "UNSLICED",
-                    slice_detail="1 hunk retained" if cf_world["present"] else "N/A",
+                    slice_status="UNSLICED",
+                    slice_detail="N/A",
                 )
             )
 
@@ -495,28 +489,30 @@ def build_judge_view_data(
                     outcome=verdict,
                     witness_id=w.witness_id,
                     witness_digest=w.witness_digest,
-                    slice_status="MINIMAL" if cf_world["present"] else "UNSLICED",
-                    slice_detail="1 hunk retained" if cf_world["present"] else "N/A",
+                    slice_status="UNSLICED",
+                    slice_detail="N/A",
                 )
             )
 
     # Cost accounting
     acct = rc.accounting
-    if acct:
+    if acct and acct.is_metered:
         cost_accounting = {
             "total_tokens": acct.prompt_tokens + acct.completion_tokens,
             "input_tokens": acct.prompt_tokens,
             "output_tokens": acct.completion_tokens,
             "sandboxes_created": len(rc.runtime_identities),
-            "estimated_cost_usd": acct.estimated_cost_usd or 0.0,
+            "estimated_cost_usd": acct.estimated_cost_usd,
+            "is_metered": True,
         }
     else:
         cost_accounting = {
-            "total_tokens": 0,
-            "input_tokens": 0,
-            "output_tokens": 0,
+            "total_tokens": None,
+            "input_tokens": None,
+            "output_tokens": None,
             "sandboxes_created": len(rc.runtime_identities),
-            "estimated_cost_usd": 0.0,
+            "estimated_cost_usd": None,
+            "is_metered": False,
         }
 
     raw_json = json.dumps(rc.to_dict(), indent=2, sort_keys=True)

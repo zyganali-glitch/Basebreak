@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 from basebreak.api.auth import ApiAuthManager
 from basebreak.api.models import RunCreateRequest
-from basebreak.api.store import ApiRunStore, IdempotencyConflictError
+from basebreak.api.store import ApiRunStore, IdempotencyConflictError, UnpublishableRunError
 
 _RUN_ID_ROUTE_PATTERN = re.compile(
     r"^/v1/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?P<subpath>/evidence|/receipt|/events)?/?$"
@@ -67,7 +67,7 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
     def _check_auth(self, *, is_execution: bool = False) -> bool:
         """Verify authorization header with fail-closed enforcement for execution."""
         auth_hdr = self.headers.get("Authorization")
-        if not self.auth.validate_auth_header(auth_hdr, is_execution=is_execution):
+        if not self.auth.is_authenticated_operator(auth_hdr):
             self._send_error(401, "Unauthorized: missing or invalid Bearer token.")
             return False
         return True
@@ -86,8 +86,11 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
             if not self.store.get_run(run_id):
                 self._send_error(404, f"Run '{run_id}' not found.")
                 return
-            self.store.publish_run(run_id)
-            self._send_json(200, {"run_id": run_id, "is_published": True})
+            try:
+                self.store.publish_run(run_id)
+                self._send_json(200, {"run_id": run_id, "is_published": True})
+            except UnpublishableRunError as exc:
+                self._send_error(422, str(exc))
             return
 
         if path == "/v1/runs":
@@ -134,6 +137,8 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json(status_code, run_meta)
             except IdempotencyConflictError as exc:
                 self._send_error(409, str(exc))
+            except UnpublishableRunError as exc:
+                self._send_error(422, str(exc))
             except ValueError as exc:
                 self._send_error(400, str(exc))
             except Exception as exc:
@@ -154,15 +159,17 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(200, get_health_status(self.server_start_time, published_cnt))
             return
 
-        is_authed = self.auth.validate_auth_header(
-            self.headers.get("Authorization"), is_execution=False
-        )
+        is_operator = self.auth.is_authenticated_operator(self.headers.get("Authorization"))
 
         # Handle Judge & Operator UI routes (P-22 & P-27.05)
         ui_match = _JUDGE_UI_ROUTE_PATTERN.match(path)
         if ui_match or path == "/":
             import html as py_html
 
+            from basebreak.causal.public_receipt import (
+                PublicVerificationReceipt,
+                verify_public_receipt_integrity,
+            )
             from basebreak.ui.renderer import render_judge_ui_html
 
             ui_run_id = ui_match.group("run_id") if ui_match else None
@@ -170,7 +177,7 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
                 published = self.store.list_published_runs()
                 if published:
                     ui_run_id = published[-1]
-                elif is_authed:
+                elif is_operator:
                     runs = self.store.list_runs()
                     if runs:
                         ui_run_id = runs[-1]
@@ -189,8 +196,8 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
                 )
                 return
 
-            # Check if specific run is published or caller is authenticated
-            if not self.store.is_run_published(ui_run_id) and not is_authed:
+            # Check if specific run is published or caller is authenticated operator
+            if not self.store.has_published_status(ui_run_id) and not is_operator:
                 self._send_html(
                     401,
                     "<!DOCTYPE html><html><head><title>Private Run — Unauthorized</title></head>"
@@ -218,6 +225,23 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
                 )
                 return
 
+            # Mandatory receipt integrity verification before rendering judge UI
+            try:
+                verified_rc = PublicVerificationReceipt.from_dict(receipt)
+                verify_public_receipt_integrity(verified_rc)
+            except Exception as exc:
+                self._send_html(
+                    400,
+                    "<!DOCTYPE html><html><head><title>Receipt Integrity Failure</title></head>"
+                    "<body style='font-family: sans-serif; background: #0f172a; "
+                    "color: #fff; padding: 2rem;'>"
+                    "<h1>Receipt Integrity Verification Failed</h1>"
+                    f"<p style='color: #ef4444;'>Receipt for '{py_html.escape(ui_run_id)}' "
+                    f"failed integrity check: {py_html.escape(str(exc))}</p>"
+                    "</body></html>",
+                )
+                return
+
             rendered = render_judge_ui_html(receipt, run_meta=run_meta)
             self._send_html(200, rendered)
             return
@@ -230,33 +254,19 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
         run_id = match.group("run_id")
         subpath = match.group("subpath") or ""
 
-        # Enforce that private runs require auth; published runs allow signed-out access
-        if not self.store.is_run_published(run_id) and not is_authed:
-            self._send_error(
-                401, f"Unauthorized: Run '{run_id}' is private. Bearer token required."
-            )
-            return
+        # Public /receipt endpoint: available to signed-out judges for published runs, or operator
+        if subpath == "/receipt":
+            if not self.store.has_published_status(run_id) and not is_operator:
+                self._send_error(
+                    401, f"Unauthorized: Run '{run_id}' is private. Bearer token required."
+                )
+                return
 
-        run_meta = self.store.get_run(run_id)
-        if run_meta is None:
-            self._send_error(404, f"Run '{run_id}' not found.")
-            return
-
-        if not subpath:
-            # GET /v1/runs/{run_id}
-            self._send_json(200, run_meta)
-        elif subpath == "/evidence":
-            # GET /v1/runs/{run_id}/evidence
-            evidence = self.store.get_evidence(run_id)
-            self._send_json(200, {"run_id": run_id, "evidence": evidence})
-        elif subpath == "/receipt":
-            # GET /v1/runs/{run_id}/receipt
             receipt = self.store.get_receipt(run_id)
             if receipt is None:
                 self._send_error(404, f"Public receipt for run '{run_id}' not found.")
                 return
 
-            # Mandatory receipt integrity verification before presentation
             from basebreak.causal.public_receipt import (
                 PublicVerificationReceipt,
                 verify_public_receipt_integrity,
@@ -270,8 +280,31 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
                 return
 
             self._send_json(200, receipt)
+            return
+
+        # Raw run metadata, evidence records, and event streams strictly require operator identity
+        if not is_operator:
+            self._send_error(
+                401,
+                "Unauthorized: Operator Bearer token required to access raw run metadata, "
+                "internal evidence, or event streams.",
+            )
+            return
+
+        run_meta = self.store.get_run(run_id)
+        if run_meta is None:
+            self._send_error(404, f"Run '{run_id}' not found.")
+            return
+
+        if not subpath:
+            # GET /v1/runs/{run_id} (Operator authenticated)
+            self._send_json(200, run_meta)
+        elif subpath == "/evidence":
+            # GET /v1/runs/{run_id}/evidence (Operator authenticated)
+            evidence = self.store.get_evidence(run_id)
+            self._send_json(200, {"run_id": run_id, "evidence": evidence})
         elif subpath == "/events":
-            # GET /v1/runs/{run_id}/events (Server-Sent Events)
+            # GET /v1/runs/{run_id}/events (Server-Sent Events, Operator authenticated)
             events = self.store.get_events(run_id)
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
