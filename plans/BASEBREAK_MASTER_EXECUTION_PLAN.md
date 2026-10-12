@@ -712,7 +712,7 @@ Status: DONE (IMPLEMENTED_AND_TESTED in Batch B; `tests/fixtures/reset_vault/` s
 ### P-23.02 — Freeze task: make reset tokens single-use without breaking first valid reset
 Status: DONE (IMPLEMENTED_AND_TESTED in Batch B; FrozenContract `REQ-RESET-001` with deterministic SHA-256 digest; tested in `tests/demo/test_p23_killer_demo.py`)
 ### P-23.03 — Validate existing tests remain green while independent witness fails on base
-Status: DONE (IMPLEMENTED_AND_TESTED in Batch B; baseline tests genuinely pass green while independent witness reproduces replay vulnerability on BASE=FAIL; candidate fix invalidates tokens passing CANDIDATE=PASS; counterfactual subtraction reverts invalidation failing COUNTERFACTUAL=FAIL; tested in `tests/demo/test_p23_killer_demo.py`)
+Status: SURGICALLY_REPAIRED (materializes isolated BASE, CANDIDATE, and COUNTERFACTUAL worlds on disk and runs independent witness via real subprocesses; captures genuine exit codes BASE=1, CANDIDATE=0, COUNTERFACTUAL=1, digests, and confirms ordinary tests are green 4/4; tested in `tests/demo/test_p23_killer_demo.py`)
 ### P-23.04 — Run real Nemotron Builder in Nebius sandbox
 Status: OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN (prerequisites and interfaces validated offline; held under Zero-Cost Law pending explicit operator credit authorization)
 ### P-23.05 — Run live base/candidate causal verification in fresh sandboxes
@@ -722,8 +722,8 @@ Status: OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN (prerequisites and interfaces 
 ### P-23.07 — Produce real LIVE_NEBIUS receipt and UI playback
 Status: OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN (prerequisites and interfaces validated offline; held under Zero-Cost Law pending explicit operator credit authorization)
 ### P-23.08 — Reproduce one immutable real-world open-source bug-fix replay with upstream SHA and license provenance
-Status: DONE (IMPLEMENTED_AND_TESTED in Batch B; canonical `pallets/click` boolean option parsing replay pinned to base commit `4e38c4b14d2325c3453b6fa0c42289417042be6a` and fixed commit `8a213945de21b476f5f3e911c4709ecdfa693175` under BSD-3-Clause license; executes in `tests/demo/test_p23_killer_demo.py`)
-Phase exit: competition killer demo is real, deterministic and repeatable. (P-23 offline tasks IMPLEMENTED_AND_TESTED; live tasks P-23.04–P-23.07 held at OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN).
+Status: SURGICALLY_REPAIRED (eliminated stand-in logic and fabricated exit codes; unmaterialized historical replay fails closed with PreliminaryVerdict.BLOCKED under honest evidence integrity rules; materialized replay executes genuine subprocesses; rejects fabricated replay claims; tested in `tests/demo/test_p23_killer_demo.py`)
+Phase exit: competition killer demo is real, deterministic and repeatable. (P-23 offline tasks SURGICALLY_REPAIRED; live tasks P-23.04–P-23.07 held at OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN).
 
 ---
 
@@ -769,16 +769,16 @@ Phase exit: demo/runtime does not depend on one lucky uninterrupted session. (P-
 ### P-26.01 — Establish latency/token/sandbox-cost measurement
 Status: DONE (IMPLEMENTED_AND_TESTED in Batch B; `TelemetryCollector` measures wall-clock phase latency, prompt/completion/cached tokens, sandbox durations, and enforces zero-cost reporting; tested in `tests/performance/test_performance_routing.py`)
 ### P-26.02 — Compare eligible Nemotron models for Builder workload
-Status: DONE (IMPLEMENTED_AND_TESTED in Batch B; `BuilderModelBenchmark` evaluates candidate generation metrics offline; live Nebius execution held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`; tested in `tests/performance/test_performance_routing.py`)
+Status: SURGICALLY_REPAIRED (restricted models to verified provider models `nvidia/Nemotron-3_5-Lightning` and catalog `nvidia/nemotron-3-super-120b-a12b`; unsupported models fail closed with UnsupportedModelError; live Nebius execution held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`; tested in `tests/performance/test_performance_routing.py`)
 ### P-26.03 — Compare eligible model strategy for Verifier/witness workload
 Status: DONE (IMPLEMENTED_AND_TESTED in Batch B; `VerifierStrategyBenchmark` evaluates assertion density, vacuity rejection, and counterfactual sensitivity; tested in `tests/performance/test_performance_routing.py`)
 ### P-26.04 — Add routing only when quality/cost evidence supports it
-Status: DONE (IMPLEMENTED_AND_TESTED in Batch B; `ModelRouter` maps workload risk tier, change class, and reasoning needs to optimal models and verifier strategies; tested in `tests/performance/test_performance_routing.py`)
+Status: SURGICALLY_REPAIRED (eliminated ungrounded empirical optimality claims and unverified models; ModelRouter preserves verified provider configuration `nvidia/Nemotron-3_5-Lightning` and maps risk/change classes to verifier strategies; fail-closed on unverified models or unmeasured optimality claims; tested in `tests/performance/test_performance_routing.py`)
 ### P-26.05 — Benchmark causal verification overhead
 Status: DONE (IMPLEMENTED_AND_TESTED in Batch B; `compute_causal_overhead` computes causal multiplier (2.0x–3.4x) against baseline CI; tested in `tests/performance/test_performance_routing.py`)
 ### P-26.06 — Publish honest performance/cost limits
-Status: DONE (IMPLEMENTED_AND_TESTED in Batch B; published in `docs/PERFORMANCE_LIMITS.md`)
-Phase exit: technical implementation is efficient, not merely elaborate. (P-26 phase IMPLEMENTED_AND_TESTED in Batch B; HARD STOP: BATCH B COMPLETE; P-27+ REMAIN STRICTLY CLOSED / UNOPENED / NOT AUTHORIZED).
+Status: SURGICALLY_REPAIRED (published honest limits in `docs/PERFORMANCE_LIMITS.md`, clearly categorizing measured local values, illustrative formulas, platform facts, and NOT_RUN live benchmarks)
+Phase exit: technical implementation is efficient, not merely elaborate. (P-26 phase SURGICALLY_REPAIRED; HARD STOP: BATCH B COMPLETE; P-27+ REMAIN STRICTLY CLOSED / UNOPENED / NOT AUTHORIZED).
 
 ---
 

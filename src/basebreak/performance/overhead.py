@@ -2,7 +2,9 @@
 
 P-26.05: Causal verification overhead benchmark relative to baseline.
 Measures the computational and latency multiplier of full 3-world causal verification
-(BASE + CANDIDATE + COUNTERFACTUAL + RECONCILIATION) relative to traditional single-run CI.
+(BASE + CANDIDATE + COUNTERFACTUAL + RECONCILIATION) relative to traditional single-run CI
+using provided execution timings (measured locally or derived from sandbox metrics).
+Does NOT represent unverified live cloud claims.
 """
 
 from __future__ import annotations

@@ -108,11 +108,11 @@ Judge claim:
 - P-21 (API / Orchestrator Surface, P-21.01 through P-21.05) is independently VERIFIED / PASS under Batch A.
 - Dedicated Batch A Adversarial Matrix: 18 tests passing in `tests/causal/test_batch_a_adversarial_matrix.py`.
 - P-22 (Judge & Operator UI, P-22.01 through P-22.06) is IMPLEMENTED_AND_TESTED under operator-authorized Batch B (8 tests passing in `tests/ui/test_ui.py`).
-- P-23 (Killer Demo Fixture & Live Scenario, P-23.01 through P-23.08) is IMPLEMENTED_AND_TESTED under operator-authorized Batch B (10 tests passing in `tests/demo/test_p23_killer_demo.py`; live tasks P-23.04–P-23.07 held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`).
+- P-23 (Killer Demo Fixture & Live Scenario, P-23.01 through P-23.08) is SURGICALLY_REPAIRED under Batch B Evidence-Integrity Repair (12 tests passing in `tests/demo/test_p23_killer_demo.py`; genuine 3-world subprocess execution for ResetVault with BASE=1, CANDIDATE=0, COUNTERFACTUAL=1; unmaterialized upstream replay fails closed with BLOCKED; live tasks P-23.04–P-23.07 held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`).
 - P-24 (Adversarial Verification Campaign, P-24.01 through P-24.08) is IMPLEMENTED_AND_TESTED under operator-authorized Batch B (8 tests passing in `tests/security/test_p24_adversarial_campaign.py`).
 - P-25 (Reliability, Recovery & Idempotency, P-25.01 through P-25.06) is IMPLEMENTED_AND_TESTED under operator-authorized Batch B (6 tests passing in `tests/recovery/test_recovery.py`).
-- P-26 (Performance, Cost & Model Routing, P-26.01 through P-26.06) is IMPLEMENTED_AND_TESTED under operator-authorized Batch B (5 tests passing in `tests/performance/test_performance_routing.py`; documentation in `docs/PERFORMANCE_LIMITS.md`).
-- BATCH B COMPLETE across all 34 micro-tasks.
+- P-26 (Performance, Cost & Model Routing, P-26.01 through P-26.06) is SURGICALLY_REPAIRED under Batch B Evidence-Integrity Repair (8 tests passing in `tests/performance/test_performance_routing.py`; model router and benchmarks strictly bound to verified provider models `nvidia/Nemotron-3_5-Lightning` and catalog `nvidia/nemotron-3-super-120b-a12b`; fail-closed negative tests; documentation in `docs/PERFORMANCE_LIMITS.md`).
+- BATCH B CONSOLIDATED EVIDENCE-INTEGRITY REPAIR COMPLETE.
 - P-27+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED AFTER P-26.
 
 ## Last independently VERIFIED baseline SHA
@@ -126,21 +126,21 @@ Judge claim:
 No cost-consuming external API calls were executed without explicit authorization. Zero-personal-spend ($0.00) policy preserved.
 
 ### Current QA candidate
-Batch B candidate — P-22 through P-26 Consolidated Execution:
+Batch B Candidate — Consolidated Evidence-Integrity Repaired:
 1. P-22 Judge & Operator UI: single-screen responsive dashboard, 3-world comparison, timeline, receipt viewer, honest NOT_RUN badges, dark mode, zero fake animations.
-2. P-23 Killer Demo: synthetic ResetVault repository reproducing single-use token defect on BASE=FAIL, CANDIDATE=PASS, COUNTERFACTUAL=FAIL; upstream `pallets/click` boolean parsing fix replay.
+2. P-23 Killer Demo (Surgically Repaired): genuine 3-world isolated disk materializations and separate real subprocess executions for ResetVault with BASE=1 (FAIL), CANDIDATE=0 (PASS), COUNTERFACTUAL=1 (FAIL); ordinary tests green 4/4; source and patch digests captured; P-23.08 unmaterialized upstream replay fails closed with BLOCKED; materialized replay executes real subprocesses; fabricated replays rejected.
 3. P-24 Adversarial Campaign: 8 attack vectors exercised and defeated (test deletion, contract tampering, hidden witness discovery, prompt injection, evidence tampering, moving ref race, sandbox timeout anti-collapse, vacuous witness rejection).
 4. P-25 Reliability & Recovery: atomic durable run state manager, model retry with backoff and budget floor check, sandbox loss discrimination, idempotency engine, CAS evidence deduplication, fresh-process recovery.
-5. P-26 Performance & Routing: telemetry collector, builder/verifier benchmarks, deterministic model router, causal overhead multiplier calculator (2.0x–3.4x), performance limits document.
-6. Full regression suite: 2,648 passed, 2 skipped, 10 deselected. Whole-repo ruff and mypy 100% clean.
+5. P-26 Performance & Routing (Surgically Repaired): model router and benchmarks strictly bound to verified provider models (`nvidia/Nemotron-3_5-Lightning`), fail-closed on unverified models and unmeasured optimality claims, negative tests added, performance limits document with clear local vs illustrative vs platform vs NOT_RUN classification.
+6. Full regression suite: 2,653 passed, 2 skipped, 10 deselected. Whole-repo ruff and mypy 100% clean.
 
 ### Active exact task
-Batch B execution complete across P-22.01 through P-26.06. Awaiting external independent QA evaluation. P-27+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-26.
+Batch B Consolidated Evidence-Integrity Repair complete across P-23 and P-26. Awaiting external independent QA evaluation. P-27+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-26.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are independently VERIFIED / PASS. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. Batch A (P-17 through P-21) is independently VERIFIED / PASS. Batch B (P-22 through P-26) is IMPLEMENTED_AND_TESTED. P-27+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are independently VERIFIED / PASS. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. Batch A (P-17 through P-21) is independently VERIFIED / PASS. Batch B (P-22 through P-26) is SURGICALLY_REPAIRED and awaiting independent QA. P-27+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Provider neutrality:** All domain contracts, evidence primitives, security policies, UI components, benchmarks, router, and recovery primitives remain strictly provider-neutral.
-- **Batch authorization & hard stop:** Batch B (P-22 through P-26) completed sequentially. P-27+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-26.
+- **Batch authorization & hard stop:** Batch B repairs completed. P-27+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-26.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);

@@ -13,6 +13,12 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any
 
+from basebreak.adapters.nebius.models import (
+    CANDIDATE_DEEP_MODEL,
+    DEFAULT_PRIMARY_MODEL,
+)
+from basebreak.performance.router import UnsupportedModelError
+
 
 class BenchmarkExecutionMode(str, Enum):
     """Execution modality for benchmarks."""
@@ -57,10 +63,9 @@ class BuilderModelBenchmark:
     - avg_latency_ms
     """
 
-    SUPPORTED_MODELS = (
-        "nvidia/llama-3.1-nemotron-70b-instruct",
-        "meta-llama/llama-3.3-70b-instruct",
-        "deepseek-ai/deepseek-r1",
+    SUPPORTED_MODELS: tuple[str, ...] = (
+        DEFAULT_PRIMARY_MODEL,
+        CANDIDATE_DEEP_MODEL,
     )
 
     @classmethod
@@ -69,10 +74,14 @@ class BuilderModelBenchmark:
         model_id: str,
         synthetic_evaluations: list[dict[str, Any]],
     ) -> BenchmarkRunResult:
-        """Evaluate builder model performance using offline recorded/fixture trials."""
+        """Evaluate builder model performance using offline recorded/fixture trials.
+
+        Does NOT represent live Nebius Token Factory performance.
+        """
         if model_id not in cls.SUPPORTED_MODELS:
-            raise ValueError(
-                f"Unsupported model: {model_id}. Must be one of {cls.SUPPORTED_MODELS}"
+            raise UnsupportedModelError(
+                f"Unsupported model: '{model_id}'. "
+                f"Must be one of verified models: {cls.SUPPORTED_MODELS}"
             )
 
         total = len(synthetic_evaluations)
@@ -83,7 +92,7 @@ class BuilderModelBenchmark:
                 mode=BenchmarkExecutionMode.OFFLINE_FIXTURE,
                 status=BenchmarkStatus.COMPLETED,
                 metrics={"sample_count": 0},
-                notes="No evaluation cases provided",
+                notes="Offline synthetic fixture evaluation only. No evaluation cases provided.",
             )
 
         syntax_ok = sum(1 for e in synthetic_evaluations if e.get("valid_syntax", False))
@@ -109,19 +118,30 @@ class BuilderModelBenchmark:
             mode=BenchmarkExecutionMode.OFFLINE_FIXTURE,
             status=BenchmarkStatus.COMPLETED,
             metrics=metrics,
-            notes="Offline fixture benchmark",
+            notes=(
+                "Offline synthetic fixture evaluation only. "
+                "Does NOT represent live Nebius performance."
+            ),
         )
 
     @classmethod
     def get_live_benchmark_status(cls, model_id: str) -> BenchmarkRunResult:
         """Return factual status for live Nebius model benchmark (unauthorized -> NOT_RUN)."""
+        if model_id not in cls.SUPPORTED_MODELS:
+            raise UnsupportedModelError(
+                f"Model '{model_id}' is not an eligible provider model: {cls.SUPPORTED_MODELS}"
+            )
+
         return BenchmarkRunResult(
             benchmark_id="builder-workload-comparison",
             target_name=model_id,
             mode=BenchmarkExecutionMode.LIVE_EXTERNAL,
             status=BenchmarkStatus.OPERATOR_AUTHORIZATION_REQUIRED,
             metrics={},
-            notes="Live execution held at OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN.",
+            notes=(
+                "Live execution held at OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN "
+                "under Zero-Cost Law."
+            ),
         )
 
 
@@ -154,6 +174,9 @@ class VerifierStrategyBenchmark:
                 mode=BenchmarkExecutionMode.OFFLINE_FIXTURE,
                 status=BenchmarkStatus.COMPLETED,
                 metrics={"sample_count": 0},
+                notes=(
+                    f"Offline fixture evaluation for strategy {strategy_name}. No trials provided."
+                ),
             )
 
         valid_witnesses = sum(1 for t in trials if t.get("vacuity_status") == "VALID")
@@ -175,5 +198,5 @@ class VerifierStrategyBenchmark:
             mode=BenchmarkExecutionMode.OFFLINE_FIXTURE,
             status=BenchmarkStatus.COMPLETED,
             metrics=metrics,
-            notes=f"Evaluation of verifier strategy {strategy_name}",
+            notes=f"Offline synthetic fixture evaluation of verifier strategy {strategy_name}.",
         )
