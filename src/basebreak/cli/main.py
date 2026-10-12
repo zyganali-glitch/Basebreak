@@ -15,6 +15,7 @@ from basebreak.cli.commands import (
     run_evidence_command,
     run_receipt_command,
     run_status_command,
+    run_ui_command,
     run_verify_command,
 )
 from basebreak.cli.config import BasebreakConfig, ConfigValidationError
@@ -107,6 +108,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--format", choices=["text", "json"], default="text", help="Output format"
     )
 
+    # ui (P-22)
+    ui_p = subparsers.add_parser("ui", help="Render or export judge verification dashboard HTML")
+    ui_p.add_argument("run_id", help="Verification run ID")
+    ui_p.add_argument("--output", help="Save rendered HTML to file")
+
     return parser
 
 
@@ -140,6 +146,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_evidence_command(args, config)
     elif args.command == "receipt":
         return run_receipt_command(args, config)
+    elif args.command == "ui":
+        return run_ui_command(args, config)
     elif args.command == "config":
         return run_config_command(args, config)
     else:

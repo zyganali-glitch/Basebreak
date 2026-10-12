@@ -274,3 +274,41 @@ def run_config_command(args: argparse.Namespace, config: BasebreakConfig) -> int
         _print_safe("\n".join(lines))
 
     return 0
+
+
+def run_ui_command(args: argparse.Namespace, config: BasebreakConfig) -> int:
+    """Render or export judge verification dashboard HTML (P-22)."""
+    run_id = getattr(args, "run_id", None)
+    output_path = getattr(args, "output", None)
+    runs_dir = Path(getattr(args, "runs_dir", None) or config.runs_dir)
+    persistence = RunPersistenceManager(runs_dir)
+
+    if not run_id:
+        _print_safe("Error: run_id is required for ui command.", file=sys.stderr)
+        return 2
+
+    try:
+        run_meta = persistence.load_metadata(run_id)
+        receipt = persistence.load_receipt(run_id)
+    except (RunNotFoundError, RunCorruptError) as exc:
+        _print_safe(f"Error: {exc}", file=sys.stderr)
+        return 2
+
+    if not receipt:
+        _print_safe(f"Error: Public receipt for run '{run_id}' not found.", file=sys.stderr)
+        return 2
+
+    from basebreak.ui.renderer import render_judge_ui_html
+
+    html_content = render_judge_ui_html(receipt, run_meta=run_meta)
+
+    if output_path:
+        out_file = Path(output_path)
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        safe_html, _ = redact_text(html_content)
+        out_file.write_text(safe_html, encoding="utf-8")
+        _print_safe(f"Judge UI exported successfully to {out_file}")
+    else:
+        _print_safe(html_content)
+
+    return 0

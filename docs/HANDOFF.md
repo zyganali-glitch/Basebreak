@@ -102,42 +102,45 @@ Judge claim:
 - P-16.04 (Prevent web evidence from overriding deterministic execution) is independently VERIFIED / PASS at SHA `a37a15af52266bac477ffd343ecd333630ae4b77`.
 - P-16.05 (Execute real runtime Tavily path if bonus remains strategically justified) is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN.
 - P-17 (Causal Coverage & Multi-Requirement Reconciliation, P-17.01 through P-17.05) is SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (14 tests passing; caller-controlled exclusions blocked, dict assertions validated).
-- P-18 (Verification Receipt, P-18.01 through P-18.05) is SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (9 tests passing; full receipt digest validated, cross-bindings and causal consistency strictly enforced, is_authoritative promotion blocked).
-- P-19 (CLI & Developer Workflow, P-19.01 through P-19.05) is SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (19 tests passing; fabricated success removed, arbitrary/nonexistent repos return honest BLOCKED exit 2, trusted demo pipeline uses real pytest subprocesses).
-- P-20 (GitHub Integration, P-20.01 through P-20.05) is SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (16 tests passing; fake mutation simulation removed, write requests fail closed, dry-run defaults to DRY_RUN_PREVIEW with mutation_performed=False).
-- P-21 (API / Orchestrator Surface, P-21.01 through P-21.05) is SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (10 tests passing; fail-closed Bearer auth on POST /v1/runs, 413 payload limit, genuine factual SSE events only, durable disk idempotency with threading locks).
-- Dedicated Batch A Adversarial Matrix: 18 tests passing in `tests/causal/test_batch_a_adversarial_matrix.py` certifying all 18 mandatory adversarial criteria.
-- P-22+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED AFTER P-21.
+- P-18 (Verification Receipt, P-18.01 through P-18.05) is independently VERIFIED / PASS under Batch A.
+- P-19 (CLI & Developer Workflow, P-19.01 through P-19.05) is independently VERIFIED / PASS under Batch A.
+- P-20 (GitHub Integration, P-20.01 through P-20.05) is independently VERIFIED / PASS under Batch A.
+- P-21 (API / Orchestrator Surface, P-21.01 through P-21.05) is independently VERIFIED / PASS under Batch A.
+- Dedicated Batch A Adversarial Matrix: 18 tests passing in `tests/causal/test_batch_a_adversarial_matrix.py`.
+- P-22 (Judge & Operator UI, P-22.01 through P-22.06) is IMPLEMENTED_AND_TESTED under operator-authorized Batch B (8 tests passing in `tests/ui/test_ui.py`).
+- P-23 (Killer Demo Fixture & Live Scenario, P-23.01 through P-23.08) is IMPLEMENTED_AND_TESTED under operator-authorized Batch B (10 tests passing in `tests/demo/test_p23_killer_demo.py`; live tasks P-23.04–P-23.07 held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`).
+- P-24 (Adversarial Verification Campaign, P-24.01 through P-24.08) is IMPLEMENTED_AND_TESTED under operator-authorized Batch B (8 tests passing in `tests/security/test_p24_adversarial_campaign.py`).
+- P-25 (Reliability, Recovery & Idempotency, P-25.01 through P-25.06) is IMPLEMENTED_AND_TESTED under operator-authorized Batch B (6 tests passing in `tests/recovery/test_recovery.py`).
+- P-26 (Performance, Cost & Model Routing, P-26.01 through P-26.06) is IMPLEMENTED_AND_TESTED under operator-authorized Batch B (5 tests passing in `tests/performance/test_performance_routing.py`; documentation in `docs/PERFORMANCE_LIMITS.md`).
+- BATCH B COMPLETE across all 34 micro-tasks.
+- P-27+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED AFTER P-26.
 
 ## Last independently VERIFIED baseline SHA
-`a37a15af52266bac477ffd343ecd333630ae4b77` (independently VERIFIED / PASS at P-16.01–P-16.04).
-Prior LIVE_NEBIUS-tested implementation SHA: `62b24c69a819c0ddcf15b455a237568059949107` (P-14 live closure).
+`6506d8719b6642f9a1713c3501a200d4e84812e6` (independently VERIFIED / PASS for Batch A at commit `fix: eliminate mutable global trust-anchor defect in authority root`).
 
 ## Blocking live gate vs active task
 
 ### Blocking live gate
-P-16.05 live Tavily execution remains held strictly at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. No real Tavily API call was executed. A stored preflight observation does not certify current execution authority; required current grounding must remain BLOCKED when trustworthy provider/runtime authority is absent. P-16.05 is not a prerequisite for provider-neutral Batch A (P-17–P-21) execution.
+- P-16.05 live Tavily execution remains held strictly at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+- P-23.04 through P-23.07 live Nebius sandbox verification steps remain held strictly at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+No cost-consuming external API calls were executed without explicit authorization. Zero-personal-spend ($0.00) policy preserved.
 
 ### Current QA candidate
-Batch A candidate — P-17 through P-21 Production Verifier Trust Anchor Closure & Mutable Global Trust-Anchor Repair completed. Addressed signing-isolation, caller-controlled trust-root substitution, and mutable global trust-anchor defects:
-1. Eliminated the hardcoded/shared production signing secret completely; separated privileged attestation issuance (`_PrivilegedVerifierSigner`) from unprivileged verification (`VerifierAuthorityRoot`).
-2. Production signing authority is restricted to the isolated verifier execution boundary (`TrustedVerifierWorker`) via pinned 2048-bit RSA key architecture.
-3. Enforced a non-substitutable production verification trust anchor in `verify_trusted_production_evidence()`: production evidence acceptance strictly uses the pinned canonical verifier public-key identity.
-4. Any caller-supplied substitute `VerifierAuthorityRoot` (custom modulus/exponent, ephemeral keypair) or caller-created worker is strictly rejected (`is_canonical_anchor == False -> return False`).
-5. Preserved ephemeral signing and verification helpers for fixture-level cryptographic unit tests (`ephemeral_root.verify_production_attestation(...)` passes in isolation), while strictly preventing their results from conferring authoritative production coverage (`verify_trusted_production_evidence(...)` returns `False`, `compute_causal_coverage(...)` returns `verified_count == 0` and `INCONCLUSIVE`).
-6. Mandatory adversarial regression tests reproduce the exact attack: ephemeral keypair, valid frozen BUG_FIX contract, fabricated execution facts, and substitution attempts via `verifier_authority=attacker_root`, `verifier_authority=attacker_worker.authority_root`, and `verifier_authority=attacker_worker`, all yielding `verified_count == 0` and `INCONCLUSIVE`.
-7. Full regression suite (2,612 passed, 2 skipped, 10 deselected) and dedicated trust bridge acceptance tests (14 passed, 1 skipped) pass cleanly.
-8. Repaired mutable global trust-anchor defect: `get_default_verifier_authority_root()` returns fresh unpollutable instances and `verify_trusted_production_evidence()` strictly binds to the pinned canonical verification key, ensuring `object.__setattr__()` mutations on returned roots cannot alter production verification.
+Batch B candidate — P-22 through P-26 Consolidated Execution:
+1. P-22 Judge & Operator UI: single-screen responsive dashboard, 3-world comparison, timeline, receipt viewer, honest NOT_RUN badges, dark mode, zero fake animations.
+2. P-23 Killer Demo: synthetic ResetVault repository reproducing single-use token defect on BASE=FAIL, CANDIDATE=PASS, COUNTERFACTUAL=FAIL; upstream `pallets/click` boolean parsing fix replay.
+3. P-24 Adversarial Campaign: 8 attack vectors exercised and defeated (test deletion, contract tampering, hidden witness discovery, prompt injection, evidence tampering, moving ref race, sandbox timeout anti-collapse, vacuous witness rejection).
+4. P-25 Reliability & Recovery: atomic durable run state manager, model retry with backoff and budget floor check, sandbox loss discrimination, idempotency engine, CAS evidence deduplication, fresh-process recovery.
+5. P-26 Performance & Routing: telemetry collector, builder/verifier benchmarks, deterministic model router, causal overhead multiplier calculator (2.0x–3.4x), performance limits document.
+6. Full regression suite: 2,648 passed, 2 skipped, 10 deselected. Whole-repo ruff and mypy 100% clean.
 
 ### Active exact task
-P-17–P-21 Mutable Global Trust Anchor Repair completed. Awaiting independent QA review. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
+Batch B execution complete across P-22.01 through P-26.06. Awaiting external independent QA evaluation. P-27+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-26.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are independently VERIFIED / PASS. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. P-17 through P-21 are REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN.
-- **Provider neutrality:** All domain contracts, evidence primitives, security primitives, Contract Compiler core, Builder primitives, Verifier primitives, Causal primitives, Causal Slice contracts, Change-Semantics verifiers, Sealed Repair Loop primitives, Risk-Adaptive Verification Budget primitives, Grounding primitives, Causal Coverage primitives, Public Receipt primitives, CLI tools, GitHub integration, and API orchestrator remain strictly provider-neutral with zero provider-specific identifiers.
-- **Phase status:** P-00 through P-15 phases are independently CLOSED / PASS. P-16 phase remains OPEN. P-17 through P-21 phases are SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE. P-22+ are strictly NOT AUTHORIZED / NOT_RUN.
-- **Batch authorization & hard stop:** Batch A (P-17 through P-21) completed sequentially. P-22+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-21.
-- **Not authorized / forbidden:** P-22+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are independently VERIFIED / PASS. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. Batch A (P-17 through P-21) is independently VERIFIED / PASS. Batch B (P-22 through P-26) is IMPLEMENTED_AND_TESTED. P-27+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Provider neutrality:** All domain contracts, evidence primitives, security policies, UI components, benchmarks, router, and recovery primitives remain strictly provider-neutral.
+- **Batch authorization & hard stop:** Batch B (P-22 through P-26) completed sequentially. P-27+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-26.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -155,8 +158,8 @@ P-17–P-21 Mutable Global Trust Anchor Repair completed. Awaiting independent Q
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit consolidated Batch A surgical repair execution report to external QA authority.
+1. Submit consolidated Batch B execution report to external QA authority.
 2. Await independent QA evaluation.
-3. Enforce hard stop after P-21; do not activate P-22+.
+3. Enforce hard stop after P-26; do not activate P-27+.
 
 

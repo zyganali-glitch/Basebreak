@@ -20,6 +20,7 @@ from basebreak.api.store import ApiRunStore, IdempotencyConflictError
 _RUN_ID_ROUTE_PATTERN = re.compile(
     r"^/v1/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?P<subpath>/evidence|/receipt|/events)?/?$"
 )
+_JUDGE_UI_ROUTE_PATTERN = re.compile(r"^/(?:judge|ui)(?:/(?P<run_id>[A-Za-z0-9_.-]+))?/?$")
 
 
 MAX_REQUEST_BODY_BYTES: int = 1024 * 1024  # 1 MB
@@ -45,6 +46,19 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
     def _send_error(self, status_code: int, message: str) -> None:
         """Send structured JSON error."""
         self._send_json(status_code, {"error": message, "status_code": status_code})
+
+    def _send_html(self, status_code: int, html_content: str) -> None:
+        """Send HTML response with secret redaction and headers."""
+        from basebreak.security.secret_policy import redact_text
+
+        safe_html, _ = redact_text(html_content)
+        body_bytes = safe_html.encode("utf-8")
+        self.send_response(status_code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body_bytes)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(body_bytes)
 
     def _check_auth(self, *, is_execution: bool = False) -> bool:
         """Verify authorization header with fail-closed enforcement for execution."""
@@ -118,6 +132,50 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
 
         parsed_url = urlparse(self.path)
         path = parsed_url.path
+
+        # Handle Judge & Operator UI routes (P-22)
+        ui_match = _JUDGE_UI_ROUTE_PATTERN.match(path)
+        if ui_match or path == "/":
+            import html as py_html
+
+            from basebreak.ui.renderer import render_judge_ui_html
+
+            ui_run_id = ui_match.group("run_id") if ui_match else None
+            if not ui_run_id:
+                runs = self.store.list_runs()
+                if runs:
+                    ui_run_id = runs[-1]
+
+            if not ui_run_id:
+                self._send_html(
+                    200,
+                    "<!DOCTYPE html><html><head><title>Basebreak Judge UI</title></head>"
+                    "<body style='font-family: sans-serif; background: #0f172a; "
+                    "color: #fff; padding: 2rem;'>"
+                    "<h1>Basebreak Verification Runtime</h1>"
+                    "<p style='color: #38bdf8;'>“If the patch matters, the base must break.”</p>"
+                    "<p style='color: #94a3b8;'>No verification runs recorded yet in store.</p>"
+                    "</body></html>",
+                )
+                return
+
+            run_meta = self.store.get_run(ui_run_id)
+            receipt = self.store.get_receipt(ui_run_id)
+            if not run_meta or not receipt:
+                self._send_html(
+                    404,
+                    "<!DOCTYPE html><html><head><title>Run Not Found</title></head>"
+                    "<body style='font-family: sans-serif; background: #0f172a; "
+                    "color: #fff; padding: 2rem;'>"
+                    f"<h1>Run '{py_html.escape(ui_run_id)}' Not Found</h1>"
+                    "<p style='color: #ef4444;'>No verified public receipt recorded.</p>"
+                    "</body></html>",
+                )
+                return
+
+            rendered = render_judge_ui_html(receipt, run_meta=run_meta)
+            self._send_html(200, rendered)
+            return
 
         match = _RUN_ID_ROUTE_PATTERN.match(path)
         if not match:

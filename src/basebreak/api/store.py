@@ -103,6 +103,10 @@ class ApiRunStore:
         """Get event stream for a run."""
         return self._events.get(run_id, [])
 
+    def list_runs(self) -> list[str]:
+        """List all stored run IDs."""
+        return self.persistence.list_runs()
+
     def create_or_get_run(
         self,
         request: RunCreateRequest,
