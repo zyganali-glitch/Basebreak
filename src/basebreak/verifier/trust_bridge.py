@@ -613,8 +613,17 @@ _GLOBAL_AUTHORITY_ROOT = VerifierAuthorityRoot()
 
 
 def get_default_verifier_authority_root() -> VerifierAuthorityRoot:
-    """Return the canonical verifier authority root for independent verification."""
-    return _GLOBAL_AUTHORITY_ROOT
+    """Return the canonical verifier authority root for independent verification.
+
+    Returns a fresh VerifierAuthorityRoot instance bound to the pinned canonical
+    verification parameters to prevent in-process object mutation attacks from
+    affecting other verifier callers or subsequent verification.
+    """
+    return VerifierAuthorityRoot(
+        modulus=PINNED_VERIFIER_MODULUS,
+        exponent=PINNED_VERIFIER_EXPONENT,
+        authorized_issuers=AUTHORIZED_ISSUER_IDS,
+    )
 
 
 def verify_trusted_production_evidence(
@@ -632,6 +641,8 @@ def verify_trusted_production_evidence(
     Enforces a non-substitutable production verification trust anchor. Caller-supplied
     substitute authority roots, custom modulus/exponent, ephemeral keypairs, or
     caller-created workers are rejected and can never replace the canonical anchor.
+    Production verification strictly binds to the pinned canonical verifier key,
+    preventing any caller-mutated objects from altering the verification public key.
     """
     effective_att = attestation
     if effective_att is None and receipt is not None:
@@ -650,7 +661,11 @@ def verify_trusted_production_evidence(
         elif not isinstance(verifier_authority, TrustedWitnessVault):
             return False
 
-    canonical_root = get_default_verifier_authority_root()
+    canonical_root = VerifierAuthorityRoot(
+        modulus=PINNED_VERIFIER_MODULUS,
+        exponent=PINNED_VERIFIER_EXPONENT,
+        authorized_issuers=AUTHORIZED_ISSUER_IDS,
+    )
     return canonical_root.verify_production_attestation(
         attestation=effective_att,
         receipt=receipt,

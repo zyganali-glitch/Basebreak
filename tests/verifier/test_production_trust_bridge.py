@@ -1074,3 +1074,153 @@ class TestProductionVerifierTrustBridge:
                 materializer=object(),
                 vault=vault,
             )
+
+    def test_mutable_global_trust_anchor_mutation_attack_rejected(self) -> None:
+        """Mandatory adversarial regression: Mutated root cannot hijack verification.
+
+        Reproduces the exact mutable global trust-anchor attack:
+        1. Obtain get_default_verifier_authority_root().
+        2. Create an attacker-owned ephemeral RSA keypair.
+        3. Attempt to replace the returned root's modulus/exponent using object.__setattr__().
+        4. Without any real sandbox execution, construct a signed fabricated
+           LIVE_NEBIUS BASE=FAIL / CANDIDATE=PASS receipt.
+        5. Call verify_trusted_production_evidence(receipt=...) with no supplied authority.
+        6. Call compute_causal_coverage() with that receipt and an accepted caller-owned
+           TrustedWitnessVault.
+
+        Required invariants:
+        - Production verification returns False.
+        - verified_count == 0.
+        - Overall verdict is not VERIFIED (evaluates to INCONCLUSIVE).
+        - Mutating one publicly returned root does not affect subsequent canonical verification.
+        - Ephemeral keypair isolation tests and trusted signer remain functional.
+        - Global state restored cleanly.
+        """
+        from basebreak.verifier import trust_bridge
+
+        saved_global_modulus = trust_bridge._GLOBAL_AUTHORITY_ROOT.modulus
+        saved_global_exponent = trust_bridge._GLOBAL_AUTHORITY_ROOT.exponent
+        saved_global_issuers = trust_bridge._GLOBAL_AUTHORITY_ROOT.authorized_issuers
+
+        try:
+            # 1. Obtain get_default_verifier_authority_root()
+            root = get_default_verifier_authority_root()
+            assert root.is_canonical_anchor is True
+            assert root.modulus == PINNED_VERIFIER_MODULUS
+            assert root.exponent == PINNED_VERIFIER_EXPONENT
+
+            # 2. Create attacker-owned ephemeral RSA keypair
+            attacker_signer, attacker_root = _PrivilegedVerifierSigner.create_ephemeral_pair()
+            assert not attacker_root.is_canonical_anchor
+
+            # 3. Attempt to replace the returned root's modulus/exponent using object.__setattr__()
+            object.__setattr__(root, "modulus", attacker_root.modulus)
+            object.__setattr__(root, "exponent", attacker_root.exponent)
+            assert root.modulus == attacker_root.modulus
+            assert root.exponent == attacker_root.exponent
+            assert root.is_canonical_anchor is False
+
+            # Also attempt to mutate module _GLOBAL_AUTHORITY_ROOT to simulate full attacker reach
+            object.__setattr__(
+                trust_bridge._GLOBAL_AUTHORITY_ROOT, "modulus", attacker_root.modulus
+            )
+            object.__setattr__(
+                trust_bridge._GLOBAL_AUTHORITY_ROOT, "exponent", attacker_root.exponent
+            )
+            assert trust_bridge._GLOBAL_AUTHORITY_ROOT.modulus == attacker_root.modulus
+
+            # 4. Without sandbox execution, construct signed fabricated LIVE_NEBIUS receipt
+            contract = _make_sample_contract(requirement_id="REQ-MUTATE-ATTACK")
+            base_fact, cand_fact = _make_production_facts()
+
+            attacker_attestation = attacker_signer.issue_production_attestation(
+                issuer_id=AUTHORIZED_NEBIUS_ISSUER_ID,
+                execution_origin=VerifierExecutionOrigin.NEBIUS_TOKEN_FACTORY_SANDBOX.value,
+                requirement_id="REQ-MUTATE-ATTACK",
+                frozen_contract_digest="c" * 64,
+                witness_id="wit-mutate-attack",
+                witness_digest="a" * 64,
+                source_commit_id="1" * 40,
+                candidate_tree_digest="5" * 40,
+                base_outcome=WitnessOutcome.FAIL,
+                candidate_outcome=WitnessOutcome.PASS,
+                transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+                verdict=PreliminaryVerdict.VERIFIED,
+                provenance=EvidenceProvenance.LIVE_NEBIUS,
+                execution_command="pytest",
+                base_sandbox_id=base_fact.sandbox_id,
+                candidate_sandbox_id=cand_fact.sandbox_id,
+                base_exit_code=base_fact.exit_code,
+                candidate_exit_code=cand_fact.exit_code,
+                base_termination_status=base_fact.termination_status,
+                candidate_termination_status=cand_fact.termination_status,
+                base_result_digest=base_fact.result_digest,
+                candidate_result_digest=cand_fact.result_digest,
+            )
+
+            receipt = create_causal_receipt(
+                requirement_id="REQ-MUTATE-ATTACK",
+                frozen_contract_digest="c" * 64,
+                witness_id="wit-mutate-attack",
+                witness_digest="a" * 64,
+                lock_digest="d" * 64,
+                base_execution=base_fact,
+                candidate_execution=cand_fact,
+                transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+                verdict=PreliminaryVerdict.VERIFIED,
+                provenance=EvidenceProvenance.LIVE_NEBIUS,
+                narrative="Fabricated LIVE_NEBIUS receipt from mutated root attack",
+                attestation=attacker_attestation,
+            )
+
+            # 5. Call verify_trusted_production_evidence(receipt=...) with no supplied authority
+            assert verify_trusted_production_evidence(receipt=receipt) is False
+
+            # Also verify with the mutated root explicitly passed as verifier_authority
+            assert (
+                verify_trusted_production_evidence(receipt=receipt, verifier_authority=root)
+                is False
+            )
+
+            # 6. Call compute_causal_coverage() with that receipt and accepted caller-owned vault
+            vault = TrustedWitnessVault()
+            cov = compute_causal_coverage(
+                frozen_contract=contract,
+                results={"REQ-MUTATE-ATTACK": receipt},
+                verifier_authority=vault,
+            )
+
+            # Required: production verification is False; verified_count == 0; not VERIFIED
+            assert cov.verified_count == 0
+            assert cov.overall_verdict != PreliminaryVerdict.VERIFIED
+            assert cov.overall_verdict == PreliminaryVerdict.INCONCLUSIVE
+            assert cov.inconclusive_count == 1
+            assert cov.is_fully_verified is False
+
+            # Verify mutating one returned root does not affect subsequent canonical verification
+            subsequent_root = get_default_verifier_authority_root()
+            assert subsequent_root.modulus == PINNED_VERIFIER_MODULUS
+            assert subsequent_root.exponent == PINNED_VERIFIER_EXPONENT
+            assert subsequent_root.is_canonical_anchor is True
+            assert (
+                verify_trusted_production_evidence(
+                    receipt=receipt, verifier_authority=subsequent_root
+                )
+                is False
+            )
+
+            # Verify that ephemeral root verifies in isolation only
+            assert (
+                attacker_root.verify_production_attestation(attacker_attestation, receipt=receipt)
+                is True
+            )
+
+        finally:
+            # Restore any global state altered by tests
+            object.__setattr__(trust_bridge._GLOBAL_AUTHORITY_ROOT, "modulus", saved_global_modulus)
+            object.__setattr__(
+                trust_bridge._GLOBAL_AUTHORITY_ROOT, "exponent", saved_global_exponent
+            )
+            object.__setattr__(
+                trust_bridge._GLOBAL_AUTHORITY_ROOT, "authorized_issuers", saved_global_issuers
+            )
