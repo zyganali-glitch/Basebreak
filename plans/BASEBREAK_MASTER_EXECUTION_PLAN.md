@@ -722,7 +722,7 @@ Status: OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN (prerequisites and interfaces 
 ### P-23.07 — Produce real LIVE_NEBIUS receipt and UI playback
 Status: OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN (prerequisites and interfaces validated offline; held under Zero-Cost Law pending explicit operator credit authorization)
 ### P-23.08 — Reproduce one immutable real-world open-source bug-fix replay with upstream SHA and license provenance
-Status: SURGICALLY_REPAIRED (eliminated stand-in logic and fabricated exit codes; unmaterialized historical replay fails closed with PreliminaryVerdict.BLOCKED under honest evidence integrity rules; materialized replay executes genuine subprocesses; rejects fabricated replay claims; tested in `tests/demo/test_p23_killer_demo.py`)
+Status: SURGICALLY_REPAIRED (pinned to genuine upstream pallets/click commits d036881798e34289a49b18a5c550c7cf687e5a7a and 70689853e39c30e36eb0d83d586cc914a74db9d3 for PR #3865 under BSD-3-Clause; enforced deterministic source attestation rejecting arbitrary directory substitutions; enforced isolated credential boundary stripping host secrets; enforced witness outcome normalization preventing arbitrary errors from manufacturing BASE=FAIL; unmaterialized replay and execution without safe sandbox fail closed with PreliminaryVerdict.BLOCKED; synthetic reconstructions held strictly FIXTURE; 28 tests in `tests/demo/test_p23_killer_demo.py`)
 Phase exit: competition killer demo is real, deterministic and repeatable. (P-23 offline tasks SURGICALLY_REPAIRED; live tasks P-23.04–P-23.07 held at OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN).
 
 ---

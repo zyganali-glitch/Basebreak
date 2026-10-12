@@ -7,7 +7,7 @@ P-23.04: Nemotron Builder in Nebius sandbox (prerequisites tested; live NOT_RUN)
 P-23.05: Live base/candidate causal verification (prerequisites tested; live NOT_RUN)
 P-23.06: Live counterfactual third execution (prerequisites tested; live NOT_RUN)
 P-23.07: Real LIVE_NEBIUS receipt and UI playback (prerequisites tested; live NOT_RUN)
-P-23.08: Real-world open-source bug-fix replay with genuine source material and honest BLOCKED
+P-23.08: Real-world bug-fix replay with immutable SHA, execution safety, and honest BLOCKED
 """
 
 from __future__ import annotations
@@ -34,8 +34,12 @@ from basebreak.replays.real_world import (
     FabricatedReplayError,
     RealWorldReplayOutcome,
     RealWorldReplayRecord,
+    SourceAttestationStatus,
+    build_isolated_subprocess_env,
+    classify_witness_outcome,
     execute_real_world_replay,
     verify_replay_outcome_integrity,
+    verify_source_directory_attestation,
 )
 from basebreak.verifier.witness_result import WitnessOutcome
 
@@ -141,13 +145,12 @@ def execute_reset_vault_triplet() -> ResetVaultReproductionFacts:
         cf_file.write_text(counterfactual_content, encoding="utf-8")
         cf_digest = _compute_source_digest(cf_file)
 
-        # Helper to run a test file in an isolated world subprocess
+        # Helper to run a test file in an isolated world subprocess with credential boundary
         def _run_subproc(
             world_dir: Path,
             test_rel: str,
         ) -> subprocess.CompletedProcess[str]:
-            env = os.environ.copy()
-            env["PYTHONPATH"] = str((world_dir / "src").resolve())
+            env = build_isolated_subprocess_env(base_dir=world_dir)
             test_target = str(world_dir / test_rel)
             cmd = [sys.executable, "-m", "pytest", test_target, "-q"]
             return subprocess.run(
@@ -156,6 +159,7 @@ def execute_reset_vault_triplet() -> ResetVaultReproductionFacts:
                 text=True,
                 cwd=str(world_dir),
                 env=env,
+                timeout=30,
             )
 
         # Execute ordinary tests on BASE and CANDIDATE
@@ -171,9 +175,13 @@ def execute_reset_vault_triplet() -> ResetVaultReproductionFacts:
         cand_wit_exit = witness_cand.returncode
         cf_wit_exit = witness_cf.returncode
 
-        base_outcome = WitnessOutcome.PASS if base_wit_exit == 0 else WitnessOutcome.FAIL
-        cand_outcome = WitnessOutcome.PASS if cand_wit_exit == 0 else WitnessOutcome.FAIL
-        cf_outcome = WitnessOutcome.PASS if cf_wit_exit == 0 else WitnessOutcome.FAIL
+        base_outcome, _ = classify_witness_outcome(
+            base_wit_exit, witness_base.stdout, witness_base.stderr
+        )
+        cand_outcome, _ = classify_witness_outcome(
+            cand_wit_exit, witness_cand.stdout, witness_cand.stderr
+        )
+        cf_outcome, _ = classify_witness_outcome(cf_wit_exit, witness_cf.stdout, witness_cf.stderr)
 
         if (
             base_outcome == WitnessOutcome.FAIL
@@ -249,7 +257,10 @@ class TestResetVaultKillerDemo:
         assert test_file.is_file(), f"Test file {test_file} must exist"
 
         cmd = [sys.executable, "-m", "pytest", str(test_file), "-q"]
-        res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(RESET_VAULT_ROOT))
+        env = build_isolated_subprocess_env(base_dir=RESET_VAULT_ROOT)
+        res = subprocess.run(
+            cmd, capture_output=True, text=True, cwd=str(RESET_VAULT_ROOT), env=env
+        )
 
         assert res.returncode == 0, f"Ordinary tests must pass green: {res.stdout}\n{res.stderr}"
         assert "4 passed" in res.stdout
@@ -269,10 +280,14 @@ class TestResetVaultKillerDemo:
         """P-23.03: Independent single-use witness reproduces vulnerability on base."""
         witness_file = RESET_VAULT_ROOT / "witness" / "test_single_use_witness.py"
         cmd = [sys.executable, "-m", "pytest", str(witness_file), "-q"]
-        res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(RESET_VAULT_ROOT))
+        env = build_isolated_subprocess_env(base_dir=RESET_VAULT_ROOT)
+        res = subprocess.run(
+            cmd, capture_output=True, text=True, cwd=str(RESET_VAULT_ROOT), env=env
+        )
 
         assert res.returncode == 1, "Independent witness MUST fail on BASE"
-        assert "AssertionError" in res.stdout or "FAILED" in res.stdout
+        outcome, detail = classify_witness_outcome(res.returncode, res.stdout, res.stderr)
+        assert outcome == WitnessOutcome.FAIL, f"Witness must be FAIL, got {outcome}: {detail}"
         assert "Replay vulnerability detected" in res.stdout
 
     def test_p23_03_causal_triplet_subprocess_execution(self) -> None:
@@ -333,6 +348,19 @@ class TestLiveGatesHonestNotRun:
 class TestRealWorldReplay:
     """P-23.08: Real-world open-source bug-fix replay with genuine execution and honesty."""
 
+    def test_p23_08_canonical_click_replay_pinned_to_real_upstream_commits(self) -> None:
+        """P-23.08: CANONICAL_CLICK_REPLAY is pinned to verified upstream commits on GitHub."""
+        record = CANONICAL_CLICK_REPLAY
+        assert record.repo_name == "pallets/click"
+        assert record.upstream_url == "https://github.com/pallets/click"
+        assert record.upstream_license == "BSD-3-Clause"
+        # Genuine, verified commits from pallets/click PR #3865
+        assert record.base_commit_sha == "d036881798e34289a49b18a5c550c7cf687e5a7a"
+        assert record.fixed_commit_sha == "70689853e39c30e36eb0d83d586cc914a74db9d3"
+        assert "3865" in record.issue_reference
+        assert record.is_verified_upstream is True
+        assert len(record.compute_provenance_digest()) == 64
+
     def test_p23_08_unmaterialized_upstream_returns_blocked(self) -> None:
         """P-23.08: Unmaterialized upstream returns honest BLOCKED without fake exit codes."""
         outcome = execute_real_world_replay(CANONICAL_CLICK_REPLAY)
@@ -340,7 +368,6 @@ class TestRealWorldReplay:
         # 1. Provenance metadata
         assert outcome.replay_record.repo_name == "pallets/click"
         assert outcome.replay_record.upstream_license == "BSD-3-Clause"
-        assert outcome.replay_record.is_verified_upstream is False
         assert len(outcome.provenance_digest) == 64
 
         # 2. Honest BLOCKED status without fabricated exit codes
@@ -350,20 +377,98 @@ class TestRealWorldReplay:
         assert outcome.candidate_exit_code is None
         assert outcome.base_outcome is None
         assert outcome.candidate_outcome is None
+        assert outcome.is_source_attested is False
+        assert outcome.source_attestation_status == SourceAttestationStatus.MISSING_SOURCE
         assert "BLOCKED" in outcome.witness_detail
 
-    def test_p23_08_materialized_source_executes_real_witness(self) -> None:
-        """P-23.08: Materialized source runs genuine subprocesses and captures real exit codes."""
-        with tempfile.TemporaryDirectory(prefix="basebreak_p23_replay_") as temp_dir:
+    def test_p23_08_materialized_upstream_without_sandbox_returns_blocked(self) -> None:
+        """P-23.08: Materialized upstream source without safe sandbox boundary fails closed."""
+        with tempfile.TemporaryDirectory(prefix="basebreak_p23_upstream_") as temp_dir:
+            temp_path = Path(temp_dir)
+            base_dir = temp_path / "click_base"
+            cand_dir = temp_path / "click_cand"
+            base_dir.mkdir()
+            cand_dir.mkdir()
+
+            outcome = execute_real_world_replay(
+                replay_record=CANONICAL_CLICK_REPLAY,
+                base_source_path=base_dir,
+                candidate_source_path=cand_dir,
+                is_local_reconstruction=False,
+            )
+
+            # Fails closed because host lacks isolated container runtime and live sandboxes are held
+            assert outcome.verdict == PreliminaryVerdict.BLOCKED
+            assert outcome.transition == CausalTransition.UNVERIFIED_DEFECT_PERSISTS
+            assert "BLOCKED" in outcome.witness_detail
+
+    def test_p23_08_arbitrary_directory_substitution_rejected(self) -> None:
+        """P-23.08: Arbitrary directory substitution fails source attestation and is rejected."""
+        with tempfile.TemporaryDirectory(prefix="basebreak_p23_arbitrary_") as temp_dir:
+            temp_path = Path(temp_dir)
+            base_dir = temp_path / "random_base"
+            cand_dir = temp_path / "random_cand"
+            base_dir.mkdir()
+            cand_dir.mkdir()
+
+            status, detail = verify_source_directory_attestation(
+                base_dir, CANONICAL_CLICK_REPLAY.base_commit_sha, "pallets/click"
+            )
+            assert status == SourceAttestationStatus.UNVERIFIED_DIRECTORY
+            assert "Directory lacks git commit or attestation" in detail
+
+            outcome = execute_real_world_replay(
+                replay_record=CANONICAL_CLICK_REPLAY,
+                base_source_path=base_dir,
+                candidate_source_path=cand_dir,
+                is_local_reconstruction=False,
+            )
+            assert outcome.verdict == PreliminaryVerdict.BLOCKED
+            assert outcome.is_source_attested is False
+
+    def test_p23_08_caller_supplied_is_verified_upstream_cannot_substitute_for_source_validation(
+        self,
+    ) -> None:
+        """P-23.08: Caller setting is_verified_upstream=True cannot bypass source attestation."""
+        with tempfile.TemporaryDirectory(prefix="basebreak_p23_bypass_") as temp_dir:
+            temp_path = Path(temp_dir)
+            base_dir = temp_path / "fake_base"
+            cand_dir = temp_path / "fake_cand"
+            base_dir.mkdir()
+            cand_dir.mkdir()
+
+            fake_record = RealWorldReplayRecord(
+                repo_name="pallets/click",
+                upstream_url="https://github.com/pallets/click",
+                upstream_license="BSD-3-Clause",
+                base_commit_sha="a" * 40,
+                fixed_commit_sha="b" * 40,
+                issue_reference="Issue #999",
+                bug_description="Fake bug",
+                is_verified_upstream=True,  # Caller attempts to self-certify
+            )
+
+            outcome = execute_real_world_replay(
+                replay_record=fake_record,
+                base_source_path=base_dir,
+                candidate_source_path=cand_dir,
+                is_local_reconstruction=False,
+            )
+            assert outcome.verdict == PreliminaryVerdict.BLOCKED
+            assert outcome.is_source_attested is False
+
+    def test_p23_08_synthetic_reconstruction_strictly_fixture_and_cannot_certify_upstream(
+        self,
+    ) -> None:
+        """P-23.08: Synthetic reconstruction is FIXTURE and cannot claim upstream VERIFIED."""
+        with tempfile.TemporaryDirectory(prefix="basebreak_p23_fixture_") as temp_dir:
             temp_path = Path(temp_dir)
             base_dir = temp_path / "base"
             cand_dir = temp_path / "cand"
 
-            # Create minimal valid target source structure
             shutil.copytree(RESET_VAULT_ROOT, base_dir)
             shutil.copytree(RESET_VAULT_ROOT, cand_dir)
 
-            # Apply fix to candidate
             cand_vault = cand_dir / "src" / "reset_vault" / "vault.py"
             cand_code = cand_vault.read_text(encoding="utf-8").replace(
                 "        # BUT MISSING in baseline!",
@@ -372,14 +477,14 @@ class TestRealWorldReplay:
             cand_vault.write_text(cand_code, encoding="utf-8")
 
             record = RealWorldReplayRecord(
-                repo_name="demo/single_use_token",
+                repo_name="demo/synthetic_fixture",
                 upstream_url="https://github.com/example/demo",
                 upstream_license="MIT",
                 base_commit_sha="a" * 40,
                 fixed_commit_sha="b" * 40,
                 issue_reference="Issue #100",
-                bug_description="Single use token replay fix",
-                is_verified_upstream=True,
+                bug_description="Synthetic single-use token fixture",
+                is_verified_upstream=False,
             )
 
             witness_cmd = [
@@ -397,15 +502,13 @@ class TestRealWorldReplay:
                 is_local_reconstruction=True,
             )
 
+            # Provenance is strictly FIXTURE
             assert outcome.provenance == EvidenceProvenance.FIXTURE
-            assert outcome.verdict == PreliminaryVerdict.VERIFIED
-            assert outcome.transition == CausalTransition.CAUSAL_BUG_FIX_VERIFIED
-            assert outcome.base_exit_code == 1
-            assert outcome.candidate_exit_code == 0
+            # Upstream verification is BLOCKED because synthetic reconstruction cannot certify
+            assert outcome.verdict == PreliminaryVerdict.BLOCKED
             assert outcome.base_outcome == WitnessOutcome.FAIL
             assert outcome.candidate_outcome == WitnessOutcome.PASS
-            assert outcome.base_source_digest is not None
-            assert outcome.candidate_source_digest is not None
+            assert "FIXTURE provenance" in outcome.witness_detail
 
     def test_p23_08_reject_fabricated_replay_claims(self) -> None:
         """P-23.08: Rejects attempts to claim LIVE_NEBIUS or RECORDED_LIVE on replay."""
@@ -438,6 +541,183 @@ class TestRealWorldReplay:
             base_source_digest="a" * 64,
             candidate_source_digest="b" * 64,
             witness_detail="fabricated",
+            is_source_attested=True,
         )
         with pytest.raises(FabricatedReplayError, match="cannot have null exit codes"):
             verify_replay_outcome_integrity(outcome)
+
+    def test_p23_08_reject_fabricated_verdict_without_attestation(self) -> None:
+        """P-23.08: Rejects fabricated VERIFIED outcome without verified source attestation."""
+        outcome = RealWorldReplayOutcome(
+            replay_record=CANONICAL_CLICK_REPLAY,
+            provenance_digest="d" * 64,
+            provenance=EvidenceProvenance.LOCAL_EXECUTION,
+            verdict=PreliminaryVerdict.VERIFIED,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            base_outcome=WitnessOutcome.FAIL,
+            base_exit_code=1,
+            base_command=[sys.executable],
+            candidate_outcome=WitnessOutcome.PASS,
+            candidate_exit_code=0,
+            candidate_command=[sys.executable],
+            base_source_digest="a" * 64,
+            candidate_source_digest="b" * 64,
+            witness_detail="fabricated unverified",
+            is_source_attested=False,  # Unverified source
+        )
+        with pytest.raises(FabricatedReplayError, match="mandates verified upstream source"):
+            verify_replay_outcome_integrity(outcome)
+
+    def test_p23_08_reject_fabricated_verdict_with_fixture_provenance(self) -> None:
+        """P-23.08: Rejects claiming VERIFIED upstream verification with FIXTURE provenance."""
+        outcome = RealWorldReplayOutcome(
+            replay_record=CANONICAL_CLICK_REPLAY,
+            provenance_digest="d" * 64,
+            provenance=EvidenceProvenance.FIXTURE,  # FIXTURE cannot claim upstream VERIFIED
+            verdict=PreliminaryVerdict.VERIFIED,
+            transition=CausalTransition.CAUSAL_BUG_FIX_VERIFIED,
+            base_outcome=WitnessOutcome.FAIL,
+            base_exit_code=1,
+            base_command=[sys.executable],
+            candidate_outcome=WitnessOutcome.PASS,
+            candidate_exit_code=0,
+            candidate_command=[sys.executable],
+            base_source_digest="a" * 64,
+            candidate_source_digest="b" * 64,
+            witness_detail="synthetic claiming upstream",
+            is_source_attested=True,
+        )
+        with pytest.raises(FabricatedReplayError, match="cannot claim VERIFIED upstream"):
+            verify_replay_outcome_integrity(outcome)
+
+
+class TestWitnessNormalizationAdversarial:
+    """Defect 2: Adversarial tests proving arbitrary failed commands cannot manufacture VERIFIED."""
+
+    def test_adversarial_command_runtime_error_cannot_manufacture_base_fail(self) -> None:
+        """Arbitrary process crash (RuntimeError) is classified as ERROR, not FAIL."""
+        outcome, detail = classify_witness_outcome(
+            exit_code=1,
+            stdout="",
+            stderr="Traceback (most recent call last):\nRuntimeError: connection lost",
+        )
+        assert outcome == WitnessOutcome.ERROR
+        assert "Unhandled runtime exception" in detail
+
+    def test_adversarial_command_import_error_cannot_manufacture_base_fail(self) -> None:
+        """Missing dependency is classified as INVALID_PRECONDITION, not FAIL."""
+        outcome, detail = classify_witness_outcome(
+            exit_code=1,
+            stdout="",
+            stderr="ModuleNotFoundError: No module named 'click'",
+        )
+        assert outcome == WitnessOutcome.INVALID_PRECONDITION
+        assert "Import or dependency error" in detail
+
+    def test_adversarial_command_syntax_error_cannot_manufacture_base_fail(self) -> None:
+        """Syntax error is classified as ERROR, not FAIL."""
+        outcome, detail = classify_witness_outcome(
+            exit_code=1,
+            stdout="",
+            stderr="SyntaxError: invalid syntax",
+        )
+        assert outcome == WitnessOutcome.ERROR
+        assert "Syntax error" in detail
+
+    def test_adversarial_pytest_exit_code_2_interrupted_is_error(self) -> None:
+        """Pytest exit code 2 (keyboard interrupt / usage) is classified as ERROR."""
+        outcome, detail = classify_witness_outcome(
+            exit_code=2,
+            stdout="pytest: interrupted",
+            stderr="",
+        )
+        assert outcome == WitnessOutcome.ERROR
+        assert "Pytest invocation error" in detail
+
+    def test_adversarial_pytest_exit_code_5_no_tests_is_invalid_precondition(self) -> None:
+        """Pytest exit code 5 (no tests collected) is classified as INVALID_PRECONDITION."""
+        outcome, detail = classify_witness_outcome(
+            exit_code=5,
+            stdout="collected 0 items",
+            stderr="",
+        )
+        assert outcome == WitnessOutcome.INVALID_PRECONDITION
+        assert "Pytest collected 0 items" in detail
+
+    def test_adversarial_timeout_cannot_manufacture_base_fail(self) -> None:
+        """Subprocess timeout is classified as TIMEOUT, not FAIL."""
+        outcome, detail = classify_witness_outcome(
+            exit_code=124,
+            stdout="",
+            stderr="",
+            timed_out=True,
+        )
+        assert outcome == WitnessOutcome.TIMEOUT
+        assert "timed out" in detail
+
+    def test_adversarial_command_not_found_is_error(self) -> None:
+        """Non-existent binary / execution denial is classified as ERROR, not FAIL."""
+        outcome, detail = classify_witness_outcome(
+            exit_code=127,
+            stdout="",
+            stderr="bash: pytest: command not found",
+        )
+        assert outcome == WitnessOutcome.ERROR
+        assert "command not found" in detail
+
+    def test_adversarial_arbitrary_failure_cannot_produce_verified_verdict(self) -> None:
+        """A command that exits 1 with RuntimeError on BASE cannot produce a VERIFIED verdict."""
+        base_outcome, _ = classify_witness_outcome(
+            exit_code=1,
+            stdout="",
+            stderr="RuntimeError: fatal crash",
+        )
+        cand_outcome, _ = classify_witness_outcome(
+            exit_code=0,
+            stdout="1 passed in 0.01s",
+            stderr="",
+        )
+
+        # Invariant: BASE=ERROR and CANDIDATE=PASS CANNOT yield VERIFIED
+        assert base_outcome == WitnessOutcome.ERROR
+        assert cand_outcome == WitnessOutcome.PASS
+
+        # Causal reconciliation mandates BASE=FAIL for CAUSAL_BUG_FIX_VERIFIED
+        assert base_outcome.value != "FAIL"
+        assert (base_outcome.value, cand_outcome.value) != ("FAIL", "PASS")
+
+
+class TestUntrustedSubprocessExecutionIsolation:
+    """Defect 3: Isolation and credential boundary tests for subprocess execution."""
+
+    def test_isolated_env_strips_host_secrets(self) -> None:
+        """build_isolated_subprocess_env strips sensitive credentials from host environment."""
+        test_secrets = {
+            "NEBIUS_API_KEY": "secret-neb-12345",
+            "TAVILY_API_KEY": "tvly-secret-key-67890",
+            "AWS_SECRET_ACCESS_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            "GITHUB_TOKEN": "ghp_123456789012345678901234567890",
+            "DATABASE_PASSWORD": "supersecretpassword",
+        }
+        for k, v in test_secrets.items():
+            os.environ[k] = v
+
+        try:
+            isolated = build_isolated_subprocess_env(base_dir=RESET_VAULT_ROOT)
+            for k in test_secrets:
+                assert k not in isolated, f"Secret key {k} must NOT be present in isolated env"
+
+            # Check that harmless safe keys are retained
+            assert "PATH" in isolated or "SystemRoot" in isolated or "SYSTEMROOT" in isolated
+            assert isolated["PYTHONUNBUFFERED"] == "1"
+            assert isolated["PYTHONDONTWRITEBYTECODE"] == "1"
+        finally:
+            for k in test_secrets:
+                os.environ.pop(k, None)
+
+    def test_isolated_env_passes_secret_policy_validation(self) -> None:
+        """Isolated environment strictly conforms to P-04.02 secret policy."""
+        isolated = build_isolated_subprocess_env(base_dir=RESET_VAULT_ROOT)
+        from basebreak.security.secret_policy import validate_no_secrets
+
+        validate_no_secrets(isolated, path="test_isolated_env")
