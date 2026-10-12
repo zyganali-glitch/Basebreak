@@ -112,35 +112,39 @@ Judge claim:
 - P-24 (Adversarial Verification Campaign, P-24.01 through P-24.08) is IMPLEMENTED_AND_TESTED under operator-authorized Batch B (8 tests passing in `tests/security/test_p24_adversarial_campaign.py`).
 - P-25 (Reliability, Recovery & Idempotency, P-25.01 through P-25.06) is IMPLEMENTED_AND_TESTED under operator-authorized Batch B (6 tests passing in `tests/recovery/test_recovery.py`).
 - P-26 (Performance, Cost & Model Routing, P-26.01 through P-26.06) is SURGICALLY_REPAIRED under Batch B Evidence-Integrity Repair (8 tests passing in `tests/performance/test_performance_routing.py`; model router and benchmarks strictly bound to verified provider models `nvidia/Nemotron-3_5-Lightning` and catalog `nvidia/nemotron-3-super-120b-a12b`; fail-closed negative tests; documentation in `docs/PERFORMANCE_LIMITS.md`).
-- BATCH B CONSOLIDATED EVIDENCE-INTEGRITY REPAIR COMPLETE.
-- P-27+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED AFTER P-26.
+- BATCH B CONSOLIDATED EVIDENCE-INTEGRITY REPAIR independently VERIFIED / PASS at SHA `80b43b84014fa61b941c7ebcd87836a56dcd7c92`.
+- P-27 (Deployment Readiness, P-27.01 through P-27.06) is IMPLEMENTED_AND_TESTED under operator-authorized Batch C (P-27.01 eligible hosting path selected; P-27.02 rootless Dockerfile, readiness probe, and CLI serve packaged; P-27.03 public deployment configuration and Turkish operator guide prepared; P-27.04 health/version/SHA parity implemented; P-27.05 signed-out judge access implemented with zero secrets and authenticated mutations; P-27.03 and P-27.06 held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`; 15 tests passing in `tests/deployment/`).
+- P-28 (Product Design & Judge Comprehension, P-28.01 through P-28.06) is IMPLEMENTED_AND_TESTED under operator-authorized Batch C (P-28.01 30-second comprehension audit; P-28.02 memorable thesis and 'Why Green CI Lies' explainer card; P-28.03 3-world step tags and causal transition formula; P-28.04 distinct high-contrast views for all 5 verdict states; P-28.05 WCAG AA/AAA contrast math, keyboard accessibility, viewport responsiveness, HTML escaping, and digest wrapping; P-28.06 documentation consolidation; 7 tests passing in `tests/ui/test_judge_comprehension_accessibility.py`).
+- BATCH C CONSOLIDATED EXECUTION COMPLETE ACROSS P-27 AND P-28.
+- P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED AFTER P-28.
 
 ## Last independently VERIFIED baseline SHA
-`6506d8719b6642f9a1713c3501a200d4e84812e6` (independently VERIFIED / PASS for Batch A at commit `fix: eliminate mutable global trust-anchor defect in authority root`).
+`80b43b84014fa61b941c7ebcd87836a56dcd7c92` (independently accepted for Batch B implementation and security-boundary repair).
 
 ## Blocking live gate vs active task
 
 ### Blocking live gate
 - P-16.05 live Tavily execution remains held strictly at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
 - P-23.04 through P-23.07 live Nebius sandbox verification steps remain held strictly at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
-No cost-consuming external API calls were executed without explicit authorization. Zero-personal-spend ($0.00) policy preserved.
+- P-23.08 genuine upstream click execution remains fail-closed at `PreliminaryVerdict.BLOCKED` pending integrated container sandbox runtime.
+- P-26.02 live model comparison remains held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+- P-27.03 public cloud deployment remains held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+- P-27.06 deployed live Nebius runtime proof remains held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+No cost-consuming external API calls or public deployments were executed without explicit authorization. Zero-personal-spend ($0.00) policy preserved.
 
 ### Current QA candidate
-Batch B Candidate — Consolidated Evidence-Integrity Repaired (P-23.08 Final Fail-Closed Boundary Closure):
-1. P-22 Judge & Operator UI: single-screen responsive dashboard, 3-world comparison, timeline, receipt viewer, honest NOT_RUN badges, dark mode, zero fake animations.
-2. P-23 Killer Demo (Final Fail-Closed Repaired): genuine 3-world isolated disk materializations and separate real subprocess executions for ResetVault with BASE=1 (FAIL), CANDIDATE=0 (PASS), COUNTERFACTUAL=1 (FAIL); ordinary tests green 4/4; source and patch digests captured; P-23.08 canonical click replay pinned to verified upstream commits d036881798e34289a49b18a5c550c7cf687e5a7a and 70689853e39c30e36eb0d83d586cc914a74db9d3 (PR #3865); unmaterialized replay fails closed with BLOCKED; docker availability mock removed so host execution is never authorized for untrusted upstream code; unsigned manifests and modified source with matching HEAD rejected via deterministic git attestation; exit 0 without recognized executed witness fails closed as INVALID_PRECONDITION; exit 1 with unrelated 'failed' text fails closed as ERROR; credential boundary strips host secrets; 35 tests passing.
-3. P-24 Adversarial Campaign: 8 attack vectors exercised and defeated (test deletion, contract tampering, hidden witness discovery, prompt injection, evidence tampering, moving ref race, sandbox timeout anti-collapse, vacuous witness rejection).
-4. P-25 Reliability & Recovery: atomic durable run state manager, model retry with backoff and budget floor check, sandbox loss discrimination, idempotency engine, CAS evidence deduplication, fresh-process recovery.
-5. P-26 Performance & Routing (Surgically Repaired): model router and benchmarks strictly bound to verified provider models (`nvidia/Nemotron-3_5-Lightning`), fail-closed on unverified models and unmeasured optimality claims, negative tests added, performance limits document with clear local vs illustrative vs platform vs NOT_RUN classification.
-6. Full regression suite: 2,676 passed, 2 skipped, 10 deselected. Whole-repo ruff and mypy 100% clean.
+Batch C Candidate — Deployment Readiness & Judge Product Experience:
+1. P-27 Deployment Readiness: rootless reproducible `Dockerfile` (UID 10001), `docker-compose.yml`, health readiness probe (`/health`), CLI `basebreak serve`, health/source SHA parity verification, and secure dual-mode signed-out judge access (read-only published runs accessible without credentials; mutations and private runs strictly reject unauthenticated requests with 401). Public cloud deployment and live deployed runtime proof held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+2. P-28 Judge Product Experience: 30-second comprehension audit, prominent thesis anchor, plain-English "Why Ordinary Green CI Lies • What Basebreak Proves" card, 3-world step tags (`[1. Reproduce Defect on Base]`, `[2. Confirm Fix on Candidate]`, `[3. Prove Delta Necessity]`), explicit causal transition formula, distinct honest status banners for all 5 verdict states (`VERIFIED`, `CONTRADICTED`, `INCONCLUSIVE`, `BLOCKED`, `NOT_RUN`), WCAG AA/AAA color contrast palette (> 4.5:1), `:focus-visible` keyboard accessibility, responsive viewport and grid layouts, and strict HTML escaping.
+3. Full regression suite: 22 new tests passing across `tests/deployment/` and `tests/ui/test_judge_comprehension_accessibility.py`.
 
 ### Active exact task
-Batch B Consolidated Evidence-Integrity Repair complete across P-23 and P-26. Awaiting external independent QA evaluation. P-27+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-26.
+Batch C Consolidated Execution complete across P-27 and P-28. Awaiting external independent QA evaluation. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-28.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-15 all tasks and phases are independently VERIFIED / PASS. P-16.01 through P-16.04 are independently VERIFIED / PASS. P-16.05 is OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. Batch A (P-17 through P-21) is independently VERIFIED / PASS. Batch B (P-22 through P-26) is SURGICALLY_REPAIRED and awaiting independent QA. P-27+ remain strictly NOT AUTHORIZED / NOT_RUN.
-- **Provider neutrality:** All domain contracts, evidence primitives, security policies, UI components, benchmarks, router, and recovery primitives remain strictly provider-neutral.
-- **Batch authorization & hard stop:** Batch B repairs completed. P-27+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-26.
+- **Task status:** P-00 through P-26 independently VERIFIED / PASS or accepted at baseline SHA `80b43b...`. P-16.05, P-23.04–P-23.07, P-26.02, P-27.03, P-27.06 held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. P-23.08 held fail-closed at `BLOCKED`. Batch C (P-27 and P-28) is IMPLEMENTED_AND_TESTED offline. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Provider neutrality:** All deployment packaging, health parity checks, signed-out judge access models, and UI components remain strictly provider-neutral.
+- **Batch authorization & hard stop:** Batch C completed. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-28.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -158,8 +162,8 @@ Batch B Consolidated Evidence-Integrity Repair complete across P-23 and P-26. Aw
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit consolidated Batch B execution report to external QA authority.
+1. Submit consolidated Batch C execution report to external QA authority.
 2. Await independent QA evaluation.
-3. Enforce hard stop after P-26; do not activate P-27+.
+3. Enforce hard stop after P-28; do not activate P-29+.
 
 

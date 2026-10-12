@@ -138,6 +138,50 @@ def render_judge_ui_html(
     sbx_count = data.cost_accounting["sandboxes_created"]
     cost_usd = data.cost_accounting["estimated_cost_usd"]
 
+    # Format distinct verdict banner (P-28.04)
+    v_upper = data.verdict.upper()
+    if "VERIFIED" in v_upper and "NOT" not in v_upper:
+        verdict_banner_html = (
+            '<div class="verdict-banner banner-verified" role="status">'
+            "<strong>CAUSAL VERIFICATION SUCCESS:</strong> "
+            "The patch was proved to cause the claimed behavioral fix. "
+            "Defect failed on Base, passed on Candidate, and re-failed "
+            "when the patch delta was subtracted."
+            "</div>"
+        )
+    elif "CONTRADICTED" in v_upper:
+        verdict_banner_html = (
+            '<div class="verdict-banner banner-contradicted" role="alert">'
+            "<strong>CAUSAL CONTRADICTION DETECTED:</strong> Causal invariant violated! "
+            "Base did not fail, or Candidate did not pass. Ordinary CI may have reported green, "
+            "but Basebreak caught the causal inconsistency!"
+            "</div>"
+        )
+    elif "INCONCLUSIVE" in v_upper:
+        verdict_banner_html = (
+            '<div class="verdict-banner banner-inconclusive" role="status">'
+            "<strong>INCONCLUSIVE EXECUTION:</strong> "
+            "Execution timed out or encountered infrastructure failure. "
+            "Under Basebreak anti-collapse laws, timeouts never count as passes or failures."
+            "</div>"
+        )
+    elif "BLOCKED" in v_upper:
+        verdict_banner_html = (
+            '<div class="verdict-banner banner-blocked" role="status">'
+            "<strong>EXECUTION BLOCKED:</strong> "
+            "Security policy, contract violation, moving symbolic git ref, "
+            "or budget floor stopped execution fail-closed."
+            "</div>"
+        )
+    else:
+        verdict_banner_html = (
+            '<div class="verdict-banner banner-not-run" role="status">'
+            "<strong>NOT_RUN / AWAITING EXECUTION:</strong> "
+            "Live external provider credentials or operator "
+            "credit authorization were not provided. Honest non-execution."
+            "</div>"
+        )
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -153,13 +197,17 @@ def render_judge_ui_html(
             --text-muted: #94a3b8;
             --border: #475569;
             --accent: #38bdf8;
-            --green: #22c55e;
-            --red: #ef4444;
-            --amber: #f59e0b;
-            --purple: #a855f7;
-            --blue: #3b82f6;
+            --green: #4ade80;
+            --red: #f87171;
+            --amber: #fbbf24;
+            --purple: #c084fc;
+            --blue: #60a5fa;
         }}
         * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        :focus-visible {{
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }}
         body {{
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background-color: var(--bg-primary);
@@ -214,17 +262,17 @@ def render_judge_ui_html(
             text-transform: uppercase;
         }}
         .badge-verified {{
-            background: rgba(34, 197, 94, 0.2);
+            background: rgba(74, 222, 128, 0.2);
             color: var(--green);
             border: 1px solid var(--green);
         }}
         .badge-contradicted {{
-            background: rgba(239, 68, 68, 0.2);
+            background: rgba(248, 113, 113, 0.2);
             color: var(--red);
             border: 1px solid var(--red);
         }}
         .badge-inconclusive {{
-            background: rgba(245, 158, 11, 0.2);
+            background: rgba(251, 191, 36, 0.2);
             color: var(--amber);
             border: 1px solid var(--amber);
         }}
@@ -234,12 +282,12 @@ def render_judge_ui_html(
             border: 1px solid var(--border);
         }}
         .badge-not-run {{
-            background: rgba(59, 130, 246, 0.2);
+            background: rgba(96, 165, 250, 0.2);
             color: var(--blue);
             border: 1px solid var(--blue);
         }}
         .badge-live {{
-            background: rgba(168, 85, 247, 0.2);
+            background: rgba(192, 132, 252, 0.2);
             color: var(--purple);
             border: 1px solid var(--purple);
         }}
@@ -258,8 +306,42 @@ def render_judge_ui_html(
             color: #94a3b8;
             border: 1px solid #475569;
         }}
-        .badge-valid {{ background: rgba(34, 197, 94, 0.2); color: var(--green); }}
-        .badge-invalid {{ background: rgba(239, 68, 68, 0.2); color: var(--red); }}
+        .badge-valid {{ background: rgba(74, 222, 128, 0.2); color: var(--green); }}
+        .badge-invalid {{ background: rgba(248, 113, 113, 0.2); color: var(--red); }}
+
+        .verdict-banner {{
+            padding: 0.9rem 1.25rem;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            border-width: 1px;
+            border-style: solid;
+        }}
+        .banner-verified {{
+            background: rgba(74, 222, 128, 0.12); border-color: var(--green); color: #dcfce7;
+        }}
+        .banner-contradicted {{
+            background: rgba(248, 113, 113, 0.12); border-color: var(--red); color: #fee2e2;
+        }}
+        .banner-inconclusive {{
+            background: rgba(251, 191, 36, 0.12); border-color: var(--amber); color: #fef3c7;
+        }}
+        .banner-blocked {{
+            background: rgba(148, 163, 184, 0.12); border-color: var(--border); color: #f1f5f9;
+        }}
+        .banner-not-run {{
+            background: rgba(96, 165, 250, 0.12); border-color: var(--blue); color: #dbeafe;
+        }}
+
+        .step-tag {{
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--accent);
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+            display: block;
+        }}
 
         .causal-grid {{
             display: grid;
@@ -318,6 +400,50 @@ def render_judge_ui_html(
             color: #fff;
         }}
 
+        .explainer-card {{
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.25rem;
+        }}
+        .explainer-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.25rem;
+            margin-top: 0.75rem;
+        }}
+        .explainer-col {{
+            background: var(--bg-card-alt);
+            border-radius: 8px;
+            padding: 1rem;
+        }}
+        .explainer-col.ci-col {{ border-left: 4px solid var(--amber); }}
+        .explainer-col.basebreak-col {{ border-left: 4px solid var(--green); }}
+        .explainer-p {{
+            font-size: 0.88rem;
+            color: var(--text-main);
+            margin-bottom: 0.5rem;
+        }}
+        .explainer-list {{
+            padding-left: 1.25rem;
+            font-size: 0.83rem;
+            color: var(--text-muted);
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }}
+        .explainer-list strong {{ color: var(--text-main); }}
+        .explainer-banner {{
+            margin-top: 1rem;
+            padding: 0.65rem 0.9rem;
+            background: #0b1329;
+            border: 1px solid var(--accent);
+            border-radius: 6px;
+            font-size: 0.88rem;
+            color: #fff;
+            text-align: center;
+        }}
+
         .timeline {{
             display: flex;
             flex-direction: column;
@@ -333,7 +459,7 @@ def render_judge_ui_html(
         .step-running {{ border-left-color: var(--amber); }}
         .step-blocked {{ border-left-color: var(--red); }}
         .step-not-run {{ border-left-color: var(--text-muted); opacity: 0.75; }}
-        .step-tampered {{ border-left-color: var(--red); background: rgba(239, 68, 68, 0.1); }}
+        .step-tampered {{ border-left-color: var(--red); background: rgba(248, 113, 113, 0.1); }}
 
         .step-header {{
             display: flex;
@@ -387,6 +513,8 @@ def render_judge_ui_html(
             font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
             font-size: 0.82rem;
             color: #e2e8f0;
+            word-break: break-all;
+            overflow-wrap: anywhere;
         }}
 
         .receipt-facts {{
@@ -400,8 +528,8 @@ def render_judge_ui_html(
             font-weight: 600;
         }}
         .not-run-box {{
-            background: rgba(239, 68, 68, 0.08);
-            border: 1px solid rgba(239, 68, 68, 0.3);
+            background: rgba(248, 113, 113, 0.08);
+            border: 1px solid rgba(248, 113, 113, 0.3);
             border-radius: 6px;
             padding: 0.75rem;
             margin-top: 0.75rem;
@@ -430,6 +558,8 @@ def render_judge_ui_html(
             border-radius: 6px;
             margin-top: 0.5rem;
             font-size: 0.85rem;
+            flex-wrap: wrap;
+            gap: 0.5rem;
         }}
         .disclaimer-box {{
             font-size: 0.75rem;
@@ -438,11 +568,20 @@ def render_judge_ui_html(
             padding-top: 0.75rem;
             text-align: center;
         }}
+
+        @media (max-width: 768px) {{
+            body {{ padding: 0.75rem; }}
+            .header {{ flex-direction: column; align-items: flex-start; }}
+            .verdict-box {{ align-items: flex-start; }}
+            .causal-grid {{ grid-template-columns: 1fr; }}
+            .worlds-container {{ grid-template-columns: 1fr; }}
+            .explainer-grid {{ grid-template-columns: 1fr; }}
+        }}
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- P-22.01: Single-Screen Causal Story Header -->
+        <!-- P-22.01 & P-28.02: Single-Screen Causal Story Header -->
         <header class="header">
             <div class="thesis-box">
                 <h1>BASEBREAK VERIFICATION RUNTIME</h1>
@@ -458,17 +597,22 @@ def render_judge_ui_html(
             </div>
         </header>
 
-        <!-- P-22.03: Three-World Behavioral Comparison -->
-        <section class="card">
-            <h2>Three-World Causal Verification</h2>
+        <!-- P-28.04: Distinct Honest Verdict Banner -->
+        {verdict_banner_html}
+
+        <!-- P-22.03 & P-28.03: Three-World Behavioral Comparison -->
+        <section class="card" aria-labelledby="causal-triplet-heading">
+            <h2 id="causal-triplet-heading">Three-World Causal Verification</h2>
             <div class="worlds-container">
                 <div class="world-box">
+                    <span class="step-tag">[1. Reproduce Defect on Base]</span>
                     <span class="world-title">1. Base (Clean Source)</span>
                     <span class="world-outcome text-fail">{data.base_world["outcome"]}</span>
                     <small>Exit: <code>{data.base_world["exit_code"]}</code></small>
                     <small>Sandbox: <code>{base_sbx_safe}</code></small>
                 </div>
                 <div class="world-box">
+                    <span class="step-tag">[2. Confirm Fix on Candidate]</span>
                     <span class="world-title">2. Candidate (With Patch)</span>
                     <span class="world-outcome text-verified">
                         {data.candidate_world["outcome"]}
@@ -477,6 +621,7 @@ def render_judge_ui_html(
                     <small>Sandbox: <code>{cand_sbx_safe}</code></small>
                 </div>
                 <div class="world-box">
+                    <span class="step-tag">[3. Prove Delta Necessity]</span>
                     <span class="world-title">3. Counterfactual (Delta Subtracted)</span>
                     <span class="world-outcome {cf_outcome_class}">
                         {data.counterfactual_world["outcome"]}
@@ -490,17 +635,60 @@ def render_judge_ui_html(
             </div>
         </section>
 
+        <!-- P-28.02: Why Green CI Lies vs. What Basebreak Proves -->
+        <section class="card explainer-card" aria-labelledby="why-basebreak-heading">
+            <h2 id="why-basebreak-heading">
+                Why Ordinary Green CI Lies &bull; What Basebreak Proves
+            </h2>
+            <div class="explainer-grid">
+                <div class="explainer-col ci-col">
+                    <h3>Ordinary Green CI</h3>
+                    <p class="explainer-p">
+                        <strong>Only tests Candidate:</strong>
+                        CI runs test suites against the new patch. If tests pass, it merges.
+                    </p>
+                    <ul class="explainer-list">
+                        <li>⚠️ <strong>The Fallacy:</strong> Green tests do NOT prove the fix.</li>
+                        <li>⚠️ <strong>Vacuous Tests:</strong>
+                            Tests may pass vacuously (trivial assertions, wrong precondition).</li>
+                        <li>⚠️ <strong>Unbroken Base:</strong>
+                            If test never failed on buggy Base, it proves nothing about patch!</li>
+                    </ul>
+                </div>
+                <div class="explainer-col basebreak-col">
+                    <h3>Basebreak Causal Verification</h3>
+                    <p class="explainer-p">
+                        <strong>Proves Causal Necessity:</strong>
+                        Executes identical witness across three isolated worlds.
+                    </p>
+                    <ul class="explainer-list">
+                        <li>✅ <strong>Base = FAIL:</strong>
+                            Witness verifies that defect genuinely broke the unpatched source.</li>
+                        <li>✅ <strong>Candidate = PASS:</strong>
+                            Identical witness confirms patch resolves the failure.</li>
+                        <li>✅ <strong>Counterfactual = FAIL:</strong>
+                            Subtracting patch delta causes failure to return.</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="explainer-banner">
+                <strong>Causal Invariant:</strong>
+                <code>BASE(FAIL) &rarr; CANDIDATE(PASS) &rarr; COUNTERFACTUAL(FAIL)</code>
+                &bull; Provenance: <strong>{prov_safe}</strong>
+            </div>
+        </section>
+
         <!-- P-22.02: Execution Stage Timeline & P-22.05: Receipt Inspection -->
         <div class="causal-grid">
-            <section class="card">
-                <h2>Execution Stage Timeline</h2>
+            <section class="card" aria-labelledby="timeline-heading">
+                <h2 id="timeline-heading">Execution Stage Timeline</h2>
                 <div class="timeline">
                     {timeline_html}
                 </div>
             </section>
 
-            <section class="card">
-                <h2>Cryptographic Public Receipt &amp; Integrity</h2>
+            <section class="card" aria-labelledby="receipt-heading">
+                <h2 id="receipt-heading">Cryptographic Public Receipt &amp; Integrity</h2>
                 <div class="receipt-facts">
                     <div><span class="label">Receipt Digest:</span>
                          <code>{receipt_digest_safe}</code></div>
@@ -526,18 +714,19 @@ def render_judge_ui_html(
         </div>
 
         <!-- P-22.04: Requirement -> Witness -> Causal-Slice Map -->
-        <section class="card">
-            <h2>Requirement &rarr; Sealed Witness &rarr; Causal-Slice Map</h2>
-            <div style="overflow-x: auto;">
+        <section class="card" aria-labelledby="req-map-heading">
+            <h2 id="req-map-heading">Requirement &rarr; Sealed Witness &rarr; Causal-Slice Map</h2>
+            <div style="overflow-x: auto;" role="region"
+                 aria-label="Scrollable requirements table" tabindex="0">
                 <table>
                     <thead>
                         <tr>
-                            <th>Requirement</th>
-                            <th>Class</th>
-                            <th>Description</th>
-                            <th>Causal Outcome</th>
-                            <th>Sealed Witness</th>
-                            <th>Causal Slice</th>
+                            <th scope="col">Requirement</th>
+                            <th scope="col">Class</th>
+                            <th scope="col">Description</th>
+                            <th scope="col">Causal Outcome</th>
+                            <th scope="col">Sealed Witness</th>
+                            <th scope="col">Causal Slice</th>
                         </tr>
                     </thead>
                     <tbody>

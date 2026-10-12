@@ -33,7 +33,9 @@ class ApiRunStore:
         self._runs: dict[str, dict[str, Any]] = {}
         self._idempotency_records: dict[str, dict[str, str]] = {}
         self._events: dict[str, list[ApiEvent]] = {}
+        self._published_runs: set[str] = set()
         self._idempotency_file = self.runs_dir / "idempotency.json"
+        self._published_file = self.runs_dir / "published_runs.json"
         self.recover_from_disk()
 
     @staticmethod
@@ -61,6 +63,8 @@ class ApiRunStore:
                     self._events[run_id] = [
                         ApiEvent.create("run.recovered", run_id, {"status": meta.get("status")})
                     ]
+                if meta.get("is_published") is True:
+                    self._published_runs.add(run_id)
                 recovered_count += 1
             except Exception:
                 continue
@@ -70,6 +74,16 @@ class ApiRunStore:
             try:
                 with self._idempotency_file.open("r", encoding="utf-8") as f:
                     self._idempotency_records = json.load(f)
+            except Exception:
+                pass
+
+        # Load durable published run records
+        if self._published_file.is_file():
+            try:
+                with self._published_file.open("r", encoding="utf-8") as f:
+                    pub_list = json.load(f)
+                    if isinstance(pub_list, list):
+                        self._published_runs.update(pub_list)
             except Exception:
                 pass
 
@@ -107,6 +121,46 @@ class ApiRunStore:
         """List all stored run IDs."""
         return self.persistence.list_runs()
 
+    def is_run_published(self, run_id: str) -> bool:
+        """Check whether a run is explicitly published for signed-out judge access."""
+        if run_id in self._published_runs:
+            return True
+        meta = self.get_run(run_id)
+        if meta and meta.get("is_published") is True:
+            self._published_runs.add(run_id)
+            return True
+        return False
+
+    def publish_run(self, run_id: str) -> bool:
+        """Explicitly publish a verified run for signed-out judge access."""
+        meta = self.get_run(run_id)
+        if meta is None:
+            return False
+
+        with self._lock:
+            meta["is_published"] = True
+            self._published_runs.add(run_id)
+            run_dir = self.persistence.get_run_dir(run_id)
+            meta_file = run_dir / "metadata.json"
+            if meta_file.is_file():
+                try:
+                    with meta_file.open("w", encoding="utf-8") as f:
+                        json.dump(meta, f, indent=2, sort_keys=True)
+                except Exception:
+                    pass
+            self._persist_published_records()
+            return True
+
+    def list_published_runs(self) -> list[str]:
+        """List all published run IDs available for signed-out judge inspection."""
+        return sorted(list(self._published_runs))
+
+    def _persist_published_records(self) -> None:
+        """Durable persistence of published run IDs."""
+        self.runs_dir.mkdir(parents=True, exist_ok=True)
+        with self._published_file.open("w", encoding="utf-8") as f:
+            json.dump(sorted(list(self._published_runs)), f, indent=2, sort_keys=True)
+
     def create_or_get_run(
         self,
         request: RunCreateRequest,
@@ -137,6 +191,8 @@ class ApiRunStore:
                     existing_run_id = record["run_id"]
                     existing_meta = self.get_run(existing_run_id)
                     if existing_meta is not None:
+                        if request.publish and not existing_meta.get("is_published"):
+                            self.publish_run(existing_run_id)
                         return existing_meta, False  # Replay existing run
 
             active_config = config or BasebreakConfig(runs_dir=str(self.runs_dir))
@@ -228,6 +284,11 @@ class ApiRunStore:
                 )
 
             self._events[run_id] = events
+
+            if request.publish:
+                res.metadata["is_published"] = True
+                self._published_runs.add(run_id)
+                self._persist_published_records()
 
             # Persist run state and events to disk
             self.persistence.save_run(

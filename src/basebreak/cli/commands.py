@@ -312,3 +312,52 @@ def run_ui_command(args: argparse.Namespace, config: BasebreakConfig) -> int:
         _print_safe(html_content)
 
     return 0
+
+
+def run_serve_command(args: argparse.Namespace, config: BasebreakConfig) -> int:
+    """Start Basebreak verification API & Judge UI server (P-27)."""
+    import os
+    import time
+
+    from basebreak.api.auth import ApiAuthManager
+    from basebreak.api.server import BasebreakApiServer
+    from basebreak.api.store import ApiRunStore
+
+    host = getattr(args, "host", None) or os.environ.get("BASEBREAK_HOST") or "127.0.0.1"
+    port_val = getattr(args, "port", None)
+    if port_val is None:
+        port_env = os.environ.get("PORT") or os.environ.get("BASEBREAK_PORT")
+        port = int(port_env) if port_env else 8080
+    else:
+        port = port_val
+
+    bearer_token = getattr(args, "bearer_token", None) or os.environ.get("BASEBREAK_BEARER_TOKEN")
+    runs_dir = getattr(args, "runs_dir", None) or config.runs_dir
+
+    store = ApiRunStore(runs_dir=runs_dir)
+    auth = ApiAuthManager(bearer_token=bearer_token)
+    server = BasebreakApiServer(store=store, auth=auth, host=host, port=port)
+
+    _print_safe(f"Starting Basebreak server on http://{host}:{port}")
+    _print_safe(f"Runs directory: {runs_dir}")
+    auth_label = (
+        "Protected (Bearer token configured)"
+        if auth.is_auth_configured
+        else "Read-Only Judge Mode (no Bearer token)"
+    )
+    _print_safe(f"Auth mode: {auth_label}")
+
+    server.start()
+    _print_safe(f"Basebreak server listening at {server.base_url}")
+    _print_safe("Press Ctrl+C to stop.")
+
+    try:
+        while True:
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        _print_safe("\nStopping server...")
+    finally:
+        server.stop()
+        _print_safe("Server stopped.")
+
+    return 0

@@ -14,6 +14,7 @@ from basebreak.cli.commands import (
     run_config_command,
     run_evidence_command,
     run_receipt_command,
+    run_serve_command,
     run_status_command,
     run_ui_command,
     run_verify_command,
@@ -113,6 +114,25 @@ def build_parser() -> argparse.ArgumentParser:
     ui_p.add_argument("run_id", help="Verification run ID")
     ui_p.add_argument("--output", help="Save rendered HTML to file")
 
+    # serve (P-27)
+    serve_p = subparsers.add_parser(
+        "serve", help="Start Basebreak verification API & Judge UI server"
+    )
+    serve_p.add_argument(
+        "--host", default=None, help="Bind host (default: 127.0.0.1 or BASEBREAK_HOST)"
+    )
+    serve_p.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Bind port (default: 8080 or PORT/BASEBREAK_PORT)",
+    )
+    serve_p.add_argument(
+        "--bearer-token",
+        default=None,
+        help="Optional Bearer token for execution endpoints (or BASEBREAK_BEARER_TOKEN)",
+    )
+
     return parser
 
 
@@ -150,6 +170,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_ui_command(args, config)
     elif args.command == "config":
         return run_config_command(args, config)
+    elif args.command == "serve":
+        return run_serve_command(args, config)
     else:
         _safe_stderr(f"Unknown command: {args.command}")
         return 2

@@ -22,6 +22,7 @@ class RunCreateRequest:
     change_class: str = "BUG_FIX"
     idempotency_key: str | None = None
     allow_live: bool = False
+    publish: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RunCreateRequest:
@@ -39,6 +40,7 @@ class RunCreateRequest:
             change_class=data.get("change_class", "BUG_FIX"),
             idempotency_key=data.get("idempotency_key"),
             allow_live=bool(data.get("allow_live", False)),
+            publish=bool(data.get("publish", False)),
         )
 
     def to_dict(self) -> dict[str, Any]:

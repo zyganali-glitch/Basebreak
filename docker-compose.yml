@@ -1,0 +1,29 @@
+services:
+  basebreak:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_COMMIT_SHA: "local-compose"
+    image: basebreak:latest
+    container_name: basebreak-runtime
+    ports:
+      - "8080:8080"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=8080
+      - BASEBREAK_HOST=0.0.0.0
+      - BASEBREAK_PORT=8080
+      - BASEBREAK_RUNS_DIR=/data/runs
+    volumes:
+      - basebreak_data:/data/runs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).getcode() == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  basebreak_data:

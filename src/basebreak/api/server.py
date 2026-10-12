@@ -10,6 +10,7 @@ import json
 import re
 import socketserver
 import threading
+import time
 from typing import Any
 from urllib.parse import urlparse
 
@@ -21,6 +22,8 @@ _RUN_ID_ROUTE_PATTERN = re.compile(
     r"^/v1/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?P<subpath>/evidence|/receipt|/events)?/?$"
 )
 _JUDGE_UI_ROUTE_PATTERN = re.compile(r"^/(?:judge|ui)(?:/(?P<run_id>[A-Za-z0-9_.-]+))?/?$")
+_HEALTH_ROUTE_PATTERN = re.compile(r"^/(?:v1/)?health(?:z)?/?$")
+_PUBLISH_ROUTE_PATTERN = re.compile(r"^/v1/runs/(?P<run_id>[A-Za-z0-9_.-]+)/publish/?$")
 
 
 MAX_REQUEST_BODY_BYTES: int = 1024 * 1024  # 1 MB
@@ -31,6 +34,7 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
 
     store: ApiRunStore
     auth: ApiAuthManager
+    server_start_time: float | None = None
 
     def _send_json(self, status_code: int, data: Any) -> None:
         """Send JSON response with secret redaction and headers."""
@@ -74,7 +78,19 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
             return
 
         parsed_url = urlparse(self.path)
-        if parsed_url.path == "/v1/runs":
+        path = parsed_url.path
+
+        pub_match = _PUBLISH_ROUTE_PATTERN.match(path)
+        if pub_match:
+            run_id = pub_match.group("run_id")
+            if not self.store.get_run(run_id):
+                self._send_error(404, f"Run '{run_id}' not found.")
+                return
+            self.store.publish_run(run_id)
+            self._send_json(200, {"run_id": run_id, "is_published": True})
+            return
+
+        if path == "/v1/runs":
             content_len = int(self.headers.get("Content-Length", 0))
             if content_len <= 0:
                 self._send_error(400, "Request body cannot be empty.")
@@ -127,13 +143,22 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         """Handle GET requests."""
-        if not self._check_auth(is_execution=False):
-            return
-
         parsed_url = urlparse(self.path)
         path = parsed_url.path
 
-        # Handle Judge & Operator UI routes (P-22)
+        # Handle health probes (P-27.02 & P-27.04: unauthenticated health readiness)
+        if _HEALTH_ROUTE_PATTERN.match(path):
+            from basebreak.deployment.health import get_health_status
+
+            published_cnt = len(self.store.list_published_runs())
+            self._send_json(200, get_health_status(self.server_start_time, published_cnt))
+            return
+
+        is_authed = self.auth.validate_auth_header(
+            self.headers.get("Authorization"), is_execution=False
+        )
+
+        # Handle Judge & Operator UI routes (P-22 & P-27.05)
         ui_match = _JUDGE_UI_ROUTE_PATTERN.match(path)
         if ui_match or path == "/":
             import html as py_html
@@ -142,9 +167,13 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
 
             ui_run_id = ui_match.group("run_id") if ui_match else None
             if not ui_run_id:
-                runs = self.store.list_runs()
-                if runs:
-                    ui_run_id = runs[-1]
+                published = self.store.list_published_runs()
+                if published:
+                    ui_run_id = published[-1]
+                elif is_authed:
+                    runs = self.store.list_runs()
+                    if runs:
+                        ui_run_id = runs[-1]
 
             if not ui_run_id:
                 self._send_html(
@@ -154,7 +183,23 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
                     "color: #fff; padding: 2rem;'>"
                     "<h1>Basebreak Verification Runtime</h1>"
                     "<p style='color: #38bdf8;'>“If the patch matters, the base must break.”</p>"
-                    "<p style='color: #94a3b8;'>No verification runs recorded yet in store.</p>"
+                    "<p style='color: #94a3b8;'>Signed-out judge access is active. "
+                    "No published verification runs recorded yet in store.</p>"
+                    "</body></html>",
+                )
+                return
+
+            # Check if specific run is published or caller is authenticated
+            if not self.store.is_run_published(ui_run_id) and not is_authed:
+                self._send_html(
+                    401,
+                    "<!DOCTYPE html><html><head><title>Private Run — Unauthorized</title></head>"
+                    "<body style='font-family: sans-serif; background: #0f172a; "
+                    "color: #fff; padding: 2rem;'>"
+                    f"<h1>Run '{py_html.escape(ui_run_id)}' is Private</h1>"
+                    "<p style='color: #ef4444;'>Signed-out judge access is permitted only "
+                    "for explicitly published verification runs. "
+                    "Bearer token required for private runs.</p>"
                     "</body></html>",
                 )
                 return
@@ -184,6 +229,13 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
 
         run_id = match.group("run_id")
         subpath = match.group("subpath") or ""
+
+        # Enforce that private runs require auth; published runs allow signed-out access
+        if not self.store.is_run_published(run_id) and not is_authed:
+            self._send_error(
+                401, f"Unauthorized: Run '{run_id}' is private. Bearer token required."
+            )
+            return
 
         run_meta = self.store.get_run(run_id)
         if run_meta is None:
@@ -284,6 +336,7 @@ class BasebreakApiServer:
         handler_class = BasebreakRequestHandler
         handler_class.store = self.store
         handler_class.auth = self.auth
+        handler_class.server_start_time = time.time()
 
         self._httpd = ThreadingHTTPServer((self.host, self.port), handler_class)
         self.port = self._httpd.server_address[1]

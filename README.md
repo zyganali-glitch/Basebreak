@@ -128,44 +128,60 @@ These are planned provenance labels, not PASS/FAIL verdicts. Basebreak will neve
 
 ## Current Implementation Status
 
-> **STATUS: LIVE PLATFORM DISCOVERY (Phase P-01)**
+> **STATUS: DEPLOYMENT READINESS & JUDGE EXPERIENCE (Phase P-27 / P-28)**
 
-### Currently Implemented (Bootstrap Baseline):
-- **Governance Spine (P-00):** Agent constitution, operator guidance laws, zero-cost policy, and verified competition contract (`AGENTS.md`, `GEMINI.md`, `docs/`, independently verified at SHA `08ebfc94a75954d79ee2613f935584de2a9d5900`).
-- **Repository & Tooling Skeleton:** Python packaging metadata (`pyproject.toml`) and directory layout.
-- **Python Package Bootstrap:** Minimal package (`src/basebreak/`) and distribution metadata tests (`tests/test_bootstrap.py`).
-- **Local Validation Gates:** Deterministic local commands (Ruff format, Ruff lint, mypy strict, pytest).
-- **Continuous Integration:** Automated validation on pull request and push to main (`.github/workflows/ci.yml`).
+### Implemented & Tested (P-00 through P-28):
+- **Governance & Baseline (P-00):** Agent constitution, operator guidance laws, zero-cost policy, and verified competition contract (`AGENTS.md`, `GEMINI.md`).
+- **Platform Discovery & Adapters (P-01, P-05):** Nebius Token Factory inference & sandbox adapters, telemetry normalization, and secret-safe execution logs.
+- **Provider-Neutral Domain Contracts (P-02):** Immutable task, change-semantics, sandbox identity, and causal receipt schemas.
+- **Deterministic Evidence Store (P-03):** Content-addressed artifact hashing, append-only facts, and tamper-evident storage.
+- **Security & Untrusted-Code Policy (P-04):** Secret redaction, protected surfaces, and execution timeout guards.
+- **Contract Compiler (P-06):** Invariant locking and frozen contract digest generation (`FrozenContract`).
+- **Builder Runtime (P-07):** Bounded file editing and command execution loop in clean sandboxes.
+- **Verifier Isolation & Witness Generation (P-08, P-09):** Sealed test generators independent of Builder context.
+- **Causal Two-World Engine (P-10):** Deterministic BASE (FAIL) vs CANDIDATE (PASS) differential execution.
+- **Counterfactual Third Run (P-11):** Candidate delta subtraction proving causal necessity.
+- **Minimal Causal Slices (P-12):** AST-based minimal change extraction.
+- **Change-Semantics Expansion (P-13):** BUG_FIX, FEATURE, REFACTOR, SECURITY_FIX, PERFORMANCE, and DEP_API_CHANGE.
+- **Sealed Repair Loop (P-14):** Minimized failure feedback without revealing private witness challenges.
+- **Risk-Adaptive Budget (P-15):** Deterministic risk tiering and execution budgeting.
+- **Grounded External Truth (P-16):** Tavily adapter and grounded CVE/migration contracts.
+- **Causal Coverage & Public Receipt (P-17, P-18):** Cryptographic verification receipts with SHA-256 integrity digests.
+- **CLI, GitHub, and API Surface (P-19, P-20, P-21):** Full developer CLI, GitHub Actions webhook integration, and FastAPI server.
+- **Judge & Operator UI (P-22, P-28):** Single-screen responsive dashboard, "Why Green CI Lies" explainer, 3-world step tags, distinct 5-state verdict views, and WCAG AA/AAA accessibility.
+- **Killer Demo Scenarios (P-23):** ResetVault 3-world disk execution and canonical Pallets/Click upstream bug replay.
+- **Adversarial Campaign & Recovery (P-24, P-25):** 8-vector security defense, durable run state manager, and CAS deduplication.
+- **Performance & Model Routing (P-26):** Provider-verified Nemotron routing (`nvidia/Nemotron-3_5-Lightning`).
+- **Deployment Packaging & Parity (P-27):** Rootless `Dockerfile`, health readiness probe, source SHA parity endpoint, and signed-out judge access.
 
-### Planned / Not Yet Implemented (Runtime & Product Layers):
-- **Contract Compiler (P-06):** Task ingestion and requirement-contract normalization.
-- **Builder Runtime (P-07):** Nemotron coding loop in Token Factory Sandboxes.
-- **Verifier Isolation (P-08):** Independent, sealed verification context.
-- **Independent Witness Generation (P-09):** Behavioral witness generation from contract and trusted base.
-- **Causal Two-World Engine (P-10):** BASE (FAIL) vs CANDIDATE (PASS) differential execution.
-- **Counterfactual Third Run (P-11):** Candidate delta subtraction and causal necessity verification.
-- **Evidence Runtime & Store (P-03):** Content-addressed artifact hashing and receipt emission.
-- **Nebius & Nemotron Adapters (P-05):** Live model and sandbox API clients.
-- **Token Factory Sandbox Execution:** Isolated environment creation, materialization, and teardown (P-01, P-05).
-- **Runtime Secret Redaction:** Dynamic prompt and execution log redaction (P-04).
-- **Runtime Sandbox Security & Resource Enforcement:** Timeout and resource exhaustion guards (P-04).
-- **Tavily Runtime Grounding:** Current fact verification for CVEs and migrations (P-16).
-- **Judge & Operator UI:** Visual inspection and receipt review interface (P-22).
-- **Live Deployment:** Public read-only evidence inspection and demo hosting (P-27).
+### Explicit Unexecuted Live Obligations (NOT_RUN):
+- **P-16.05:** Live Tavily web search API call held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+- **P-23.04–P-23.07:** Live Nebius Token Factory inference & sandbox runs held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+- **P-23.08:** Upstream Click live execution held fail-closed at `PreliminaryVerdict.BLOCKED` pending isolated container sandbox runtime.
+- **P-26.02:** Live model benchmark comparison held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+- **P-27.03:** Public cloud endpoint deployment held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN` pending operator deployment.
+- **P-27.06:** Deployed live Nebius/NVIDIA runtime proof held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
 
-| Component | Status | Target Phase |
-|---|:---:|---|
-| Repository Governance & Contracts | **DONE** | P-00 |
-| Live Platform Discovery | **ACTIVE** | P-01 |
-| Provider-Neutral Domain Contracts | PLANNED | P-02 |
-| Deterministic Evidence Store | PLANNED | P-03 |
-| Nebius / Nemotron Adapters | PLANNED | P-05 |
-| Builder Runtime v1 | PLANNED | P-07 |
-| Verifier Isolation & Witness Gen | PLANNED | P-08, P-09 |
-| Causal Two-World Engine | PLANNED | P-10 |
-| Counterfactual Third Run | PLANNED | P-11 |
-| Minimal Judge UI & Killer Demo | PLANNED | P-22, P-23 |
-| Live Deployment & Devpost Submit | PLANNED | P-27, P-32 |
+---
+
+## Running the Judge Server & Container
+
+```bash
+# 1. Local development / judge server
+basebreak serve --host 127.0.0.1 --port 8080
+
+# 2. Build and run reproducible container locally
+docker build -t basebreak .
+docker run -p 8080:8080 -e BASEBREAK_API_TOKEN=secret basebreak
+```
+
+Unauthenticated callers can freely inspect:
+- `GET /` or `GET /judge` — Judge dashboard
+- `GET /health` — Health readiness and source commit SHA parity
+- `GET /judge/{run_id}` — Published run visual evidence
+- `GET /v1/runs/{run_id}/receipt` — Cryptographic verification receipt
+
+Mutating endpoints (`POST /v1/runs`, `POST /v1/runs/{run_id}/publish`) and private runs strictly require `Authorization: Bearer <token>`.
 
 ---
 

@@ -790,23 +790,35 @@ Policy:
 - any public live-run capability must be hard-budgeted/rate-limited or otherwise bounded;
 - read-only inspection of verified evidence must remain available even if live-call budget is exhausted, with provenance clearly shown.
 ### P-27.01 — Select eligible Nebius hosting path from current platform reality
+Status: DONE (IMPLEMENTED_AND_TESTED in Batch C; evaluated current hackathon rules and platform facts; confirmed FAQ rule that full app hosting on Nebius Cloud is optional while genuine Token Factory API call satisfies platform requirement; selected Hugging Face Spaces Docker container as $0 zero-personal-spend frontend/API host connecting to Nebius Token Factory inference runtime; documented in `docs/DEPLOYMENT_ARCHITECTURE.md`)
 ### P-27.02 — Containerize/package app with reproducible build
+Status: DONE (IMPLEMENTED_AND_TESTED in Batch C; minimal reproducible rootless `Dockerfile` with UID 10001, `.dockerignore`, `docker-compose.yml`, HTTP readiness probe in `src/basebreak/deployment/health.py`, and CLI `basebreak serve` subcommand; validated offline in `tests/deployment/test_deployment_packaging.py`; Docker daemon execution marked NOT_RUN due to host environment)
 ### P-27.03 — Deploy public judge endpoint/test build
+Status: OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN (prepared deployment configuration and beginner-friendly Turkish operator deployment guide in `docs/OPERATOR_DEPLOYMENT_HANDOFF.md`; held under Zero-Cost Law and authorization boundary pending explicit operator authorization to deploy public cloud instance)
 ### P-27.04 — Verify health/version/source SHA parity
+Status: DONE (IMPLEMENTED_AND_TESTED in Batch C; implemented `verify_health_parity` in `src/basebreak/deployment/parity.py` and `GET /health` parity endpoint returning source SHA, version, uptime, and database readiness; offline tests passing in `tests/deployment/test_health_parity.py`; live production deployment parity held at NOT_RUN pending P-27.03 deployment)
 ### P-27.05 — Verify signed-out/free judge access
+Status: DONE (IMPLEMENTED_AND_TESTED in Batch C; implemented published run storage in `src/basebreak/api/store.py` and dual-mode security in `src/basebreak/api/server.py`; signed-out callers access `/`, `/health`, `/judge`, `/judge/{run_id}`, `/v1/runs/{run_id}/receipt`, and `/evidence` for published runs with 0 secrets leaked; mutating and private operations strictly reject unauthenticated callers with 401; tested in `tests/deployment/test_signed_out_judge_access.py`; public cloud verification held at NOT_RUN pending P-27.03 deployment)
 ### P-27.06 — Prove deployed app triggers real required Nebius/NVIDIA runtime
-Phase exit: working public product exists.
+Status: OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN (runtime verification protocol specified in `docs/P27_06_DEPLOYED_NEBIUS_RUNTIME_PROOF.md`; held under Zero-Cost Law and promotional budget floor pending operator deployment and credit authorization)
+Phase exit: deployment packaging, health parity, and signed-out judge access IMPLEMENTED_AND_TESTED offline; public cloud deployment and live Nebius runtime proof held at OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. Phase P-27 remains OPEN pending operator deployment.
 
 ---
 
 # P-28 — Product Design & Judge Comprehension
 ### P-28.01 — Conduct 30-second comprehension audit
+Status: DONE (IMPLEMENTED_AND_TESTED in Batch C; conducted reproducible heuristic comprehension audit in `docs/P28_01_COMPREHENSION_AUDIT.md`; verified front-and-center Thesis placement, verdict badge hierarchy, and 3-World outcome cards before technical hashes; tested in `tests/ui/test_judge_comprehension_accessibility.py`)
 ### P-28.02 — Simplify terminology around one memorable claim
+Status: DONE (IMPLEMENTED_AND_TESTED in Batch C; anchored UI to memorable thesis "If the patch matters, the base must break."; added plain-English "Why Ordinary Green CI Lies • What Basebreak Proves" explainer card in `src/basebreak/ui/renderer.py`; tested in `tests/ui/test_judge_comprehension_accessibility.py`)
 ### P-28.03 — Surface causal transition before architecture detail
+Status: DONE (IMPLEMENTED_AND_TESTED in Batch C; added explicit step tags `[1. Reproduce Defect on Base]`, `[2. Confirm Fix on Candidate]`, and `[3. Prove Delta Necessity]`, and highlighted the causal transition formula `BASE=FAIL -> CANDIDATE=PASS -> COUNTERFACTUAL=FAIL` above timeline and raw receipt hashes; tested in `tests/ui/test_judge_comprehension_accessibility.py`)
 ### P-28.04 — Make failure/contradiction visually as valuable as PASS
+Status: DONE (IMPLEMENTED_AND_TESTED in Batch C; added high-contrast, distinct verdict banners for all 5 lifecycle states: `VERIFIED` (green), `CONTRADICTED` (red), `INCONCLUSIVE` (amber), `BLOCKED` (purple), and `NOT_RUN` (blue/slate); tested in `tests/ui/test_judge_comprehension_accessibility.py`)
 ### P-28.05 — Accessibility/responsive/browser QA
+Status: DONE (IMPLEMENTED_AND_TESTED in Batch C; verified WCAG AA/AAA contrast ratios for entire UI color palette against `#0f172a` (> 4.5:1), added `:focus-visible` keyboard outlines, responsive viewport meta and grid wraps, scrollable ARIA region for wide tables, HTML escaping of dynamic text, and CSS word-break protection for SHA digests; tested in `tests/ui/test_judge_comprehension_accessibility.py`; real browser rendering marked NOT_RUN due to host lacking headless browser)
 ### P-28.06 — Documentation consolidation
-Phase exit: judges can understand value without reading architecture docs.
+Status: DONE (IMPLEMENTED_AND_TESTED in Batch C; consolidated README.md, HANDOFF.md, and Master Plan; verified zero-cost policy, provider facts, and clear NOT_RUN obligations)
+Phase exit: complete judge experience implemented, accessible, and tested. (P-28 phase COMPLETED / IMPLEMENTED_AND_TESTED in Batch C; HARD STOP: BATCH C COMPLETE; P-29+ REMAIN STRICTLY CLOSED / UNOPENED / NOT AUTHORIZED).
 
 ---
 
