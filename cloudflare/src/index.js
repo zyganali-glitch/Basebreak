@@ -17,19 +17,37 @@ export { AdmissionLedgerDO };
 
 // Embedded Judge UI HTML fallback when ASSETS binding is unavailable
 import { readFileSync } from "node:fs";
+import path from "node:path";
 
 const FALLBACK_INDEX_HTML =
   "<!DOCTYPE html><html><body><h1>Basebreak Causal Verification</h1></body></html>";
-const LOCAL_INDEX_HTML_URL = new URL("../public/index.html", import.meta.url);
 
 let cachedIndexHtml = null;
+function readLocalIndexHtml() {
+  try {
+    return readFileSync(new URL("../public/index.html", import.meta.url), "utf-8");
+  } catch {}
+
+  if (typeof import.meta.url === "string" && import.meta.url.trim()) {
+    try {
+      const candidatePath = path.resolve(path.dirname(import.meta.url), "../public/index.html");
+      return readFileSync(candidatePath, "utf-8");
+    } catch {}
+  }
+
+  try {
+    return readFileSync(path.resolve("public/index.html"), "utf-8");
+  } catch {}
+
+  return null;
+}
 
 function getFallbackIndexHtml() {
   if (cachedIndexHtml !== null) {
     return cachedIndexHtml;
   }
   try {
-    cachedIndexHtml = readFileSync(LOCAL_INDEX_HTML_URL, "utf-8");
+    cachedIndexHtml = readLocalIndexHtml() || FALLBACK_INDEX_HTML;
   } catch {
     cachedIndexHtml = FALLBACK_INDEX_HTML;
   }

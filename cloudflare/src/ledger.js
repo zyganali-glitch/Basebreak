@@ -245,6 +245,36 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
     };
   }
 
+  probeTransactionRollback() {
+    const before = this.sql.query("SELECT COUNT(*) AS count FROM audit_log")[0]?.count ?? 0;
+    let rollbackTriggered = false;
+
+    try {
+      this.sql.transaction(() => {
+        this.sql.execute(
+          "INSERT INTO audit_log (timestamp, event_type, details) VALUES (?, 'TX_ROLLBACK_PROBE', ?)",
+          Date.now(),
+          "{}"
+        );
+        throw new Error("rollback probe");
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "rollback probe") {
+        rollbackTriggered = true;
+      } else {
+        throw error;
+      }
+    }
+
+    const after = this.sql.query("SELECT COUNT(*) AS count FROM audit_log")[0]?.count ?? 0;
+    return {
+      before,
+      after,
+      rollbackTriggered,
+      transactionSyncType: typeof this.ctx?.storage?.transactionSync,
+    };
+  }
+
   /**
    * Atomic check-and-reserve admission boundary.
    * Evaluates all constraints and locks quota BEFORE calling external provider.
@@ -862,6 +892,23 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       String(receiptObj.overall_verdict),
       now
     );
+  }
+
+  async storeReceiptRpc(runId, receiptObj) {
+    this.storeReceipt(runId, receiptObj);
+    return { stored: true };
+  }
+
+  async probeStoreReceiptAuthority(runId, receiptObj) {
+    try {
+      this.storeReceipt(runId, receiptObj);
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
