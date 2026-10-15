@@ -20,17 +20,18 @@ No credentials, no Cloudflare deployment, and no Nebius calls.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
-EXPECTED_PREFLIGHT_CHECKS = (
-    "serves static judge asset and truthful health ... PASS",
-    "uses Durable Object SQLite transaction rollback ... PASS",
-    "enforces atomic admission, contention, and idempotency ... PASS",
-    "requires admin auth, sanitizes public data, and blocks provider dispatch ... PASS",
-    "recovers durable state across object re-instantiation ... PASS",
-    "rejects forged live receipts and preserves kill switch ... PASS",
+EXPECTED_CHECK_NAMES = (
+    "serves static judge asset and truthful health",
+    "uses Durable Object SQLite transaction rollback",
+    "enforces atomic admission, contention, and idempotency",
+    "requires admin auth, sanitizes public data, and blocks provider dispatch",
+    "recovers durable state across object re-instantiation",
+    "rejects forged live receipts and preserves kill switch",
 )
 
 
@@ -91,9 +92,10 @@ def test_workerd_miniflare_preflight_real_runtime() -> None:
     # In non-TTY environments (such as CI), Node.js node:test TAP reporter routes
     # test console output to stderr to prevent corrupting stdout TAP stream.
     combined_output = f"{preflight_proc.stdout}\n{preflight_proc.stderr}"
-    for check in EXPECTED_PREFLIGHT_CHECKS:
-        assert check in combined_output, (
-            f"Missing required preflight check passing marker: {check!r}\n"
+    for name in EXPECTED_CHECK_NAMES:
+        pattern = rf"{re.escape(name)}\s*\.\.\.\s*(?:#\s*)?PASS"
+        assert re.search(pattern, combined_output) is not None, (
+            f"Missing required preflight check passing marker for {name!r}:\n"
             f"STDOUT:\n{preflight_proc.stdout}\n"
             f"STDERR:\n{preflight_proc.stderr}"
         )
