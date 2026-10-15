@@ -80,11 +80,31 @@ function getGlobalLedger(env) {
     const id = env.ADMISSION_LEDGER.idFromName("canonical_global_ledger");
     return env.ADMISSION_LEDGER.get(id);
   }
-  // In-process fallback instance for testing
-  if (!env.__ledgerInstance) {
-    env.__ledgerInstance = new AdmissionLedgerDO(env.__sqliteBackend || {}, env);
+  // Explicit in-process fallback for local Node tests only.
+  if (env.__allowInProcessLedgerForTests === true) {
+    if (!env.__ledgerInstance) {
+      env.__ledgerInstance = new AdmissionLedgerDO(env.__sqliteBackend || {}, env);
+    }
+    return env.__ledgerInstance;
   }
-  return env.__ledgerInstance;
+  return null;
+}
+
+function buildMissingLedgerResponse() {
+  return jsonResponse(503, {
+    status: "NOT_READY_FOR_DEPLOYMENT",
+    deployment_readiness: "NOT_READY_FOR_DEPLOYMENT",
+    error:
+      "ADMISSION_LEDGER Durable Object binding is missing. Production in-process fallback is disabled; Cloudflare runtime configuration must fail closed.",
+  });
+}
+
+function requireLedger(env) {
+  const ledger = getGlobalLedger(env);
+  if (!ledger) {
+    return { ledger: null, response: buildMissingLedgerResponse() };
+  }
+  return { ledger, response: null };
 }
 
 const UNKNOWN_BUILD_SHA = "UNKNOWN_BUILD_SHA";
@@ -170,14 +190,17 @@ export default {
     const path = url.pathname;
     const method = request.method;
 
-    const ledger = getGlobalLedger(env);
-
     // 1. Root and Judge Dashboard UI (Read-Only Public Access)
     if (method === "GET" && (path === "/" || path === "/judge" || path.startsWith("/judge/"))) {
       if (env.ASSETS && typeof env.ASSETS.fetch === "function") {
         return env.ASSETS.fetch(request);
       }
       return htmlResponse(200, cachedIndexHtml);
+    }
+
+    const { ledger, response: missingLedgerResponse } = requireLedger(env);
+    if (missingLedgerResponse) {
+      return missingLedgerResponse;
     }
 
     // 2. Health & Source SHA Parity Endpoint (P-27.04)

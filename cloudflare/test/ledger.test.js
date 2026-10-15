@@ -457,7 +457,14 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       /Receipt contains sensitive credentials/
     );
 
-    // 9c. Clean authentic receipt stores and retrieves with valid verification
+    // 9c. Digest integrity alone cannot promote fixture data to authoritative live evidence
+    const forgedLiveReceipt = buildFixturePublicReceipt({ provenance: "LIVE_NEBIUS" });
+    assert.throws(
+      () => ledger.storeReceipt("run_forged_live", forgedLiveReceipt),
+      /independent trusted verification authority is configured/
+    );
+
+    // 9d. Clean authentic fixture receipt stores and retrieves with valid integrity verification
     ledger.storeReceipt("run_clean", validReceipt);
     const retrieved = ledger.getReceipt("run_clean");
     assert.ok(retrieved);

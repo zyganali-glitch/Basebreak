@@ -48,6 +48,8 @@ try {
   // Running outside Cloudflare Workers environment (e.g. Node test runner)
 }
 
+const AUTHORITATIVE_PUBLIC_PROVENANCES = new Set(["LIVE_NEBIUS", "RECORDED_LIVE"]);
+
 export class AdmissionLedgerDO extends CloudflareDurableObject {
   /**
    * @param {any} ctxOrState Durable Object state/ctx or raw database instance
@@ -58,9 +60,25 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
     this.ctx = ctxOrState;
     this.env = env || {};
 
-    const rawBackend = ctxOrState?.storage?.sql || ctxOrState?.sql || ctxOrState;
-    this.sql = new SqlAdapter(rawBackend);
+    this.sql = new SqlAdapter(ctxOrState);
     this.initSchema();
+  }
+
+  /**
+   * Enforce that cryptographic digest equality does not, by itself, grant live-evidence authority.
+   *
+   * @param {Record<string, unknown>} receiptObj
+   */
+  assertReceiptAuthority(receiptObj) {
+    const provenance = String(receiptObj.provenance || "").trim().toUpperCase();
+    if (
+      AUTHORITATIVE_PUBLIC_PROVENANCES.has(provenance) &&
+      this.env.ALLOW_HISTORICAL_LIVE_RECEIPT_IMPORT !== "true"
+    ) {
+      throw new Error(
+        "Authoritative LIVE_NEBIUS/RECORDED_LIVE receipt import is blocked until independent trusted verification authority is configured."
+      );
+    }
   }
 
   /**
@@ -567,6 +585,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
     if (typeof receipt.source_commit_id !== "string" || !receipt.source_commit_id.trim()) {
       throw new Error("Public receipt source_commit_id is required.");
     }
+    this.assertReceiptAuthority(receipt);
 
     // Cryptographic receipt integrity verification
     if (!verifyReceiptIntegrity(receipt)) {
@@ -807,7 +826,8 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
   }
 
   /**
-   * Store an authoritative or fixture public receipt directly into durable SQLite storage.
+   * Store a public receipt directly into durable SQLite storage.
+   * Digest verification proves tamper integrity only; authoritative live provenance remains separately gated.
    *
    * @param {string} runId
    * @param {Record<string, unknown>} receiptObj
@@ -822,6 +842,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
     if (typeof receiptObj.source_commit_id !== "string" || !receiptObj.source_commit_id.trim()) {
       throw new Error("Receipt source_commit_id is required.");
     }
+    this.assertReceiptAuthority(receiptObj);
     if (!verifyReceiptIntegrity(receiptObj)) {
       throw new Error("Public receipt integrity verification failed: recomputed digest mismatch.");
     }

@@ -19,6 +19,7 @@ function createWorkerEnv(overrides = {}) {
     LIVE_ENABLED: "false",
     GLOBAL_INVOCATION_CAP: "5",
     TOKEN_FACTORY_PROMO_STOP_THRESHOLD: "5.00",
+    __allowInProcessLedgerForTests: true,
     __sqliteBackend: db,
     ...overrides,
   };
@@ -59,6 +60,16 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     assert.equal(data.source_commit_status, "UNKNOWN_BUILD_SHA");
     assert.equal(data.deployment_readiness, "NOT_READY_FOR_DEPLOYMENT");
     assert.equal(data.live_enabled, false);
+  });
+
+  it("GET /health fails closed when the Durable Object binding is missing outside explicit test fallback", async () => {
+    const req = new Request("https://basebreak.workers.dev/health", { method: "GET" });
+    const res = await worker.fetch(req, {}, {});
+
+    assert.equal(res.status, 503);
+    const data = await res.json();
+    assert.equal(data.status, "NOT_READY_FOR_DEPLOYMENT");
+    assert.match(data.error, /ADMISSION_LEDGER Durable Object binding is missing/);
   });
 
   it("GET /v1/runs/canonical-demo/receipt returns truthful NOT_RUN when no historical receipt was supplied", async () => {

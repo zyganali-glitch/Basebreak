@@ -8,15 +8,16 @@
 
 export class SqlAdapter {
   /**
-   * @param {any} backend Either Cloudflare's `ctx.storage.sql` or `node:sqlite` `DatabaseSync`
+   * @param {any} source Either Durable Object state/storage or `node:sqlite` `DatabaseSync`
    */
-  constructor(backend) {
-    if (!backend) {
+  constructor(source) {
+    if (!source) {
       throw new Error("SqlAdapter requires a non-null database backend.");
     }
-    this.backend = backend;
-    // Detect whether backend is node:sqlite DatabaseSync (has .prepare) or Cloudflare DO SQL (only has .exec)
-    this.isNodeSqlite = typeof backend.prepare === "function";
+
+    this.storage = source?.storage?.sql ? source.storage : source?.sql && source?.transactionSync ? source : null;
+    this.backend = this.storage?.sql || source;
+    this.isNodeSqlite = typeof this.backend.prepare === "function";
   }
 
   /**
@@ -81,18 +82,28 @@ export class SqlAdapter {
    * @returns {T}
    */
   transaction(fn) {
-    this.exec("BEGIN IMMEDIATE");
-    try {
-      const result = fn();
-      this.exec("COMMIT");
-      return result;
-    } catch (err) {
+    if (this.isNodeSqlite) {
+      this.exec("BEGIN IMMEDIATE");
       try {
-        this.exec("ROLLBACK");
-      } catch {
-        // Ignore rollback error if already rolled back
+        const result = fn();
+        this.exec("COMMIT");
+        return result;
+      } catch (err) {
+        try {
+          this.exec("ROLLBACK");
+        } catch {
+          // Ignore rollback error if already rolled back
+        }
+        throw err;
       }
-      throw err;
     }
+
+    if (typeof this.storage?.transactionSync !== "function") {
+      throw new Error(
+        "Cloudflare Durable Object transactional storage API is unavailable. transactionSync() is required."
+      );
+    }
+
+    return this.storage.transactionSync(() => fn());
   }
 }

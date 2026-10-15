@@ -180,6 +180,7 @@ To ensure 100% adherence to repository governance and Section A of the Master Pl
 | :--- | :--- | :--- | :--- |
 | **Worker HTTP Router & Endpoints** | `cloudflare/src/index.js` | `LOCAL_EXECUTION` (Node test runner) | **LOCAL_EXECUTION ONLY / `NOT_READY_FOR_DEPLOYMENT`** |
 | **SQLite Durable Object Ledger** | `cloudflare/src/ledger.js` | `LOCAL_EXECUTION` (Node test runner) | **LOCAL_EXECUTION ONLY / `NOT_READY_FOR_DEPLOYMENT`** |
+| **workerd Runtime Integration Suite** | `cloudflare/test/worker.runtime.test.js`, `cloudflare/vitest.config.mjs` | `LOCAL_EXECUTION` attempt blocked on this Windows host | **`NOT_RUN` locally: upstream `@cloudflare/vitest-plugin` fails before collection with `File path must be a file: URL`; suite is prepared for supported-environment execution** |
 | **Cryptographic Receipt Integrity** | `cloudflare/src/crypto_utils.js` | `LOCAL_EXECUTION` (Python & JS tests) | **IMPLEMENTED_AND_TESTED** |
 | **Static Judge Dashboard** | `cloudflare/public/index.html` | `LOCAL_EXECUTION` | **TRUTHFUL PUBLIC `NOT_RUN` STATE IMPLEMENTED** |
 | **Wrangler Configuration & Parity** | `cloudflare/wrangler.jsonc` | `LOCAL_EXECUTION` (Python pytest) | **LOCAL_EXECUTION ONLY; defaults to `UNKNOWN_BUILD_SHA` unless configured at deploy time** |
@@ -189,3 +190,5 @@ To ensure 100% adherence to repository governance and Section A of the Master Pl
 | **Public Cloud Worker Deployment** | `wrangler deploy` | N/A | **OPERATOR_DECISION_REQUIRED / NOT_RUN** |
 | **Live Nebius Sandbox Execution** | `dispatchVerificationRun` | N/A | **FAIL-CLOSED BEFORE SANDBOX REQUEST / `NOT_RUN`** |
 | **Live Production Health Parity** | `verify_health_parity` | N/A | **NOT_RUN against live production** |
+
+P-27.03 pre-deployment runtime work repaired the Durable Object adapter to use Cloudflare's transactional storage API (`ctx.storage.transactionSync()` via `SqlAdapter.transaction()`), preserved explicit fail-closed behavior when the `ADMISSION_LEDGER` binding is absent, and added genuine workerd/Miniflare integration tests. However, on the current Windows workstation, `@cloudflare/vitest-plugin` aborts before test collection with the upstream `File path must be a file: URL` error, so actual local workerd execution remains blocked here; GitHub Actions workflow integration of these Cloudflare runtime tests is also blocked for this agent session by missing GitHub `workflow` scope, and public deployment truth stays `NOT_READY_FOR_DEPLOYMENT`.

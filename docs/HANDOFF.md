@@ -117,7 +117,7 @@ Judge claim:
 - P-27 (Deployment Readiness, P-27.01 through P-27.06) is SURGICALLY_REPAIRED / NOT_READY_FOR_DEPLOYMENT under the bounded Cloudflare integration candidate:
   - P-27.01 preserved the Cloudflare candidate as a fail-closed local/offline surface only: fabricated `LIVE_NEBIUS` / `RECORDED_LIVE` receipt synthesis removed from production execution and default public UI/routes; anonymous non-live POSTs and canonical-demo receipt routes now return truthful `NOT_RUN` unless an independently validated historical receipt is explicitly supplied; public POST handling no longer trusts client-supplied balance/timestamp authority; provider dispatch now blocks before any Nebius sandbox request; validated locally with focused JS/Python regressions.
   - P-27.02 minimal reproducible rootless `Dockerfile`, `.dockerignore`, `docker-compose.yml`, HTTP readiness probe, and CLI serve packaged; Docker CI recorded as `NOT_RUN` and smoke script provided.
-  - P-27.03 public deployment configuration and Turkish operator deployment guide prepared in `docs/OPERATOR_DEPLOYMENT_HANDOFF.md`; held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+  - P-27.03 pre-deployment runtime compatibility repaired the Cloudflare SQLite adapter to use Durable Object `transactionSync()`, made missing `ADMISSION_LEDGER` bindings fail closed outside explicit test fallback, blocked digest-only promotion of fixtures to `LIVE_NEBIUS` / `RECORDED_LIVE`, added workerd/Miniflare runtime tests, and preserved public deployment itself at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`; actual local workerd execution on this Windows host is currently blocked before test collection by upstream `@cloudflare/vitest-plugin` failure `File path must be a file: URL`, and GitHub Actions workflow integration of the Cloudflare runtime tests is separately blocked for this agent session by missing GitHub `workflow` scope.
   - P-27.04 Cloudflare `/health` now reports `UNKNOWN_BUILD_SHA` unless explicitly configured at deploy time; no hardcoded old SHA parity claim remains on the public worker surface.
   - P-27.05 signed-out judge access remains read-only and sanitized; anonymous callers no longer receive raw run rows or default fabricated receipts.
   - P-27.06 deployed live Nebius runtime proof specified in `docs/P27_06_DEPLOYED_NEBIUS_RUNTIME_PROOF.md`; held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
@@ -139,17 +139,17 @@ Judge claim:
 No cost-consuming external API calls or public deployments were executed without explicit authorization. Zero-personal-spend ($0.00) policy preserved.
 
 ### Current QA candidate
-P-27.01 Critical Evidence & Spending-Boundary Repair Candidate:
-1. Production Cloudflare execution/public evidence paths no longer synthesize three-world `VERIFIED`, `RECORDED_LIVE`, or `LIVE_NEBIUS` receipts.
-2. Public POST handling no longer accepts visitor-supplied promotional balance authority; live execution now fails closed before any provider call.
-3. Anonymous `GET /v1/runs/{id}` returns sanitized public summaries only; canonical-demo routes return truthful `NOT_RUN` until authentic historical evidence is explicitly supplied.
-4. Historical LIVE_NEBIUS proof files restored exactly to predecessor commit `32235bce2ab31550406ca948f3111892765245df` and covered by an immutable comparison regression.
+P-27.03 Cloudflare runtime compatibility preflight candidate:
+1. `cloudflare/src/sql_adapter.js` now uses Durable Object transactional storage (`transactionSync()`) instead of unsupported SQL `BEGIN` / `COMMIT` / `ROLLBACK` on the Cloudflare path while preserving Node SQLite behavior for existing regressions.
+2. `cloudflare/src/index.js` no longer fabricates an in-process production ledger when `ADMISSION_LEDGER` is missing; only explicit local test fallback may use `__ledgerInstance`, and production-style routes fail closed with `NOT_READY_FOR_DEPLOYMENT`.
+3. `cloudflare/src/ledger.js` now rejects digest-only attempts to store `LIVE_NEBIUS` / `RECORDED_LIVE` receipts without an independent trusted authority gate.
+4. Real workerd/Miniflare integration tests were added, but actual local execution on this Windows host is presently blocked before test collection by upstream `@cloudflare/vitest-plugin` failure `File path must be a file: URL`; GitHub Actions workflow integration of those Cloudflare tests is separately blocked for this agent session by missing GitHub `workflow` scope.
 
 ### Active exact task
-P-27.01 critical evidence & spending-boundary repair candidate complete locally. Await external independent QA evaluation. Keep Cloudflare integration `NOT_READY_FOR_DEPLOYMENT`; P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+P-27.03 Cloudflare runtime compatibility preflight. Runtime adapter/test repairs are in place, but genuine local workerd execution is blocked on this Windows host by upstream `@cloudflare/vitest-plugin` path handling; public deployment remains `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`, Cloudflare integration remains `NOT_READY_FOR_DEPLOYMENT`, and P-29+ remain strictly NOT AUTHORIZED / NOT_RUN.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-26 independently VERIFIED / PASS or accepted at baseline SHA `80b43b...`. P-16.05, P-23.04–P-23.07, P-26.02, P-27.03, P-27.06 held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. P-23.08 held fail-closed at `BLOCKED`. P-27 Cloudflare candidate is surgically repaired but remains `NOT_READY_FOR_DEPLOYMENT`; P-28 judge comprehension remains implemented/tested offline. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-26 independently VERIFIED / PASS or accepted at baseline SHA `80b43b...`. P-16.05, P-23.04–P-23.07, P-26.02, and P-27.06 remain held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. P-23.08 held fail-closed at `BLOCKED`. P-27.03 local workerd preflight is builder-repaired but locally blocked on this Windows host by upstream `@cloudflare/vitest-plugin` path failure; the Cloudflare candidate overall remains `NOT_READY_FOR_DEPLOYMENT`. P-28 judge comprehension remains implemented/tested offline. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Provider neutrality:** All deployment packaging, health parity checks, signed-out judge access models, and UI components remain strictly provider-neutral.
 - **Batch authorization & hard stop:** P-27 Cloudflare integration readiness batch completed. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 
@@ -169,8 +169,6 @@ P-27.01 critical evidence & spending-boundary repair candidate complete locally.
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit the P-27.01 critical evidence & spending-boundary repair candidate to external QA authority.
-2. Await independent QA evaluation; do not claim Cloudflare runtime readiness or live Nebius execution.
-3. Enforce hard stop; do not activate P-29+.
-
-
+1. Push the P-27.03 runtime-preflight candidate and inspect GitHub Actions, especially Linux Cloudflare workerd execution.
+2. Treat actual local Windows workerd execution as BLOCKED until the upstream `@cloudflare/vitest-plugin` `File path must be a file: URL` failure is resolved or a supported environment is used.
+3. Do not claim Cloudflare deployment readiness or live Nebius execution; enforce hard stop and do not activate P-29+.

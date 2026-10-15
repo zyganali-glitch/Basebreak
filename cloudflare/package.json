@@ -5,8 +5,10 @@
   "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "test": "node --test test/ledger.test.js test/worker.test.js",
-    "typecheck": "node --check src/index.js src/ledger.js src/crypto_utils.js src/sql_adapter.js src/provider_dispatcher.js test/ledger.test.js test/worker.test.js"
+    "test": "npm run test:node && npm run test:workers",
+    "test:node": "node --test test/ledger.test.js test/worker.test.js",
+    "test:workers": "vitest run --config vitest.config.mjs test/worker.runtime.test.js",
+    "typecheck": "node --check src/index.js src/ledger.js src/crypto_utils.js src/sql_adapter.js src/provider_dispatcher.js test/ledger.test.js test/worker.test.js test/worker.runtime.test.js vitest.config.mjs"
   },
   "keywords": [
     "basebreak",
@@ -16,5 +18,10 @@
     "sqlite"
   ],
   "author": "Basebreak Team",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.2",
+    "vitest": "^5.0.4",
+    "wrangler": "^4.151.0"
+  }
 }
