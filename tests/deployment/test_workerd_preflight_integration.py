@@ -88,13 +88,23 @@ def test_workerd_miniflare_preflight_real_runtime() -> None:
     )
 
     # 5. Assert all six genuine runtime checks passing
-    stdout = preflight_proc.stdout
+    # In non-TTY environments (such as CI), Node.js node:test TAP reporter routes
+    # test console output to stderr to prevent corrupting stdout TAP stream.
+    combined_output = f"{preflight_proc.stdout}\n{preflight_proc.stderr}"
     for check in EXPECTED_PREFLIGHT_CHECKS:
-        assert check in stdout, f"Missing required preflight check passing marker: {check!r}"
+        assert check in combined_output, (
+            f"Missing required preflight check passing marker: {check!r}\n"
+            f"STDOUT:\n{preflight_proc.stdout}\n"
+            f"STDERR:\n{preflight_proc.stderr}"
+        )
 
-    assert "Miniflare workerd preflight summary: 6/6 checks passed." in stdout, (
-        f"Summary marker not found in preflight output:\n{stdout}"
+    assert "Miniflare workerd preflight summary: 6/6 checks passed." in combined_output, (
+        f"Summary marker not found in preflight output:\n"
+        f"STDOUT:\n{preflight_proc.stdout}\n"
+        f"STDERR:\n{preflight_proc.stderr}"
     )
-    assert "Miniflare workerd preflight passed." in stdout, (
-        f"Completion marker not found in preflight output:\n{stdout}"
+    assert "Miniflare workerd preflight passed." in combined_output, (
+        f"Completion marker not found in preflight output:\n"
+        f"STDOUT:\n{preflight_proc.stdout}\n"
+        f"STDERR:\n{preflight_proc.stderr}"
     )
