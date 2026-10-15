@@ -1,34 +1,33 @@
 /**
  * Worker HTTP Interface Integration Tests.
  *
- * Verifies same-origin HTTP routing, security headers, signed-out public access,
- * and protected admin endpoints.
+ * Verifies same-origin HTTP routing, truthful public NOT_RUN surfaces,
+ * sanitized read-only access, and protected admin endpoints.
  */
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import worker, { AdmissionLedgerDO } from "../src/index.js";
-import { buildCanonicalResetVaultReceipt } from "../src/provider_dispatcher.js";
+import { dispatchVerificationRun } from "../src/provider_dispatcher.js";
+import { buildFixturePublicReceipt } from "./fixtures/public_receipt_fixture.js";
 
 function createWorkerEnv(overrides = {}) {
   const db = new DatabaseSync(":memory:");
   const env = {
     BASEBREAK_ADMIN_KEY: "test_admin_secret_key_123",
     LIVE_ENABLED: "false",
-    EXPECTED_SOURCE_COMMIT: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
     GLOBAL_INVOCATION_CAP: "5",
     TOKEN_FACTORY_PROMO_STOP_THRESHOLD: "5.00",
     __sqliteBackend: db,
     ...overrides,
   };
-  // Pre-seed ledger instance
   env.__ledgerInstance = new AdmissionLedgerDO(db, env);
   return { env, db };
 }
 
 describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
-  it("GET / returns 200 HTML with thesis and security headers", async () => {
+  it("GET / returns 200 HTML with truthful NOT_RUN public state", async () => {
     const { env } = createWorkerEnv();
     const req = new Request("https://basebreak.workers.dev/", { method: "GET" });
     const res = await worker.fetch(req, env, {});
@@ -40,10 +39,11 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
 
     const html = await res.text();
     assert.match(html, /If the patch matters, the base must break/);
-    assert.match(html, /BASE = FAIL &rarr; CANDIDATE = PASS &rarr; COUNTERFACTUAL = FAIL/);
+    assert.match(html, /PUBLIC RECEIPT: NOT_RUN/);
+    assert.match(html, /Live Execution Not Available/);
   });
 
-  it("GET /health returns 200 JSON with source SHA parity and platform truth", async () => {
+  it("GET /health returns 200 JSON with unknown SHA default and not-ready deployment truth", async () => {
     const { env } = createWorkerEnv();
     const req = new Request("https://basebreak.workers.dev/health", { method: "GET" });
     const res = await worker.fetch(req, env, {});
@@ -55,36 +55,38 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     const data = await res.json();
     assert.equal(data.status, "ok");
     assert.equal(data.platform, "cloudflare_workers");
-    assert.equal(data.source_commit_id, "80b43b84014fa61b941c7ebcd87836a56dcd7c92");
+    assert.equal(data.source_commit_id, "UNKNOWN_BUILD_SHA");
+    assert.equal(data.source_commit_status, "UNKNOWN_BUILD_SHA");
+    assert.equal(data.deployment_readiness, "NOT_READY_FOR_DEPLOYMENT");
     assert.equal(data.live_enabled, false);
   });
 
-  it("GET /v1/runs/canonical-demo/receipt returns authentic pre-verified public receipt", async () => {
+  it("GET /v1/runs/canonical-demo/receipt returns truthful NOT_RUN when no historical receipt was supplied", async () => {
     const { env } = createWorkerEnv();
     const req = new Request("https://basebreak.workers.dev/v1/runs/canonical-demo/receipt", {
       method: "GET",
     });
     const res = await worker.fetch(req, env, {});
 
-    assert.equal(res.status, 200);
-    const receipt = await res.json();
-    assert.equal(receipt.task_id, "TASK-RESET-VAULT-001");
-    assert.equal(receipt.overall_verdict, "VERIFIED");
-    assert.equal(receipt.provenance, "RECORDED_LIVE");
-    assert.ok(receipt.receipt_digest);
-    assert.equal(receipt.receipt_digest.length, 64);
-  });
-
-  it("GET /v1/runs/:id/receipt returns 404 for non-existent run", async () => {
-    const { env } = createWorkerEnv();
-    const req = new Request("https://basebreak.workers.dev/v1/runs/missing-run-xyz/receipt", {
-      method: "GET",
-    });
-    const res = await worker.fetch(req, env, {});
     assert.equal(res.status, 404);
+    const data = await res.json();
+    assert.equal(data.run_id, "canonical-demo");
+    assert.equal(data.status, "NOT_RUN");
+    assert.equal(data.provenance, "NOT_RUN");
   });
 
-  it("POST /v1/runs without allow_live performs offline preflight verification safely", async () => {
+  it("GET /v1/runs/canonical-demo returns truthful NOT_RUN when no public run was supplied", async () => {
+    const { env } = createWorkerEnv();
+    const req = new Request("https://basebreak.workers.dev/v1/runs/canonical-demo", { method: "GET" });
+    const res = await worker.fetch(req, env, {});
+
+    assert.equal(res.status, 404);
+    const data = await res.json();
+    assert.equal(data.run_id, "canonical-demo");
+    assert.equal(data.status, "NOT_RUN");
+  });
+
+  it("POST /v1/runs without allow_live fails closed with NOT_RUN instead of synthesizing a receipt", async () => {
     const { env } = createWorkerEnv();
     const req = new Request("https://basebreak.workers.dev/v1/runs", {
       method: "POST",
@@ -96,55 +98,80 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     });
     const res = await worker.fetch(req, env, {});
 
-    assert.equal(res.status, 200);
+    assert.equal(res.status, 403);
     const data = await res.json();
-    assert.equal(data.status, "VERIFIED");
-    assert.equal(data.is_live, false);
-    assert.equal(data.receipt.provenance, "FIXTURE");
+    assert.equal(data.status, "NOT_RUN");
+    assert.match(data.error, /Offline synthesized causal results are disabled/);
   });
 
-  it("POST /v1/runs with allow_live=true fails closed when LIVE_ENABLED=false", async () => {
-    const { env } = createWorkerEnv({ LIVE_ENABLED: "false" });
+  it("POST /v1/runs ignores client-supplied balance authority and fails closed before any provider call", async () => {
+    const { env } = createWorkerEnv({ LIVE_ENABLED: "true" });
     const req = new Request("https://basebreak.workers.dev/v1/runs", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Judge-Grant": "any_grant_token",
+        "X-Judge-Grant": "bb_grant_user_supplied",
       },
       body: JSON.stringify({
         target: "tests/fixtures/reset_vault",
         allow_live: true,
+        verified_balance: 999999,
+        balance_timestamp: Date.now(),
       }),
     });
     const res = await worker.fetch(req, env, {});
 
-    assert.equal(res.status, 403);
+    assert.equal(res.status, 503);
     const data = await res.json();
-    assert.equal(data.status, "BLOCKED");
-    assert.match(data.error, /Live execution is disabled by default/);
+    assert.equal(data.status, "NOT_RUN");
+    assert.match(data.error, /Trusted server-controlled budget authority/);
   });
 
-  it("POST /v1/runs with allow_live=true and no grant returns 401 MISSING_GRANT", async () => {
-    const { env } = createWorkerEnv({ LIVE_ENABLED: "true" });
-    const req = new Request("https://basebreak.workers.dev/v1/runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        target: "tests/fixtures/reset_vault",
-        allow_live: true,
-      }),
-    });
+  it("GET /v1/runs/:id returns only sanitized public fields", async () => {
+    const { env } = createWorkerEnv();
+    env.__ledgerInstance.sql.execute(
+      `INSERT INTO runs (run_id, idempotency_key, grant_token, target, source_commit_id, status, started_at, completed_at, reserved_cost, observed_cost, unknown_cost, tokens_used, error_message, outcome, payload_fingerprint)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      "run_private_1",
+      "idem-secret",
+      "bb_grant_secret",
+      "tests/fixtures/reset_vault",
+      "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      "FAILED",
+      Date.now(),
+      Date.now(),
+      0.01,
+      0.02,
+      0.03,
+      42,
+      "sensitive failure details",
+      "FAILED",
+      "payload-fingerprint-secret"
+    );
+
+    const req = new Request("https://basebreak.workers.dev/v1/runs/run_private_1", { method: "GET" });
     const res = await worker.fetch(req, env, {});
 
-    assert.equal(res.status, 401);
+    assert.equal(res.status, 200);
     const data = await res.json();
-    assert.equal(data.status, "MISSING_GRANT");
+    assert.deepEqual(Object.keys(data).sort(), [
+      "completed_at",
+      "outcome",
+      "provenance",
+      "receipt_available",
+      "receipt_digest",
+      "run_id",
+      "source_commit_id",
+      "status",
+    ]);
+    assert.equal(data.run_id, "run_private_1");
+    assert.equal(data.status, "FAILED");
+    assert.equal(data.receipt_available, false);
   });
 
-  it("Admin endpoints: /admin/grants strictly enforces operator authentication", async () => {
+  it("Admin endpoints: /admin/grants strictly enforce operator authentication", async () => {
     const { env } = createWorkerEnv();
 
-    // 1. Unauthenticated request rejected
     const unauthReq = new Request("https://basebreak.workers.dev/admin/grants", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -153,12 +180,11 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     const unauthRes = await worker.fetch(unauthReq, env, {});
     assert.equal(unauthRes.status, 401);
 
-    // 2. Authenticated operator request succeeds
     const authReq = new Request("https://basebreak.workers.dev/admin/grants", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: "Bearer test_admin_secret_key_123",
+        Authorization: `Bearer ${env.BASEBREAK_ADMIN_KEY}`,
       },
       body: JSON.stringify({ ttl_seconds: 1800, client_info: "official_judge_1" }),
     });
@@ -172,12 +198,11 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
   it("Admin endpoints: /admin/killswitch and /admin/ledger", async () => {
     const { env } = createWorkerEnv();
 
-    // Toggle killswitch ON
     const ksReq = new Request("https://basebreak.workers.dev/admin/killswitch", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: "Bearer test_admin_secret_key_123",
+        Authorization: `Bearer ${env.BASEBREAK_ADMIN_KEY}`,
       },
       body: JSON.stringify({ engage: true, reason: "Testing freeze" }),
     });
@@ -186,15 +211,55 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     const ksData = await ksRes.json();
     assert.equal(ksData.kill_switch_engaged, true);
 
-    // Read ledger accounting
     const ledgerReq = new Request("https://basebreak.workers.dev/admin/ledger", {
       method: "GET",
-      headers: { Authorization: "Bearer test_admin_secret_key_123" },
+      headers: { Authorization: `Bearer ${env.BASEBREAK_ADMIN_KEY}` },
     });
     const ledgerRes = await worker.fetch(ledgerReq, env, {});
     assert.equal(ledgerRes.status, 200);
     const ledgerData = await ledgerRes.json();
     assert.equal(ledgerData.kill_switch_engaged, true);
     assert.equal(ledgerData.global_cap, 5);
+  });
+
+  it("dispatchVerificationRun fails closed before sandbox provisioning even when credentials are present", async () => {
+    let fetchCalled = false;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      fetchCalled = true;
+      throw new Error("fetch should not be called");
+    };
+
+    try {
+      const result = await dispatchVerificationRun({
+        runId: "run_dispatch_blocked",
+        target: "tests/fixtures/reset_vault",
+        sourceCommitId: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+        allowLive: true,
+      });
+
+      assert.equal(fetchCalled, false);
+      assert.equal(result.success, false);
+      assert.equal(result.status, "NOT_RUN");
+      assert.match(result.error, /NOT_READY_FOR_DEPLOYMENT/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("GET /v1/runs/:id/receipt serves only explicitly supplied receipts", async () => {
+    const { env } = createWorkerEnv();
+    const receipt = buildFixturePublicReceipt();
+    env.__ledgerInstance.storeReceipt("run_fixture_public", receipt);
+
+    const req = new Request("https://basebreak.workers.dev/v1/runs/run_fixture_public/receipt", {
+      method: "GET",
+    });
+    const res = await worker.fetch(req, env, {});
+
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.provenance, "FIXTURE");
+    assert.equal(data.receipt_digest, receipt.receipt_digest);
   });
 });

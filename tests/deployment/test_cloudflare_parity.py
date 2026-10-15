@@ -2,8 +2,8 @@
 
 Verifies that:
 1. wrangler.jsonc contains required bindings (Durable Object SQLite, Assets, defaults).
-2. Canonical public receipts generated for Cloudflare satisfy Python validation.
-3. Health endpoint schema in Cloudflare Worker matches Basebreak Python parity requirements.
+2. Canonical Python public receipts remain internally verifiable.
+3. Health endpoint schema in Cloudflare Worker reports truthful NOT_READY defaults.
 4. Zero-Cost Law constraints (LIVE_ENABLED=false, $5.00 safety reserve floor) are frozen.
 """
 
@@ -77,8 +77,8 @@ class TestCloudflareDeploymentParity:
 
         html_text = index_html.read_text(encoding="utf-8")
         assert "If the patch matters, the base must break" in html_text
-        assert "BASE = FAIL &rarr; CANDIDATE = PASS &rarr; COUNTERFACTUAL = FAIL" in html_text
-        assert "AUTHENTIC (SHA-256)" in html_text
+        assert "PUBLIC RECEIPT: NOT_RUN" in html_text
+        assert "Live Execution Not Available" in html_text
         assert "tests/fixtures/reset_vault" in html_text
 
     def test_canonical_reset_vault_receipt_python_verification(self) -> None:
@@ -108,12 +108,13 @@ class TestCloudflareDeploymentParity:
 
     def test_health_parity_schema_compatibility(self) -> None:
         """Verify schema compatibility of Cloudflare /health endpoint."""
-        expected_sha = "80b43b84014fa61b941c7ebcd87836a56dcd7c92"
         mock_cf_health_data = {
             "status": "ok",
             "platform": "cloudflare_workers",
             "version": "1.0.0",
-            "source_commit_id": expected_sha,
+            "source_commit_id": "UNKNOWN_BUILD_SHA",
+            "source_commit_status": "UNKNOWN_BUILD_SHA",
+            "deployment_readiness": "NOT_READY_FOR_DEPLOYMENT",
             "live_enabled": False,
         }
 
@@ -121,5 +122,7 @@ class TestCloudflareDeploymentParity:
         assert mock_cf_health_data["status"] == "ok"
         assert mock_cf_health_data["platform"] == "cloudflare_workers"
         assert mock_cf_health_data["version"] == "1.0.0"
-        assert mock_cf_health_data["source_commit_id"] == expected_sha
+        assert mock_cf_health_data["source_commit_id"] == "UNKNOWN_BUILD_SHA"
+        assert mock_cf_health_data["source_commit_status"] == "UNKNOWN_BUILD_SHA"
+        assert mock_cf_health_data["deployment_readiness"] == "NOT_READY_FOR_DEPLOYMENT"
         assert mock_cf_health_data["live_enabled"] is False

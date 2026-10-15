@@ -9,13 +9,8 @@
  * - Same-origin routing and durable state recovery.
  */
 
-import { detectSecrets, redactSecrets, verifyReceiptIntegrity } from "./crypto_utils.js";
+import { redactSecrets } from "./crypto_utils.js";
 import { AdmissionLedgerDO } from "./ledger.js";
-import {
-  CANONICAL_DEMO_SCENARIO,
-  buildCanonicalResetVaultReceipt,
-  dispatchVerificationRun,
-} from "./provider_dispatcher.js";
 
 // Re-export Durable Object class for Cloudflare Workers runtime
 export { AdmissionLedgerDO };
@@ -92,6 +87,55 @@ function getGlobalLedger(env) {
   return env.__ledgerInstance;
 }
 
+const UNKNOWN_BUILD_SHA = "UNKNOWN_BUILD_SHA";
+const CANONICAL_PUBLIC_IDS = ["canonical-demo", "reset_vault"];
+
+function getDeclaredSourceCommit(env) {
+  if (typeof env.EXPECTED_SOURCE_COMMIT === "string" && env.EXPECTED_SOURCE_COMMIT.trim()) {
+    return env.EXPECTED_SOURCE_COMMIT.trim();
+  }
+  return UNKNOWN_BUILD_SHA;
+}
+
+function buildUnavailableRunPayload(runId, error) {
+  return {
+    run_id: runId,
+    status: "NOT_RUN",
+    outcome: "NOT_RUN",
+    provenance: "NOT_RUN",
+    is_published: false,
+    error,
+  };
+}
+
+async function getCanonicalStoredReceipt(ledger) {
+  if (typeof ledger.getReceipt !== "function") {
+    return null;
+  }
+
+  for (const candidateId of CANONICAL_PUBLIC_IDS) {
+    const stored = await ledger.getReceipt(candidateId);
+    if (stored) {
+      return stored;
+    }
+  }
+
+  return null;
+}
+
+function buildCanonicalRunSummary(runId, stored) {
+  return {
+    run_id: runId,
+    status: "COMPLETED",
+    outcome: stored.receipt.overall_verdict,
+    provenance: stored.receipt.provenance,
+    source_commit_id: stored.receipt.source_commit_id,
+    receipt_available: true,
+    receipt_digest: stored.receipt_digest,
+    is_published: true,
+  };
+}
+
 /**
  * Check admin bearer authorization.
  *
@@ -139,15 +183,18 @@ export default {
     // 2. Health & Source SHA Parity Endpoint (P-27.04)
     if (method === "GET" && (path === "/health" || path === "/v1/health")) {
       const expectedCommit =
-        env.EXPECTED_SOURCE_COMMIT || "80b43b84014fa61b941c7ebcd87836a56dcd7c92";
+        getDeclaredSourceCommit(env);
       const accounting =
-        typeof ledger.getAccounting === "function" ? ledger.getAccounting() : {};
+        typeof ledger.getAccounting === "function" ? await ledger.getAccounting() : {};
 
       return jsonResponse(200, {
         status: "ok",
         platform: "cloudflare_workers",
         version: "1.0.0",
         source_commit_id: expectedCommit,
+        source_commit_status:
+          expectedCommit === UNKNOWN_BUILD_SHA ? "UNKNOWN_BUILD_SHA" : "CONFIGURED_UNVERIFIED",
+        deployment_readiness: "NOT_READY_FOR_DEPLOYMENT",
         live_enabled: env.LIVE_ENABLED === "true",
         kill_switch_engaged: accounting.kill_switch_engaged ?? false,
         total_runs: accounting.total_runs ?? 0,
@@ -161,15 +208,29 @@ export default {
     if (method === "GET" && receiptMatch) {
       const runId = receiptMatch[1];
 
-      // If requesting canonical demo receipt
-      if (runId === "canonical-demo" || runId === "reset_vault") {
-        const canonical = buildCanonicalResetVaultReceipt();
-        return jsonResponse(200, canonical);
+      if (CANONICAL_PUBLIC_IDS.includes(runId)) {
+        const storedCanonical = await getCanonicalStoredReceipt(ledger);
+        if (!storedCanonical) {
+          return jsonResponse(
+            404,
+            buildUnavailableRunPayload(
+              runId,
+              "No independently validated historical public receipt has been supplied for this route."
+            )
+          );
+        }
+        if (!storedCanonical.is_verified) {
+          return jsonResponse(422, {
+            error: "Public receipt integrity failure: recomputed digest mismatch or tampered payload.",
+            tampered: true,
+          });
+        }
+        return jsonResponse(200, storedCanonical.receipt);
       }
 
       let stored = null;
       if (typeof ledger.getReceipt === "function") {
-        stored = ledger.getReceipt(runId);
+        stored = await ledger.getReceipt(runId);
       }
 
       if (!stored) {
@@ -190,25 +251,27 @@ export default {
     const runMatch = path.match(/^\/v1\/runs\/([A-Za-z0-9_.-]+)\/?$/);
     if (method === "GET" && runMatch) {
       const runId = runMatch[1];
-      if (runId === "canonical-demo") {
-        return jsonResponse(200, {
-          run_id: "canonical-demo",
-          status: "COMPLETED",
-          target: "tests/fixtures/reset_vault",
-          outcome: "VERIFIED",
-          is_published: true,
-        });
+      if (CANONICAL_PUBLIC_IDS.includes(runId)) {
+        const storedCanonical = await getCanonicalStoredReceipt(ledger);
+        if (!storedCanonical || !storedCanonical.is_verified) {
+          return jsonResponse(
+            404,
+            buildUnavailableRunPayload(
+              runId,
+              "No independently validated historical public run has been supplied for this route."
+            )
+          );
+        }
+        return jsonResponse(200, buildCanonicalRunSummary(runId, storedCanonical));
       }
 
-      const rows =
-        typeof ledger.sql?.query === "function"
-          ? ledger.sql.query("SELECT * FROM runs WHERE run_id = ?", runId)
-          : [];
+      const publicRun =
+        typeof ledger.getPublicRun === "function" ? await ledger.getPublicRun(runId) : null;
 
-      if (rows.length === 0) {
+      if (!publicRun) {
         return jsonResponse(404, { error: `Run '${runId}' not found.` });
       }
-      return jsonResponse(200, rows[0]);
+      return jsonResponse(200, publicRun);
     }
 
     // 5. Initiate Pre-Audited Verification Scenario (Protected Admission)
@@ -220,105 +283,23 @@ export default {
         return jsonResponse(400, { error: "Malformed JSON body." });
       }
 
-      const grantToken =
-        request.headers.get("X-Judge-Grant") || body.grant_token || body.grant;
-
-      const target = body.target || "tests/fixtures/reset_vault";
-      const sourceCommit =
-        body.source_commit_id ||
-        env.EXPECTED_SOURCE_COMMIT ||
-        "80b43b84014fa61b941c7ebcd87836a56dcd7c92";
-
-      const idempotencyKey =
-        request.headers.get("Idempotency-Key") || body.idempotency_key;
-
       const allowLive =
         body.allow_live === true ||
         request.headers.get("X-Allow-Live") === "true";
 
-      // If caller did not request live execution, serve offline canonical result safely
       if (!allowLive) {
-        const canonical = buildCanonicalResetVaultReceipt({
-          provenance: "FIXTURE",
-        });
-        return jsonResponse(200, {
-          run_id: "run_offline_" + crypto.randomUUID().slice(0, 8),
-          status: "VERIFIED",
-          is_live: false,
-          receipt: canonical,
-          message:
-            "Offline preflight completed. Invariant verified: BASE=FAIL, CANDIDATE=PASS, COUNTERFACTUAL=FAIL.",
+        return jsonResponse(403, {
+          status: "NOT_RUN",
+          error:
+            "Offline synthesized causal results are disabled. No independently validated historical receipt has been supplied for anonymous execution.",
         });
       }
 
-      // Check admission boundary via Durable Object
-      const reservation = ledger.reserveAdmission({
-        grant_token: grantToken,
-        target,
-        source_commit_id: sourceCommit,
-        idempotency_key: idempotencyKey,
-        verified_balance: body.verified_balance ?? env.VERIFIED_PROMO_BALANCE,
-        balance_timestamp:
-          body.balance_timestamp ?? (env.BALANCE_TIMESTAMP ? Number(env.BALANCE_TIMESTAMP) : Date.now()),
-        live_enabled: env.LIVE_ENABLED === "true",
+      return jsonResponse(503, {
+        status: "NOT_RUN",
+        error:
+          "Live execution is NOT_READY_FOR_DEPLOYMENT. Trusted server-controlled budget authority and independently validated remote Python verification integration are unavailable, so no provider call was attempted.",
       });
-
-      if (!reservation.admitted) {
-        return jsonResponse(reservation.code || 403, {
-          error: reservation.error,
-          status: reservation.status,
-        });
-      }
-
-      if (reservation.is_replay) {
-        return jsonResponse(200, {
-          run_id: reservation.run_id,
-          status: reservation.status,
-          is_replay: true,
-        });
-      }
-
-      const runId = reservation.run_id;
-      if (typeof ledger.markInFlight === "function") {
-        ledger.markInFlight(runId);
-      }
-
-      // Dispatch to provider execution boundary
-      const execResult = await dispatchVerificationRun({
-        runId,
-        target,
-        sourceCommitId: sourceCommit,
-        allowLive: true,
-        nebiusApiKey: env.NEBIUS_API_KEY,
-        nebiusProjectId: env.NEBIUS_PROJECT_ID,
-      });
-
-      if (execResult.success && execResult.receipt) {
-        ledger.recordExecutionSuccess(runId, {
-          observed_cost: execResult.observed_cost,
-          tokens_used: execResult.tokens_used,
-          receipt: execResult.receipt,
-        });
-
-        return jsonResponse(201, {
-          run_id: runId,
-          status: "COMPLETED",
-          outcome: execResult.receipt.overall_verdict,
-          receipt: execResult.receipt,
-        });
-      } else {
-        ledger.recordExecutionFailure(runId, {
-          error_message: execResult.error || "Unknown execution failure",
-          was_ambiguous: execResult.was_ambiguous ?? false,
-          observed_cost: execResult.observed_cost ?? 0.0,
-        });
-
-        return jsonResponse(502, {
-          error: execResult.error,
-          run_id: runId,
-          status: execResult.was_ambiguous ? "UNKNOWN_OUTCOME" : "FAILED",
-        });
-      }
     }
 
     // 6. Admin API: Issue Single-Use Access Grant
@@ -334,7 +315,7 @@ export default {
         // Optional body
       }
 
-      const grant = ledger.issueGrant({
+      const grant = await ledger.issueGrant({
         token: grantBody.token,
         ttlSeconds: grantBody.ttl_seconds || 3600,
         maxUses: 1, // Strictly single-use
@@ -359,10 +340,10 @@ export default {
 
       const engage = body.engage !== false;
       if (engage) {
-        ledger.engageKillSwitch(body.reason || "Operator engaged kill switch.");
+        await ledger.engageKillSwitch(body.reason || "Operator engaged kill switch.");
         return jsonResponse(200, { kill_switch_engaged: true });
       } else {
-        ledger.disengageKillSwitch();
+        await ledger.disengageKillSwitch();
         return jsonResponse(200, { kill_switch_engaged: false });
       }
     }
@@ -373,7 +354,7 @@ export default {
         return jsonResponse(401, { error: "Unauthorized: Invalid operator admin key." });
       }
 
-      const accounting = ledger.getAccounting();
+      const accounting = await ledger.getAccounting();
       return jsonResponse(200, accounting);
     }
 

@@ -1,6 +1,6 @@
 # P-05.06 — Live Adapter Integration Suite Report
 
-- **Date / Time (UTC):** 2026-10-15T09:20:18.567074+00:00 to 2026-10-15T09:20:29.943526+00:00
+- **Date / Time (UTC):** 2026-09-26T15:13:22.382647+00:00 to 2026-09-26T15:13:34.088155+00:00
 - **Exact Active Task:** `P-05.06 — Execute live adapter integration suite`
 - **Execution Status:** EXECUTOR_COMPLETED / INDEPENDENT_QA_CANDIDATE
 - **Evidence Provenance:** `LIVE_NEBIUS`
@@ -45,9 +45,9 @@ No silent fallback.
 - **Prompt Tokens:** `33`
 - **Completion Tokens:** `32`
 - **Total Consumed Tokens:** `65`
-- **Duration:** `0.892s`
-- **Request ID:** `chatcmpl-5a0803b9`
-- **Model Telemetry Digest:** `bdc8824d51b596f8e62c5d9c8a367517218b1d36e9b3294136a78ec64cccaaa7`
+- **Duration:** `0.549s`
+- **Request ID:** `chatcmpl-9bf21bd0`
+- **Model Telemetry Digest:** `00cbb648dece743a50e74788fe6830096fd2f3a88ac932ca17675df106599ea7`
 - **Telemetry Provenance:** `LIVE_NEBIUS`
 - **is_authoritative:** `False` (zero causal verdict authority)
 
@@ -58,9 +58,9 @@ No silent fallback.
 - **Sandbox Image:** `tag:astral/uv:python3.11-alpine`
 - **Target Repository:** `https://github.com/zyganali-glitch/Basebreak.git`
 - **Materialization Workspace:** `/workspace/Basebreak`
-- **Operation UUID:** `01a13edc-c560-76b7-9492-d09b82f79546`
-- **Result Image UUID (Snapshot Layer):** `c26253c2-173f-4033-97a5-3eba0ebbb67f`
-- **Materialization Duration:** `3.322s`
+- **Operation UUID:** `01a0de47-32ec-7232-8726-952dbbf49516`
+- **Result Image UUID (Snapshot Layer):** `d3edf1d6-e437-48b3-a7f8-ce000123eeab`
+- **Materialization Duration:** `2.337s`
 - **Workspace Cleanliness Verified:** `True` (absent prior to clone)
 - **Source Verification Status:** `True`
 
@@ -79,9 +79,9 @@ canonical candidate repository state down to the exact bit.
 ## 4. Step 4: Real Command Execution Inside Materialized Repo
 
 - **Executed Command:** `python3 -m pytest tests/test_bootstrap.py`
-- **Execution Operation UUID:** `01a13edc-d9cd-755b-b520-a503ff214399`
+- **Execution Operation UUID:** `01a0de47-4766-7478-8543-5ce7695f488c`
 - **Process Exit Code:** `0`
-- **Duration:** `2.405s`
+- **Duration:** `2.633s`
 
 ### Captured Stdout:
 ```
@@ -105,7 +105,7 @@ tests/test_bootstrap.py ...                                              [100%]
 
 ## 5. Step 5: Live Telemetry Normalization
 
-- **Sandbox Telemetry Digest:** `a222aba2ec2b90226a73a45529ce382ec0d236484ad74936f9a2940bc2132a6b`
+- **Sandbox Telemetry Digest:** `d8507fc5ae24edcdfda80b327f3c97471b3d10f1fa2014b55dfa2b6f2941ba6e`
 - **Sandbox Provenance:** `LIVE_NEBIUS`
 - **is_authoritative:** `False`
 - **Secret Safety Findings:** `None (0 findings)`

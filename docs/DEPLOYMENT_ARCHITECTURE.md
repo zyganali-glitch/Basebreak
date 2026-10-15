@@ -6,7 +6,7 @@ This document establishes the deployment architecture decision for **Basebreak**
 
 - **Product Thesis:** *"If the patch matters, the base must break."*
 - **Primary Architecture:** **Cloudflare Workers Free + Static Assets + SQLite-backed Durable Object + Nebius Token Factory / Token Factory Sandboxes**.
-- **Core Judge Value:** Single public URL, integrated responsive judge dashboard, real BASE/CANDIDATE/COUNTERFACTUAL causal triplet evidence, and authentic on-demand Nebius/NVIDIA verification under strict $0.00 personal spend.
+- **Core Judge Value:** Single public URL design, bounded admission controls, and truthful public NOT_RUN state until authentic evidence and real Cloudflare/Nebius runtime integration are independently validated.
 - **Judging Window:** Project submissions freeze late October 2026; judging and review continue through **December 15, 2026**.
 - **Target Personal Spend:** Strictly **$0.00**.
 - **Promotional Budget Guard:** `TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00` operator policy safety reserve floor.
@@ -95,7 +95,7 @@ Under P-27.01, we evaluate **Cloudflare Workers Free + Static Assets + SQLite-ba
 - **Evaluation:** Because Devpost does not provide a private per-judge credential delivery field on public submissions without exposing secrets:
   1. The operator issues single-use grants via `POST /admin/grants` using the private `BASEBREAK_ADMIN_KEY`.
   2. Dedicated single-use URLs (`https://basebreak.workers.dev/judge?grant=bb_grant_xxx`) can be provided directly to hackathon judges via private evaluation channels.
-  3. For unrestricted public inspection, the site presents authentic pre-generated `RECORDED_LIVE` receipts with full cryptographic proofs, requiring zero credentials.
+  3. For unrestricted public inspection, the site may publish only an independently validated historical receipt that has been explicitly supplied; otherwise the default public surface remains `NOT_RUN`.
 - **Verdict:** **FEASIBLE**.
 
 ### Dimension 9: Account & Operator Authorization Boundary
@@ -125,7 +125,7 @@ To ensure 100% adherence to repository governance and Section A of the Master Pl
 
 | Platform | Role in Basebreak | Single Public URL? | Card Required? | Personal Spend | Disk/State Persistence | Concurrency & Cost Ledger | Feasibility Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Cloudflare Workers Free + DO SQLite** | **Primary Candidate Live Site** | **YES** (`*.workers.dev`) | **NO** | **$0.00** | Persistent SQLite in DO | Enforced by `AdmissionLedgerDO` | **FEASIBLE (Ready for Operator Preflight)** |
+| **Cloudflare Workers Free + DO SQLite** | **Primary Candidate Live Site** | **YES** (`*.workers.dev`) | **NO** | **$0.00** | Persistent SQLite in DO | Enforced by `AdmissionLedgerDO` | **FEASIBLE (`NOT_READY_FOR_DEPLOYMENT`)** |
 | **Render Free (Hobby)** | **Alternative Container Host** | YES (`*.onrender.com`) | NO | $0.00 | Ephemeral (wiped on 15m idle) | In-memory only (lost on sleep) | Secondary fallback only |
 | **GitHub Pages** | **Static Archive & Fallback** | YES (`*.github.io`) | NO | $0.00 | Permanent (Git-backed) | None (Static HTML only) | Read-only inspection of authentic evidence |
 | **HF Docker Space** | **Disqualified** | YES | YES (Mandates card) | Billed if exceed | Ephemeral | None | Violates Zero-Cost Law |
@@ -178,14 +178,14 @@ To ensure 100% adherence to repository governance and Section A of the Master Pl
 
 | Subsystem / Capability | Implementation Component | Testing Provenance | Current Execution Status |
 | :--- | :--- | :--- | :--- |
-| **Worker HTTP Router & Endpoints** | `cloudflare/src/index.js` | `LOCAL_EXECUTION` (Node test runner) | **IMPLEMENTED_AND_TESTED (9/9 pass)** |
-| **SQLite Durable Object Ledger** | `cloudflare/src/ledger.js` | `LOCAL_EXECUTION` (Node test runner) | **IMPLEMENTED_AND_TESTED (11/11 pass)** |
+| **Worker HTTP Router & Endpoints** | `cloudflare/src/index.js` | `LOCAL_EXECUTION` (Node test runner) | **LOCAL_EXECUTION ONLY / `NOT_READY_FOR_DEPLOYMENT`** |
+| **SQLite Durable Object Ledger** | `cloudflare/src/ledger.js` | `LOCAL_EXECUTION` (Node test runner) | **LOCAL_EXECUTION ONLY / `NOT_READY_FOR_DEPLOYMENT`** |
 | **Cryptographic Receipt Integrity** | `cloudflare/src/crypto_utils.js` | `LOCAL_EXECUTION` (Python & JS tests) | **IMPLEMENTED_AND_TESTED** |
-| **Static Judge Dashboard** | `cloudflare/public/index.html` | `LOCAL_EXECUTION` | **IMPLEMENTED_AND_TESTED** |
-| **Wrangler Configuration & Parity** | `cloudflare/wrangler.jsonc` | `LOCAL_EXECUTION` (Python pytest) | **IMPLEMENTED_AND_TESTED (4/4 pass)** |
-| **100 Clicks Single Grant Admission** | `cloudflare/test/ledger.test.js` | `LOCAL_EXECUTION` (Node test runner) | **VERIFIED (1 admitted, 99 rejected)** |
-| **Global Concurrency Ceiling (Max 1)** | `cloudflare/test/ledger.test.js` | `LOCAL_EXECUTION` (Node test runner) | **VERIFIED (1 in-flight, 9 rejected)** |
-| **Fail-Closed Stale/Low Balance ($5)** | `cloudflare/test/ledger.test.js` | `LOCAL_EXECUTION` (Node test runner) | **VERIFIED (All floor violations blocked)** |
+| **Static Judge Dashboard** | `cloudflare/public/index.html` | `LOCAL_EXECUTION` | **TRUTHFUL PUBLIC `NOT_RUN` STATE IMPLEMENTED** |
+| **Wrangler Configuration & Parity** | `cloudflare/wrangler.jsonc` | `LOCAL_EXECUTION` (Python pytest) | **LOCAL_EXECUTION ONLY; defaults to `UNKNOWN_BUILD_SHA` unless configured at deploy time** |
+| **100 Clicks Single Grant Admission** | `cloudflare/test/ledger.test.js` | `LOCAL_EXECUTION` (Node test runner) | **LOCAL_EXECUTION ONLY (not real Durable Object runtime certification)** |
+| **Global Concurrency Ceiling (Max 1)** | `cloudflare/test/ledger.test.js` | `LOCAL_EXECUTION` (Node test runner) | **LOCAL_EXECUTION ONLY (not real Durable Object runtime certification)** |
+| **Fail-Closed Stale/Low Balance ($5)** | `cloudflare/test/ledger.test.js` | `LOCAL_EXECUTION` (Node test runner) | **LOCAL_EXECUTION ONLY; public handler does not trust client-supplied balance authority** |
 | **Public Cloud Worker Deployment** | `wrangler deploy` | N/A | **OPERATOR_DECISION_REQUIRED / NOT_RUN** |
-| **Live Nebius Sandbox Execution** | `dispatchVerificationRun` | N/A | **OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN** |
+| **Live Nebius Sandbox Execution** | `dispatchVerificationRun` | N/A | **FAIL-CLOSED BEFORE SANDBOX REQUEST / `NOT_RUN`** |
 | **Live Production Health Parity** | `verify_health_parity` | N/A | **NOT_RUN against live production** |

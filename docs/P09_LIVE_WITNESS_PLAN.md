@@ -5,7 +5,7 @@ This document records the live execution proof for **P-09 (Witness Generation)**
 using the real Nebius Token Factory API and `nvidia/Nemotron-3_5-Lightning` bound to
 the exact Basebreak implementation SHA and isolated demo target.
 
-- **Tested Basebreak Implementation SHA:** `32235bce2ab31550406ca948f3111892765245df`
+- **Tested Basebreak Implementation SHA:** `6cdbe613eada838b31d8d97620f3f02bf19a8916`
 - **Date:** 2026-10-05
 - **Provenance:** `LIVE_NEBIUS`
 - **Model Endpoint:** `https://api.tokenfactory.nebius.com/v1`
@@ -13,9 +13,9 @@ the exact Basebreak implementation SHA and isolated demo target.
 - **Target Repository Locator:** `https://github.com/zyganali-glitch/basebreak-demo-target.git`
 - **Target BASE Commit SHA:** `40ff923a134a21d8e357deb7a7988571cd396b56`
 - **Target BASE Tree SHA:** `f81f6faa0c7572f9941570bbce376fadc10f39a3`
-- **Witness Plan Digest:** `250a358aead71434e8bc28fd5eb9d9ef7fe86bb79054fab3d6c703f4d5d4d74c`
-- **Sealed Witness Seal Digest:** `d4430f6e89dbf74f6fe250747b4225a7982872ef7ebe0e4261fd9f53cb587ae0`
-- **Pre-Execution Witness Lock Digest:** `56ff5425f448cd8a7a1f981cfc9849854cd4403673aafb2d0192a773f263024c`
+- **Witness Plan Digest:** `8e887c7268e68872e3b32628403809183644c06f28d6f1a2d79fc46ae309e00d`
+- **Sealed Witness Seal Digest:** `ca92d963f1e45c7581bdd25d230ef8019d75c242d078a0f069545cc8f456c866`
+- **Pre-Execution Witness Lock Digest:** `c788926f1b8e43d84aae9684ec07d98a1bcfe042972b6f3f326d5eb494e24459`
 
 ## Protocol Execution Details
 
@@ -56,6 +56,6 @@ the exact Basebreak implementation SHA and isolated demo target.
 - **Vacuity defense (P-09.05):** Witnesses with zero assertions, trivial constant
   assertions (`assert True`), or 0 collected tests fail closed.
 - **Target / Product Identity Separation:** Basebreak verifier implementation SHA
-  (`32235bce2ab31550406ca948f3111892765245df`) is explicitly distinguished from Target repository commit
+  (`6cdbe613eada838b31d8d97620f3f02bf19a8916`) is explicitly distinguished from Target repository commit
   (`40ff923a134a21d8e357deb7a7988571cd396b56`).
 - **Billing safety:** Promotional credit safety floor ($5.00) strictly preserved.

@@ -168,8 +168,8 @@
         <p>Causal Verification Runtime for AI-Written Software Changes</p>
       </div>
       <div class="header-badges">
-        <span class="badge badge-verified" id="integrity-badge">AUTHENTIC (SHA-256)</span>
-        <span class="badge badge-prov" id="prov-badge">PROVENANCE: RECORDED_LIVE</span>
+        <span class="badge badge-prov" id="integrity-badge">PUBLIC RECEIPT: NOT_RUN</span>
+        <span class="badge badge-prov" id="prov-badge">PROVENANCE: NOT_RUN</span>
         <span class="badge badge-live">CLOUDFLARE WORKERS EDGE</span>
       </div>
     </header>
@@ -184,22 +184,22 @@
 
       <!-- 3-World Comparison Cards -->
       <section aria-labelledby="triplet-heading">
-        <h2 id="triplet-heading" style="font-size: 1.25rem; margin-bottom: 1rem;">Causal 3-World Triplet Outcomes</h2>
+        <h2 id="triplet-heading" style="font-size: 1.25rem; margin-bottom: 1rem;">Causal 3-World Evidence Status</h2>
         <div class="triplet-grid">
-          <div class="world-card fail">
-            <h4><span>[1. Baseline World]</span> <span class="world-status status-fail">FAIL (Exit 1)</span></h4>
-            <p style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">Independent witness fails on unpatched code, proving the defect genuinely exists.</p>
-            <div class="digest-box">Witness: AssertionError: Token remained active after first reset</div>
+          <div class="world-card">
+            <h4><span>[1. Baseline World]</span> <span class="world-status">NOT_RUN</span></h4>
+            <p style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">No independently validated BASE witness execution has been supplied on this public surface.</p>
+            <div class="digest-box">Historical receipt unavailable until authentic evidence is explicitly supplied.</div>
           </div>
-          <div class="world-card pass">
-            <h4><span>[2. Candidate World]</span> <span class="world-status status-pass">PASS (Exit 0)</span></h4>
-            <p style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">Candidate code passes sealed witness, confirming fix satisfies requirement.</p>
-            <div class="digest-box">Result: 1 passed in 0.04s (single-use invariant enforced)</div>
+          <div class="world-card">
+            <h4><span>[2. Candidate World]</span> <span class="world-status">NOT_RUN</span></h4>
+            <p style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">No independently validated CANDIDATE witness execution has been supplied on this public surface.</p>
+            <div class="digest-box">Live Cloudflare-to-Nebius verification remains NOT_READY_FOR_DEPLOYMENT.</div>
           </div>
-          <div class="world-card fail">
-            <h4><span>[3. Counterfactual]</span> <span class="world-status status-fail">FAIL (Exit 1)</span></h4>
-            <p style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">Reverting minimal fix delta breaks behavior again, proving causal necessity.</p>
-            <div class="digest-box">Delta Test: AssertionError: Token was reused on counterfactual delta</div>
+          <div class="world-card">
+            <h4><span>[3. Counterfactual]</span> <span class="world-status">NOT_RUN</span></h4>
+            <p style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">No independently validated COUNTERFACTUAL witness execution has been supplied on this public surface.</p>
+            <div class="digest-box">Synthetic or inferred three-world outcomes are intentionally suppressed.</div>
           </div>
         </div>
       </section>
@@ -209,7 +209,7 @@
         <section class="card" aria-labelledby="demo-heading">
           <h3 id="demo-heading">Execute Bounded Causal Verification</h3>
           <p style="font-size: 0.88rem; color: var(--text-muted); margin-top: 0;">
-            Trigger authentic causal verification of the canonical ResetVault bug fix. Live execution requires an operator-issued single-use access grant.
+            Public live execution is disabled on this build. The Worker currently returns truthful NOT_RUN responses until trusted budget authority and an independently validated remote Python verifier are integrated.
           </p>
           <form class="demo-form" id="verification-form">
             <div class="form-group">
@@ -217,21 +217,25 @@
               <input type="text" id="demo-target" class="form-control" value="tests/fixtures/reset_vault (REQ-RESET-001)" readonly>
             </div>
             <div class="form-group">
-              <label for="grant-input">Judge Access Grant Token (Optional for offline preview)</label>
-              <input type="text" id="grant-input" class="form-control" placeholder="bb_grant_xxxxxxxxxxxxxxxx (delivered via private judge link)">
+              <label for="grant-input">Judge Access Grant Token (Inactive until trusted live integration exists)</label>
+              <input type="text" id="grant-input" class="form-control" placeholder="Grant entry disabled on this public build" disabled>
             </div>
-            <button type="submit" id="run-btn" class="btn">
-              <span>Execute Causal Verification</span>
+            <button type="button" id="run-btn" class="btn" disabled>
+              <span>Live Execution Not Available</span>
             </button>
           </form>
 
           <div id="demo-result">
-            <div id="result-notice" class="notice notice-info"></div>
-            <div id="result-details" style="margin-top: 0.75rem; font-size: 0.85rem;"></div>
+            <div id="result-notice" class="notice notice-warning" style="display: block;">
+              Default public state: NOT_RUN. No provider call or causal verdict is issued from this page.
+            </div>
+            <div id="result-details" style="margin-top: 0.75rem; font-size: 0.85rem;">
+              Historical receipts remain unavailable until an independently validated artifact is explicitly supplied for publication.
+            </div>
           </div>
 
           <div class="notice notice-warning" style="margin-top: 1.25rem;">
-            <strong>Zero-Cost & Credit Drain Protection:</strong> Live runs are bounded by a single-use grant ledger, 1 concurrent execution ceiling, and $5.00 safety reserve floor. Read-only inspection of authentic receipts remains unrestricted.
+            <strong>Zero-Cost & Credit Drain Protection:</strong> This build fail-closes before any provider call. Client-supplied balance values do not authorize live spending, and no authentic historical receipt is exposed by default.
           </div>
         </section>
 
@@ -241,25 +245,23 @@
           <div style="font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.6rem;">
             <div>
               <span style="color: var(--text-muted);">Receipt SHA-256 Digest:</span>
-              <div class="digest-box" id="digest-val">Loading authentic receipt digest...</div>
+              <div class="digest-box" id="digest-val">UNAVAILABLE (NOT_RUN)</div>
             </div>
             <div>
               <span style="color: var(--text-muted);">Source Commit SHA:</span>
-              <div class="digest-box" id="commit-val">80b43b84014fa61b941c7ebcd87836a56dcd7c92</div>
+              <div class="digest-box" id="commit-val">UNKNOWN_BUILD_SHA</div>
             </div>
             <div>
-              <span style="color: var(--text-muted);">Candidate Tree Digest:</span>
-              <div class="digest-box">5555555555555555555555555555555555555555</div>
+              <span style="color: var(--text-muted);">Public Evidence Status:</span>
+              <div class="digest-box">No independently validated historical receipt supplied.</div>
             </div>
             <div style="display: flex; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 0.5rem; margin-top: 0.5rem;">
-              <span><strong>Overall Verdict:</strong> <span class="status-pass">VERIFIED</span></span>
-              <span><strong>Telemetry:</strong> 1,800 tokens | 3 Sandboxes</span>
+              <span><strong>Overall Verdict:</strong> <span>NOT_RUN</span></span>
+              <span><strong>Telemetry:</strong> UNAVAILABLE</span>
             </div>
           </div>
-          <div style="margin-top: 1rem;">
-            <a href="/v1/runs/canonical-demo/receipt" class="btn" style="background: transparent; color: var(--primary); border: 1px solid var(--primary); font-size: 0.82rem; padding: 0.4rem 0.8rem;">
-              Download Canonical JSON Receipt
-            </a>
+          <div class="notice notice-warning" style="margin-top: 1rem;">
+            No canonical public receipt is published on this build. Equivalent receipt routes truthfully return NOT_RUN until authentic evidence is explicitly supplied.
           </div>
         </section>
       </div>
@@ -271,82 +273,5 @@
     </footer>
   </div>
 
-  <script>
-    // Client-side interactions and live status polling
-    document.addEventListener("DOMContentLoaded", async () => {
-      // Load canonical receipt digest
-      try {
-        const res = await fetch("/v1/runs/canonical-demo/receipt");
-        if (res.ok) {
-          const receipt = await res.json();
-          document.getElementById("digest-val").textContent = receipt.receipt_digest || "N/A";
-          document.getElementById("commit-val").textContent = receipt.source_commit_id || "N/A";
-          if (receipt.provenance) {
-            document.getElementById("prov-badge").textContent = "PROVENANCE: " + receipt.provenance;
-          }
-        }
-      } catch (err) {
-        console.warn("Using offline fallback receipt view:", err);
-      }
-
-      // Check query parameter for grant
-      const urlParams = new URLSearchParams(window.location.search);
-      const grantParam = urlParams.get("grant");
-      if (grantParam) {
-        document.getElementById("grant-input").value = grantParam;
-      }
-
-      // Handle verification execution submission
-      const form = document.getElementById("verification-form");
-      const runBtn = document.getElementById("run-btn");
-      const resultBox = document.getElementById("demo-result");
-      const resultNotice = document.getElementById("result-notice");
-      const resultDetails = document.getElementById("result-details");
-
-      form.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const grantToken = document.getElementById("grant-input").value.trim();
-        runBtn.disabled = true;
-        runBtn.textContent = "Verifying Admission...";
-        resultBox.style.display = "block";
-        resultNotice.className = "notice notice-info";
-        resultNotice.textContent = "Checking global admission ledger and quota constraints...";
-        resultDetails.textContent = "";
-
-        try {
-          const resp = await fetch("/v1/runs", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(grantToken ? { "X-Judge-Grant": grantToken } : {})
-            },
-            body: JSON.stringify({
-              target: "tests/fixtures/reset_vault",
-              change_class: "BUG_FIX",
-              grant_token: grantToken,
-              allow_live: Boolean(grantToken)
-            })
-          });
-
-          const data = await resp.json();
-          if (resp.ok) {
-            resultNotice.className = "notice notice-info";
-            resultNotice.textContent = "Run Admitted! Run ID: " + data.run_id + " (Status: " + data.status + ")";
-            resultDetails.innerHTML = "<strong>Result:</strong> Causal Invariant Verified: BASE=FAIL, CANDIDATE=PASS, COUNTERFACTUAL=FAIL.<br>Receipt Digest: <code>" + (data.receipt?.receipt_digest || "Verified") + "</code>";
-          } else {
-            resultNotice.className = "notice notice-warning";
-            resultNotice.textContent = "Admission Response (HTTP " + resp.status + "): " + (data.error || data.message || "Request halted fail-closed.");
-            resultDetails.textContent = "Note: If live execution is not authorized by the operator, you may freely inspect pre-generated authentic receipts below without a live grant.";
-          }
-        } catch (err) {
-          resultNotice.className = "notice notice-warning";
-          resultNotice.textContent = "Network error: " + err.message;
-        } finally {
-          runBtn.disabled = false;
-          runBtn.textContent = "Execute Causal Verification";
-        }
-      });
-    });
-  </script>
 </body>
 </html>

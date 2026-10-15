@@ -114,12 +114,12 @@ Judge claim:
 - P-26 (Performance, Cost & Model Routing, P-26.01 through P-26.06) is SURGICALLY_REPAIRED under Batch B Evidence-Integrity Repair (8 tests passing in `tests/performance/test_performance_routing.py`; model router and benchmarks strictly bound to verified provider models `nvidia/Nemotron-3_5-Lightning` and catalog `nvidia/nemotron-3-super-120b-a12b`; fail-closed negative tests; documentation in `docs/PERFORMANCE_LIMITS.md`).
 - BATCH B CONSOLIDATED EVIDENCE-INTEGRITY REPAIR independently VERIFIED / PASS at SHA `80b43b84014fa61b941c7ebcd87836a56dcd7c92`.
 - BATCH B CONSOLIDATED EVIDENCE-INTEGRITY REPAIR independently VERIFIED / PASS at SHA `80b43b84014fa61b941c7ebcd87836a56dcd7c92`.
-- P-27 (Deployment Readiness, P-27.01 through P-27.06) is IMPLEMENTED_AND_EVALUATED under Bounded Cloudflare Live-Deployment Readiness Batch:
-  - P-27.01 evaluated Cloudflare Workers Free + Static Assets + SQLite Durable Object across 9 dimensions: $0.00 personal spend, zero credit card, sub-5ms edge response, single public URL, and same-origin routing; built enforceable admission boundary in `cloudflare/src/ledger.js` (`AdmissionLedgerDO`) with single-use grants, global concurrency limit of 1 in-flight run, global total invocation cap, and operator-enforced $5.00 safety reserve floor; remote execution boundary targets Nebius Token Factory Sandboxes under Zero-Cost Law; corrected outdated claims on auto-recovered receipts, platform balance hard stops, and premature live demo buttons; validated offline with 20 JS tests in `cloudflare/test/` and 26 Python tests in `tests/deployment/`.
+- P-27 (Deployment Readiness, P-27.01 through P-27.06) is SURGICALLY_REPAIRED / NOT_READY_FOR_DEPLOYMENT under the bounded Cloudflare integration candidate:
+  - P-27.01 preserved the Cloudflare candidate as a fail-closed local/offline surface only: fabricated `LIVE_NEBIUS` / `RECORDED_LIVE` receipt synthesis removed from production execution and default public UI/routes; anonymous non-live POSTs and canonical-demo receipt routes now return truthful `NOT_RUN` unless an independently validated historical receipt is explicitly supplied; public POST handling no longer trusts client-supplied balance/timestamp authority; provider dispatch now blocks before any Nebius sandbox request; validated locally with focused JS/Python regressions.
   - P-27.02 minimal reproducible rootless `Dockerfile`, `.dockerignore`, `docker-compose.yml`, HTTP readiness probe, and CLI serve packaged; Docker CI recorded as `NOT_RUN` and smoke script provided.
   - P-27.03 public deployment configuration and Turkish operator deployment guide prepared in `docs/OPERATOR_DEPLOYMENT_HANDOFF.md`; held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
-  - P-27.04 health/version/SHA parity implemented and verified in Python and JS.
-  - P-27.05 signed-out judge access implemented with zero secrets and authenticated mutations.
+  - P-27.04 Cloudflare `/health` now reports `UNKNOWN_BUILD_SHA` unless explicitly configured at deploy time; no hardcoded old SHA parity claim remains on the public worker surface.
+  - P-27.05 signed-out judge access remains read-only and sanitized; anonymous callers no longer receive raw run rows or default fabricated receipts.
   - P-27.06 deployed live Nebius runtime proof specified in `docs/P27_06_DEPLOYED_NEBIUS_RUNTIME_PROOF.md`; held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
 - P-28 (Product Design & Judge Comprehension, P-28.01 through P-28.06) is IMPLEMENTED_AND_TESTED under Batch C (7 tests passing in `tests/ui/test_judge_comprehension_accessibility.py`).
 - P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED AFTER P-28.
@@ -139,37 +139,17 @@ Judge claim:
 No cost-consuming external API calls or public deployments were executed without explicit authorization. Zero-personal-spend ($0.00) policy preserved.
 
 ### Current QA candidate
-P-27 Bounded Cloudflare Live-Deployment Integration Readiness Candidate:
-1. Cloudflare Workers Free + Static Assets + SQLite Durable Object Architecture:
-   - Evaluated across 9 operational dimensions in `docs/DEPLOYMENT_ARCHITECTURE.md`.
-   - Single public URL (`https://basebreak.<subdomain>.workers.dev`) serving HTML Judge Dashboard, REST API (`/v1/runs`, `/v1/runs/:id/receipt`, `/health`), and admin controls under same origin.
-   - Cloudflare Workers Free: 100,000 requests/day, zero credit card required, $0.00 personal spend, edge routing with sub-5ms response (no cold-start sleep).
-   - Python runtime isolation boundary: Worker executes V8 JS/Wasm; does NOT port Python causal verifier to JS; trusted Python runtime targets remote Nebius Token Factory Sandboxes.
-2. Credit-Drain Prevention (Single Canonical SQLite Durable Object Ledger `AdmissionLedgerDO`):
-   - Default `LIVE_ENABLED=false`.
-   - Operator-issued single-use access grants (`max_uses: 1`), server-validated. Anonymous self-service live execution strictly forbidden.
-   - Fixed allowlisted target (`tests/fixtures/reset_vault`) and immutable source commit SHA; arbitrary substitution rejected fail-closed.
-   - Global total invocation cap (5 runs) and global concurrency ceiling (maximum 1 in-flight run).
-   - Atomic check-and-reserve before calling external provider.
-   - Idempotency and replay prevention.
-   - Fail-closed recovery after restarts, worker crashes, and network loss (shifting ambiguous costs to `unknown_cost` without duplicate retries).
-   - Strict rejection of missing, stale (>15 min), or below-floor (<= $5.00) promotional balance.
-   - Operator-policy $5.00 safety reserve floor (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`).
-   - Administrative kill switch (`POST /admin/killswitch`).
-3. Hosting Truth Repair:
-   - Corrected unsupported claims on auto-recovered receipts, platform balance hard stops, premature live demo buttons, provider-level rate limits, verified uptime, and working remote Python execution.
-   - GitHub Pages designated strictly as static fallback archive.
-4. Test Suite Execution:
-   - 20 JavaScript tests passing in `cloudflare/test/` (all 11 Section E adversarial & integration scenarios: 100 repeated clicks, parallel multi-client concurrency ceiling, reused/forged/expired grants, restart recovery, ambiguous provider outcome, stale balance, budget exhaustion, kill switch, target substitution, receipt tampering, and read-only access).
-   - 26 Python tests passing in `tests/deployment/` (including 4 new Cloudflare parity tests in `tests/deployment/test_cloudflare_parity.py`).
-   - 11 tests passing in `tests/ui/test_ui.py`.
-   - 7 tests passing in `tests/ui/test_judge_comprehension_accessibility.py`.
+P-27.01 Critical Evidence & Spending-Boundary Repair Candidate:
+1. Production Cloudflare execution/public evidence paths no longer synthesize three-world `VERIFIED`, `RECORDED_LIVE`, or `LIVE_NEBIUS` receipts.
+2. Public POST handling no longer accepts visitor-supplied promotional balance authority; live execution now fails closed before any provider call.
+3. Anonymous `GET /v1/runs/{id}` returns sanitized public summaries only; canonical-demo routes return truthful `NOT_RUN` until authentic historical evidence is explicitly supplied.
+4. Historical LIVE_NEBIUS proof files restored exactly to predecessor commit `32235bce2ab31550406ca948f3111892765245df` and covered by an immutable comparison regression.
 
 ### Active exact task
-P-27 Bounded Cloudflare Live-Deployment Integration Readiness Batch complete. Awaiting external independent QA evaluation. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+P-27.01 critical evidence & spending-boundary repair candidate complete locally. Await external independent QA evaluation. Keep Cloudflare integration `NOT_READY_FOR_DEPLOYMENT`; P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-26 independently VERIFIED / PASS or accepted at baseline SHA `80b43b...`. P-16.05, P-23.04–P-23.07, P-26.02, P-27.03, P-27.06 held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. P-23.08 held fail-closed at `BLOCKED`. P-27 Cloudflare integration readiness and P-28 judge comprehension are IMPLEMENTED_AND_TESTED offline. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-26 independently VERIFIED / PASS or accepted at baseline SHA `80b43b...`. P-16.05, P-23.04–P-23.07, P-26.02, P-27.03, P-27.06 held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. P-23.08 held fail-closed at `BLOCKED`. P-27 Cloudflare candidate is surgically repaired but remains `NOT_READY_FOR_DEPLOYMENT`; P-28 judge comprehension remains implemented/tested offline. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Provider neutrality:** All deployment packaging, health parity checks, signed-out judge access models, and UI components remain strictly provider-neutral.
 - **Batch authorization & hard stop:** P-27 Cloudflare integration readiness batch completed. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 
@@ -189,9 +169,8 @@ P-27 Bounded Cloudflare Live-Deployment Integration Readiness Batch complete. Aw
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit consolidated P-27 Cloudflare Integration Readiness report to external QA authority.
-2. Await independent QA evaluation.
+1. Submit the P-27.01 critical evidence & spending-boundary repair candidate to external QA authority.
+2. Await independent QA evaluation; do not claim Cloudflare runtime readiness or live Nebius execution.
 3. Enforce hard stop; do not activate P-29+.
-
 
 

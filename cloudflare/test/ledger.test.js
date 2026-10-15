@@ -15,12 +15,12 @@
  * - Same-origin routing and durable state recovery.
  */
 
-import { describe, it, beforeEach } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { AdmissionLedgerDO } from "../src/ledger.js";
-import { buildCanonicalResetVaultReceipt } from "../src/provider_dispatcher.js";
 import { computeReceiptDigest, verifyReceiptIntegrity } from "../src/crypto_utils.js";
+import { buildFixturePublicReceipt } from "./fixtures/public_receipt_fixture.js";
 
 const DEFAULT_TARGET = "tests/fixtures/reset_vault";
 const DEFAULT_SOURCE = "80b43b84014fa61b941c7ebcd87836a56dcd7c92";
@@ -337,7 +337,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(r1.admitted, true);
     ledger.recordExecutionSuccess(r1.run_id, {
       observed_cost: 0.01,
-      receipt: buildCanonicalResetVaultReceipt(),
+      receipt: buildFixturePublicReceipt(),
     });
 
     // Run 2: Admitted and completed
@@ -353,7 +353,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(r2.admitted, true);
     ledger.recordExecutionSuccess(r2.run_id, {
       observed_cost: 0.01,
-      receipt: buildCanonicalResetVaultReceipt(),
+      receipt: buildFixturePublicReceipt(),
     });
 
     // Run 3: Attempt admission after cap of 2 is reached
@@ -433,7 +433,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
 
   it("9. Receipt tampering, forged provenance, and secret exposure rejected", () => {
     const { ledger } = createTestLedger();
-    const validReceipt = buildCanonicalResetVaultReceipt();
+    const validReceipt = buildFixturePublicReceipt();
     assert.equal(verifyReceiptIntegrity(validReceipt), true);
 
     // 9a. Tampered receipt (modified field without updating digest)
@@ -479,7 +479,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     });
     assert.equal(reservation.admitted, true);
 
-    const canonicalReceipt = buildCanonicalResetVaultReceipt();
+    const canonicalReceipt = buildFixturePublicReceipt();
     ledger.recordExecutionSuccess(reservation.run_id, {
       observed_cost: 0.005,
       receipt: canonicalReceipt,
@@ -507,7 +507,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     const publicReceipt = ledger.getReceipt(reservation.run_id);
     assert.ok(publicReceipt);
     assert.equal(publicReceipt.is_verified, true);
-    assert.equal(publicReceipt.receipt.overall_verdict, "VERIFIED");
+    assert.equal(publicReceipt.receipt.provenance, "FIXTURE");
   });
 
   it("11. Same-origin routing and durable state recovery", () => {
@@ -515,7 +515,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     const grant = ledger.issueGrant({ token: "durable_grant_123" });
 
     // Store a published receipt
-    const canonicalReceipt = buildCanonicalResetVaultReceipt();
+    const canonicalReceipt = buildFixturePublicReceipt();
     ledger.storeReceipt("run_durable_test", canonicalReceipt);
 
     // Destroy first DO instance, re-instantiate fresh DO with same DB
@@ -534,5 +534,48 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.ok(restoredReceipt);
     assert.equal(restoredReceipt.is_verified, true);
     assert.equal(restoredReceipt.receipt_digest, canonicalReceipt.receipt_digest);
+  });
+
+  it("12. Idempotency replays are bound to the original authorization context", () => {
+    const { ledger } = createTestLedger();
+    const grantOne = ledger.issueGrant();
+    const grantTwo = ledger.issueGrant();
+
+    const first = ledger.reserveAdmission({
+      grant_token: grantOne.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      idempotency_key: "idem-boundary-key",
+      verified_balance: 10.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(first.admitted, true);
+
+    const replay = ledger.reserveAdmission({
+      grant_token: grantOne.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      idempotency_key: "idem-boundary-key",
+      verified_balance: 10.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(replay.admitted, true);
+    assert.equal(replay.is_replay, true);
+    assert.equal(replay.run_id, first.run_id);
+
+    const crossGrantReplay = ledger.reserveAdmission({
+      grant_token: grantTwo.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      idempotency_key: "idem-boundary-key",
+      verified_balance: 10.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(crossGrantReplay.admitted, false);
+    assert.equal(crossGrantReplay.status, "IDEMPOTENCY_CONTEXT_MISMATCH");
+    assert.equal(crossGrantReplay.code, 409);
   });
 });

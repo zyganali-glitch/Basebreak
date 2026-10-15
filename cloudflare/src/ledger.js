@@ -240,8 +240,8 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
    * @param {string} params.source_commit_id Expected source commit SHA
    * @param {string} [params.idempotency_key] Optional caller idempotency key
    * @param {number} [params.estimated_cost=0.05] Estimated worst-case cost
-   * @param {number} [params.verified_balance] Fresh verified promotional balance
-   * @param {number} [params.balance_timestamp] Timestamp (ms) when balance was checked
+   * @param {number} [params.verified_balance] Trusted promotional balance snapshot
+   * @param {number} [params.balance_timestamp] Trusted snapshot timestamp (ms)
    * @param {boolean} [params.live_enabled] Explicit override or uses config
    * @returns {{ admitted: boolean, status: string, code?: number, error?: string, run_id?: string, reserved_cost?: number, is_replay?: boolean }}
    */
@@ -312,35 +312,9 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       };
     }
 
-    // 6. Idempotency check
     const payloadFp = computeSha256(
       canonicalJson({ target: target.trim(), source_commit_id: source_commit_id.trim() })
     );
-
-    if (idempotency_key && typeof idempotency_key === "string" && idempotency_key.trim()) {
-      const existingRuns = this.sql.query(
-        "SELECT run_id, status, payload_fingerprint FROM runs WHERE idempotency_key = ?",
-        idempotency_key.trim()
-      );
-      if (existingRuns.length > 0) {
-        const existing = existingRuns[0];
-        if (existing.payload_fingerprint === payloadFp) {
-          return {
-            admitted: true,
-            is_replay: true,
-            run_id: existing.run_id,
-            status: existing.status,
-          };
-        } else {
-          return {
-            admitted: false,
-            status: "IDEMPOTENCY_CONFLICT",
-            code: 409,
-            error: "Idempotency key reused with conflicting request payload.",
-          };
-        }
-      }
-    }
 
     // 6. Grant validation (exists, unexpired, unconsumed)
     if (!grant_token || typeof grant_token !== "string" || !grant_token.trim()) {
@@ -366,6 +340,39 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
     }
 
     const grant = grantRows[0];
+
+    if (idempotency_key && typeof idempotency_key === "string" && idempotency_key.trim()) {
+      const existingRuns = this.sql.query(
+        "SELECT run_id, status, payload_fingerprint, grant_token FROM runs WHERE idempotency_key = ?",
+        idempotency_key.trim()
+      );
+      if (existingRuns.length > 0) {
+        const existing = existingRuns[0];
+        if (existing.grant_token !== grant.grant_token) {
+          return {
+            admitted: false,
+            status: "IDEMPOTENCY_CONTEXT_MISMATCH",
+            code: 409,
+            error: "Idempotency key is bound to a different authorization context.",
+          };
+        }
+        if (existing.payload_fingerprint === payloadFp) {
+          return {
+            admitted: true,
+            is_replay: true,
+            run_id: existing.run_id,
+            status: existing.status,
+          };
+        }
+        return {
+          admitted: false,
+          status: "IDEMPOTENCY_CONFLICT",
+          code: 409,
+          error: "Idempotency key reused with conflicting request payload.",
+        };
+      }
+    }
+
     if (grant.status === "EXPIRED" || grant.expires_at < now) {
       this.sql.execute("UPDATE grants SET status = 'EXPIRED' WHERE grant_id = ?", grant.grant_id);
       return {
@@ -551,6 +558,15 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
     if (!receipt || typeof receipt !== "object") {
       throw new Error("A valid public verification receipt object is required.");
     }
+    if (typeof receipt.overall_verdict !== "string" || !receipt.overall_verdict.trim()) {
+      throw new Error("Public receipt overall_verdict is required.");
+    }
+    if (typeof receipt.provenance !== "string" || !receipt.provenance.trim()) {
+      throw new Error("Public receipt provenance is required.");
+    }
+    if (typeof receipt.source_commit_id !== "string" || !receipt.source_commit_id.trim()) {
+      throw new Error("Public receipt source_commit_id is required.");
+    }
 
     // Cryptographic receipt integrity verification
     if (!verifyReceiptIntegrity(receipt)) {
@@ -586,7 +602,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
         now,
         observed_cost,
         tokens_used,
-        String(receipt.overall_verdict ?? "VERIFIED"),
+        String(receipt.overall_verdict),
         runId
       );
 
@@ -797,6 +813,15 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
    * @param {Record<string, unknown>} receiptObj
    */
   storeReceipt(runId, receiptObj) {
+    if (typeof receiptObj.overall_verdict !== "string" || !receiptObj.overall_verdict.trim()) {
+      throw new Error("Receipt overall_verdict is required.");
+    }
+    if (typeof receiptObj.provenance !== "string" || !receiptObj.provenance.trim()) {
+      throw new Error("Receipt provenance is required.");
+    }
+    if (typeof receiptObj.source_commit_id !== "string" || !receiptObj.source_commit_id.trim()) {
+      throw new Error("Receipt source_commit_id is required.");
+    }
     if (!verifyReceiptIntegrity(receiptObj)) {
       throw new Error("Public receipt integrity verification failed: recomputed digest mismatch.");
     }
@@ -814,9 +839,9 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       runId,
       String(receiptObj.receipt_digest),
       receiptJson,
-      String(receiptObj.source_commit_id || ""),
-      String(receiptObj.provenance || "FIXTURE"),
-      String(receiptObj.overall_verdict || "VERIFIED"),
+      String(receiptObj.source_commit_id),
+      String(receiptObj.provenance),
+      String(receiptObj.overall_verdict),
       now
     );
   }
@@ -846,6 +871,40 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       receipt: parsed,
       is_verified: isAuthentic,
       receipt_digest: row.receipt_digest,
+    };
+  }
+
+  /**
+   * Retrieve the sanitized public run summary.
+   *
+   * @param {string} runId
+   * @returns {{ run_id: string, status: string, outcome: string | null, source_commit_id: string, completed_at: number | null, receipt_available: boolean, receipt_digest: string | null, provenance: string | null } | null}
+   */
+  getPublicRun(runId) {
+    const runRows = this.sql.query(
+      "SELECT run_id, status, outcome, source_commit_id, completed_at FROM runs WHERE run_id = ?",
+      runId
+    );
+    if (runRows.length === 0) {
+      return null;
+    }
+
+    const run = runRows[0];
+    const receiptRows = this.sql.query(
+      "SELECT receipt_digest, provenance FROM receipts WHERE run_id = ?",
+      runId
+    );
+    const receiptRow = receiptRows[0] || null;
+
+    return {
+      run_id: run.run_id,
+      status: run.status,
+      outcome: run.outcome ?? null,
+      source_commit_id: run.source_commit_id,
+      completed_at: run.completed_at ?? null,
+      receipt_available: receiptRow !== null,
+      receipt_digest: receiptRow?.receipt_digest ?? null,
+      provenance: receiptRow?.provenance ?? null,
     };
   }
 
