@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "basebreak",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-15",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ADMISSION_LEDGER",
+        "class_name": "AdmissionLedgerDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "AdmissionLedgerDO"
+      ]
+    }
+  ],
+  "vars": {
+    "LIVE_ENABLED": "false",
+    "GLOBAL_INVOCATION_CAP": "5",
+    "TOKEN_FACTORY_PROMO_STOP_THRESHOLD": "5.00",
+    "ALLOWLISTED_TARGET": "tests/fixtures/reset_vault",
+    "EXPECTED_SOURCE_COMMIT": "80b43b84014fa61b941c7ebcd87836a56dcd7c92"
+  }
+}

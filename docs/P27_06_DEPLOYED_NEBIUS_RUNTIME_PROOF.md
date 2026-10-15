@@ -46,15 +46,25 @@ Under the current execution pipeline (`src/basebreak/cli/runner.py`):
 ### 3.2 Post-Authorization Live Verification Protocol
 When promotional credits are redeemed, balance verified $> \$5.00$, and operator authorization is granted:
 
+1. **Step 1: Operator Issues Single-Use Judge Grant:**
+```bash
+curl -X POST "https://<deployed-url>/admin/grants" \
+  -H "Authorization: Bearer <BASEBREAK_ADMIN_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"ttl_seconds": 3600, "client_info": "p27_proof"}'
+```
+
+2. **Step 2: Trigger Genuine Remote Execution via Admitted Endpoint:**
 ```bash
 curl -X POST "https://<deployed-url>/v1/runs" \
-  -H "Authorization: Bearer <operator-token>" \
+  -H "X-Judge-Grant: <grant_token>" \
   -H "Content-Type: application/json" \
   -d '{
     "target": "tests/fixtures/reset_vault",
     "change_class": "BUG_FIX",
     "allow_live": true,
-    "publish": true
+    "verified_balance": 15.00,
+    "balance_timestamp": 1792100000000
   }'
 ```
 

@@ -1,0 +1,20 @@
+{
+  "name": "basebreak-cloudflare-worker",
+  "version": "1.0.0",
+  "description": "Basebreak Cloudflare Workers admission gateway, judge dashboard, and SQLite Durable Object ledger",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/ledger.test.js test/worker.test.js",
+    "typecheck": "node --check src/index.js src/ledger.js src/crypto_utils.js src/sql_adapter.js src/provider_dispatcher.js test/ledger.test.js test/worker.test.js"
+  },
+  "keywords": [
+    "basebreak",
+    "causal-verification",
+    "cloudflare-workers",
+    "durable-objects",
+    "sqlite"
+  ],
+  "author": "Basebreak Team",
+  "license": "Apache-2.0"
+}

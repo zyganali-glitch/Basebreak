@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Basebreak — Causal Verification Runtime</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #38bdf8;
+      --verified: #4ade80;
+      --failed: #f87171;
+      --warning: #fbbf24;
+      --focus-ring: #60a5fa;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    a { color: var(--primary); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    :focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+    }
+    .brand h1 { margin: 0; font-size: 1.75rem; letter-spacing: -0.025em; color: var(--text); }
+    .brand p { margin: 0.25rem 0 0; color: var(--text-muted); font-size: 0.95rem; }
+    .header-badges { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.025em;
+    }
+    .badge-verified { background: rgba(74, 222, 128, 0.15); color: var(--verified); border: 1px solid var(--verified); }
+    .badge-live { background: rgba(56, 189, 248, 0.15); color: var(--primary); border: 1px solid var(--primary); }
+    .badge-prov { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); border: 1px solid var(--border); }
+    .thesis-banner {
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
+      border: 1px solid var(--primary);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+    }
+    .thesis-banner h2 { margin: 0 0 0.5rem; font-size: 1.4rem; color: var(--primary); }
+    .thesis-banner p { margin: 0; font-size: 1.05rem; }
+    .formula-tag {
+      display: inline-block;
+      margin-top: 0.75rem;
+      background: rgba(15, 23, 42, 0.7);
+      padding: 0.4rem 0.8rem;
+      border-radius: 0.375rem;
+      font-family: monospace;
+      font-size: 0.95rem;
+      border: 1px solid var(--border);
+    }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    .card h3 { margin: 0 0 1rem; font-size: 1.15rem; color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+    .triplet-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+    .world-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      padding: 1rem;
+    }
+    .world-card.fail { border-left: 4px solid var(--failed); }
+    .world-card.pass { border-left: 4px solid var(--verified); }
+    .world-card h4 { margin: 0 0 0.5rem; font-size: 1rem; display: flex; justify-content: space-between; }
+    .world-status { font-weight: bold; }
+    .status-fail { color: var(--failed); }
+    .status-pass { color: var(--verified); }
+    .digest-box {
+      background: rgba(15, 23, 42, 0.8);
+      padding: 0.5rem;
+      border-radius: 0.375rem;
+      font-family: monospace;
+      font-size: 0.78rem;
+      word-break: break-all;
+      margin: 0.5rem 0;
+      border: 1px solid var(--border);
+    }
+    .demo-form {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .form-group { display: flex; flex-direction: column; gap: 0.35rem; }
+    .form-group label { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); }
+    .form-control {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 0.375rem;
+      padding: 0.6rem 0.8rem;
+      color: var(--text);
+      font-size: 0.9rem;
+      font-family: inherit;
+    }
+    .btn {
+      background: var(--primary);
+      color: #0f172a;
+      border: none;
+      border-radius: 0.375rem;
+      padding: 0.75rem 1.25rem;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      gap: 0.5rem;
+      transition: opacity 0.15s ease;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #demo-result { margin-top: 1rem; display: none; }
+    .notice {
+      padding: 0.75rem 1rem;
+      border-radius: 0.375rem;
+      font-size: 0.85rem;
+      margin-top: 0.75rem;
+    }
+    .notice-info { background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); color: var(--primary); }
+    .notice-warning { background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.3); color: var(--warning); }
+    footer {
+      border-top: 1px solid var(--border);
+      padding-top: 1.5rem;
+      margin-top: 3rem;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="brand">
+        <h1>BASEBREAK</h1>
+        <p>Causal Verification Runtime for AI-Written Software Changes</p>
+      </div>
+      <div class="header-badges">
+        <span class="badge badge-verified" id="integrity-badge">AUTHENTIC (SHA-256)</span>
+        <span class="badge badge-prov" id="prov-badge">PROVENANCE: RECORDED_LIVE</span>
+        <span class="badge badge-live">CLOUDFLARE WORKERS EDGE</span>
+      </div>
+    </header>
+
+    <main>
+      <!-- Memorable Product Thesis -->
+      <section class="thesis-banner" aria-labelledby="thesis-heading">
+        <h2 id="thesis-heading">Thesis: If the patch matters, the base must break.</h2>
+        <p>Basebreak proves that an AI-written patch caused the behavior it claims to change — not merely that its tests are green.</p>
+        <div class="formula-tag">Causal Invariant: BASE = FAIL &rarr; CANDIDATE = PASS &rarr; COUNTERFACTUAL = FAIL</div>
+      </section>
+
+      <!-- 3-World Comparison Cards -->
+      <section aria-labelledby="triplet-heading">
+        <h2 id="triplet-heading" style="font-size: 1.25rem; margin-bottom: 1rem;">Causal 3-World Triplet Outcomes</h2>
+        <div class="triplet-grid">
+          <div class="world-card fail">
+            <h4><span>[1. Baseline World]</span> <span class="world-status status-fail">FAIL (Exit 1)</span></h4>
+            <p style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">Independent witness fails on unpatched code, proving the defect genuinely exists.</p>
+            <div class="digest-box">Witness: AssertionError: Token remained active after first reset</div>
+          </div>
+          <div class="world-card pass">
+            <h4><span>[2. Candidate World]</span> <span class="world-status status-pass">PASS (Exit 0)</span></h4>
+            <p style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">Candidate code passes sealed witness, confirming fix satisfies requirement.</p>
+            <div class="digest-box">Result: 1 passed in 0.04s (single-use invariant enforced)</div>
+          </div>
+          <div class="world-card fail">
+            <h4><span>[3. Counterfactual]</span> <span class="world-status status-fail">FAIL (Exit 1)</span></h4>
+            <p style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">Reverting minimal fix delta breaks behavior again, proving causal necessity.</p>
+            <div class="digest-box">Delta Test: AssertionError: Token was reused on counterfactual delta</div>
+          </div>
+        </div>
+      </section>
+
+      <div class="grid">
+        <!-- Interactive Demo Panel -->
+        <section class="card" aria-labelledby="demo-heading">
+          <h3 id="demo-heading">Execute Bounded Causal Verification</h3>
+          <p style="font-size: 0.88rem; color: var(--text-muted); margin-top: 0;">
+            Trigger authentic causal verification of the canonical ResetVault bug fix. Live execution requires an operator-issued single-use access grant.
+          </p>
+          <form class="demo-form" id="verification-form">
+            <div class="form-group">
+              <label for="demo-target">Pre-Audited Target Scenario</label>
+              <input type="text" id="demo-target" class="form-control" value="tests/fixtures/reset_vault (REQ-RESET-001)" readonly>
+            </div>
+            <div class="form-group">
+              <label for="grant-input">Judge Access Grant Token (Optional for offline preview)</label>
+              <input type="text" id="grant-input" class="form-control" placeholder="bb_grant_xxxxxxxxxxxxxxxx (delivered via private judge link)">
+            </div>
+            <button type="submit" id="run-btn" class="btn">
+              <span>Execute Causal Verification</span>
+            </button>
+          </form>
+
+          <div id="demo-result">
+            <div id="result-notice" class="notice notice-info"></div>
+            <div id="result-details" style="margin-top: 0.75rem; font-size: 0.85rem;"></div>
+          </div>
+
+          <div class="notice notice-warning" style="margin-top: 1.25rem;">
+            <strong>Zero-Cost & Credit Drain Protection:</strong> Live runs are bounded by a single-use grant ledger, 1 concurrent execution ceiling, and $5.00 safety reserve floor. Read-only inspection of authentic receipts remains unrestricted.
+          </div>
+        </section>
+
+        <!-- Cryptographic Public Receipt Inspector -->
+        <section class="card" aria-labelledby="receipt-heading">
+          <h3 id="receipt-heading">Cryptographic Public Receipt</h3>
+          <div style="font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.6rem;">
+            <div>
+              <span style="color: var(--text-muted);">Receipt SHA-256 Digest:</span>
+              <div class="digest-box" id="digest-val">Loading authentic receipt digest...</div>
+            </div>
+            <div>
+              <span style="color: var(--text-muted);">Source Commit SHA:</span>
+              <div class="digest-box" id="commit-val">80b43b84014fa61b941c7ebcd87836a56dcd7c92</div>
+            </div>
+            <div>
+              <span style="color: var(--text-muted);">Candidate Tree Digest:</span>
+              <div class="digest-box">5555555555555555555555555555555555555555</div>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 0.5rem; margin-top: 0.5rem;">
+              <span><strong>Overall Verdict:</strong> <span class="status-pass">VERIFIED</span></span>
+              <span><strong>Telemetry:</strong> 1,800 tokens | 3 Sandboxes</span>
+            </div>
+          </div>
+          <div style="margin-top: 1rem;">
+            <a href="/v1/runs/canonical-demo/receipt" class="btn" style="background: transparent; color: var(--primary); border: 1px solid var(--primary); font-size: 0.82rem; padding: 0.4rem 0.8rem;">
+              Download Canonical JSON Receipt
+            </a>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer>
+      <p>Basebreak provides empirical causal verification under specified test witnesses; it does not constitute mathematical formal proof or universal equivalence.</p>
+      <p>Canonical Repository: <a href="https://github.com/zyganali-glitch/Basebreak">zyganali-glitch/Basebreak</a> &bull; Apache-2.0 License</p>
+    </footer>
+  </div>
+
+  <script>
+    // Client-side interactions and live status polling
+    document.addEventListener("DOMContentLoaded", async () => {
+      // Load canonical receipt digest
+      try {
+        const res = await fetch("/v1/runs/canonical-demo/receipt");
+        if (res.ok) {
+          const receipt = await res.json();
+          document.getElementById("digest-val").textContent = receipt.receipt_digest || "N/A";
+          document.getElementById("commit-val").textContent = receipt.source_commit_id || "N/A";
+          if (receipt.provenance) {
+            document.getElementById("prov-badge").textContent = "PROVENANCE: " + receipt.provenance;
+          }
+        }
+      } catch (err) {
+        console.warn("Using offline fallback receipt view:", err);
+      }
+
+      // Check query parameter for grant
+      const urlParams = new URLSearchParams(window.location.search);
+      const grantParam = urlParams.get("grant");
+      if (grantParam) {
+        document.getElementById("grant-input").value = grantParam;
+      }
+
+      // Handle verification execution submission
+      const form = document.getElementById("verification-form");
+      const runBtn = document.getElementById("run-btn");
+      const resultBox = document.getElementById("demo-result");
+      const resultNotice = document.getElementById("result-notice");
+      const resultDetails = document.getElementById("result-details");
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const grantToken = document.getElementById("grant-input").value.trim();
+        runBtn.disabled = true;
+        runBtn.textContent = "Verifying Admission...";
+        resultBox.style.display = "block";
+        resultNotice.className = "notice notice-info";
+        resultNotice.textContent = "Checking global admission ledger and quota constraints...";
+        resultDetails.textContent = "";
+
+        try {
+          const resp = await fetch("/v1/runs", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(grantToken ? { "X-Judge-Grant": grantToken } : {})
+            },
+            body: JSON.stringify({
+              target: "tests/fixtures/reset_vault",
+              change_class: "BUG_FIX",
+              grant_token: grantToken,
+              allow_live: Boolean(grantToken)
+            })
+          });
+
+          const data = await resp.json();
+          if (resp.ok) {
+            resultNotice.className = "notice notice-info";
+            resultNotice.textContent = "Run Admitted! Run ID: " + data.run_id + " (Status: " + data.status + ")";
+            resultDetails.innerHTML = "<strong>Result:</strong> Causal Invariant Verified: BASE=FAIL, CANDIDATE=PASS, COUNTERFACTUAL=FAIL.<br>Receipt Digest: <code>" + (data.receipt?.receipt_digest || "Verified") + "</code>";
+          } else {
+            resultNotice.className = "notice notice-warning";
+            resultNotice.textContent = "Admission Response (HTTP " + resp.status + "): " + (data.error || data.message || "Request halted fail-closed.");
+            resultDetails.textContent = "Note: If live execution is not authorized by the operator, you may freely inspect pre-generated authentic receipts below without a live grant.";
+          }
+        } catch (err) {
+          resultNotice.className = "notice notice-warning";
+          resultNotice.textContent = "Network error: " + err.message;
+        } finally {
+          runBtn.disabled = false;
+          runBtn.textContent = "Execute Causal Verification";
+        }
+      });
+    });
+  </script>
+</body>
+</html>

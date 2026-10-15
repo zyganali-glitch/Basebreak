@@ -68,6 +68,18 @@ class BasebreakRequestHandler(http.server.BaseHTTPRequestHandler):
         """Verify authorization header with fail-closed enforcement for execution."""
         auth_hdr = self.headers.get("Authorization")
         if not self.auth.is_authenticated_operator(auth_hdr):
+            # Drain unread request body if present to avoid Windows TCP RST (WinError 10053)
+            try:
+                content_len = int(self.headers.get("Content-Length", 0))
+                if content_len > 0:
+                    remaining = min(content_len, 2 * 1024 * 1024)
+                    while remaining > 0:
+                        chunk = self.rfile.read(min(remaining, 65536))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+            except Exception:
+                pass
             self._send_error(401, "Unauthorized: missing or invalid Bearer token.")
             return False
         return True

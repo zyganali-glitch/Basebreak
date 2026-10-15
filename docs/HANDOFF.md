@@ -113,9 +113,15 @@ Judge claim:
 - P-25 (Reliability, Recovery & Idempotency, P-25.01 through P-25.06) is IMPLEMENTED_AND_TESTED under operator-authorized Batch B (6 tests passing in `tests/recovery/test_recovery.py`).
 - P-26 (Performance, Cost & Model Routing, P-26.01 through P-26.06) is SURGICALLY_REPAIRED under Batch B Evidence-Integrity Repair (8 tests passing in `tests/performance/test_performance_routing.py`; model router and benchmarks strictly bound to verified provider models `nvidia/Nemotron-3_5-Lightning` and catalog `nvidia/nemotron-3-super-120b-a12b`; fail-closed negative tests; documentation in `docs/PERFORMANCE_LIMITS.md`).
 - BATCH B CONSOLIDATED EVIDENCE-INTEGRITY REPAIR independently VERIFIED / PASS at SHA `80b43b84014fa61b941c7ebcd87836a56dcd7c92`.
-- P-27 (Deployment Readiness, P-27.01 through P-27.06) is IMPLEMENTED_AND_TESTED / EVALUATED under Batch C (P-27.01 reopened and evaluated for single-live-site product experience: Render Free evaluated across 9 dimensions and classified `OPERATOR_DECISION_REQUIRED / NOT_RUN`, GitHub Pages designated as static archive/fallback only; P-27.02 rootless Dockerfile, readiness probe, and CLI serve packaged, with Docker CI truthfully recorded as `NOT_RUN` and `scripts/ci_container_smoke.sh` provided for offline execution; P-27.03 public deployment configuration and Turkish operator guide prepared; P-27.04 health/version/SHA parity implemented; P-27.05 signed-out judge access implemented with zero secrets and authenticated mutations; P-27.03 and P-27.06 held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`; 15 tests passing in `tests/deployment/`).
-- P-28 (Product Design & Judge Comprehension, P-28.01 through P-28.06) is IMPLEMENTED_AND_TESTED under operator-authorized Batch C (P-28.01 30-second comprehension audit; P-28.02 memorable thesis and 'Why Green CI Lies' explainer card; P-28.03 3-world step tags and causal transition formula; P-28.04 distinct high-contrast views for all 5 verdict states; P-28.05 WCAG AA/AAA contrast math, keyboard accessibility, viewport responsiveness, HTML escaping, and digest wrapping; P-28.06 documentation consolidation; 7 tests passing in `tests/ui/test_judge_comprehension_accessibility.py`).
-- BATCH C FINAL SURGICAL REPAIR complete: DEFECT 1 (shared export integrity and CLI non-certification of tampered/secret-bearing receipts), DEFECT 2 (P-27.01 reopened and evaluated against single-live-site product requirements, Render Free classified `OPERATOR_DECISION_REQUIRED / NOT_RUN`), DEFECT 3 (truthful CI status: Docker CI `NOT_RUN`, Python CI `PASS`).
+- BATCH B CONSOLIDATED EVIDENCE-INTEGRITY REPAIR independently VERIFIED / PASS at SHA `80b43b84014fa61b941c7ebcd87836a56dcd7c92`.
+- P-27 (Deployment Readiness, P-27.01 through P-27.06) is IMPLEMENTED_AND_EVALUATED under Bounded Cloudflare Live-Deployment Readiness Batch:
+  - P-27.01 evaluated Cloudflare Workers Free + Static Assets + SQLite Durable Object across 9 dimensions: $0.00 personal spend, zero credit card, sub-5ms edge response, single public URL, and same-origin routing; built enforceable admission boundary in `cloudflare/src/ledger.js` (`AdmissionLedgerDO`) with single-use grants, global concurrency limit of 1 in-flight run, global total invocation cap, and operator-enforced $5.00 safety reserve floor; remote execution boundary targets Nebius Token Factory Sandboxes under Zero-Cost Law; corrected outdated claims on auto-recovered receipts, platform balance hard stops, and premature live demo buttons; validated offline with 20 JS tests in `cloudflare/test/` and 26 Python tests in `tests/deployment/`.
+  - P-27.02 minimal reproducible rootless `Dockerfile`, `.dockerignore`, `docker-compose.yml`, HTTP readiness probe, and CLI serve packaged; Docker CI recorded as `NOT_RUN` and smoke script provided.
+  - P-27.03 public deployment configuration and Turkish operator deployment guide prepared in `docs/OPERATOR_DEPLOYMENT_HANDOFF.md`; held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+  - P-27.04 health/version/SHA parity implemented and verified in Python and JS.
+  - P-27.05 signed-out judge access implemented with zero secrets and authenticated mutations.
+  - P-27.06 deployed live Nebius runtime proof specified in `docs/P27_06_DEPLOYED_NEBIUS_RUNTIME_PROOF.md`; held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+- P-28 (Product Design & Judge Comprehension, P-28.01 through P-28.06) is IMPLEMENTED_AND_TESTED under Batch C (7 tests passing in `tests/ui/test_judge_comprehension_accessibility.py`).
 - P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED AFTER P-28.
 
 ## Last independently VERIFIED baseline SHA
@@ -128,26 +134,44 @@ Judge claim:
 - P-23.04 through P-23.07 live Nebius sandbox verification steps remain held strictly at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
 - P-23.08 genuine upstream click execution remains fail-closed at `PreliminaryVerdict.BLOCKED` pending integrated container sandbox runtime.
 - P-26.02 live model comparison remains held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
-- P-27.01 single-site live deployment path remains at `OPERATOR_DECISION_REQUIRED / NOT_RUN`.
 - P-27.03 public cloud deployment remains held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
 - P-27.06 deployed live Nebius runtime proof remains held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
 No cost-consuming external API calls or public deployments were executed without explicit authorization. Zero-personal-spend ($0.00) policy preserved.
 
 ### Current QA candidate
-Batch C Candidate — Final Surgical Repair (Export Integrity + Single-Live-Site Architecture Truth):
-1. DEFECT 1 (Shared Receipt Export Integrity Repaired): In `src/basebreak/ui/models.py`, `build_judge_view_data()` enforces `receipt_verified = False` by default and validates both `verify_public_receipt_integrity()` and `contains_secret()` across dict and typed receipts before certifying as `AUTHENTIC`. In `src/basebreak/cli/commands.py`, `run_ui_command` (`basebreak ui <run_id> --output ...`) strictly validates receipt integrity and secret safety; any tampered, malformed, or secret-bearing receipt prints an error to stderr, exits with code 2, and does NOT write HTML. In `src/basebreak/api/server.py`, verified receipts are passed directly to renderer. Legitimate `CONTRADICTED`, `INCONCLUSIVE`, and `BLOCKED` receipts export cleanly without fabricated PASS. Real adversarial regression tests prove mutating `task_id` in a persisted receipt without updating digest fails both CLI export and public HTTP endpoints (`/judge/{id}` and `/v1/runs/{id}/receipt`).
-2. DEFECT 2 (Single-Live-Site Product Architecture Truth): Reopened P-27.01 per operator requirement: one public URL, integrated judge interface, genuine on-demand Nebius/NVIDIA execution, real BASE/CANDIDATE/COUNTERFACTUAL evidence, no simulation-looking static-only demo, no local Docker installation, zero personal spend ($0.00). Evaluated Render Free across 9 operational dimensions in `docs/DEPLOYMENT_ARCHITECTURE.md` and `docs/OPERATOR_DEPLOYMENT_HANDOFF.md`. Classified as `OPERATOR_DECISION_REQUIRED / NOT_RUN`. GitHub Pages designated strictly as static fallback/archive.
-3. DEFECT 3 (Truthful Container CI Status): Reconciled documentation with actual CI reality: GitHub Actions workflow runs `Lint, Type Check & Test` (Python CI tests PASS). Docker build/startup is truthfully recorded as `NOT_RUN` in CI; container validation script `scripts/ci_container_smoke.sh` is provided for offline/container test runners. Public cloud deployment is `NOT_RUN`. Live Nebius is `NOT_RUN`. Production SHA parity is `NOT_RUN`.
-4. Prior Batch C Defect Repairs Preserved: DEFECT A (Anonymous Auth Bypass Repaired) and DEFECT B (Unsafe Publication Boundary Repaired) remain fully intact and validated.
-5. Regression test suite: 11 tests passing in `tests/ui/test_ui.py`, 15 tests passing in `tests/deployment/`, 7 tests passing in `tests/ui/test_judge_comprehension_accessibility.py`.
+P-27 Bounded Cloudflare Live-Deployment Integration Readiness Candidate:
+1. Cloudflare Workers Free + Static Assets + SQLite Durable Object Architecture:
+   - Evaluated across 9 operational dimensions in `docs/DEPLOYMENT_ARCHITECTURE.md`.
+   - Single public URL (`https://basebreak.<subdomain>.workers.dev`) serving HTML Judge Dashboard, REST API (`/v1/runs`, `/v1/runs/:id/receipt`, `/health`), and admin controls under same origin.
+   - Cloudflare Workers Free: 100,000 requests/day, zero credit card required, $0.00 personal spend, edge routing with sub-5ms response (no cold-start sleep).
+   - Python runtime isolation boundary: Worker executes V8 JS/Wasm; does NOT port Python causal verifier to JS; trusted Python runtime targets remote Nebius Token Factory Sandboxes.
+2. Credit-Drain Prevention (Single Canonical SQLite Durable Object Ledger `AdmissionLedgerDO`):
+   - Default `LIVE_ENABLED=false`.
+   - Operator-issued single-use access grants (`max_uses: 1`), server-validated. Anonymous self-service live execution strictly forbidden.
+   - Fixed allowlisted target (`tests/fixtures/reset_vault`) and immutable source commit SHA; arbitrary substitution rejected fail-closed.
+   - Global total invocation cap (5 runs) and global concurrency ceiling (maximum 1 in-flight run).
+   - Atomic check-and-reserve before calling external provider.
+   - Idempotency and replay prevention.
+   - Fail-closed recovery after restarts, worker crashes, and network loss (shifting ambiguous costs to `unknown_cost` without duplicate retries).
+   - Strict rejection of missing, stale (>15 min), or below-floor (<= $5.00) promotional balance.
+   - Operator-policy $5.00 safety reserve floor (`TOKEN_FACTORY_PROMO_STOP_THRESHOLD = $5.00`).
+   - Administrative kill switch (`POST /admin/killswitch`).
+3. Hosting Truth Repair:
+   - Corrected unsupported claims on auto-recovered receipts, platform balance hard stops, premature live demo buttons, provider-level rate limits, verified uptime, and working remote Python execution.
+   - GitHub Pages designated strictly as static fallback archive.
+4. Test Suite Execution:
+   - 20 JavaScript tests passing in `cloudflare/test/` (all 11 Section E adversarial & integration scenarios: 100 repeated clicks, parallel multi-client concurrency ceiling, reused/forged/expired grants, restart recovery, ambiguous provider outcome, stale balance, budget exhaustion, kill switch, target substitution, receipt tampering, and read-only access).
+   - 26 Python tests passing in `tests/deployment/` (including 4 new Cloudflare parity tests in `tests/deployment/test_cloudflare_parity.py`).
+   - 11 tests passing in `tests/ui/test_ui.py`.
+   - 7 tests passing in `tests/ui/test_judge_comprehension_accessibility.py`.
 
 ### Active exact task
-Batch C Final Surgical Repair complete across DEFECTS 1, 2, and 3. Awaiting external independent QA evaluation. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-28.
+P-27 Bounded Cloudflare Live-Deployment Integration Readiness Batch complete. Awaiting external independent QA evaluation. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-26 independently VERIFIED / PASS or accepted at baseline SHA `80b43b...`. P-16.05, P-23.04–P-23.07, P-26.02, P-27.03, P-27.06 held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. P-23.08 held fail-closed at `BLOCKED`. Batch C (P-27 and P-28) consolidated repair is IMPLEMENTED_AND_TESTED offline. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN.
+- **Task status:** P-00 through P-26 independently VERIFIED / PASS or accepted at baseline SHA `80b43b...`. P-16.05, P-23.04–P-23.07, P-26.02, P-27.03, P-27.06 held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. P-23.08 held fail-closed at `BLOCKED`. P-27 Cloudflare integration readiness and P-28 judge comprehension are IMPLEMENTED_AND_TESTED offline. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN.
 - **Provider neutrality:** All deployment packaging, health parity checks, signed-out judge access models, and UI components remain strictly provider-neutral.
-- **Batch authorization & hard stop:** Batch C repair completed. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced after P-28.
+- **Batch authorization & hard stop:** P-27 Cloudflare integration readiness batch completed. P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -165,9 +189,9 @@ Batch C Final Surgical Repair complete across DEFECTS 1, 2, and 3. Awaiting exte
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. Submit consolidated Batch C repair report to external QA authority.
+1. Submit consolidated P-27 Cloudflare Integration Readiness report to external QA authority.
 2. Await independent QA evaluation.
-3. Enforce hard stop after P-28; do not activate P-29+.
+3. Enforce hard stop; do not activate P-29+.
 
 
 
