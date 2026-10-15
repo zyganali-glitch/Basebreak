@@ -17,15 +17,23 @@ export { AdmissionLedgerDO };
 
 // Embedded Judge UI HTML fallback when ASSETS binding is unavailable
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 
-let cachedIndexHtml = "";
-try {
-  const __dirname = dirname(fileURLToPath(import.meta.url));
-  cachedIndexHtml = readFileSync(join(__dirname, "../public/index.html"), "utf-8");
-} catch {
-  cachedIndexHtml = `<!DOCTYPE html><html><body><h1>Basebreak Causal Verification</h1></body></html>`;
+const FALLBACK_INDEX_HTML =
+  "<!DOCTYPE html><html><body><h1>Basebreak Causal Verification</h1></body></html>";
+const LOCAL_INDEX_HTML_URL = new URL("../public/index.html", import.meta.url);
+
+let cachedIndexHtml = null;
+
+function getFallbackIndexHtml() {
+  if (cachedIndexHtml !== null) {
+    return cachedIndexHtml;
+  }
+  try {
+    cachedIndexHtml = readFileSync(LOCAL_INDEX_HTML_URL, "utf-8");
+  } catch {
+    cachedIndexHtml = FALLBACK_INDEX_HTML;
+  }
+  return cachedIndexHtml;
 }
 
 /**
@@ -195,7 +203,7 @@ export default {
       if (env.ASSETS && typeof env.ASSETS.fetch === "function") {
         return env.ASSETS.fetch(request);
       }
-      return htmlResponse(200, cachedIndexHtml);
+      return htmlResponse(200, getFallbackIndexHtml());
     }
 
     const { ledger, response: missingLedgerResponse } = requireLedger(env);

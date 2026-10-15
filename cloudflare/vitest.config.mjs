@@ -4,7 +4,6 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [
     cloudflareTest({
-      main: "./src/index.js",
       wrangler: { configPath: "./wrangler.jsonc" },
       miniflare: {
         vars: {

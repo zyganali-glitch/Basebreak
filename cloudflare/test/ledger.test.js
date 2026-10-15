@@ -472,6 +472,51 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(retrieved.receipt_digest, validReceipt.receipt_digest);
   });
 
+  it("9b. environment flags cannot authorize LIVE_NEBIUS or RECORDED_LIVE receipt imports", () => {
+    const { ledger } = createTestLedger({ ALLOW_HISTORICAL_LIVE_RECEIPT_IMPORT: "true" });
+    const liveReceipt = buildFixturePublicReceipt({ provenance: "LIVE_NEBIUS" });
+    const recordedLiveReceipt = buildFixturePublicReceipt({ provenance: "RECORDED_LIVE" });
+
+    assert.throws(
+      () => ledger.storeReceipt("run_live_bypass_attempt", liveReceipt),
+      /independent trusted verification authority is configured/
+    );
+    assert.throws(
+      () => ledger.storeReceipt("run_recorded_live_bypass_attempt", recordedLiveReceipt),
+      /independent trusted verification authority is configured/
+    );
+  });
+
+  it("9c. recordExecutionSuccess rejects live receipt imports even when bypass flag is set", () => {
+    const { ledger } = createTestLedger({
+      ALLOW_HISTORICAL_LIVE_RECEIPT_IMPORT: "true",
+      GLOBAL_INVOCATION_CAP: "2",
+    });
+    const grant = ledger.issueGrant();
+    const reservation = ledger.reserveAdmission({
+      grant_token: grant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      verified_balance: 20.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(reservation.admitted, true);
+
+    const liveReceipt = buildFixturePublicReceipt({ provenance: "LIVE_NEBIUS" });
+    assert.throws(
+      () =>
+        ledger.recordExecutionSuccess(reservation.run_id, {
+          observed_cost: 0.01,
+          receipt: liveReceipt,
+        }),
+      /independent trusted verification authority is configured/
+    );
+
+    const run = ledger.sql.query("SELECT status FROM runs WHERE run_id = ?", reservation.run_id)[0];
+    assert.equal(run.status, "RESERVED");
+  });
+
   it("10. Read-only public access preserved after live budget exhaustion", () => {
     const { ledger } = createTestLedger({ GLOBAL_INVOCATION_CAP: "1" });
     const grant = ledger.issueGrant();

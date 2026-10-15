@@ -71,10 +71,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
    */
   assertReceiptAuthority(receiptObj) {
     const provenance = String(receiptObj.provenance || "").trim().toUpperCase();
-    if (
-      AUTHORITATIVE_PUBLIC_PROVENANCES.has(provenance) &&
-      this.env.ALLOW_HISTORICAL_LIVE_RECEIPT_IMPORT !== "true"
-    ) {
+    if (AUTHORITATIVE_PUBLIC_PROVENANCES.has(provenance)) {
       throw new Error(
         "Authoritative LIVE_NEBIUS/RECORDED_LIVE receipt import is blocked until independent trusted verification authority is configured."
       );
