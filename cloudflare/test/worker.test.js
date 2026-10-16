@@ -44,14 +44,14 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     assert.match(html, /Live Execution Not Available/);
   });
 
-  it("GET /judge routes fall back to /index.html when assets do not map nested UI paths", async () => {
+  it("GET /judge routes serve the root judge asset while preserving nested judge URLs", async () => {
     const requestedPaths = [];
     const { env } = createWorkerEnv({
       ASSETS: {
         async fetch(request) {
           const pathname = new URL(request.url).pathname;
           requestedPaths.push(pathname);
-          if (pathname === "/index.html") {
+          if (pathname === "/") {
             return new Response("<!DOCTYPE html><html><body>BASEBREAK JUDGE UI</body></html>", {
               status: 200,
               headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -67,7 +67,7 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
 
     assert.equal(res.status, 200);
     assert.match(res.headers.get("Content-Type") || "", /text\/html/);
-    assert.deepEqual(requestedPaths, ["/judge/demo-run", "/index.html"]);
+    assert.deepEqual(requestedPaths, ["/"]);
     assert.match(await res.text(), /BASEBREAK JUDGE UI/);
   });
 

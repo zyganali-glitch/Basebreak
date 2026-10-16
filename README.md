@@ -153,7 +153,7 @@ These are planned provenance labels, not PASS/FAIL verdicts. Basebreak will neve
 - **Adversarial Campaign & Recovery (P-24, P-25):** 8-vector security defense, durable run state manager, and CAS deduplication.
 - **Performance & Model Routing (P-26):** Provider-verified Nemotron routing (`nvidia/Nemotron-3_5-Lightning`).
 - **Deployment Packaging & Parity (P-27):** Rootless `Dockerfile`, health readiness probe, source SHA parity endpoint, and signed-out judge access.
-- **Public Cloudflare Judge Build (P-27.03):** First Workers Free test build deployed at `https://basebreak.zyganali.workers.dev` with Static Assets + SQLite Durable Object, `LIVE_ENABLED=false`, truthful NOT_RUN public receipt/run surfaces, blocked anonymous execution, and unauthenticated admin rejection. This is a read-only fail-closed judge surface, not deployed live Nebius proof.
+- **Public Cloudflare Judge Build (P-27.03):** First Workers Free test build deployed at `https://basebreak.zyganali.workers.dev` with Static Assets + SQLite Durable Object, `LIVE_ENABLED=false`, stable `/judge` and `/judge/<run_id>` URLs, truthful NOT_RUN public receipt/run surfaces, blocked anonymous execution, and unauthenticated admin rejection. This is a read-only fail-closed judge surface, not deployed live Nebius proof.
 
 ### Explicit Unexecuted Live Obligations (NOT_RUN):
 - **P-16.05:** Live Tavily web search API call held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.

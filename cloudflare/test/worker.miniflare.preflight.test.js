@@ -125,17 +125,34 @@ const results = [];
 results.push(
   await runCheck("serves static judge asset and truthful health", async () => {
     await withHarness({}, async ({ miniflare }) => {
-      const rootResponse = await miniflare.dispatchFetch("http://localhost/");
+      const rootResponse = await miniflare.dispatchFetch("http://localhost/", {
+        redirect: "manual",
+      });
       assert.equal(rootResponse.status, 200);
       assert.match(rootResponse.headers.get("Content-Type") || "", /text\/html/);
+      assert.equal(rootResponse.headers.get("Location"), null);
       assert.match(await rootResponse.text(), /PUBLIC RECEIPT: NOT_RUN/);
 
-      const judgeResponse = await miniflare.dispatchFetch("http://localhost/judge");
+      const judgeResponse = await miniflare.dispatchFetch("http://localhost/judge", {
+        redirect: "manual",
+      });
       assert.equal(judgeResponse.status, 200);
       assert.match(judgeResponse.headers.get("Content-Type") || "", /text\/html/);
+      assert.equal(judgeResponse.headers.get("Location"), null);
       assert.match(await judgeResponse.text(), /PUBLIC RECEIPT: NOT_RUN/);
 
-      const healthResponse = await miniflare.dispatchFetch("http://localhost/health");
+      const nestedJudgeResponse = await miniflare.dispatchFetch(
+        "http://localhost/judge/demo-run",
+        { redirect: "manual" }
+      );
+      assert.equal(nestedJudgeResponse.status, 200);
+      assert.match(nestedJudgeResponse.headers.get("Content-Type") || "", /text\/html/);
+      assert.equal(nestedJudgeResponse.headers.get("Location"), null);
+      assert.match(await nestedJudgeResponse.text(), /PUBLIC RECEIPT: NOT_RUN/);
+
+      const healthResponse = await miniflare.dispatchFetch("http://localhost/health", {
+        redirect: "manual",
+      });
       assert.equal(healthResponse.status, 200);
       const healthPayload = await healthResponse.json();
       assert.equal(healthPayload.status, "ok");

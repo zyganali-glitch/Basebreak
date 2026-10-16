@@ -97,16 +97,15 @@ function htmlResponse(status, htmlContent) {
 
 async function serveJudgeUi(request, env) {
   if (env.ASSETS && typeof env.ASSETS.fetch === "function") {
-    const assetResponse = await env.ASSETS.fetch(request);
+    const pathname = new URL(request.url).pathname;
+    const assetRequest =
+      pathname === "/"
+        ? request
+        : new Request(new URL("/", request.url).toString(), request);
+
+    const assetResponse = await env.ASSETS.fetch(assetRequest);
     if (assetResponse.status !== 404) {
       return assetResponse;
-    }
-
-    const indexUrl = new URL("/index.html", request.url);
-    const indexRequest = new Request(indexUrl.toString(), request);
-    const indexResponse = await env.ASSETS.fetch(indexRequest);
-    if (indexResponse.status !== 404) {
-      return indexResponse;
     }
   }
 
