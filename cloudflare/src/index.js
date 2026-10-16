@@ -95,6 +95,24 @@ function htmlResponse(status, htmlContent) {
   });
 }
 
+async function serveJudgeUi(request, env) {
+  if (env.ASSETS && typeof env.ASSETS.fetch === "function") {
+    const assetResponse = await env.ASSETS.fetch(request);
+    if (assetResponse.status !== 404) {
+      return assetResponse;
+    }
+
+    const indexUrl = new URL("/index.html", request.url);
+    const indexRequest = new Request(indexUrl.toString(), request);
+    const indexResponse = await env.ASSETS.fetch(indexRequest);
+    if (indexResponse.status !== 404) {
+      return indexResponse;
+    }
+  }
+
+  return htmlResponse(200, getFallbackIndexHtml());
+}
+
 /**
  * Get or initialize the singleton global AdmissionLedgerDO instance.
  *
@@ -218,10 +236,7 @@ export default {
 
     // 1. Root and Judge Dashboard UI (Read-Only Public Access)
     if (method === "GET" && (path === "/" || path === "/judge" || path.startsWith("/judge/"))) {
-      if (env.ASSETS && typeof env.ASSETS.fetch === "function") {
-        return env.ASSETS.fetch(request);
-      }
-      return htmlResponse(200, getFallbackIndexHtml());
+      return serveJudgeUi(request, env);
     }
 
     const { ledger, response: missingLedgerResponse } = requireLedger(env);

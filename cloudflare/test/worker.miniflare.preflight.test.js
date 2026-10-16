@@ -130,6 +130,11 @@ results.push(
       assert.match(rootResponse.headers.get("Content-Type") || "", /text\/html/);
       assert.match(await rootResponse.text(), /PUBLIC RECEIPT: NOT_RUN/);
 
+      const judgeResponse = await miniflare.dispatchFetch("http://localhost/judge");
+      assert.equal(judgeResponse.status, 200);
+      assert.match(judgeResponse.headers.get("Content-Type") || "", /text\/html/);
+      assert.match(await judgeResponse.text(), /PUBLIC RECEIPT: NOT_RUN/);
+
       const healthResponse = await miniflare.dispatchFetch("http://localhost/health");
       assert.equal(healthResponse.status, 200);
       const healthPayload = await healthResponse.json();

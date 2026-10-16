@@ -44,6 +44,33 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     assert.match(html, /Live Execution Not Available/);
   });
 
+  it("GET /judge routes fall back to /index.html when assets do not map nested UI paths", async () => {
+    const requestedPaths = [];
+    const { env } = createWorkerEnv({
+      ASSETS: {
+        async fetch(request) {
+          const pathname = new URL(request.url).pathname;
+          requestedPaths.push(pathname);
+          if (pathname === "/index.html") {
+            return new Response("<!DOCTYPE html><html><body>BASEBREAK JUDGE UI</body></html>", {
+              status: 200,
+              headers: { "Content-Type": "text/html; charset=utf-8" },
+            });
+          }
+          return new Response("Not Found", { status: 404 });
+        },
+      },
+    });
+
+    const req = new Request("https://basebreak.workers.dev/judge/demo-run", { method: "GET" });
+    const res = await worker.fetch(req, env, {});
+
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("Content-Type") || "", /text\/html/);
+    assert.deepEqual(requestedPaths, ["/judge/demo-run", "/index.html"]);
+    assert.match(await res.text(), /BASEBREAK JUDGE UI/);
+  });
+
   it("GET /health returns 200 JSON with unknown SHA default and not-ready deployment truth", async () => {
     const { env } = createWorkerEnv();
     const req = new Request("https://basebreak.workers.dev/health", { method: "GET" });
