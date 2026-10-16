@@ -43,6 +43,22 @@ To provide a deterministic verification protocol proving that the deployed Baseb
      - `BASEBREAK_LIVE_EXECUTION_ENABLED=true`
      - `NEBIUS_API_KEY`
      - `NEBIUS_PROJECT_ID`
+     - **`BASEBREAK_VERIFIER_SIGNING_KEY`** — the genuine trusted verifier signing
+       authority. This is mandatory and is currently MISSING from deployment.
+       Without it the bridge fails closed with `BLOCKED_MISSING_SIGNING_AUTHORITY`
+       before any chargeable provider operation.
+     - **`TRUSTED_VERIFIER_BRIDGE_STATE_DIR`** — a writable, persistent path used
+       for atomic durable single-execution idempotency. Without durable protection
+       the bridge fails closed with `BLOCKED_DURABLE_IDEMPOTENCY_UNAVAILABLE` rather
+       than dispatch a second chargeable execution.
+   - **Signer compatibility contract:** the configured private signing authority
+     MUST correspond to the pinned canonical public verification authority
+     (`PINNED_VERIFIER_MODULUS` / `PINNED_VERIFIER_EXPONENT`) that the public Worker
+     independently verifies against. A signer that does not match fails closed with
+     `BLOCKED_INCOMPATIBLE_SIGNING_AUTHORITY` before any provider call. The bridge
+     never generates, prints, commits, exposes, or substitutes an ephemeral test
+     signer in production. Creating/configuring the real signing secret is a
+     separate operator-authorized step and is NOT performed by this batch.
    - Basebreak's `NEBIUS_PROJECT_ID` is the internal configuration name; when calling current official APIs it maps to `ai_project_id` for model discovery and to the `Project` header for Sandboxes.
 4. **Exact-State Source Binding:**
    - The deployed runtime must report source SHA parity with canonical repository commit.
@@ -105,6 +121,56 @@ The bounded P-27.06 offline batch now implements the minimum deployable trust bo
 - `npm --prefix .\cloudflare run test:workerd-preflight` → `7/7` checks passed
 
 > These are strictly `LOCAL_EXECUTION` results. No live Nebius/NVIDIA/Tavily API call, private bridge deployment, or Cloudflare production mutation was performed in this batch.
+
+### 3.2.2 P-27.06 Live-Trust Surgical Repair (Independent-QA Defects A–E)
+
+Independent QA identified five live-execution trust defects. This batch repairs them
+without enabling live execution. All evidence below is `LOCAL_EXECUTION` only.
+
+1. **DEFECT A — synthetic operations can no longer be certified.**
+   The production proof-issuance boundary now requires *firsthand canonical provider
+   grounding*. The bridge executor positively confirms that it used the canonical
+   `NebiusSandboxAdapter` (via the real urllib transport on an HTTPS endpoint),
+   `NebiusModelClient`, `CausalRepositoryMaterializer`, and `TrustedVerifierWorker`,
+   with a signer bound to the pinned authority. Injected fake/mock/simulation
+   dependencies downgrade provenance to `FIXTURE`. Even if `production_grounded` is
+   attacker-asserted, the independent authority verifier re-verifies the embedded
+   `VerifierExecutionAttestation` against the pinned canonical key and cross-binds it
+   to the public receipt (sandbox IDs, outcomes, tree/source identity). Synthetic
+   operation IDs and fabricated three-world receipts therefore fail closed.
+2. **DEFECT B — estimated cost is never presented as observed cost.**
+   `BridgeExecutionResult` now separates `approved_estimate_usd`,
+   `reserved_exposure_usd`, `observed_cost_usd`, and `cost_provenance`. The bridge no
+   longer sets `observed_cost_usd = max_estimated_cost_usd`; when genuine provider
+   cost is unmeasured it reports `observed_cost_usd = null` and
+   `cost_provenance = UNKNOWN`. `estimated_cost_cap` is documented as an operator
+   admission bound, NOT a provider-enforced hard maximum. The Durable Object accounts
+   successful-but-unknown-cost runs by shifting the reserved exposure into
+   `unknown_cost` (never `observed_cost`, never zero), keeping spending authority closed.
+3. **DEFECT C — replay and deadline enforcement.**
+   The bridge enforces `issued_at_ms`/`deadline_ms` windows and rejects already-expired
+   requests (HTTP 410 `EXPIRED_REQUEST`) before any inference or sandbox dispatch. It
+   uses an atomic, durable, file-backed single-execution idempotency store keyed by
+   `request_id`; replaying an accepted request returns the stored outcome without a
+   second execution. Ambiguous dispatch is persisted as `AMBIGUOUS` and never
+   automatically retried. When durable protection is unavailable the bridge fails
+   closed (`BLOCKED_DURABLE_IDEMPOTENCY_UNAVAILABLE`).
+4. **DEFECT D — production signer prerequisites.**
+   `BASEBREAK_VERIFIER_SIGNING_KEY` and `TRUSTED_VERIFIER_BRIDGE_STATE_DIR` are now
+   explicit deployment prerequisites. The bridge validates that the configured signer
+   matches the pinned public verification authority and fails closed before any
+   chargeable operation otherwise. No secret generation, printing, or fixture
+   substitution occurs.
+5. **DEFECT E — decorative inference is not AI patch generation.**
+   The bounded `ResetVault` flow still derives its candidate patch deterministically;
+   the Nebius inference call is a *runtime identity probe*, not candidate generation.
+   The bridge marks `candidate_origin = DETERMINISTIC_BRIDGE_FIXTURE` in the result and
+   runtime identities. It is therefore NOT claimed that the deployed model writes the
+   candidate patch. Integrating genuine model-generated candidate content through the
+   existing committed Builder candidate-generation contracts (`BuilderPlanCodeLoop` /
+   `validate_candidate_proposal`) cannot be completed safely within this surgical
+   no-live batch and remains a **documented blocker**; the deployed AI-written
+   candidate-generation claim remains UNVERIFIED / NOT_RUN.
 
 ### 3.3 Post-Authorization Live Verification Protocol
 
@@ -189,6 +255,9 @@ curl -X POST "https://<deployed-url>/v1/runs" \
 - Private trusted bridge deployment: **NOT DEPLOYED**
 - Worker bridge URL/shared secret configuration: **NOT CONFIGURED ON PUBLIC DEPLOYMENT**
 - Provider credentials on the private bridge: **NOT CONFIGURED**
+- Trusted verifier signing authority (`BASEBREAK_VERIFIER_SIGNING_KEY`): **NOT CONFIGURED**
+- Durable bridge idempotency state directory (`TRUSTED_VERIFIER_BRIDGE_STATE_DIR`): **NOT CONFIGURED**
+- Genuine model-generated candidate patch (DEFECT E): **NOT INTEGRATED / UNVERIFIED** — candidate remains deterministic
 - Public Worker `LIVE_ENABLED`: intentionally **false**
 
 Phase P-27 cannot receive full `PASS` or `GO` while required live Nebius/NVIDIA causal execution remains NOT_RUN. Public Cloudflare deployment is complete and was previously independently QA-verified; required live Nebius/NVIDIA causal execution remains held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.

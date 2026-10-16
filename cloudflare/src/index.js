@@ -503,7 +503,8 @@ export default {
           error_message: dispatch.error,
           outcome: dispatch.status,
           was_ambiguous: dispatch.was_ambiguous,
-          observed_cost: dispatch.observed_cost_usd || 0.0,
+          observed_cost:
+            typeof dispatch.observed_cost_usd === "number" ? dispatch.observed_cost_usd : null,
         });
         return jsonResponse(dispatch.code || 503, {
           run_id: runId,
@@ -514,7 +515,9 @@ export default {
       }
 
       await ledger.recordExecutionSuccess(runId, {
-        observed_cost: dispatch.observed_cost_usd || 0.0,
+        observed_cost:
+          typeof dispatch.observed_cost_usd === "number" ? dispatch.observed_cost_usd : null,
+        cost_provenance: dispatch.cost_provenance,
         tokens_used: dispatch.tokens_used || 0,
         receipt: dispatch.receipt,
         allowAuthoritativeProvenance: true,

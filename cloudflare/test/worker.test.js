@@ -597,6 +597,42 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     assert.match(forged.error, /receipt proof verification failed/i);
   });
 
+  it("dispatchVerificationRun never substitutes the estimate for observed provider cost", async () => {
+    const authority = createTestVerifierAuthority();
+    const liveReceipt = buildVerifiedLiveReceiptFixture();
+    const successPayload = buildSignedBridgeSuccess(liveReceipt, authority);
+    delete successPayload.observed_cost_usd;
+    successPayload.reserved_exposure_usd = 0.25;
+    successPayload.approved_estimate_usd = 0.25;
+    successPayload.cost_provenance = "UNKNOWN";
+
+    const result = await dispatchVerificationRun({
+      runId: "run_dispatch_unknown_cost",
+      target: "tests/fixtures/reset_vault",
+      sourceCommitId: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      allowLive: true,
+      estimatedCostUsd: 0.25,
+      bridgeUrl: "https://bridge.example/internal/live-verifications",
+      bridgeSharedSecret: "bridge-secret",
+      verifierAuthorityOverride: {
+        modulusHex: authority.modulusHex,
+        exponent: authority.exponent,
+      },
+      fetchImpl: async () =>
+        new Response(JSON.stringify(successPayload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.observed_cost_usd, null);
+    assert.equal(result.cost_provenance, "UNKNOWN");
+    assert.equal(result.reserved_exposure_usd, 0.25);
+    assert.equal(result.approved_estimate_usd, 0.25);
+    assert.notEqual(result.observed_cost_usd, result.approved_estimate_usd);
+  });
+
   it("GET /v1/runs/:id/receipt serves only explicitly supplied receipts", async () => {
     const { env } = createWorkerEnv();
     const receipt = buildFixturePublicReceipt();

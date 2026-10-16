@@ -12,7 +12,9 @@ import hmac
 import http.server
 import json
 import os
+import pathlib
 import socketserver
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -35,10 +37,110 @@ BRIDGE_PROOF_SCHEMA_VERSION: str = "1.0.0"
 DEFAULT_BRIDGE_AUDIENCE: str = "cloudflare-worker"
 DEFAULT_BRIDGE_REQUEST_TTL_SECONDS: int = 300
 DEFAULT_BRIDGE_SOURCE_REPO_LOCATOR: str = "https://github.com/zyganali-glitch/Basebreak.git"
+BRIDGE_STATE_DIR_ENV: str = "TRUSTED_VERIFIER_BRIDGE_STATE_DIR"
+
+# Candidate provenance marker: a candidate patch produced from a predetermined
+# bridge-side fix is NOT a model-generated change and must never be presented
+# as one. See DEFECT E handling in the live bridge executor.
+CANDIDATE_ORIGIN_DETERMINISTIC_FIXTURE: str = "DETERMINISTIC_BRIDGE_FIXTURE"
 
 
 class BridgeValidationError(Exception):
     """Raised when a bridge request or response payload is malformed."""
+
+
+class DurableIdempotencyUnavailableError(Exception):
+    """Raised when durable single-execution protection cannot be established."""
+
+
+class ExecutionIdempotencyStore:
+    """Atomic, durable single-execution guard keyed by bridge ``request_id``.
+
+    The trusted bridge is hosted as a single private Python process. Atomic file
+    creation (``O_CREAT | O_EXCL``) therefore provides durable, cross-thread
+    single-execution protection without requiring an external database. When the
+    backing store cannot be created, read, or written, the caller must fail closed
+    rather than risk a second chargeable provider dispatch.
+    """
+
+    def __init__(self, state_dir: str | os.PathLike[str]) -> None:
+        self._state_dir = pathlib.Path(state_dir)
+        try:
+            self._state_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise DurableIdempotencyUnavailableError(
+                f"Unable to create bridge idempotency state directory: {exc}"
+            ) from exc
+        if not os.access(self._state_dir, os.W_OK):
+            raise DurableIdempotencyUnavailableError(
+                "Bridge idempotency state directory is not writable."
+            )
+
+    def _path(self, request_id: str) -> pathlib.Path:
+        safe = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
+        return self._state_dir / f"req-{safe}.json"
+
+    def _atomic_create(self, path: pathlib.Path, payload: Mapping[str, Any]) -> bool:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            return False
+        except OSError as exc:
+            raise DurableIdempotencyUnavailableError(
+                f"Unable to atomically claim bridge execution lock: {exc}"
+            ) from exc
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(dict(payload), handle, sort_keys=True)
+        except OSError as exc:
+            raise DurableIdempotencyUnavailableError(
+                f"Unable to persist bridge execution lock: {exc}"
+            ) from exc
+        return True
+
+    def begin(self, request_id: str) -> dict[str, Any]:
+        """Atomically claim ``request_id`` exactly once.
+
+        Returns a dict whose ``state`` is one of:
+          - ``NEW``          claimed for the first time; the caller must execute.
+          - ``IN_PROGRESS``  another attempt holds the lock; do not execute.
+          - ``COMPLETED``    previously accepted; ``response`` carries the reply.
+          - ``AMBIGUOUS``    previously dispatched with unknown outcome; no retry.
+        """
+        path = self._path(request_id)
+        if self._atomic_create(path, {"state": "IN_PROGRESS"}):
+            return {"state": "NEW"}
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            raise DurableIdempotencyUnavailableError(
+                f"Unable to read existing bridge execution lock: {exc}"
+            ) from exc
+        except json.JSONDecodeError:
+            return {"state": "IN_PROGRESS"}
+        state = str(record.get("state", "")).strip()
+        if state == "COMPLETED":
+            return {"state": "COMPLETED", "response": record.get("response")}
+        if state == "AMBIGUOUS":
+            return {"state": "AMBIGUOUS"}
+        return {"state": "IN_PROGRESS"}
+
+    def complete(self, request_id: str, response: Mapping[str, Any]) -> None:
+        self._write(request_id, {"state": "COMPLETED", "response": dict(response)})
+
+    def mark_ambiguous(self, request_id: str) -> None:
+        self._write(request_id, {"state": "AMBIGUOUS"})
+
+    def _write(self, request_id: str, record: Mapping[str, Any]) -> None:
+        path = self._path(request_id)
+        tmp = path.with_name(path.name + ".tmp")
+        try:
+            tmp.write_text(json.dumps(dict(record), sort_keys=True), encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError as exc:
+            raise DurableIdempotencyUnavailableError(
+                f"Unable to persist bridge execution record: {exc}"
+            ) from exc
 
 
 def _canonical_json(data: Mapping[str, Any] | dict[str, Any]) -> str:
@@ -190,15 +292,33 @@ class BridgeRequest:
 
 @dataclass(frozen=True, slots=True)
 class BridgeExecutionResult:
-    """Outcome produced by the trusted verifier bridge executor."""
+    """Outcome produced by the trusted verifier bridge executor.
+
+    Cost fields are deliberately separated so an approved estimate or reserved
+    exposure is NEVER substituted for genuine provider-observed consumption:
+
+    - ``approved_estimate_usd``: operator/server-approved worst-case estimate.
+    - ``reserved_exposure_usd``: amount reserved for this run's exposure.
+    - ``observed_cost_usd``: genuine provider-observed cost, or ``None`` when the
+      provider did not report a trustworthy measured cost. ``None`` means UNKNOWN
+      and must be accounted conservatively, never as zero and never as the cap.
+    - ``cost_provenance``: ``PROVIDER_OBSERVED`` or ``UNKNOWN``.
+    """
 
     status: str
     receipt: PublicVerificationReceipt | None = None
     error: str | None = None
-    observed_cost_usd: float = 0.0
+    observed_cost_usd: float | None = None
+    reserved_exposure_usd: float | None = None
+    approved_estimate_usd: float | None = None
+    cost_provenance: str = "UNKNOWN"
     tokens_used: int = 0
     ambiguous_outcome: bool = False
     provider_operation_ids: tuple[str, ...] = ()
+    local_receipt: Any | None = None
+    production_grounded: bool = False
+    grounding_error: str | None = None
+    candidate_origin: str = CANDIDATE_ORIGIN_DETERMINISTIC_FIXTURE
 
 
 BridgeExecutor = Callable[[BridgeRequest], BridgeExecutionResult]
@@ -222,6 +342,7 @@ class TrustedBridgeConfig:
     route_path: str = LIVE_BRIDGE_ROUTE
     source_repo_locator: str = DEFAULT_BRIDGE_SOURCE_REPO_LOCATOR
     local_repo_root: str | None = None
+    bridge_state_dir: str | None = None
 
     @classmethod
     def from_env(cls) -> TrustedBridgeConfig:
@@ -259,6 +380,7 @@ class TrustedBridgeConfig:
             ).strip()
             or DEFAULT_BRIDGE_SOURCE_REPO_LOCATOR,
             local_repo_root=os.environ.get("TRUSTED_VERIFIER_BRIDGE_LOCAL_REPO_ROOT"),
+            bridge_state_dir=os.environ.get(BRIDGE_STATE_DIR_ENV),
         )
 
 
@@ -476,7 +598,13 @@ def _compute_candidate_tree_digest(
         return tree_digest
 
 
-def _build_live_attestation_messages(request: BridgeRequest) -> list[Any]:
+def _build_runtime_identity_probe_messages(request: BridgeRequest) -> list[Any]:
+    """Build a runtime identity probe for the model.
+
+    IMPORTANT: this probe only confirms that the live inference endpoint returns
+    the request-bound identity facts. It is NOT candidate-patch generation and
+    must never be described as an AI-written change. See DEFECT E handling.
+    """
     from basebreak.adapters.nebius import ChatMessage
 
     challenge = (
@@ -494,7 +622,7 @@ def _build_live_attestation_messages(request: BridgeRequest) -> list[Any]:
     ]
 
 
-def _assert_model_attestation_binding(request: BridgeRequest, model_content: str) -> None:
+def _assert_runtime_identity_probe_binding(request: BridgeRequest, model_content: str) -> None:
     required_fragments = (
         request.request_id,
         request.source_commit_id,
@@ -502,19 +630,61 @@ def _assert_model_attestation_binding(request: BridgeRequest, model_content: str
     )
     if any(fragment not in model_content for fragment in required_fragments):
         raise BridgeValidationError(
-            "Nebius model attestation response omitted one or more bound request facts."
+            "Nebius model runtime identity probe response omitted one or more bound request facts."
         )
 
 
-def _bridge_verifier_authority(signer: _PrivilegedVerifierSigner | None) -> Any:
-    from basebreak.verifier.trust_bridge import (
-        VerifierAuthorityRoot,
-        get_default_verifier_authority_root,
-    )
+def _signer_matches_canonical_authority(signer: Any) -> bool:
+    """Return True only when a signer corresponds to the pinned canonical authority.
 
-    if signer is None:
-        return get_default_verifier_authority_root()
-    return VerifierAuthorityRoot(modulus=signer.modulus, exponent=signer.exponent)
+    The Worker independently verifies receipt proofs against the pinned public
+    modulus/exponent. A bridge whose signer does not match that authority could
+    execute chargeable provider work that the Worker can never accept, so it must
+    fail closed before any provider operation.
+    """
+    if not isinstance(signer, _PrivilegedVerifierSigner):
+        return False
+    return signer.modulus == PINNED_VERIFIER_MODULUS and signer.exponent == PINNED_VERIFIER_EXPONENT
+
+
+def _assess_production_grounding(
+    *,
+    signer: Any,
+    model_client: Any,
+    sandbox_adapter: Any,
+    materializer: Any,
+    worker: Any,
+) -> tuple[bool, str | None]:
+    """Positively confirm firsthand canonical provider execution grounding.
+
+    LIVE_NEBIUS authority requires the exact canonical Nebius components reached
+    through their real live transports, plus a signer bound to the pinned
+    production verification authority. Any caller-supplied fake, mock, or
+    simulation component yields FIXTURE-only provenance so that synthetic
+    operation identities and fabricated receipts can never be certified.
+    """
+    from basebreak.adapters.nebius import NebiusModelClient, default_urllib_transport
+    from basebreak.causal.engine import is_genuine_nebius_sandbox_adapter
+    from basebreak.causal.materializer import CausalRepositoryMaterializer
+    from basebreak.verifier.trust_bridge import TrustedVerifierWorker
+
+    if not _signer_matches_canonical_authority(signer):
+        return False, "Signer does not match the pinned production verification authority."
+    if type(worker) is not TrustedVerifierWorker:
+        return False, "Trusted verifier worker is not the canonical TrustedVerifierWorker."
+    if type(model_client) is not NebiusModelClient:
+        return False, "Model client is not the canonical NebiusModelClient."
+    if type(materializer) is not CausalRepositoryMaterializer:
+        return False, "Materializer is not the canonical CausalRepositoryMaterializer."
+    if not is_genuine_nebius_sandbox_adapter(sandbox_adapter):
+        return False, "Sandbox adapter is not a genuine NebiusSandboxAdapter with credentials."
+    if getattr(sandbox_adapter, "_transport", None) is not default_urllib_transport:
+        return False, "Sandbox adapter is not using the canonical live Nebius transport."
+    config = getattr(sandbox_adapter, "config", None)
+    api_base_url = str(getattr(config, "api_base_url", ""))
+    if not api_base_url.startswith("https://"):
+        return False, "Sandbox adapter endpoint is not a canonical HTTPS provider endpoint."
+    return True, None
 
 
 def _build_public_execution_fact(world_fact: Any) -> Any:
@@ -542,7 +712,8 @@ def _build_public_receipt_from_local_receipt(
     local_receipt: Any,
     model_result: Any,
     provider_operation_ids: Sequence[str],
-    verifier_authority: Any,
+    provenance: EvidenceProvenance,
+    candidate_origin: str,
 ) -> PublicVerificationReceipt:
     from basebreak.causal.coverage import (
         CausalCoverageSummary,
@@ -558,8 +729,6 @@ def _build_public_receipt_from_local_receipt(
         PublicWitnessFact,
         create_public_verification_receipt,
     )
-
-    del verifier_authority
 
     causal_state = {
         "VERIFIED": RequirementCausalState.VERIFIED,
@@ -650,6 +819,9 @@ def _build_public_receipt_from_local_receipt(
         )
 
     usage = getattr(model_result, "usage", None)
+    # ``estimated_cost_usd`` records the operator/server-approved worst-case
+    # estimate only. It is explicitly NOT provider-observed consumption, and
+    # ``is_metered`` remains False while genuine provider cost is unknown.
     accounting = PublicCostAccountingFact(
         model_call_count=1,
         prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
@@ -663,6 +835,7 @@ def _build_public_receipt_from_local_receipt(
         "bridge:trusted-python",
         f"model:{model_result.returned_model}",
         f"source:{request.source_commit_id}",
+        f"candidate-origin:{candidate_origin}",
         f"sandbox:{local_receipt.base_execution.sandbox_id}",
         f"sandbox:{local_receipt.candidate_execution.sandbox_id}",
     ]
@@ -701,7 +874,7 @@ def _build_public_receipt_from_local_receipt(
         ),
         counterfactual=counterfactual,
         overall_verdict=local_receipt.verdict,
-        provenance=EvidenceProvenance.LIVE_NEBIUS,
+        provenance=provenance,
         runtime_identities=tuple(runtime_identities),
         timing={
             "created_at_utc": local_receipt.created_at_utc,
@@ -734,6 +907,44 @@ def _validate_live_bridge_execution_authority(
     receipt = result.receipt
     if receipt is None:
         return False, "Bridge execution authority validation requires a public receipt."
+
+    # 1. Firsthand canonical provider grounding. Reported identity strings alone
+    #    never grant authority; the executor must have positively confirmed that
+    #    it used the canonical Nebius adapter/model/worker over real transports
+    #    and a signer bound to the pinned production verification authority.
+    if not result.production_grounded:
+        return (
+            False,
+            "Independent live execution authority requires firsthand canonical Nebius "
+            "provider grounding; synthetic or injected execution dependencies cannot "
+            "grant LIVE_NEBIUS certification"
+            + (f": {result.grounding_error}" if result.grounding_error else "."),
+        )
+
+    # 2. Independently re-verify the trusted verifier attestation against the
+    #    pinned canonical authority root. A synthetic three-world receipt signed
+    #    by a non-canonical or attacker-controlled key must fail closed here even
+    #    if every reported string is internally consistent.
+    local_receipt = result.local_receipt
+    if local_receipt is None:
+        return False, "Independent live execution authority requires the trusted local receipt."
+    attestation = getattr(local_receipt, "attestation", None)
+    if attestation is None:
+        return False, "Independent live execution authority requires a verifier attestation."
+    from basebreak.verifier.trust_bridge import verify_trusted_production_evidence
+
+    if not verify_trusted_production_evidence(
+        receipt=local_receipt,
+        expected_requirement_id=scenario.requirement_id,
+        expected_contract_digest=scenario.frozen_contract_digest,
+        expected_provenance=EvidenceProvenance.LIVE_NEBIUS,
+    ):
+        return (
+            False,
+            "Independent live execution authority rejected the verifier attestation: "
+            "it is not bound to the pinned canonical production authority.",
+        )
+
     if receipt.provenance != EvidenceProvenance.LIVE_NEBIUS:
         return False, "Receipt provenance must be LIVE_NEBIUS."
     if receipt.task_id != request.task_id:
@@ -781,6 +992,28 @@ def _validate_live_bridge_execution_authority(
 
     if not any(identity.startswith("model:") for identity in runtime_identities):
         return False, "Receipt runtime identities are missing the authenticated model binding."
+
+    # 3. Cross-bind the independently verified attestation to the public receipt
+    #    and to the reported provider operation identities. A genuine attestation
+    #    cannot be replayed against a differently-bound public receipt.
+    if str(attestation.source_commit_id).lower() != receipt.source_commit_id.lower():
+        return False, "Attestation source_commit_id does not match the public receipt."
+    if str(attestation.candidate_tree_digest).lower() != receipt.candidate_tree_digest.lower():
+        return False, "Attestation candidate_tree_digest does not match the public receipt."
+    if attestation.base_sandbox_id != executions["BASE"].sandbox_id:
+        return False, "Attestation BASE sandbox_id does not match the public receipt."
+    if attestation.candidate_sandbox_id != executions["CANDIDATE"].sandbox_id:
+        return False, "Attestation CANDIDATE sandbox_id does not match the public receipt."
+    if attestation.base_outcome != executions["BASE"].outcome:
+        return False, "Attestation BASE outcome does not match the public receipt."
+    if attestation.candidate_outcome != executions["CANDIDATE"].outcome:
+        return False, "Attestation CANDIDATE outcome does not match the public receipt."
+    if receipt.counterfactual is not None and receipt.counterfactual.execution_fact is not None:
+        cf_fact = receipt.counterfactual.execution_fact
+        if attestation.counterfactual_sandbox_id != cf_fact.sandbox_id:
+            return False, "Attestation COUNTERFACTUAL sandbox_id does not match the public receipt."
+        if attestation.counterfactual_outcome != cf_fact.outcome:
+            return False, "Attestation COUNTERFACTUAL outcome does not match the public receipt."
 
     return True, None
 
@@ -833,7 +1066,6 @@ def create_live_nebius_bridge_executor(
         scenario = _load_canonical_live_bridge_scenario()
         repo_root = _resolve_local_repo_root(config)
         active_signer = signer or _PrivilegedVerifierSigner.from_environment()
-        active_authority = verifier_authority or _bridge_verifier_authority(active_signer)
         active_model_client = model_client or NebiusModelClient(
             config=ModelClientConfig(
                 api_key=config.nebius_api_key,
@@ -853,13 +1085,28 @@ def create_live_nebius_bridge_executor(
         active_worker = verifier_worker or TrustedVerifierWorker(signer=active_signer)
         active_vault = vault or TrustedWitnessVault()
 
+        # DEFECT A: positively ground the execution in firsthand canonical Nebius
+        # components before any LIVE_NEBIUS authority can be produced. Injected
+        # fakes/mocks downgrade the result to FIXTURE-only provenance so synthetic
+        # operation identities can never be certified as genuine live evidence.
+        production_grounded, grounding_error = _assess_production_grounding(
+            signer=active_signer,
+            model_client=active_model_client,
+            sandbox_adapter=active_sandbox_adapter,
+            materializer=active_materializer,
+            worker=active_worker,
+        )
+        result_provenance = (
+            EvidenceProvenance.LIVE_NEBIUS if production_grounded else EvidenceProvenance.FIXTURE
+        )
+
         try:
             model_result = active_model_client.complete(
-                _build_live_attestation_messages(request),
+                _build_runtime_identity_probe_messages(request),
                 max_tokens=160,
                 temperature=0.0,
             )
-            _assert_model_attestation_binding(request, model_result.content)
+            _assert_runtime_identity_probe_binding(request, model_result.content)
 
             candidate_tree_digest = _compute_candidate_tree_digest(
                 repo_root=repo_root,
@@ -876,7 +1123,7 @@ def create_live_nebius_bridge_executor(
                 f"cand-live-{scenario.candidate_patch_digest[:16]}",
                 source_identity,
                 scenario.candidate_patch_digest,
-                description="Canonical live Nebius ResetVault candidate",
+                description="Canonical ResetVault candidate (deterministic bridge fixture)",
             )
 
             witness_artifact = WitnessArtifact.from_text(
@@ -924,7 +1171,7 @@ def create_live_nebius_bridge_executor(
                 witness_lock=witness_lock,
                 counterfactual_plan=counterfactual_plan,
                 execution_command=scenario.execution_command,
-                provenance=EvidenceProvenance.LIVE_NEBIUS,
+                provenance=result_provenance,
                 sandbox_manager=active_sandbox_manager,
                 sandbox_adapter=active_sandbox_adapter,
                 materializer=active_materializer,
@@ -946,17 +1193,27 @@ def create_live_nebius_bridge_executor(
                 local_receipt=local_receipt,
                 model_result=model_result,
                 provider_operation_ids=provider_operation_ids,
-                verifier_authority=active_authority,
+                provenance=result_provenance,
+                candidate_origin=CANDIDATE_ORIGIN_DETERMINISTIC_FIXTURE,
             )
 
             return BridgeExecutionResult(
                 status="COMPLETED",
                 receipt=public_receipt,
-                observed_cost_usd=round(float(request.max_estimated_cost_usd), 6),
+                local_receipt=local_receipt,
+                production_grounded=production_grounded,
+                grounding_error=grounding_error,
+                approved_estimate_usd=round(float(request.max_estimated_cost_usd), 6),
+                reserved_exposure_usd=round(float(request.max_estimated_cost_usd), 6),
+                # Genuine provider-observed cost is not measured here. UNKNOWN must
+                # never be substituted with the approved estimate or the grant cap.
+                observed_cost_usd=None,
+                cost_provenance="UNKNOWN",
                 tokens_used=int(
                     getattr(getattr(model_result, "usage", None), "total_tokens", 0) or 0
                 ),
                 provider_operation_ids=provider_operation_ids,
+                candidate_origin=CANDIDATE_ORIGIN_DETERMINISTIC_FIXTURE,
             )
         except (
             ModelTimeoutError,
@@ -968,6 +1225,10 @@ def create_live_nebius_bridge_executor(
                 status="UNKNOWN_OUTCOME",
                 error=str(exc),
                 ambiguous_outcome=True,
+                approved_estimate_usd=round(float(request.max_estimated_cost_usd), 6),
+                reserved_exposure_usd=round(float(request.max_estimated_cost_usd), 6),
+                observed_cost_usd=None,
+                cost_provenance="UNKNOWN",
                 provider_operation_ids=_normalize_provider_operation_ids(
                     getattr(active_sandbox_adapter, "live_operation_ids", ())
                 ),
@@ -1115,11 +1376,25 @@ class TrustedVerifierBridge:
         executor: BridgeExecutor | None = None,
         signer: _PrivilegedVerifierSigner | None = None,
         execution_authority_verifier: BridgeExecutionAuthorityVerifier | None = None,
+        idempotency_store: ExecutionIdempotencyStore | None = None,
     ) -> None:
         self.config = config
         self.executor = executor
         self.signer = signer or _PrivilegedVerifierSigner.from_environment()
         self.execution_authority_verifier = execution_authority_verifier
+        self.idempotency_store: ExecutionIdempotencyStore | None
+        self.idempotency_store_error: str | None = None
+        if idempotency_store is not None:
+            self.idempotency_store = idempotency_store
+        else:
+            try:
+                state_dir = config.bridge_state_dir or tempfile.mkdtemp(
+                    prefix="basebreak_bridge_state_"
+                )
+                self.idempotency_store = ExecutionIdempotencyStore(state_dir)
+            except DurableIdempotencyUnavailableError as exc:
+                self.idempotency_store = None
+                self.idempotency_store_error = str(exc)
 
     def _error(
         self,
@@ -1228,6 +1503,35 @@ class TrustedVerifierBridge:
                 "BLOCKED_ESTIMATED_COST_UNKNOWN",
                 "Maximum estimated live cost must be positive.",
             )
+        # DEFECT C: enforce explicit issue/deadline bounds before any dispatch.
+        now_ms = int(time.time() * 1000)
+        if request.deadline_ms <= request.issued_at_ms:
+            return self._error(
+                400,
+                "INVALID_DEADLINE",
+                "Bridge request deadline_ms must be strictly after issued_at_ms.",
+            )
+        max_window_ms = self.config.request_ttl_seconds * 1000
+        if request.deadline_ms - request.issued_at_ms > max_window_ms:
+            return self._error(
+                400,
+                "INVALID_DEADLINE",
+                "Bridge request deadline exceeds the configured maximum request window.",
+            )
+        if request.deadline_ms <= now_ms:
+            return self._error(
+                410,
+                "EXPIRED_REQUEST",
+                "Bridge request deadline has already passed; refusing to dispatch inference "
+                "or sandbox operations for an expired request.",
+            )
+        allowed_skew_ms = max(5000, self.config.request_ttl_seconds * 1000)
+        if request.issued_at_ms > now_ms + allowed_skew_ms:
+            return self._error(
+                400,
+                "INVALID_ISSUED_AT",
+                "Bridge request issued_at_ms is implausibly in the future.",
+            )
         return None
 
     def handle_http_request(
@@ -1287,6 +1591,17 @@ class TrustedVerifierBridge:
                 "the result.",
             )
 
+        # DEFECT D: fail closed BEFORE any chargeable provider operation when the
+        # configured signer does not match the pinned production verification
+        # authority that the Worker accepts.
+        if not _signer_matches_canonical_authority(self.signer):
+            return self._error(
+                503,
+                "BLOCKED_INCOMPATIBLE_SIGNING_AUTHORITY",
+                "Trusted verifier signing authority does not correspond to the pinned "
+                "production verification authority accepted by the Worker.",
+            )
+
         if self.executor is None:
             return self._error(
                 503,
@@ -1294,73 +1609,136 @@ class TrustedVerifierBridge:
                 "Trusted verifier executor is not configured.",
             )
 
-        result = self.executor(request_obj)
-        if result.receipt is None:
+        # DEFECT C: durable, atomic single-execution protection keyed by request_id.
+        # Fail closed rather than risk a second chargeable provider dispatch.
+        if self.idempotency_store is None:
             return self._error(
-                502 if result.ambiguous_outcome else 503,
+                503,
+                "BLOCKED_DURABLE_IDEMPOTENCY_UNAVAILABLE",
+                self.idempotency_store_error
+                or "Durable single-execution protection is unavailable; refusing to dispatch.",
+            )
+        try:
+            claim = self.idempotency_store.begin(request_obj.request_id)
+        except DurableIdempotencyUnavailableError as exc:
+            return self._error(503, "BLOCKED_DURABLE_IDEMPOTENCY_UNAVAILABLE", str(exc))
+
+        claim_state = str(claim.get("state", "")).strip()
+        if claim_state == "COMPLETED":
+            cached = claim.get("response")
+            if isinstance(cached, dict):
+                return 200, {**cached, "replayed": True}
+            return self._error(
+                503,
+                "BLOCKED_DURABLE_IDEMPOTENCY_UNAVAILABLE",
+                "Durable idempotency record is corrupt; refusing to re-execute.",
+            )
+        if claim_state == "IN_PROGRESS":
+            return self._error(
+                409,
+                "CONCURRENT_DUPLICATE_REQUEST",
+                "An execution for this request_id is already in progress or was interrupted; "
+                "refusing to trigger a second chargeable execution.",
+                ambiguous_outcome=True,
+            )
+        if claim_state == "AMBIGUOUS":
+            return self._error(
+                502,
+                "UNKNOWN_OUTCOME",
+                "A prior attempt for this request_id dispatched with an unknown provider "
+                "outcome; automatic retry is forbidden.",
+                ambiguous_outcome=True,
+            )
+
+        result = self.executor(request_obj)
+        response_code: int
+        response_body: dict[str, Any]
+        ambiguous = False
+        if result.receipt is None:
+            ambiguous = result.ambiguous_outcome
+            response_code, response_body = self._error(
+                502 if ambiguous else 503,
                 result.status,
                 result.error
                 or "Trusted bridge executor completed without an authenticated public receipt.",
-                ambiguous_outcome=result.ambiguous_outcome,
+                ambiguous_outcome=ambiguous,
             )
+        else:
+            integrity_error: str | None = None
+            try:
+                verify_public_receipt_integrity(result.receipt)
+            except Exception as exc:
+                integrity_error = f"Bridge receipt integrity verification failed: {exc}"
+            if integrity_error is not None:
+                response_code, response_body = self._error(502, "FAILED", integrity_error)
+            elif result.receipt.provenance != EvidenceProvenance.LIVE_NEBIUS:
+                response_code, response_body = self._error(
+                    502,
+                    "FAILED",
+                    "Bridge executor returned a non-LIVE_NEBIUS receipt for a live request.",
+                )
+            elif self.execution_authority_verifier is None:
+                response_code, response_body = self._error(
+                    503,
+                    "NOT_READY_FOR_DEPLOYMENT",
+                    "Independent live execution authority is not configured. Trusted bridge "
+                    "cannot certify executor-reported LIVE_NEBIUS receipts; run remains NOT_RUN.",
+                )
+            else:
+                try:
+                    authority_verified, authority_error = self.execution_authority_verifier(
+                        request_obj, result
+                    )
+                except Exception as exc:
+                    authority_verified, authority_error = (
+                        False,
+                        (f"Independent live execution authority check failed: {exc}"),
+                    )
+                if not authority_verified:
+                    response_code, response_body = self._error(
+                        502,
+                        "FAILED",
+                        authority_error
+                        or "Independent live execution authority rejected the executor-reported "
+                        "receipt.",
+                    )
+                else:
+                    proof = create_receipt_proof(
+                        result.receipt,
+                        signer=self.signer,
+                        issuer_id="basebreak:verifier:nebius:worker",
+                    )
+                    response_code = 201
+                    response_body = {
+                        "ok": True,
+                        "status": "COMPLETED",
+                        "receipt": result.receipt.to_dict(),
+                        "receipt_proof": proof,
+                        "observed_cost_usd": result.observed_cost_usd,
+                        "reserved_exposure_usd": result.reserved_exposure_usd,
+                        "approved_estimate_usd": result.approved_estimate_usd,
+                        "cost_provenance": result.cost_provenance,
+                        "tokens_used": result.tokens_used,
+                        "provider_operation_ids": list(result.provider_operation_ids),
+                        "candidate_origin": result.candidate_origin,
+                    }
 
+        # Persist the terminal outcome so replaying this request_id never triggers
+        # a second chargeable execution.
         try:
-            verify_public_receipt_integrity(result.receipt)
-        except Exception as exc:
+            if ambiguous:
+                self.idempotency_store.mark_ambiguous(request_obj.request_id)
+            else:
+                self.idempotency_store.complete(request_obj.request_id, response_body)
+        except DurableIdempotencyUnavailableError as exc:
             return self._error(
                 502,
-                "FAILED",
-                f"Bridge receipt integrity verification failed: {exc}",
+                "UNKNOWN_OUTCOME",
+                f"Provider work may have occurred but durable single-execution protection "
+                f"could not be persisted: {exc}",
+                ambiguous_outcome=True,
             )
-
-        if result.receipt.provenance != EvidenceProvenance.LIVE_NEBIUS:
-            return self._error(
-                502,
-                "FAILED",
-                "Bridge executor returned a non-LIVE_NEBIUS receipt for a live request.",
-            )
-
-        if self.execution_authority_verifier is None:
-            return self._error(
-                503,
-                "NOT_READY_FOR_DEPLOYMENT",
-                "Independent live execution authority is not configured. Trusted bridge "
-                "cannot certify executor-reported LIVE_NEBIUS receipts; run remains NOT_RUN.",
-            )
-
-        try:
-            authority_verified, authority_error = self.execution_authority_verifier(
-                request_obj, result
-            )
-        except Exception as exc:
-            return self._error(
-                502,
-                "FAILED",
-                f"Independent live execution authority check failed: {exc}",
-            )
-
-        if not authority_verified:
-            return self._error(
-                502,
-                "FAILED",
-                authority_error
-                or "Independent live execution authority rejected the executor-reported receipt.",
-            )
-
-        proof = create_receipt_proof(
-            result.receipt,
-            signer=self.signer,
-            issuer_id="basebreak:verifier:nebius:worker",
-        )
-        return 201, {
-            "ok": True,
-            "status": "COMPLETED",
-            "receipt": result.receipt.to_dict(),
-            "receipt_proof": proof,
-            "observed_cost_usd": result.observed_cost_usd,
-            "tokens_used": result.tokens_used,
-            "provider_operation_ids": list(result.provider_operation_ids),
-        }
+        return response_code, response_body
 
 
 def create_trusted_verifier_bridge_from_env() -> TrustedVerifierBridge:

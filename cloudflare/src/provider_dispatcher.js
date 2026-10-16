@@ -533,6 +533,22 @@ export async function dispatchVerificationRun({
     };
   }
 
+  const observedCost =
+    typeof responseBody.observed_cost_usd === "number" &&
+    Number.isFinite(responseBody.observed_cost_usd)
+      ? responseBody.observed_cost_usd
+      : null;
+  const reservedExposure =
+    typeof responseBody.reserved_exposure_usd === "number" &&
+    Number.isFinite(responseBody.reserved_exposure_usd)
+      ? responseBody.reserved_exposure_usd
+      : null;
+  const approvedEstimate =
+    typeof responseBody.approved_estimate_usd === "number" &&
+    Number.isFinite(responseBody.approved_estimate_usd)
+      ? responseBody.approved_estimate_usd
+      : null;
+
   return {
     success: true,
     status: "COMPLETED",
@@ -540,8 +556,13 @@ export async function dispatchVerificationRun({
     was_ambiguous: false,
     code: 201,
     receipt: responseBody.receipt,
-    observed_cost_usd:
-      typeof responseBody.observed_cost_usd === "number" ? responseBody.observed_cost_usd : 0.0,
+    observed_cost_usd: observedCost,
+    reserved_exposure_usd: reservedExposure,
+    approved_estimate_usd: approvedEstimate,
+    cost_provenance:
+      observedCost === null
+        ? "UNKNOWN"
+        : normalizeOptionalString(responseBody.cost_provenance) || "PROVIDER_OBSERVED",
     tokens_used: typeof responseBody.tokens_used === "number" ? responseBody.tokens_used : 0,
   };
 }

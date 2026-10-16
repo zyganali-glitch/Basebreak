@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import tempfile
 import time
 from typing import Any
 
@@ -20,6 +22,8 @@ from basebreak.deployment.live_bridge import (
     BRIDGE_REQUEST_SCHEMA_VERSION,
     BridgeExecutionResult,
     BridgeRequest,
+    DurableIdempotencyUnavailableError,
+    ExecutionIdempotencyStore,
     TrustedBridgeConfig,
     TrustedVerifierBridge,
     create_live_nebius_bridge_executor,
@@ -70,11 +74,12 @@ def _build_synthetic_live_receipt() -> PublicVerificationReceipt:
 
 
 def _make_request_payload(source_commit_id: str) -> dict[str, Any]:
+    now_ms = int(time.time() * 1000)
     return {
         "schema_version": BRIDGE_REQUEST_SCHEMA_VERSION,
         "request_id": "run_bridge_test_001",
-        "issued_at_ms": 1_792_137_000_000,
-        "deadline_ms": 1_792_137_060_000,
+        "issued_at_ms": now_ms,
+        "deadline_ms": now_ms + 60_000,
         "receipt_audience": "cloudflare-worker",
         "task_id": "TASK-RESET-VAULT-001",
         "change_class": "BUG_FIX",
@@ -85,6 +90,15 @@ def _make_request_payload(source_commit_id: str) -> dict[str, Any]:
         ),
         "max_estimated_cost_usd": 0.25,
     }
+
+
+def _canonical_modulus_signer() -> _PrivilegedVerifierSigner:
+    """Signer whose modulus matches the pinned authority but lacks the real key.
+
+    Used to exercise pre-execution gates that require signer compatibility without
+    possessing production signing material. It can never produce a valid proof.
+    """
+    return _PrivilegedVerifierSigner(private_key_d=1)
 
 
 def _sign_headers(payload: dict[str, Any], *, secret: str) -> dict[str, str]:
@@ -157,7 +171,7 @@ def test_bridge_rejects_invalid_signature() -> None:
 def test_bridge_blocks_missing_provider_credentials() -> None:
     receipt = _build_synthetic_live_receipt()
     payload = _make_request_payload(receipt.source_commit_id)
-    signer, _ = _PrivilegedVerifierSigner.create_ephemeral_pair()
+    signer = _canonical_modulus_signer()
     bridge = TrustedVerifierBridge(
         config=TrustedBridgeConfig(
             shared_secret="bridge-secret",
@@ -181,7 +195,7 @@ def test_bridge_blocks_missing_provider_credentials() -> None:
 def test_bridge_rejects_source_substitution() -> None:
     receipt = _build_synthetic_live_receipt()
     payload = _make_request_payload("f" * 40)
-    signer, _ = _PrivilegedVerifierSigner.create_ephemeral_pair()
+    signer = _canonical_modulus_signer()
     bridge = TrustedVerifierBridge(
         config=TrustedBridgeConfig(
             shared_secret="bridge-secret",
@@ -208,7 +222,7 @@ def test_bridge_rejects_frozen_contract_substitution() -> None:
     receipt = _build_synthetic_live_receipt()
     payload = _make_request_payload(receipt.source_commit_id)
     payload["frozen_contract_digest"] = "f" * 64
-    signer, _ = _PrivilegedVerifierSigner.create_ephemeral_pair()
+    signer = _canonical_modulus_signer()
     bridge = TrustedVerifierBridge(
         config=TrustedBridgeConfig(
             shared_secret="bridge-secret",
@@ -234,7 +248,7 @@ def test_bridge_rejects_frozen_contract_substitution() -> None:
 def test_bridge_rejects_executor_that_provisions_sandbox_without_receipt() -> None:
     receipt = _build_synthetic_live_receipt()
     payload = _make_request_payload(receipt.source_commit_id)
-    signer, _ = _PrivilegedVerifierSigner.create_ephemeral_pair()
+    signer = _canonical_modulus_signer()
 
     def executor(_: Any) -> BridgeExecutionResult:
         return BridgeExecutionResult(
@@ -269,7 +283,7 @@ def test_bridge_rejects_executor_that_provisions_sandbox_without_receipt() -> No
 def test_bridge_preserves_ambiguous_provider_failure() -> None:
     receipt = _build_synthetic_live_receipt()
     payload = _make_request_payload(receipt.source_commit_id)
-    signer, _ = _PrivilegedVerifierSigner.create_ephemeral_pair()
+    signer = _canonical_modulus_signer()
 
     def executor(_: Any) -> BridgeExecutionResult:
         return BridgeExecutionResult(
@@ -306,7 +320,7 @@ def test_bridge_preserves_ambiguous_provider_failure() -> None:
 def test_bridge_rejects_executor_reported_live_receipt_without_independent_authority() -> None:
     receipt = _build_synthetic_live_receipt()
     payload = _make_request_payload(receipt.source_commit_id)
-    signer, _ = _PrivilegedVerifierSigner.create_ephemeral_pair()
+    signer = _canonical_modulus_signer()
 
     def executor(_: Any) -> BridgeExecutionResult:
         return BridgeExecutionResult(
@@ -380,7 +394,13 @@ def test_receipt_proof_rejects_builder_forged_mutation() -> None:
     )
 
 
-def test_live_nebius_executor_builds_authority_bound_receipt() -> None:
+def test_live_nebius_executor_downgrades_synthetic_dependencies_to_fixture() -> None:
+    """Synthetic model/sandbox/worker dependencies must never yield LIVE_NEBIUS authority.
+
+    The executor still exercises the receipt-building path, but because the
+    dependencies are not the canonical Nebius components, provenance is downgraded
+    to FIXTURE and the production authority verifier rejects it.
+    """
     signer, authority = _PrivilegedVerifierSigner.create_ephemeral_pair()
     verifier = create_live_nebius_execution_authority_verifier()
     source_commit_id = _git_head_commit()
@@ -409,14 +429,113 @@ def test_live_nebius_executor_builds_authority_bound_receipt() -> None:
     result = executor(request)
     assert result.status == "COMPLETED"
     assert result.receipt is not None
+    assert result.production_grounded is False
+    assert result.receipt.provenance == EvidenceProvenance.FIXTURE
     assert result.tokens_used == 18
     assert result.provider_operation_ids == ("op-live-base", "op-live-candidate", "op-live-cf")
     assert result.receipt.source_commit_id == source_commit_id
     assert result.receipt.candidate_patch_digest == (
         "3d5077cdc2b1a3008236ebb3615c70583634eda6db3e34f48fd7f8b332525a38"
     )
+    # Estimated/reserved exposure must never masquerade as observed provider cost.
+    assert result.observed_cost_usd is None
+    assert result.reserved_exposure_usd == 0.25
+    assert result.approved_estimate_usd == 0.25
+    assert result.cost_provenance == "UNKNOWN"
+
     ok, error = verifier(request, result)
-    assert ok, error
+    assert ok is False
+    assert error is not None
+
+
+def test_authority_verifier_rejects_forged_grounded_synthetic_receipt() -> None:
+    """Adversarial: a synthetic three-world receipt can never pass even if it claims grounding.
+
+    This reproduces the DEFECT A attack: fabricated operation IDs plus a
+    structurally consistent LIVE_NEBIUS receipt, with ``production_grounded``
+    forced True and every reported identity string self-consistent.
+    """
+    signer, authority = _PrivilegedVerifierSigner.create_ephemeral_pair()
+    verifier = create_live_nebius_execution_authority_verifier()
+    source_commit_id = _git_head_commit()
+    payload = _make_request_payload(source_commit_id)
+    request = BridgeRequest.from_dict(payload)
+
+    sandbox_adapter = _FakeSandboxAdapter()
+    worker = _FakeWorker(
+        sandbox_adapter=sandbox_adapter,
+        receipt=_make_live_local_receipt(source_commit_id=source_commit_id, signer=signer),
+    )
+    executor = create_live_nebius_bridge_executor(
+        config=TrustedBridgeConfig(
+            expected_source_commit=source_commit_id,
+            nebius_api_key="configured",
+            nebius_project_id="project-123",
+            source_repo_locator="https://github.com/zyganali-glitch/Basebreak.git",
+        ),
+        signer=signer,
+        verifier_authority=authority,
+        model_client=_FakeModelClient(payload),
+        sandbox_adapter=sandbox_adapter,
+        verifier_worker=worker,
+    )
+
+    result = executor(request)
+    assert result.receipt is not None
+    forged = BridgeExecutionResult(
+        status="COMPLETED",
+        receipt=result.receipt,
+        local_receipt=result.local_receipt,
+        production_grounded=True,  # attacker-asserted grounding
+        provider_operation_ids=("op-synthetic-1", "op-synthetic-2", "op-synthetic-3"),
+    )
+    ok, error = verifier(request, forged)
+    # Synthetic operation IDs are not in the receipt runtime identities.
+    assert ok is False
+    assert error is not None
+
+    # Even with matching runtime identity strings, a non-canonical attestation
+    # cannot satisfy independent production authority.
+    synthetic_receipt = _build_receipt_with_operation_identities(
+        result.receipt, ("op-synthetic-1", "op-synthetic-2", "op-synthetic-3")
+    )
+    forged_with_identities = BridgeExecutionResult(
+        status="COMPLETED",
+        receipt=synthetic_receipt,
+        local_receipt=result.local_receipt,
+        production_grounded=True,
+        provider_operation_ids=("op-synthetic-1", "op-synthetic-2", "op-synthetic-3"),
+    )
+    ok2, error2 = verifier(request, forged_with_identities)
+    assert ok2 is False
+    assert error2 is not None
+
+
+def _build_receipt_with_operation_identities(receipt: Any, operation_ids: tuple[str, ...]) -> Any:
+    from basebreak.causal.public_receipt import create_public_verification_receipt
+
+    return create_public_verification_receipt(
+        frozen_contract_digest=receipt.frozen_contract_digest,
+        task_id=receipt.task_id,
+        repo_locator=receipt.repo_locator,
+        source_commit_id=receipt.source_commit_id,
+        candidate_tree_digest=receipt.candidate_tree_digest,
+        candidate_patch_digest=receipt.candidate_patch_digest,
+        coverage_summary=receipt.coverage_summary,
+        executions=receipt.executions,
+        witnesses=receipt.witnesses,
+        overall_verdict=receipt.overall_verdict,
+        provenance=receipt.provenance,
+        counterfactual=receipt.counterfactual,
+        runtime_identities=tuple(receipt.runtime_identities)
+        + tuple(f"nebius-operation:{op}" for op in operation_ids),
+        timing=receipt.timing,
+        accounting=receipt.accounting,
+        not_run_obligations=receipt.not_run_obligations,
+        signature_strategy=receipt.signature_strategy,
+        signature=receipt.signature,
+        disclaimers=receipt.disclaimers,
+    )
 
 
 def json_bytes(payload: dict[str, Any]) -> bytes:
@@ -566,3 +685,250 @@ def _make_live_local_receipt(*, source_commit_id: str, signer: _PrivilegedVerifi
         narrative="BASE fail, CANDIDATE pass, COUNTERFACTUAL fail.",
         attestation=attestation,
     )
+
+
+def _bridge_config(
+    source_commit_id: str, *, bridge_state_dir: str | None = None
+) -> TrustedBridgeConfig:
+    return TrustedBridgeConfig(
+        shared_secret="bridge-secret",
+        expected_source_commit=source_commit_id,
+        live_execution_enabled=True,
+        nebius_api_key="configured",
+        nebius_project_id="project-123",
+        bridge_state_dir=bridge_state_dir,
+    )
+
+
+def test_bridge_rejects_expired_request_before_dispatch() -> None:
+    receipt = _build_synthetic_live_receipt()
+    payload = _make_request_payload(receipt.source_commit_id)
+    now_ms = int(time.time() * 1000)
+    payload["issued_at_ms"] = now_ms - 120_000
+    payload["deadline_ms"] = now_ms - 60_000
+    calls = {"n": 0}
+
+    def executor(_: Any) -> BridgeExecutionResult:
+        calls["n"] += 1
+        return BridgeExecutionResult(status="FAILED", error="must not run")
+
+    bridge = TrustedVerifierBridge(
+        config=_bridge_config(receipt.source_commit_id),
+        executor=executor,
+        signer=_canonical_modulus_signer(),
+    )
+    status_code, body = bridge.handle_http_request(
+        method="POST",
+        path="/internal/live-verifications",
+        headers=_sign_headers(payload, secret="bridge-secret"),
+        raw_body=json_bytes(payload),
+    )
+    assert status_code == 410
+    assert body["status"] == "EXPIRED_REQUEST"
+    assert calls["n"] == 0
+
+
+def test_bridge_rejects_invalid_deadline_window() -> None:
+    receipt = _build_synthetic_live_receipt()
+    payload = _make_request_payload(receipt.source_commit_id)
+    now_ms = int(time.time() * 1000)
+    payload["issued_at_ms"] = now_ms
+    payload["deadline_ms"] = now_ms  # not strictly after
+
+    bridge = TrustedVerifierBridge(
+        config=_bridge_config(receipt.source_commit_id),
+        executor=lambda _: BridgeExecutionResult(status="FAILED", error="must not run"),
+        signer=_canonical_modulus_signer(),
+    )
+    status_code, body = bridge.handle_http_request(
+        method="POST",
+        path="/internal/live-verifications",
+        headers=_sign_headers(payload, secret="bridge-secret"),
+        raw_body=json_bytes(payload),
+    )
+    assert status_code == 400
+    assert body["status"] == "INVALID_DEADLINE"
+
+
+def test_bridge_replay_of_accepted_request_never_reexecutes() -> None:
+    receipt = _build_synthetic_live_receipt()
+    payload = _make_request_payload(receipt.source_commit_id)
+    calls = {"n": 0}
+
+    def executor(_: Any) -> BridgeExecutionResult:
+        calls["n"] += 1
+        return BridgeExecutionResult(status="FAILED", error="deterministic terminal failure")
+
+    bridge = TrustedVerifierBridge(
+        config=_bridge_config(receipt.source_commit_id),
+        executor=executor,
+        signer=_canonical_modulus_signer(),
+    )
+    first = bridge.handle_http_request(
+        method="POST",
+        path="/internal/live-verifications",
+        headers=_sign_headers(payload, secret="bridge-secret"),
+        raw_body=json_bytes(payload),
+    )
+    second = bridge.handle_http_request(
+        method="POST",
+        path="/internal/live-verifications",
+        headers=_sign_headers(payload, secret="bridge-secret"),
+        raw_body=json_bytes(payload),
+    )
+    assert first[0] == 503
+    assert second[0] == 200
+    assert second[1].get("replayed") is True
+    assert calls["n"] == 1
+
+
+def test_bridge_unknown_outcome_is_not_auto_retried() -> None:
+    receipt = _build_synthetic_live_receipt()
+    payload = _make_request_payload(receipt.source_commit_id)
+    calls = {"n": 0}
+
+    def executor(_: Any) -> BridgeExecutionResult:
+        calls["n"] += 1
+        return BridgeExecutionResult(
+            status="UNKNOWN_OUTCOME",
+            error="ambiguous dispatch",
+            ambiguous_outcome=True,
+        )
+
+    bridge = TrustedVerifierBridge(
+        config=_bridge_config(receipt.source_commit_id),
+        executor=executor,
+        signer=_canonical_modulus_signer(),
+    )
+    first = bridge.handle_http_request(
+        method="POST",
+        path="/internal/live-verifications",
+        headers=_sign_headers(payload, secret="bridge-secret"),
+        raw_body=json_bytes(payload),
+    )
+    second = bridge.handle_http_request(
+        method="POST",
+        path="/internal/live-verifications",
+        headers=_sign_headers(payload, secret="bridge-secret"),
+        raw_body=json_bytes(payload),
+    )
+    assert first[0] == 502
+    assert first[1]["status"] == "UNKNOWN_OUTCOME"
+    assert first[1]["ambiguous_outcome"] is True
+    assert second[0] == 502
+    assert second[1]["status"] == "UNKNOWN_OUTCOME"
+    assert calls["n"] == 1
+
+
+def test_idempotency_store_blocks_simultaneous_duplicate_claims() -> None:
+    with tempfile.TemporaryDirectory() as state_dir:
+        store = ExecutionIdempotencyStore(state_dir)
+        assert store.begin("dup-request").get("state") == "NEW"
+        # A second claim while the first is in progress (interrupted execution)
+        # must NOT be granted permission to execute.
+        assert store.begin("dup-request").get("state") == "IN_PROGRESS"
+        store.complete("dup-request", {"ok": True, "status": "COMPLETED"})
+        completed = store.begin("dup-request")
+        assert completed.get("state") == "COMPLETED"
+        assert completed.get("response") == {"ok": True, "status": "COMPLETED"}
+
+
+def test_idempotency_store_marks_ambiguous_and_blocks_retry() -> None:
+    with tempfile.TemporaryDirectory() as state_dir:
+        store = ExecutionIdempotencyStore(state_dir)
+        assert store.begin("amb-request").get("state") == "NEW"
+        store.mark_ambiguous("amb-request")
+        assert store.begin("amb-request").get("state") == "AMBIGUOUS"
+
+
+def test_bridge_fails_closed_when_durable_store_unavailable() -> None:
+    receipt = _build_synthetic_live_receipt()
+    payload = _make_request_payload(receipt.source_commit_id)
+    handle, blocked_path = tempfile.mkstemp(prefix="basebreak_not_a_dir_")
+    os.close(handle)
+    try:
+        bridge = TrustedVerifierBridge(
+            config=_bridge_config(receipt.source_commit_id, bridge_state_dir=blocked_path),
+            executor=lambda _: BridgeExecutionResult(status="FAILED", error="must not run"),
+            signer=_canonical_modulus_signer(),
+        )
+        assert bridge.idempotency_store is None
+        status_code, body = bridge.handle_http_request(
+            method="POST",
+            path="/internal/live-verifications",
+            headers=_sign_headers(payload, secret="bridge-secret"),
+            raw_body=json_bytes(payload),
+        )
+        assert status_code == 503
+        assert body["status"] == "BLOCKED_DURABLE_IDEMPOTENCY_UNAVAILABLE"
+    finally:
+        os.unlink(blocked_path)
+
+
+def test_bridge_rejects_incompatible_signing_authority() -> None:
+    receipt = _build_synthetic_live_receipt()
+    payload = _make_request_payload(receipt.source_commit_id)
+    wrong_signer, _ = _PrivilegedVerifierSigner.create_ephemeral_pair()
+    calls = {"n": 0}
+
+    def executor(_: Any) -> BridgeExecutionResult:
+        calls["n"] += 1
+        return BridgeExecutionResult(status="FAILED", error="must not run")
+
+    bridge = TrustedVerifierBridge(
+        config=_bridge_config(receipt.source_commit_id),
+        executor=executor,
+        signer=wrong_signer,
+    )
+    status_code, body = bridge.handle_http_request(
+        method="POST",
+        path="/internal/live-verifications",
+        headers=_sign_headers(payload, secret="bridge-secret"),
+        raw_body=json_bytes(payload),
+    )
+    assert status_code == 503
+    assert body["status"] == "BLOCKED_INCOMPATIBLE_SIGNING_AUTHORITY"
+    assert calls["n"] == 0
+
+
+def test_executor_reports_unknown_cost_not_the_estimate() -> None:
+    """DEFECT B: the executor must not substitute the grant cap for observed cost."""
+    signer, authority = _PrivilegedVerifierSigner.create_ephemeral_pair()
+    source_commit_id = _git_head_commit()
+    payload = _make_request_payload(source_commit_id)
+    request = BridgeRequest.from_dict(payload)
+    sandbox_adapter = _FakeSandboxAdapter()
+    worker = _FakeWorker(
+        sandbox_adapter=sandbox_adapter,
+        receipt=_make_live_local_receipt(source_commit_id=source_commit_id, signer=signer),
+    )
+    executor = create_live_nebius_bridge_executor(
+        config=TrustedBridgeConfig(
+            expected_source_commit=source_commit_id,
+            nebius_api_key="configured",
+            nebius_project_id="project-123",
+        ),
+        signer=signer,
+        verifier_authority=authority,
+        model_client=_FakeModelClient(payload),
+        sandbox_adapter=sandbox_adapter,
+        verifier_worker=worker,
+    )
+    result = executor(request)
+    assert result.observed_cost_usd is None
+    assert result.cost_provenance == "UNKNOWN"
+    assert result.approved_estimate_usd == payload["max_estimated_cost_usd"]
+    assert result.reserved_exposure_usd == payload["max_estimated_cost_usd"]
+    assert result.observed_cost_usd != result.approved_estimate_usd
+
+
+def test_durable_idempotency_store_rejects_unwritable_path() -> None:
+    import pytest
+
+    handle, blocked_path = tempfile.mkstemp(prefix="basebreak_not_a_dir_")
+    os.close(handle)
+    try:
+        with pytest.raises(DurableIdempotencyUnavailableError):
+            ExecutionIdempotencyStore(blocked_path)
+    finally:
+        os.unlink(blocked_path)

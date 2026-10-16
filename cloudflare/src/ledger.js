@@ -699,7 +699,13 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
    */
   recordExecutionSuccess(
     runId,
-    { observed_cost = 0.0, tokens_used = 0, receipt, allowAuthoritativeProvenance = false }
+    {
+      observed_cost = null,
+      tokens_used = 0,
+      receipt,
+      allowAuthoritativeProvenance = false,
+      cost_provenance = "UNKNOWN",
+    }
   ) {
     if (!receipt || typeof receipt !== "object") {
       throw new Error("A valid public verification receipt object is required.");
@@ -726,6 +732,15 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       throw new Error(`Public receipt contains secret pattern: ${secretFinding.matchedPattern}`);
     }
 
+    // DEFECT B: an approved estimate or grant cap is NEVER genuine observed cost.
+    // When the provider did not report a trustworthy measured cost, the run is
+    // accounted conservatively as UNKNOWN: the reserved exposure is shifted into
+    // unknown_cost (never released as zero) and spending authority stays closed.
+    const hasKnownObservedCost =
+      typeof observed_cost === "number" && Number.isFinite(observed_cost) && observed_cost >= 0;
+    const effectiveObserved =
+      hasKnownObservedCost === true ? observed_cost : 0.0;
+
     const now = Date.now();
 
     return this.sql.transaction(() => {
@@ -735,6 +750,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       }
       const run = runRows[0];
       const previousReserved = run.reserved_cost || 0.0;
+      const unknownShift = hasKnownObservedCost === true ? 0.0 : previousReserved;
 
       // Update run
       this.sql.execute(
@@ -742,27 +758,32 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
          SET status = 'COMPLETED',
              completed_at = ?,
              observed_cost = ?,
+             unknown_cost = ?,
              tokens_used = ?,
              outcome = ?,
              reserved_cost = 0.0
          WHERE run_id = ?`,
         now,
-        observed_cost,
+        effectiveObserved,
+        unknownShift,
         tokens_used,
         String(receipt.overall_verdict),
         runId
       );
 
-      // Update accounting: subtract reserved_cost, add observed_cost
+      // Update accounting: subtract reserved_cost, add observed (or unknown) cost.
       this.sql.execute(
         `UPDATE costs
          SET reserved_cost = MAX(0.0, reserved_cost - ?),
              observed_cost = observed_cost + ?,
-             total_metered_cost = (observed_cost + ?) + unknown_cost
+             unknown_cost = unknown_cost + ?,
+             total_metered_cost = (observed_cost + ?) + (unknown_cost + ?)
          WHERE id = 1`,
         previousReserved,
-        observed_cost,
-        observed_cost
+        effectiveObserved,
+        unknownShift,
+        effectiveObserved,
+        unknownShift
       );
 
       // Store verified receipt
@@ -782,7 +803,13 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       this.sql.execute(
         "INSERT INTO audit_log (timestamp, event_type, details) VALUES (?, 'RUN_COMPLETED', ?)",
         now,
-        JSON.stringify({ run_id: runId, observed_cost, digest: receipt.receipt_digest })
+        JSON.stringify({
+          run_id: runId,
+          observed_cost: effectiveObserved,
+          cost_provenance: hasKnownObservedCost === true ? "PROVIDER_OBSERVED" : String(cost_provenance || "UNKNOWN"),
+          unknown_cost_shift: unknownShift,
+          digest: receipt.receipt_digest,
+        })
       );
 
       return { success: true, run_id: runId, receipt_digest: receipt.receipt_digest };
@@ -800,10 +827,13 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
    * @param {string} params.error_message
    * @param {string} [params.outcome="FAILED"]
    * @param {boolean} [params.was_ambiguous=false] True if timeout/crash occurred mid-execution
-   * @param {number} [params.observed_cost=0.0]
+   * @param {number | null} [params.observed_cost=null] Genuine provider-observed cost, or null when unknown
    */
-  recordExecutionFailure(runId, { error_message, outcome = "FAILED", was_ambiguous = false, observed_cost = 0.0 }) {
+  recordExecutionFailure(runId, { error_message, outcome = "FAILED", was_ambiguous = false, observed_cost = null }) {
     const now = Date.now();
+    const hasKnownObservedCost =
+      typeof observed_cost === "number" && Number.isFinite(observed_cost) && observed_cost >= 0;
+    const effectiveObserved = hasKnownObservedCost === true ? observed_cost : 0.0;
 
     return this.sql.transaction(() => {
       const runRows = this.sql.query("SELECT * FROM runs WHERE run_id = ?", runId);
@@ -829,7 +859,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
         error_message,
         outcome,
         was_ambiguous ? previousReserved : 0.0,
-        observed_cost,
+        effectiveObserved,
         runId
       );
 
@@ -853,8 +883,8 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
                total_metered_cost = (observed_cost + ?) + unknown_cost
            WHERE id = 1`,
           previousReserved,
-          observed_cost,
-          observed_cost
+          effectiveObserved,
+          effectiveObserved
         );
       }
 

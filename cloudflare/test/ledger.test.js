@@ -713,4 +713,67 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(crossGrantReplay.status, "IDEMPOTENCY_CONTEXT_MISMATCH");
     assert.equal(crossGrantReplay.code, 409);
   });
+
+  it("13. Successful execution with unknown provider cost is accounted conservatively", () => {
+    const { ledger } = createTestLedger();
+    const grant = issueLiveGrant(ledger);
+    const reservation = ledger.reserveAdmission({
+      grant_token: grant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.07,
+      verified_balance: 20.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(reservation.admitted, true);
+
+    ledger.recordExecutionSuccess(reservation.run_id, {
+      observed_cost: null,
+      cost_provenance: "UNKNOWN",
+      receipt: buildFixturePublicReceipt(),
+    });
+
+    const accounting = ledger.getAccounting();
+    assert.equal(accounting.observed_cost, 0.0, "Unknown cost must never be recorded as observed");
+    assert.equal(accounting.unknown_cost, 0.07);
+    assert.equal(accounting.reserved_cost, 0.0);
+    assert.equal(accounting.total_metered_cost, 0.07);
+
+    const runRow = ledger.sql.query(
+      "SELECT status, observed_cost, unknown_cost, reserved_cost FROM runs WHERE run_id = ?",
+      reservation.run_id
+    )[0];
+    assert.equal(runRow.status, "COMPLETED");
+    assert.equal(runRow.observed_cost, 0.0);
+    assert.equal(runRow.unknown_cost, 0.07);
+    assert.equal(runRow.reserved_cost, 0.0);
+  });
+
+  it("13b. Known provider-observed cost is recorded as observed, not unknown", () => {
+    const { ledger } = createTestLedger();
+    const grant = issueLiveGrant(ledger);
+    const reservation = ledger.reserveAdmission({
+      grant_token: grant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.07,
+      verified_balance: 20.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(reservation.admitted, true);
+
+    ledger.recordExecutionSuccess(reservation.run_id, {
+      observed_cost: 0.02,
+      cost_provenance: "PROVIDER_OBSERVED",
+      receipt: buildFixturePublicReceipt(),
+    });
+
+    const accounting = ledger.getAccounting();
+    assert.equal(accounting.observed_cost, 0.02);
+    assert.equal(accounting.unknown_cost, 0.0);
+    assert.equal(accounting.reserved_cost, 0.0);
+    assert.equal(accounting.total_metered_cost, 0.02);
+  });
 });
