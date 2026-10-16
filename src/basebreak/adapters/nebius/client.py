@@ -15,6 +15,7 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -141,6 +142,7 @@ class ModelClientConfig:
     """Configuration and explicit bounds for the Nebius Token Factory model client."""
 
     api_key: str | None = None
+    project_id: str | None = None
     api_base_url: str = DEFAULT_API_BASE_URL
     model: str = DEFAULT_PRIMARY_MODEL
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
@@ -149,6 +151,7 @@ class ModelClientConfig:
     max_prompt_characters: int = MAX_PROMPT_CHARACTERS
     max_response_characters: int = MAX_RESPONSE_CHARACTERS
     env_var_name: str = "NEBIUS_API_KEY"
+    project_env_var_name: str = "NEBIUS_PROJECT_ID"
 
     def __post_init__(self) -> None:
         if not isinstance(self.model, str) or not self.model.strip():
@@ -181,6 +184,7 @@ class ModelClientConfig:
         key_repr = "[CONFIGURED]" if self.api_key else "[NOT_SET]"
         return (
             f"ModelClientConfig(model={self.model!r}, "
+            f"project_id={self.project_id!r}, "
             f"api_base_url={self.api_base_url!r}, "
             f"timeout_seconds={self.timeout_seconds}, "
             f"max_tokens={self.max_tokens}, "
@@ -299,6 +303,15 @@ class NebiusModelClient:
             )
         return key.strip()
 
+    def _resolve_project_id(self) -> str:
+        project_id = self.config.project_id or os.environ.get(self.config.project_env_var_name)
+        if not project_id or not project_id.strip():
+            raise MissingCredentialError(
+                f"Missing Nebius project ID: environment variable "
+                f"'{self.config.project_env_var_name}' is not set or empty"
+            )
+        return project_id.strip()
+
     def complete(
         self,
         messages: list[ChatMessage | dict[str, str]],
@@ -311,6 +324,7 @@ class NebiusModelClient:
         No automatic retries. Missing credential fails closed.
         """
         api_key = self._resolve_api_key()
+        project_id = self._resolve_project_id()
 
         if not messages:
             raise ModelConfigError("Messages list must not be empty")
@@ -359,7 +373,10 @@ class NebiusModelClient:
         }
 
         payload_bytes = json.dumps(payload).encode("utf-8")
-        url = f"{self.config.api_base_url.rstrip('/')}{CHAT_COMPLETIONS_PATH}"
+        url = (
+            f"{self.config.api_base_url.rstrip('/')}{CHAT_COMPLETIONS_PATH}"
+            f"?ai_project_id={urllib.parse.quote(project_id, safe='')}"
+        )
 
         request = urllib.request.Request(
             url,

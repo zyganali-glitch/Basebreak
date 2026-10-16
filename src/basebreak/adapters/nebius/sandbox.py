@@ -291,7 +291,7 @@ class NebiusSandboxAdapter:
     - create_sandbox (session/context preparation)
     - execute_command (POST /instances with bounding and polling)
     - inspect_operation (GET /operations/{id})
-    - cancel_operation (POST /operations/{id}/cancel)
+    - cancel_operation (DELETE /operations/{id})
     - inspect_whoami (GET /whoami)
     - teardown_sandbox (cancellation and state termination)
 
@@ -311,6 +311,7 @@ class NebiusSandboxAdapter:
         self._config = config or SandboxClientConfig()
         self._transport = transport or default_urllib_transport
         self._last_successful_live_operation_id: str | None = None
+        self._live_operation_history: list[str] = []
         self._handles: dict[str, NebiusSandboxHandle] = {}
 
     @property
@@ -329,6 +330,11 @@ class NebiusSandboxAdapter:
         if self._last_successful_live_operation_id is not None:
             return EvidenceProvenance.LIVE_NEBIUS
         return EvidenceProvenance.LOCAL_EXECUTION
+
+    @property
+    def live_operation_ids(self) -> tuple[str, ...]:
+        """Return canonical live provider operation IDs observed by this adapter."""
+        return tuple(self._live_operation_history)
 
     def _resolve_credentials(self) -> tuple[str, str]:
         """Resolve and validate API key and Project ID at runtime."""
@@ -771,13 +777,13 @@ class NebiusSandboxAdapter:
     def cancel_operation(self, operation_id: str) -> bool:
         """Cancel an in-flight operation on Nebius Token Factory.
 
-        Executes exactly one POST request.
+        Executes exactly one DELETE request.
         """
         if not operation_id or not operation_id.strip():
             raise SandboxConfigError("operation_id must not be empty")
 
         clean_op_id = operation_id.strip()
-        resp = self._call_api("POST", f"{OPERATIONS_PATH}/{clean_op_id}/cancel")
+        resp = self._call_api("DELETE", f"{OPERATIONS_PATH}/{clean_op_id}")
         return resp.status_code in (200, 201, 202, 204)
 
     def inspect_whoami(self) -> dict[str, Any]:
@@ -893,7 +899,7 @@ class NebiusSandboxAdapter:
             "timeout": effective_timeout,
         }
         if working_dir:
-            payload["working_dir"] = working_dir
+            payload["cwd"] = working_dir
         if env_dict:
             payload["env"] = env_dict
         if not networking_enabled:
@@ -969,6 +975,7 @@ class NebiusSandboxAdapter:
         )
         if is_canonical_live:
             self._last_successful_live_operation_id = operation_id
+            self._live_operation_history.append(operation_id)
 
         return NebiusSandboxExecutionResult(
             sandbox_identity=identity,

@@ -258,7 +258,7 @@ class TestP0502ClosureGate:
         cancel_called = []
 
         def transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
-            if "/cancel" in req.full_url:
+            if req.method == "DELETE" and "/operations/op-gate-cancel" in req.full_url:
                 cancel_called.append(True)
                 return _make_transport_response(status_code=200)
             return _make_transport_response(status_code=200)

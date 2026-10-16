@@ -62,6 +62,10 @@ def _make_success_body(
 class TestNebiusModelClient:
     """Test suite for P-05.01 bounded model client."""
 
+    @pytest.fixture(autouse=True)
+    def _set_project_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("NEBIUS_PROJECT_ID", "proj-123")
+
     # 1. exact default model is nvidia/Nemotron-3_5-Lightning
     def test_exact_default_model(self) -> None:
         assert DEFAULT_PRIMARY_MODEL == "nvidia/Nemotron-3_5-Lightning"
@@ -96,7 +100,7 @@ class TestNebiusModelClient:
         assert len(captured_request) == 1
         assert (
             captured_request[0].full_url
-            == "https://api.tokenfactory.nebius.com/v1/chat/completions"
+            == "https://api.tokenfactory.nebius.com/v1/chat/completions?ai_project_id=proj-123"
         )
 
     # 3. configured timeout is actually passed to transport

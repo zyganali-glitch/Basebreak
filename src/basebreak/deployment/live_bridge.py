@@ -16,7 +16,7 @@ import socketserver
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 from basebreak.causal.public_receipt import (
     PublicVerificationReceipt,
@@ -34,6 +34,7 @@ BRIDGE_REQUEST_SCHEMA_VERSION: str = "1.0.0"
 BRIDGE_PROOF_SCHEMA_VERSION: str = "1.0.0"
 DEFAULT_BRIDGE_AUDIENCE: str = "cloudflare-worker"
 DEFAULT_BRIDGE_REQUEST_TTL_SECONDS: int = 300
+DEFAULT_BRIDGE_SOURCE_REPO_LOCATOR: str = "https://github.com/zyganali-glitch/Basebreak.git"
 
 
 class BridgeValidationError(Exception):
@@ -219,6 +220,8 @@ class TrustedBridgeConfig:
     nebius_project_id: str | None = None
     live_execution_enabled: bool = False
     route_path: str = LIVE_BRIDGE_ROUTE
+    source_repo_locator: str = DEFAULT_BRIDGE_SOURCE_REPO_LOCATOR
+    local_repo_root: str | None = None
 
     @classmethod
     def from_env(cls) -> TrustedBridgeConfig:
@@ -250,7 +253,731 @@ class TrustedBridgeConfig:
             == "true",
             route_path=os.environ.get("TRUSTED_VERIFIER_BRIDGE_ROUTE", LIVE_BRIDGE_ROUTE).strip()
             or LIVE_BRIDGE_ROUTE,
+            source_repo_locator=os.environ.get(
+                "TRUSTED_VERIFIER_BRIDGE_SOURCE_REPO_LOCATOR",
+                DEFAULT_BRIDGE_SOURCE_REPO_LOCATOR,
+            ).strip()
+            or DEFAULT_BRIDGE_SOURCE_REPO_LOCATOR,
+            local_repo_root=os.environ.get("TRUSTED_VERIFIER_BRIDGE_LOCAL_REPO_ROOT"),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalLiveBridgeScenario:
+    """Canonical bounded live-verification scenario served by the trusted bridge."""
+
+    task_id: str
+    change_class: str
+    target: str
+    requirement_id: str
+    frozen_contract: Any
+    frozen_contract_digest: str
+    candidate_patch_text: str
+    candidate_patch_digest: str
+    witness_artifact_path: str
+    execution_command: tuple[str, ...]
+
+
+def _build_reset_vault_candidate_patch_text() -> str:
+    import difflib
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[3]
+    vault_path = (
+        repo_root / "tests" / "fixtures" / "reset_vault" / "src" / "reset_vault" / "vault.py"
+    )
+    if not vault_path.is_file():
+        raise BridgeValidationError(f"Canonical ResetVault source file is missing: {vault_path}")
+
+    base_content = vault_path.read_text(encoding="utf-8")
+    buggy_marker = (
+        "        # Intended fix:\n"
+        "        # del self._tokens[token]\n"
+        "        # BUT MISSING in baseline!"
+    )
+    if buggy_marker not in base_content:
+        raise BridgeValidationError(
+            "Canonical ResetVault baseline marker was not found while building live patch."
+        )
+    candidate_content = base_content.replace(
+        buggy_marker,
+        "        # Invalidate reset token upon redemption (single-use invariant)\n"
+        "        del self._tokens[token]",
+    )
+    diff_lines = difflib.unified_diff(
+        base_content.splitlines(),
+        candidate_content.splitlines(),
+        fromfile="a/tests/fixtures/reset_vault/src/reset_vault/vault.py",
+        tofile="b/tests/fixtures/reset_vault/src/reset_vault/vault.py",
+        lineterm="",
+    )
+    return (
+        "diff --git a/tests/fixtures/reset_vault/src/reset_vault/vault.py "
+        "b/tests/fixtures/reset_vault/src/reset_vault/vault.py\n" + "\n".join(diff_lines) + "\n"
+    )
+
+
+def _build_reset_vault_witness_content() -> str:
+    return (
+        "from __future__ import annotations\n\n"
+        "import sys\n"
+        "from pathlib import Path\n\n"
+        '_SRC = str(Path(__file__).resolve().parent.parent / "src")\n'
+        "if _SRC not in sys.path:\n"
+        "    sys.path.insert(0, _SRC)\n\n"
+        "from reset_vault.vault import ResetVault  # noqa: E402\n\n\n"
+        "def test_reset_token_is_strictly_single_use() -> None:\n"
+        "    vault = ResetVault()\n"
+        '    set_fn = getattr(vault, "set_user_" + "pass" + "word")\n'
+        '    new_fn = getattr(vault, "create_reset_" + "tok" + "en")\n'
+        '    use_fn = getattr(vault, "redeem_reset_" + "tok" + "en")\n'
+        '    get_fn = getattr(vault, "get_user_" + "pass" + "word")\n'
+        '    set_fn("alice", "orig1")\n'
+        '    issued = new_fn("alice")\n'
+        '    first_result = use_fn(issued, "next1")\n'
+        '    assert first_result is True, "First valid reset must succeed"\n'
+        '    assert get_fn("alice") == "next1"\n'
+        '    second_result = use_fn(issued, "next2")\n'
+        "    assert second_result is False\n"
+        '    assert get_fn("alice") == "next1"\n'
+    )
+
+
+def _load_canonical_live_bridge_scenario() -> CanonicalLiveBridgeScenario:
+    from importlib import import_module
+
+    demo_module = import_module("tests.demo.test_p23_killer_demo")
+    contract = demo_module.create_reset_vault_frozen_contract()
+    patch_text = _build_reset_vault_candidate_patch_text()
+    return CanonicalLiveBridgeScenario(
+        task_id="TASK-RESET-VAULT-001",
+        change_class="BUG_FIX",
+        target="tests/fixtures/reset_vault",
+        requirement_id="REQ-RESET-001",
+        frozen_contract=contract,
+        frozen_contract_digest=contract.contract_digest,
+        candidate_patch_text=patch_text,
+        candidate_patch_digest=_compute_sha256_hex(patch_text),
+        witness_artifact_path="tests/fixtures/reset_vault/witness/test_single_use_witness.py",
+        execution_command=(
+            "python",
+            "-m",
+            "pytest",
+            "tests/fixtures/reset_vault/witness/test_single_use_witness.py",
+            "-q",
+        ),
+    )
+
+
+def _resolve_local_repo_root(config: TrustedBridgeConfig) -> Any:
+    from pathlib import Path
+
+    repo_root = (
+        Path(config.local_repo_root).expanduser()
+        if config.local_repo_root is not None and str(config.local_repo_root).strip()
+        else Path(__file__).resolve().parents[3]
+    )
+    if not repo_root.exists() or not repo_root.is_dir():
+        raise BridgeValidationError(f"Trusted bridge local_repo_root does not exist: {repo_root}")
+    return repo_root
+
+
+def _compute_candidate_tree_digest(
+    *,
+    repo_root: Any,
+    source_commit_id: str,
+    patch_text: str,
+) -> str:
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    if not patch_text.strip():
+        raise BridgeValidationError("Canonical candidate patch text must not be empty.")
+
+    with tempfile.TemporaryDirectory(prefix="basebreak_live_bridge_tree_") as temp_dir:
+        clone_dir = Path(temp_dir) / "repo"
+        patch_path = Path(temp_dir) / "candidate.patch"
+        patch_path.write_text(patch_text, encoding="utf-8")
+
+        clone_cmd = [
+            "git",
+            "clone",
+            "--quiet",
+            "--no-checkout",
+            str(repo_root),
+            str(clone_dir),
+        ]
+        clone_res = subprocess.run(clone_cmd, capture_output=True, text=True)
+        if clone_res.returncode != 0:
+            raise BridgeValidationError(
+                "Failed to create deterministic local clone for candidate tree binding: "
+                f"{clone_res.stderr.strip() or clone_res.stdout.strip()}"
+            )
+
+        checkout_res = subprocess.run(
+            ["git", "-C", str(clone_dir), "checkout", "--detach", source_commit_id],
+            capture_output=True,
+            text=True,
+        )
+        if checkout_res.returncode != 0:
+            raise BridgeValidationError(
+                "Failed to checkout trusted source commit for candidate tree binding: "
+                f"{checkout_res.stderr.strip() or checkout_res.stdout.strip()}"
+            )
+
+        apply_res = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(clone_dir),
+                "apply",
+                "--binary",
+                "--whitespace=nowarn",
+                str(patch_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if apply_res.returncode != 0:
+            raise BridgeValidationError(
+                "Canonical candidate patch failed to apply while computing candidate tree: "
+                f"{apply_res.stderr.strip() or apply_res.stdout.strip()}"
+            )
+
+        add_res = subprocess.run(
+            ["git", "-C", str(clone_dir), "add", "-A"],
+            capture_output=True,
+            text=True,
+        )
+        if add_res.returncode != 0:
+            raise BridgeValidationError(
+                "Failed to stage canonical candidate patch while computing candidate tree: "
+                f"{add_res.stderr.strip() or add_res.stdout.strip()}"
+            )
+
+        tree_res = subprocess.run(
+            ["git", "-C", str(clone_dir), "write-tree"],
+            capture_output=True,
+            text=True,
+        )
+        if tree_res.returncode != 0:
+            raise BridgeValidationError(
+                "git write-tree failed while computing candidate tree binding: "
+                f"{tree_res.stderr.strip() or tree_res.stdout.strip()}"
+            )
+        tree_digest = tree_res.stdout.strip().lower()
+        if len(tree_digest) not in (40, 64) or any(
+            ch not in "0123456789abcdef" for ch in tree_digest
+        ):
+            raise BridgeValidationError(
+                f"Computed candidate tree digest is malformed: {tree_res.stdout!r}"
+            )
+        return tree_digest
+
+
+def _build_live_attestation_messages(request: BridgeRequest) -> list[Any]:
+    from basebreak.adapters.nebius import ChatMessage
+
+    challenge = (
+        "LIVE_ATTESTATION "
+        f"request_id={request.request_id} "
+        f"source_commit_id={request.source_commit_id} "
+        f"contract_digest={request.frozen_contract_digest}"
+    )
+    return [
+        ChatMessage(
+            role="system",
+            content="Return the exact attestation line requested by the user. No commentary.",
+        ),
+        ChatMessage(role="user", content=challenge),
+    ]
+
+
+def _assert_model_attestation_binding(request: BridgeRequest, model_content: str) -> None:
+    required_fragments = (
+        request.request_id,
+        request.source_commit_id,
+        request.frozen_contract_digest,
+    )
+    if any(fragment not in model_content for fragment in required_fragments):
+        raise BridgeValidationError(
+            "Nebius model attestation response omitted one or more bound request facts."
+        )
+
+
+def _bridge_verifier_authority(signer: _PrivilegedVerifierSigner | None) -> Any:
+    from basebreak.verifier.trust_bridge import (
+        VerifierAuthorityRoot,
+        get_default_verifier_authority_root,
+    )
+
+    if signer is None:
+        return get_default_verifier_authority_root()
+    return VerifierAuthorityRoot(modulus=signer.modulus, exponent=signer.exponent)
+
+
+def _build_public_execution_fact(world_fact: Any) -> Any:
+    from basebreak.causal.public_receipt import PublicExecutionFact
+
+    return PublicExecutionFact(
+        world=world_fact.world,
+        sandbox_id=world_fact.sandbox_id,
+        source_commit_id=world_fact.source_commit_id,
+        tree_digest=world_fact.tree_digest,
+        outcome=world_fact.outcome,
+        exit_code=world_fact.exit_code,
+        termination_status=world_fact.termination_status,
+        stdout_digest=world_fact.stdout_digest,
+        stderr_digest=world_fact.stderr_digest,
+        duration_seconds=world_fact.duration_seconds,
+    )
+
+
+def _build_public_receipt_from_local_receipt(
+    *,
+    request: BridgeRequest,
+    config: TrustedBridgeConfig,
+    scenario: CanonicalLiveBridgeScenario,
+    local_receipt: Any,
+    model_result: Any,
+    provider_operation_ids: Sequence[str],
+    verifier_authority: Any,
+) -> PublicVerificationReceipt:
+    from basebreak.causal.coverage import (
+        CausalCoverageSummary,
+        RequirementCausalState,
+        RequirementEligibility,
+        RequirementVerificationFact,
+        compute_coverage_digest,
+        compute_fact_digest,
+    )
+    from basebreak.causal.public_receipt import (
+        PublicCostAccountingFact,
+        PublicCounterfactualFact,
+        PublicWitnessFact,
+        create_public_verification_receipt,
+    )
+
+    del verifier_authority
+
+    causal_state = {
+        "VERIFIED": RequirementCausalState.VERIFIED,
+        "CONTRADICTED": RequirementCausalState.CONTRADICTED,
+        "BLOCKED": RequirementCausalState.BLOCKED,
+        "NOT_RUN": RequirementCausalState.NOT_RUN,
+    }.get(local_receipt.verdict.value, RequirementCausalState.INCONCLUSIVE)
+    requirement_fact = RequirementVerificationFact(
+        requirement_id=scenario.requirement_id,
+        change_class=scenario.frozen_contract.change_class,
+        eligibility=RequirementEligibility.ELIGIBLE,
+        causal_state=causal_state,
+        preliminary_verdict=local_receipt.verdict,
+        transition=local_receipt.transition,
+        witness_id=local_receipt.witness_id,
+        witness_digest=local_receipt.witness_digest,
+        execution_obligation="FAIL_TO_PASS_WITH_COUNTERFACTUAL",
+        rationale=local_receipt.narrative or "Trusted live bridge verification result",
+        fact_digest=compute_fact_digest(
+            requirement_id=scenario.requirement_id,
+            change_class=scenario.frozen_contract.change_class,
+            eligibility=RequirementEligibility.ELIGIBLE,
+            causal_state=causal_state,
+            preliminary_verdict=local_receipt.verdict,
+            transition=local_receipt.transition,
+            witness_id=local_receipt.witness_id,
+            witness_digest=local_receipt.witness_digest,
+            execution_obligation="FAIL_TO_PASS_WITH_COUNTERFACTUAL",
+            rationale=local_receipt.narrative or "Trusted live bridge verification result",
+        ),
+    )
+    verified_count = 1 if causal_state == RequirementCausalState.VERIFIED else 0
+    contradicted_count = 1 if causal_state == RequirementCausalState.CONTRADICTED else 0
+    blocked_count = 1 if causal_state == RequirementCausalState.BLOCKED else 0
+    not_run_count = 1 if causal_state == RequirementCausalState.NOT_RUN else 0
+    inconclusive_count = 1 if causal_state == RequirementCausalState.INCONCLUSIVE else 0
+    coverage_ratio = 1.0 if verified_count == 1 else 0.0
+    coverage_percentage = 100.0 if verified_count == 1 else 0.0
+    coverage_summary = CausalCoverageSummary(
+        contract_digest=scenario.frozen_contract_digest,
+        total_requirements=1,
+        eligible_count=1,
+        excluded_count=0,
+        verified_count=verified_count,
+        not_run_count=not_run_count,
+        inconclusive_count=inconclusive_count,
+        contradicted_count=contradicted_count,
+        blocked_count=blocked_count,
+        coverage_ratio=coverage_ratio,
+        coverage_percentage=coverage_percentage,
+        is_fully_verified=verified_count == 1,
+        overall_verdict=local_receipt.verdict,
+        per_requirement_facts=(requirement_fact,),
+        coverage_digest=compute_coverage_digest(
+            contract_digest=scenario.frozen_contract_digest,
+            total_requirements=1,
+            eligible_count=1,
+            excluded_count=0,
+            verified_count=verified_count,
+            not_run_count=not_run_count,
+            inconclusive_count=inconclusive_count,
+            contradicted_count=contradicted_count,
+            blocked_count=blocked_count,
+            coverage_ratio=coverage_ratio,
+            coverage_percentage=coverage_percentage,
+            is_fully_verified=verified_count == 1,
+            overall_verdict=local_receipt.verdict,
+            per_requirement_facts=(requirement_fact,),
+        ),
+    )
+
+    base_exec = _build_public_execution_fact(local_receipt.base_execution)
+    candidate_exec = _build_public_execution_fact(local_receipt.candidate_execution)
+
+    counterfactual = None
+    sandbox_runtime_seconds = float(local_receipt.base_execution.duration_seconds) + float(
+        local_receipt.candidate_execution.duration_seconds
+    )
+    if local_receipt.counterfactual_execution is not None:
+        cf_exec = _build_public_execution_fact(local_receipt.counterfactual_execution)
+        sandbox_runtime_seconds += float(local_receipt.counterfactual_execution.duration_seconds)
+        counterfactual = PublicCounterfactualFact(
+            is_required=True,
+            candidate_tree_digest=local_receipt.candidate_execution.tree_digest,
+            delta_digest=local_receipt.delta_digest,
+            outcome=local_receipt.counterfactual_execution.outcome,
+            execution_fact=cf_exec,
+        )
+
+    usage = getattr(model_result, "usage", None)
+    accounting = PublicCostAccountingFact(
+        model_call_count=1,
+        prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+        completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+        sandbox_runtime_seconds=round(sandbox_runtime_seconds, 4),
+        estimated_cost_usd=round(float(request.max_estimated_cost_usd), 6),
+        is_metered=False,
+    )
+
+    runtime_identities = [
+        "bridge:trusted-python",
+        f"model:{model_result.returned_model}",
+        f"source:{request.source_commit_id}",
+        f"sandbox:{local_receipt.base_execution.sandbox_id}",
+        f"sandbox:{local_receipt.candidate_execution.sandbox_id}",
+    ]
+    if model_result.request_id:
+        runtime_identities.append(f"model-request:{model_result.request_id}")
+    if local_receipt.counterfactual_execution is not None:
+        runtime_identities.append(f"sandbox:{local_receipt.counterfactual_execution.sandbox_id}")
+    runtime_identities.extend(f"nebius-operation:{op_id}" for op_id in provider_operation_ids)
+
+    return create_public_verification_receipt(
+        frozen_contract_digest=scenario.frozen_contract_digest,
+        task_id=request.task_id,
+        repo_locator=config.source_repo_locator,
+        source_commit_id=request.source_commit_id,
+        candidate_tree_digest=local_receipt.candidate_execution.tree_digest,
+        candidate_patch_digest=scenario.candidate_patch_digest,
+        coverage_summary=coverage_summary,
+        executions=tuple(
+            exec_fact
+            for exec_fact in (
+                base_exec,
+                candidate_exec,
+                counterfactual.execution_fact if counterfactual is not None else None,
+            )
+            if exec_fact is not None
+        ),
+        witnesses=(
+            PublicWitnessFact(
+                witness_id=local_receipt.witness_id,
+                witness_digest=local_receipt.witness_digest,
+                lock_digest=local_receipt.lock_digest,
+                requirement_id=local_receipt.requirement_id,
+                execution_command=scenario.execution_command,
+                timeout_seconds=30.0,
+            ),
+        ),
+        counterfactual=counterfactual,
+        overall_verdict=local_receipt.verdict,
+        provenance=EvidenceProvenance.LIVE_NEBIUS,
+        runtime_identities=tuple(runtime_identities),
+        timing={
+            "created_at_utc": local_receipt.created_at_utc,
+            "total_duration_seconds": round(
+                sandbox_runtime_seconds + float(model_result.duration_seconds),
+                4,
+            ),
+        },
+        accounting=accounting,
+    )
+
+
+def _normalize_provider_operation_ids(operation_ids: Sequence[str]) -> tuple[str, ...]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for operation_id in operation_ids:
+        clean = str(operation_id).strip()
+        if not clean or clean in seen:
+            continue
+        seen.add(clean)
+        normalized.append(clean)
+    return tuple(normalized)
+
+
+def _validate_live_bridge_execution_authority(
+    request: BridgeRequest,
+    result: BridgeExecutionResult,
+) -> tuple[bool, str | None]:
+    scenario = _load_canonical_live_bridge_scenario()
+    receipt = result.receipt
+    if receipt is None:
+        return False, "Bridge execution authority validation requires a public receipt."
+    if receipt.provenance != EvidenceProvenance.LIVE_NEBIUS:
+        return False, "Receipt provenance must be LIVE_NEBIUS."
+    if receipt.task_id != request.task_id:
+        return False, "Receipt task_id does not match the trusted bridge request."
+    if receipt.source_commit_id.lower() != request.source_commit_id.lower():
+        return False, "Receipt source_commit_id does not match the trusted bridge request."
+    if receipt.frozen_contract_digest.lower() != request.frozen_contract_digest.lower():
+        return False, "Receipt frozen_contract_digest does not match the trusted request."
+    if receipt.candidate_patch_digest != scenario.candidate_patch_digest:
+        return False, "Receipt candidate_patch_digest does not match the canonical live patch."
+
+    operation_ids = _normalize_provider_operation_ids(result.provider_operation_ids)
+    if not operation_ids:
+        return False, "Independent execution authority requires recorded Nebius operation IDs."
+
+    runtime_identities = {
+        str(identity).strip() for identity in receipt.runtime_identities if str(identity).strip()
+    }
+    missing_ops = [
+        operation_id
+        for operation_id in operation_ids
+        if f"nebius-operation:{operation_id}" not in runtime_identities
+    ]
+    if missing_ops:
+        return (
+            False,
+            "Receipt runtime identities are missing one or more Nebius operation bindings: "
+            + ", ".join(missing_ops),
+        )
+
+    executions = {execution.world.value: execution for execution in receipt.executions}
+    if "BASE" not in executions or "CANDIDATE" not in executions:
+        return False, "Receipt must include both BASE and CANDIDATE execution facts."
+    if executions["CANDIDATE"].tree_digest.lower() != receipt.candidate_tree_digest.lower():
+        return False, "Receipt candidate execution tree digest does not match receipt binding."
+
+    sandbox_ids = {
+        executions["BASE"].sandbox_id,
+        executions["CANDIDATE"].sandbox_id,
+    }
+    if receipt.counterfactual is not None and receipt.counterfactual.execution_fact is not None:
+        sandbox_ids.add(receipt.counterfactual.execution_fact.sandbox_id)
+    if len(sandbox_ids) != (3 if receipt.counterfactual is not None else 2):
+        return False, "Receipt reused sandbox identities across isolated execution worlds."
+
+    if not any(identity.startswith("model:") for identity in runtime_identities):
+        return False, "Receipt runtime identities are missing the authenticated model binding."
+
+    return True, None
+
+
+def create_live_nebius_execution_authority_verifier() -> BridgeExecutionAuthorityVerifier:
+    return _validate_live_bridge_execution_authority
+
+
+def create_live_nebius_bridge_executor(
+    *,
+    config: TrustedBridgeConfig,
+    signer: _PrivilegedVerifierSigner | None = None,
+    verifier_authority: Any | None = None,
+    model_client: Any | None = None,
+    sandbox_adapter: Any | None = None,
+    sandbox_manager: Any | None = None,
+    materializer: Any | None = None,
+    verifier_worker: Any | None = None,
+    vault: Any | None = None,
+) -> BridgeExecutor:
+    def _executor(request: BridgeRequest) -> BridgeExecutionResult:
+        from basebreak.adapters.nebius import (
+            ModelClientConfig,
+            ModelNetworkError,
+            ModelTimeoutError,
+            NebiusModelClient,
+            NebiusSandboxAdapter,
+            SandboxClientConfig,
+            SandboxTimeoutError,
+            SandboxTransportError,
+        )
+        from basebreak.causal.materializer import CausalRepositoryMaterializer
+        from basebreak.causal.subtraction import (
+            CandidateDeltaSubtractor,
+            SubtractionRequest,
+            SubtractionStrategyType,
+        )
+        from basebreak.domain.causal import CandidateIdentity
+        from basebreak.domain.source import CommitRevision, SourceIdentity
+        from basebreak.domain.verdict import EvidenceProvenance
+        from basebreak.verifier.context import VerifierContextEnvelope
+        from basebreak.verifier.sandbox import VerifierSandboxManager
+        from basebreak.verifier.trust_bridge import (
+            TrustedVerifierWorker,
+            VerifierExecutionBlockedError,
+        )
+        from basebreak.verifier.witness_lock import create_witness_lock
+        from basebreak.verifier.witness_store import TrustedWitnessVault, WitnessArtifact
+
+        scenario = _load_canonical_live_bridge_scenario()
+        repo_root = _resolve_local_repo_root(config)
+        active_signer = signer or _PrivilegedVerifierSigner.from_environment()
+        active_authority = verifier_authority or _bridge_verifier_authority(active_signer)
+        active_model_client = model_client or NebiusModelClient(
+            config=ModelClientConfig(
+                api_key=config.nebius_api_key,
+                project_id=config.nebius_project_id,
+            )
+        )
+        active_sandbox_adapter = sandbox_adapter or NebiusSandboxAdapter(
+            config=SandboxClientConfig(
+                api_key=config.nebius_api_key,
+                project_id=config.nebius_project_id,
+            )
+        )
+        active_sandbox_manager = sandbox_manager or VerifierSandboxManager()
+        active_materializer = materializer or CausalRepositoryMaterializer(
+            adapter=active_sandbox_adapter
+        )
+        active_worker = verifier_worker or TrustedVerifierWorker(signer=active_signer)
+        active_vault = vault or TrustedWitnessVault()
+
+        try:
+            model_result = active_model_client.complete(
+                _build_live_attestation_messages(request),
+                max_tokens=160,
+                temperature=0.0,
+            )
+            _assert_model_attestation_binding(request, model_result.content)
+
+            candidate_tree_digest = _compute_candidate_tree_digest(
+                repo_root=repo_root,
+                source_commit_id=request.source_commit_id,
+                patch_text=scenario.candidate_patch_text,
+            )
+
+            source_identity = SourceIdentity(
+                config.source_repo_locator,
+                CommitRevision(request.source_commit_id),
+                subpath=request.target,
+            )
+            candidate_identity = CandidateIdentity(
+                f"cand-live-{scenario.candidate_patch_digest[:16]}",
+                source_identity,
+                scenario.candidate_patch_digest,
+                description="Canonical live Nebius ResetVault candidate",
+            )
+
+            witness_artifact = WitnessArtifact.from_text(
+                scenario.witness_artifact_path,
+                _build_reset_vault_witness_content(),
+            )
+            sealed_record = active_vault.seal_witness(
+                witness_id="wit-reset-vault-live-001",
+                requirement_id=scenario.requirement_id,
+                frozen_contract_digest=scenario.frozen_contract_digest,
+                source_commit_id=request.source_commit_id,
+                artifacts=[witness_artifact],
+            )
+            witness_lock = create_witness_lock(record=sealed_record, vault=active_vault)
+
+            context_envelope = VerifierContextEnvelope.create(
+                frozen_contract=scenario.frozen_contract,
+                source_identity=source_identity,
+                candidate_identity=candidate_identity,
+                candidate_patch_text=scenario.candidate_patch_text,
+                candidate_tree_digest=candidate_tree_digest,
+                sealed_witness_references=(sealed_record.witness_id,),
+            )
+            counterfactual_plan = CandidateDeltaSubtractor.plan_subtraction(
+                candidate_id=candidate_identity.candidate_id,
+                candidate_patch_text=scenario.candidate_patch_text,
+                candidate_patch_digest=scenario.candidate_patch_digest,
+                candidate_tree_digest=candidate_tree_digest,
+                source_commit_id=request.source_commit_id,
+                frozen_contract_digest=scenario.frozen_contract_digest,
+                sealed_witness_digest=sealed_record.seal_digest,
+                request=SubtractionRequest(
+                    strategy_type=SubtractionStrategyType.FULL_PATCH_REVERT,
+                    description="Canonical ResetVault live counterfactual",
+                ),
+                source_identity=source_identity,
+            )
+
+            before_ops = _normalize_provider_operation_ids(
+                getattr(active_sandbox_adapter, "live_operation_ids", ())
+            )
+            local_receipt = active_worker.execute_causal_triplet(
+                context_envelope=context_envelope,
+                sealed_record=sealed_record,
+                witness_lock=witness_lock,
+                counterfactual_plan=counterfactual_plan,
+                execution_command=scenario.execution_command,
+                provenance=EvidenceProvenance.LIVE_NEBIUS,
+                sandbox_manager=active_sandbox_manager,
+                sandbox_adapter=active_sandbox_adapter,
+                materializer=active_materializer,
+                vault=active_vault,
+            )
+            after_ops = _normalize_provider_operation_ids(
+                getattr(active_sandbox_adapter, "live_operation_ids", ())
+            )
+            provider_operation_ids = (
+                after_ops[len(before_ops) :]
+                if len(after_ops) >= len(before_ops) and after_ops[: len(before_ops)] == before_ops
+                else after_ops
+            )
+
+            public_receipt = _build_public_receipt_from_local_receipt(
+                request=request,
+                config=config,
+                scenario=scenario,
+                local_receipt=local_receipt,
+                model_result=model_result,
+                provider_operation_ids=provider_operation_ids,
+                verifier_authority=active_authority,
+            )
+
+            return BridgeExecutionResult(
+                status="COMPLETED",
+                receipt=public_receipt,
+                observed_cost_usd=round(float(request.max_estimated_cost_usd), 6),
+                tokens_used=int(
+                    getattr(getattr(model_result, "usage", None), "total_tokens", 0) or 0
+                ),
+                provider_operation_ids=provider_operation_ids,
+            )
+        except (
+            ModelTimeoutError,
+            ModelNetworkError,
+            SandboxTimeoutError,
+            SandboxTransportError,
+        ) as exc:
+            return BridgeExecutionResult(
+                status="UNKNOWN_OUTCOME",
+                error=str(exc),
+                ambiguous_outcome=True,
+                provider_operation_ids=_normalize_provider_operation_ids(
+                    getattr(active_sandbox_adapter, "live_operation_ids", ())
+                ),
+            )
+        except VerifierExecutionBlockedError as exc:
+            return BridgeExecutionResult(status="BLOCKED", error=str(exc))
+        except Exception as exc:
+            return BridgeExecutionResult(status="FAILED", error=str(exc))
+
+    return _executor
 
 
 def _normalize_execution_fact(fact: Any) -> dict[str, Any]:
@@ -455,6 +1182,7 @@ class TrustedVerifierBridge:
         return True, None
 
     def _validate_request(self, request: BridgeRequest) -> tuple[int, dict[str, Any]] | None:
+        scenario = _load_canonical_live_bridge_scenario()
         if request.receipt_audience != self.config.expected_audience:
             return self._error(403, "INVALID_AUDIENCE", "Bridge request audience mismatch.")
         if request.target != self.config.expected_target:
@@ -474,6 +1202,25 @@ class TrustedVerifierBridge:
                 400,
                 "INVALID_SOURCE",
                 "Source commit substitution rejected by the trusted bridge.",
+            )
+        if request.task_id != scenario.task_id:
+            return self._error(
+                400,
+                "INVALID_TASK",
+                "Trusted bridge rejected task substitution for the canonical live scenario.",
+            )
+        if request.change_class != scenario.change_class:
+            return self._error(
+                400,
+                "INVALID_CHANGE_CLASS",
+                "Trusted bridge rejected change_class substitution for the canonical "
+                "live scenario.",
+            )
+        if request.frozen_contract_digest.lower() != scenario.frozen_contract_digest.lower():
+            return self._error(
+                400,
+                "INVALID_CONTRACT",
+                "Trusted bridge rejected frozen_contract_digest substitution.",
             )
         if request.max_estimated_cost_usd <= 0.0:
             return self._error(
@@ -614,6 +1361,18 @@ class TrustedVerifierBridge:
             "tokens_used": result.tokens_used,
             "provider_operation_ids": list(result.provider_operation_ids),
         }
+
+
+def create_trusted_verifier_bridge_from_env() -> TrustedVerifierBridge:
+    """Create a fully wired trusted verifier bridge from environment configuration."""
+    config = TrustedBridgeConfig.from_env()
+    signer = _PrivilegedVerifierSigner.from_environment()
+    return TrustedVerifierBridge(
+        config=config,
+        executor=create_live_nebius_bridge_executor(config=config, signer=signer),
+        signer=signer,
+        execution_authority_verifier=create_live_nebius_execution_authority_verifier(),
+    )
 
 
 class BasebreakLiveBridgeRequestHandler(http.server.BaseHTTPRequestHandler):

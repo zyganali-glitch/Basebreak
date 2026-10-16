@@ -77,6 +77,7 @@ The bounded P-27.06 offline batch now implements the minimum deployable trust bo
 1. **Cloudflare Worker admission path**
    - rejects caller-controlled authority fields (`verified_balance`, `balance_timestamp`, `estimated_cost`, `source_commit_id`, receipt/proof/provider authority fields);
    - binds live admission to server-configured expected source SHA plus server-configured estimated live cost;
+   - binds the canonical ResetVault bridge request to the current frozen contract digest `93eeeb2cc7eb02a988da3c8a8543ad40b4816608c1452d048ff62ee93702f812`;
    - records ambiguous bridge/provider outcomes conservatively as failures / unknown cost.
 2. **Durable Object ledger**
    - stores operator-bound grant facts (`verified_balance`, `balance_timestamp`, `estimated_cost_cap`);
@@ -84,11 +85,26 @@ The bounded P-27.06 offline batch now implements the minimum deployable trust bo
 3. **Trusted Python verifier bridge**
    - authenticates Worker requests with HMAC over canonical JSON plus timestamp/audience;
    - enforces exact target and source-commit binding;
+   - uses current official Nebius request semantics (`ai_project_id` for inference, `cwd` for sandbox spawn, `DELETE /operations/{operationId}` for cancellation);
+   - derives the canonical ResetVault candidate patch and exact candidate tree digest from the actual source commit instead of trusting caller-supplied patch/tree claims;
+   - records observed Nebius sandbox operation IDs and validates independent execution authority before any receipt proof is signed;
    - refuses to start if live execution is disabled, provider credentials are missing, or a trusted signer is unavailable;
    - refuses to sign executor-reported `LIVE_NEBIUS` receipts unless an independent live execution authority is configured.
 4. **Receipt authority**
    - the Worker will only accept `LIVE_NEBIUS` after verifying both receipt integrity and a separate verifier-signed receipt proof;
    - fixture-only, self-hashed, forged, or unverifiable receipts remain rejected.
+
+### 3.2.1 Offline Validation Executed In This Batch
+
+- `python -m pytest tests\adapters\test_p05_02_closure.py tests\adapters\test_nebius_sandbox_adapter.py tests\adapters\test_nebius_model_client.py tests\deployment\test_live_bridge.py -q` → `106 passed`
+- `python -m ruff format --check .` → pass
+- `python -m ruff check .` → pass
+- `python -m mypy src tests` → pass
+- `npm --prefix .\cloudflare run test:node` → `32 passed`
+- `npm --prefix .\cloudflare run typecheck` → pass
+- `npm --prefix .\cloudflare run test:workerd-preflight` → `7/7` checks passed
+
+> These are strictly `LOCAL_EXECUTION` results. No live Nebius/NVIDIA/Tavily API call, private bridge deployment, or Cloudflare production mutation was performed in this batch.
 
 ### 3.3 Post-Authorization Live Verification Protocol
 

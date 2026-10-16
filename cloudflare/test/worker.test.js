@@ -11,7 +11,11 @@ import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import worker, { AdmissionLedgerDO } from "../src/index.js";
 import { canonicalJson, computeReceiptDigest } from "../src/crypto_utils.js";
-import { dispatchVerificationRun } from "../src/provider_dispatcher.js";
+import {
+  CANONICAL_DEMO_SCENARIO,
+  buildBridgeRequestPayload,
+  dispatchVerificationRun,
+} from "../src/provider_dispatcher.js";
 import { buildFixturePublicReceipt } from "./fixtures/public_receipt_fixture.js";
 
 function createWorkerEnv(overrides = {}) {
@@ -498,6 +502,25 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  it("buildBridgeRequestPayload binds the canonical ResetVault contract digest", () => {
+    const payload = buildBridgeRequestPayload({
+      runId: "run_contract_bound",
+      target: "tests/fixtures/reset_vault",
+      sourceCommitId: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      estimatedCostUsd: 0.25,
+      nowMs: 1700000000000,
+      timeoutMs: 12345,
+    });
+
+    assert.equal(payload.task_id, CANONICAL_DEMO_SCENARIO.task_id);
+    assert.equal(payload.change_class, CANONICAL_DEMO_SCENARIO.change_class);
+    assert.equal(payload.frozen_contract_digest, CANONICAL_DEMO_SCENARIO.frozen_contract_digest);
+    assert.equal(
+      payload.frozen_contract_digest,
+      "93eeeb2cc7eb02a988da3c8a8543ad40b4816608c1452d048ff62ee93702f812"
+    );
   });
 
   it("dispatchVerificationRun preserves ambiguous bridge network failures", async () => {

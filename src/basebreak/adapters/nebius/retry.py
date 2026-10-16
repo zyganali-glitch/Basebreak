@@ -9,7 +9,7 @@ Authority:
   Inspection of canonical P-01 live platform evidence and committed documentation confirms
   that canonical platform evidence contains no proven provider idempotency guarantee
   for these mutating operations.
-  Specifically, POST /operations/{operationId}/cancel, POST /sandboxes/v1/instances,
+  Specifically, DELETE /operations/{operationId}, POST /sandboxes/v1/instances,
   and POST /v1/chat/completions have no proven provider idempotency mechanisms.
   Resource targeting (e.g. specifying an operation ID in the URL) is NOT proof of idempotency.
 - Classification Policy:

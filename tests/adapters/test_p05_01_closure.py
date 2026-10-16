@@ -55,6 +55,10 @@ def _make_dummy_response(
 class TestP0501Closure:
     """Comprehensive closure verification for P-05.01."""
 
+    @pytest.fixture(autouse=True)
+    def _set_project_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("NEBIUS_PROJECT_ID", "proj-123")
+
     def test_error_taxonomy_complete(self) -> None:
         assert issubclass(ModelConfigError, ModelAdapterError)
         assert issubclass(MissingCredentialError, ModelConfigError)

@@ -203,7 +203,7 @@ class TestNebiusSandboxAdapter:
         assert isinstance(spawn_req.data, bytes)
         body = json.loads(spawn_req.data.decode("utf-8"))
         assert "cd workspace/repo && python3 -m pytest tests/" in body["command"]
-        assert body["working_dir"] == "workspace/repo"
+        assert body["cwd"] == "workspace/repo"
         assert body["env"] == {"CI": "true"}
 
     def test_exec_checkpoint_mode_records_result_image_uuid(self) -> None:
@@ -840,7 +840,7 @@ class TestNebiusSandboxAdapter:
         cancel_called = []
 
         def fake_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
-            if "/cancel" in req.full_url:
+            if req.method == "DELETE" and "/operations/op-inflight" in req.full_url:
                 cancel_called.append(req.full_url)
                 return _make_transport_response(status_code=200)
             return _make_transport_response(status_code=200)
@@ -857,7 +857,7 @@ class TestNebiusSandboxAdapter:
         adapter.teardown_sandbox(handle)
         assert handle.lifecycle_state == SandboxLifecycleState.DISPOSED
         assert len(cancel_called) == 1
-        assert "op-inflight/cancel" in cancel_called[0]
+        assert cancel_called[0].endswith("/operations/op-inflight")
 
         # Executing on disposed handle fails closed
         with pytest.raises(SandboxLifecycleError, match="Cannot execute command on disposed"):
@@ -1100,7 +1100,7 @@ class TestNebiusSandboxAdapter:
                     status_code=201,
                     headers={"Location": "/sandboxes/v1/operations/op-slow"},
                 )
-            if "/cancel" in req.full_url:
+            if req.method == "DELETE" and "/operations/op-slow" in req.full_url:
                 cancelled.append(True)
                 return _make_transport_response(status_code=200)
             # Never completes
@@ -1290,7 +1290,7 @@ class TestNebiusSandboxAdapter:
             if "/whoami" in req.full_url:
                 call_counts["whoami"] += 1
                 return _make_transport_response(status_code=200, body={"operations_stat": {}})
-            if "/cancel" in req.full_url:
+            if req.method == "DELETE" and "/operations/op-1" in req.full_url:
                 call_counts["cancel"] += 1
                 return _make_transport_response(status_code=200)
             if "/operations/" in req.full_url:

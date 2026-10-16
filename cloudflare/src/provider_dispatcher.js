@@ -19,7 +19,7 @@ export const CANONICAL_DEMO_SCENARIO = {
   target: "tests/fixtures/reset_vault",
   change_class: "BUG_FIX",
   source_commit_id: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
-  frozen_contract_digest: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  frozen_contract_digest: "93eeeb2cc7eb02a988da3c8a8543ad40b4816608c1452d048ff62ee93702f812",
 };
 
 const BRIDGE_REQUEST_SCHEMA_VERSION = "1.0.0";
