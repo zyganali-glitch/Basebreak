@@ -30,6 +30,11 @@ function createWorkerEnv(overrides = {}) {
     ...overrides,
   };
   env.__ledgerInstance = new AdmissionLedgerDO(db, env);
+  // The durable operator live gate is never seeded from the environment; tests
+  // that model an operator-enabled ledger configure it explicitly.
+  if (String(env.LIVE_ENABLED).trim() === "true") {
+    env.__ledgerInstance.configureLiveGate(true, { configuredBy: "test-harness" });
+  }
   return { env, db };
 }
 
@@ -780,7 +785,7 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     const heldData = await held.json();
     assert.equal(heldData.status, "BLOCKED_UNRECONCILED_UNKNOWN_COST");
 
-    // Operator reconciliation clears the hold.
+    // Explicit, evidence-backed operator reconciliation clears the hold.
     const reconcileReq = new Request(
       "https://basebreak.workers.dev/admin/reconcile-unknown-cost",
       {
@@ -791,6 +796,12 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
         },
         body: JSON.stringify({
           run_id: firstData.run_id,
+          operator_decision: "NO_PROVIDER_CHARGE",
+          attestation_type: "OPERATOR_ATTESTED",
+          provider_billing_observation: "Nebius usage dashboard showed no billed inference.",
+          evidence_reference: "nebius-console://usage/2026-10-16",
+          observed_cost_usd: 0,
+          verification_timestamp: Date.now(),
           reconciled_by: "operator-independent-qa",
           note: "Provider dashboard confirmed no billed usage.",
         }),
@@ -800,6 +811,8 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     assert.equal(reconcileRes.status, 200);
     const reconcileData = await reconcileRes.json();
     assert.equal(reconcileData.reconciled, true);
+    assert.equal(reconcileData.attestation_type, "OPERATOR_ATTESTED");
+    assert.equal(reconcileData.provider_verification_claimed, false);
 
     const cleared = env.__ledgerInstance.getAccounting();
     assert.equal(cleared.unknown_cost, 0.0);
@@ -814,6 +827,200 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     // The second dispatch is again a dispatched deterministic failure (held again),
     // but admission itself is no longer blocked by an unreconciled hold.
     assert.equal(after.status, 502);
+  });
+
+  it("POST /admin/reconcile-unknown-cost cannot silently clear a hold with a bare request or note", async () => {
+    const { env } = createWorkerEnv({
+      LIVE_ENABLED: "true",
+      EXPECTED_SOURCE_COMMIT: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      LIVE_RUN_ESTIMATED_COST_USD: "0.25",
+      TRUSTED_VERIFIER_BRIDGE_URL: "https://bridge.example/internal/live-verifications",
+      TRUSTED_VERIFIER_BRIDGE_SHARED_SECRET: "bridge-secret",
+      __bridgeFetchForTests: async () =>
+        new Response(
+          JSON.stringify({
+            ok: false,
+            status: "FAILED",
+            error: "dispatched failure",
+            ambiguous_outcome: false,
+            provider_dispatched: true,
+          }),
+          { status: 502, headers: { "Content-Type": "application/json" } }
+        ),
+    });
+    const grant = env.__ledgerInstance.issueGrant({
+      verifiedBalance: 10.0,
+      balanceTimestamp: Date.now(),
+      estimatedCostCap: 0.30,
+      clientInfo: "judge",
+    });
+    const run = await worker.fetch(
+      new Request("https://basebreak.workers.dev/v1/runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Judge-Grant": grant.grant_token },
+        body: JSON.stringify({ target: "tests/fixtures/reset_vault", allow_live: true }),
+      }),
+      env,
+      {}
+    );
+    const runData = await run.json();
+    assert.equal(env.__ledgerInstance.getAccounting().unknown_cost, 0.25);
+
+    const reconcile = (payload) =>
+      worker.fetch(
+        new Request("https://basebreak.workers.dev/admin/reconcile-unknown-cost", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${env.BASEBREAK_ADMIN_KEY}`,
+          },
+          body: JSON.stringify(payload),
+        }),
+        env,
+        {}
+      );
+
+    // Bare request.
+    const bare = await reconcile({ run_id: runData.run_id });
+    assert.equal(bare.status, 400);
+    const bareData = await bare.json();
+    assert.equal(bareData.hold_preserved, true);
+
+    // Arbitrary free-text note with no structured evidence.
+    const noteOnly = await reconcile({
+      run_id: runData.run_id,
+      reconciled_by: "operator",
+      note: "I checked and it was fine, clear it.",
+    });
+    assert.equal(noteOnly.status, 400);
+    assert.equal(env.__ledgerInstance.getAccounting().unknown_cost, 0.25);
+
+    // Claiming provider verification that never occurred is rejected.
+    const fakeVerified = await reconcile({
+      run_id: runData.run_id,
+      operator_decision: "NO_PROVIDER_CHARGE",
+      attestation_type: "PROVIDER_VERIFIED",
+      provider_billing_observation: "independent verifier says zero",
+      evidence_reference: "ref-1",
+      observed_cost_usd: 0,
+      verification_timestamp: Date.now(),
+      reconciled_by: "operator",
+    });
+    assert.equal(fakeVerified.status, 400);
+    assert.equal(env.__ledgerInstance.getAccounting().unknown_cost, 0.25);
+  });
+
+  it("POST /admin/configure-source-commit and /admin/configure-live-gate require admin auth and explicit input", async () => {
+    const { env } = createWorkerEnv({ LIVE_ENABLED: "true" });
+
+    const unauth = await worker.fetch(
+      new Request("https://basebreak.workers.dev/admin/configure-source-commit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source_commit_id: "a".repeat(40) }),
+      }),
+      env,
+      {}
+    );
+    assert.equal(unauth.status, 401);
+
+    const badSource = await worker.fetch(
+      new Request("https://basebreak.workers.dev/admin/configure-source-commit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${env.BASEBREAK_ADMIN_KEY}`,
+        },
+        body: JSON.stringify({ source_commit_id: "not-a-sha", configured_by: "operator" }),
+      }),
+      env,
+      {}
+    );
+    assert.equal(badSource.status, 400);
+
+    const okSource = await worker.fetch(
+      new Request("https://basebreak.workers.dev/admin/configure-source-commit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${env.BASEBREAK_ADMIN_KEY}`,
+        },
+        body: JSON.stringify({ source_commit_id: "c".repeat(40), configured_by: "operator" }),
+      }),
+      env,
+      {}
+    );
+    assert.equal(okSource.status, 200);
+    assert.equal((await okSource.json()).expected_source_commit, "c".repeat(40));
+
+    const gate = await worker.fetch(
+      new Request("https://basebreak.workers.dev/admin/configure-live-gate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${env.BASEBREAK_ADMIN_KEY}`,
+        },
+        body: JSON.stringify({ enabled: true, configured_by: "operator", reason: "authorized" }),
+      }),
+      env,
+      {}
+    );
+    assert.equal(gate.status, 200);
+    assert.equal((await gate.json()).durable_live_enabled, true);
+  });
+
+  it("deploying a newer Worker env does not implicitly authorize or re-align the durable ledger", async () => {
+    const db = new DatabaseSync(":memory:");
+    const OLD_SOURCE = "1".repeat(40);
+    const NEW_SOURCE = "2".repeat(40);
+    const baseEnv = {
+      BASEBREAK_ADMIN_KEY: "test_admin_secret_key_123",
+      GLOBAL_INVOCATION_CAP: "5",
+      TOKEN_FACTORY_PROMO_STOP_THRESHOLD: "5.00",
+      __allowInProcessLedgerForTests: true,
+      __sqliteBackend: db,
+    };
+    // Existing Durable Object with durable gate off and older source.
+    new AdmissionLedgerDO(db, {
+      ...baseEnv,
+      LIVE_ENABLED: "false",
+      EXPECTED_SOURCE_COMMIT: OLD_SOURCE,
+    });
+    // New Worker deployment (same DO storage) with updated environment.
+    const env = {
+      ...baseEnv,
+      LIVE_ENABLED: "true",
+      EXPECTED_SOURCE_COMMIT: NEW_SOURCE,
+      LIVE_RUN_ESTIMATED_COST_USD: "0.25",
+    };
+    env.__ledgerInstance = new AdmissionLedgerDO(db, env);
+
+    const health = await worker.fetch(new Request("https://basebreak.workers.dev/health"), env, {});
+    const healthData = await health.json();
+    assert.equal(healthData.runtime_live_enabled, true);
+    assert.equal(healthData.durable_live_enabled, false);
+    assert.equal(healthData.live_enabled, false);
+    assert.equal(healthData.source_commit_consistent, false);
+    assert.equal(healthData.durable_expected_source_commit, OLD_SOURCE);
+
+    // Live POST is refused because the durable operator gate is still off.
+    const grant = env.__ledgerInstance.issueGrant({
+      verifiedBalance: 10.0,
+      balanceTimestamp: Date.now(),
+      estimatedCostCap: 0.30,
+      clientInfo: "judge",
+    });
+    const res = await worker.fetch(
+      new Request("https://basebreak.workers.dev/v1/runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Judge-Grant": grant.grant_token },
+        body: JSON.stringify({ target: "tests/fixtures/reset_vault", allow_live: true }),
+      }),
+      env,
+      {}
+    );
+    assert.equal(res.status, 403);
+    assert.equal((await res.json()).status, "BLOCKED");
   });
 
   it("POST /admin/reconcile-unknown-cost rejects unauthenticated callers", async () => {

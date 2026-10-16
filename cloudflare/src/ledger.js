@@ -50,6 +50,20 @@ try {
 
 const AUTHORITATIVE_PUBLIC_PROVENANCES = new Set(["LIVE_NEBIUS", "RECORDED_LIVE"]);
 
+const HEX_40_REGEX = /^[0-9a-f]{40}$/;
+const ALLOWED_RECONCILIATION_DECISIONS = new Set([
+  "NO_PROVIDER_CHARGE",
+  "PROVIDER_CHARGE_OBSERVED",
+]);
+const ALLOWED_ATTESTATION_TYPES = new Set(["OPERATOR_ATTESTED"]);
+const MAX_RECONCILIATION_TIMESTAMP_SKEW_MS = 24 * 60 * 60 * 1000;
+
+/** Raised when a reconciliation record is missing/invalid evidence. */
+export class ReconciliationValidationError extends Error {}
+
+/** Raised when a reconciliation record is well-formed but the ledger state forbids it. */
+export class ReconciliationStateError extends Error {}
+
 export class AdmissionLedgerDO extends CloudflareDurableObject {
   /**
    * @param {any} ctxOrState Durable Object state/ctx or raw database instance
@@ -149,14 +163,38 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
         event_type TEXT NOT NULL,
         details TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS reconciliations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT NOT NULL,
+        attestation_type TEXT NOT NULL,
+        operator_decision TEXT NOT NULL,
+        provider_billing_observation TEXT NOT NULL,
+        evidence_reference TEXT NOT NULL,
+        observed_cost_usd REAL NOT NULL,
+        verification_timestamp INTEGER NOT NULL,
+        released_amount_usd REAL NOT NULL,
+        remaining_unknown_cost REAL NOT NULL,
+        reconciled_by TEXT NOT NULL,
+        recorded_at INTEGER NOT NULL
+      );
     `);
 
     this.ensureColumnExists("grants", "verified_balance", "REAL");
     this.ensureColumnExists("grants", "balance_timestamp", "INTEGER");
     this.ensureColumnExists("grants", "estimated_cost_cap", "REAL");
 
-    // Initialize default configs from env
-    this.setConfigIfNotExists("LIVE_ENABLED", String(this.env.LIVE_ENABLED ?? "false"));
+    // Initialize default configs.
+    //
+    // The durable live gate is NEVER seeded from the runtime environment. A new
+    // Worker deployment supplying LIVE_ENABLED=true must not automatically switch
+    // on the durable operator gate. It always starts disabled and can only be
+    // changed through the explicit, operator-authenticated configureLiveGate()
+    // action. The expected source commit is seeded once from the environment at
+    // first initialization only; an existing Durable Object keeps its durable
+    // value across deployments and must be re-aligned explicitly through
+    // configureSourceCommit().
+    this.setConfigIfNotExists("LIVE_ENABLED", "false");
     this.setConfigIfNotExists("GLOBAL_INVOCATION_CAP", String(this.env.GLOBAL_INVOCATION_CAP ?? "5"));
     this.setConfigIfNotExists(
       "TOKEN_FACTORY_PROMO_STOP_THRESHOLD",
@@ -225,6 +263,130 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       key,
       value
     );
+  }
+
+  /**
+   * Explicit, operator-controlled alignment of the durable expected source commit.
+   *
+   * A deployment that supplies a newer EXPECTED_SOURCE_COMMIT to the Worker does
+   * NOT change this durable value. An authorized operator must explicitly align it
+   * with the independently verified deployed commit. This method never touches the
+   * durable live gate, invocation caps, accounting, runs, or grants.
+   *
+   * @param {string} sourceCommitId 40-character lowercase hex commit SHA
+   * @param {{ configuredBy?: string, note?: string }} [options]
+   * @returns {{ configured: boolean, expected_source_commit: string, previous_source_commit: string | null }}
+   */
+  configureSourceCommit(sourceCommitId, { configuredBy = "operator", note = "" } = {}) {
+    const normalized = String(sourceCommitId || "").trim().toLowerCase();
+    if (!HEX_40_REGEX.test(normalized)) {
+      throw new ReconciliationValidationError(
+        "Expected source commit must be a 40-character lowercase hex SHA."
+      );
+    }
+    const operator = String(configuredBy || "").trim();
+    if (!operator) {
+      throw new ReconciliationValidationError(
+        "configureSourceCommit requires an explicit operator identity (configuredBy)."
+      );
+    }
+
+    const previous = this.getConfig("EXPECTED_SOURCE_COMMIT", "") || null;
+    const now = Date.now();
+    this.sql.transaction(() => {
+      this.setConfig("EXPECTED_SOURCE_COMMIT", normalized);
+      this.sql.execute(
+        "INSERT INTO audit_log (timestamp, event_type, details) VALUES (?, 'SOURCE_COMMIT_CONFIGURED', ?)",
+        now,
+        JSON.stringify({
+          previous_source_commit: previous,
+          expected_source_commit: normalized,
+          configured_by: operator,
+          note: String(note || ""),
+        })
+      );
+    });
+
+    return {
+      configured: true,
+      expected_source_commit: normalized,
+      previous_source_commit: previous,
+    };
+  }
+
+  /**
+   * Explicit, operator-controlled change of the durable live gate.
+   *
+   * This is the ONLY post-initialization writer of the durable LIVE_ENABLED value.
+   * It is never invoked from environment configuration; it must be called through
+   * an authenticated operator action. Enabling does not bypass any other control:
+   * admission still requires the runtime live authorization and every existing
+   * budget, grant, kill-switch, concurrency and idempotency constraint.
+   *
+   * @param {boolean} enabled
+   * @param {{ configuredBy?: string, reason?: string }} [options]
+   * @returns {{ configured: boolean, durable_live_enabled: boolean, previous_durable_live_enabled: boolean }}
+   */
+  configureLiveGate(enabled, { configuredBy = "operator", reason = "" } = {}) {
+    if (typeof enabled !== "boolean") {
+      throw new ReconciliationValidationError("configureLiveGate requires a boolean enabled value.");
+    }
+    const operator = String(configuredBy || "").trim();
+    if (!operator) {
+      throw new ReconciliationValidationError(
+        "configureLiveGate requires an explicit operator identity (configuredBy)."
+      );
+    }
+
+    const previous = this.getConfig("LIVE_ENABLED", "false") === "true";
+    const now = Date.now();
+    this.sql.transaction(() => {
+      this.setConfig("LIVE_ENABLED", enabled ? "true" : "false");
+      this.sql.execute(
+        "INSERT INTO audit_log (timestamp, event_type, details) VALUES (?, 'DURABLE_LIVE_GATE_CONFIGURED', ?)",
+        now,
+        JSON.stringify({
+          previous_durable_live_enabled: previous,
+          durable_live_enabled: enabled,
+          configured_by: operator,
+          reason: String(reason || ""),
+        })
+      );
+    });
+
+    return {
+      configured: true,
+      durable_live_enabled: enabled,
+      previous_durable_live_enabled: previous,
+    };
+  }
+
+  /**
+   * Report the durable operator gate and the runtime environment gate separately,
+   * including expected-source-commit consistency. Uses the runtime bindings the
+   * Durable Object received so the two authority sources are never conflated.
+   *
+   * @returns {object}
+   */
+  getConfigStatus() {
+    const durableLiveEnabled = this.getConfig("LIVE_ENABLED", "false") === "true";
+    const runtimeLiveEnabled = String(this.env?.LIVE_ENABLED ?? "false").trim() === "true";
+    const durableSource = String(this.getConfig("EXPECTED_SOURCE_COMMIT", "")).trim().toLowerCase();
+    const runtimeSource = String(this.env?.EXPECTED_SOURCE_COMMIT ?? "").trim().toLowerCase();
+    const durableSourceOrNull = HEX_40_REGEX.test(durableSource) ? durableSource : null;
+    const runtimeSourceOrNull = HEX_40_REGEX.test(runtimeSource) ? runtimeSource : null;
+
+    return {
+      durable_live_enabled: durableLiveEnabled,
+      runtime_live_enabled: runtimeLiveEnabled,
+      effective_live_enabled: durableLiveEnabled && runtimeLiveEnabled,
+      durable_expected_source_commit: durableSourceOrNull,
+      runtime_expected_source_commit: runtimeSourceOrNull,
+      source_commit_consistent:
+        durableSourceOrNull !== null &&
+        runtimeSourceOrNull !== null &&
+        durableSourceOrNull === runtimeSourceOrNull,
+    };
   }
 
   /**
@@ -949,70 +1111,202 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
   }
 
   /**
-   * Independently verified operator reconciliation of unreconciled unknown cost.
+   * Explicit, auditable operator reconciliation of unreconciled unknown cost.
    *
-   * Only an admin-authenticated operator path may call this. It reduces a run's
-   * held unknown_cost (fully by default) and releases the global unknown-cost
-   * hold so live admission may resume. It never increases spending authority and
-   * never fabricates observed provider cost.
+   * Only an admin-authenticated operator path may call this. It requires a
+   * complete reconciliation record: the operator's provider billing observation,
+   * an evidence reference, the observed cost, a verification timestamp, an
+   * operator decision, and the operator identity. A bare request or arbitrary
+   * free-text note MUST NOT clear the hold.
+   *
+   * Attestation honesty: only `OPERATOR_ATTESTED` records are accepted here. An
+   * operator billing observation is NOT independently verified provider fact, so
+   * `PROVIDER_VERIFIED` is rejected while no independent provider verifier is
+   * configured. This method releases held unknown exposure; it never records or
+   * fabricates provider-observed metered cost, and never silently converts unknown
+   * cost into zero measured spend.
    *
    * @param {string} runId
-   * @param {object} [params]
-   * @param {number | null} [params.amount_usd=null] Amount to reconcile (defaults to the full held amount)
-   * @param {string} [params.reconciled_by="operator"]
-   * @param {string} [params.note=""]
+   * @param {object} record
+   * @param {string} record.operator_decision One of NO_PROVIDER_CHARGE | PROVIDER_CHARGE_OBSERVED
+   * @param {string} record.provider_billing_observation Operator's billing observation text
+   * @param {string} record.evidence_reference Reference to the evidence (URL/ID/statement)
+   * @param {number} record.observed_cost_usd Observed provider cost (>= 0)
+   * @param {number} record.verification_timestamp When the observation was verified (ms)
+   * @param {string} record.reconciled_by Operator identity
+   * @param {string} [record.attestation_type="OPERATOR_ATTESTED"]
+   * @param {number | null} [record.release_amount_usd=null] Portion of the hold to release (defaults to full)
+   * @param {string} [record.note=""]
+   * @returns {object}
    */
-  reconcileUnknownCost(runId, { amount_usd = null, reconciled_by = "operator", note = "" } = {}) {
+  reconcileUnknownCost(runId, record = {}) {
+    const {
+      attestation_type = "OPERATOR_ATTESTED",
+      operator_decision,
+      provider_billing_observation,
+      evidence_reference,
+      observed_cost_usd,
+      verification_timestamp,
+      release_amount_usd = null,
+      reconciled_by,
+      note = "",
+    } = record || {};
+
+    const normalizedRunId = String(runId || "").trim();
+    if (!normalizedRunId) {
+      throw new ReconciliationValidationError("A non-empty run_id is required.");
+    }
+    const attestationType = String(attestation_type || "").trim();
+    if (!ALLOWED_ATTESTATION_TYPES.has(attestationType)) {
+      throw new ReconciliationValidationError(
+        `Unsupported attestation_type '${attestationType || "(missing)"}'. Only operator-attested billing ` +
+          "observations are accepted; provider verification is never claimed unless independently performed."
+      );
+    }
+    const decision = String(operator_decision || "").trim();
+    if (!ALLOWED_RECONCILIATION_DECISIONS.has(decision)) {
+      throw new ReconciliationValidationError(
+        "operator_decision must be one of " +
+          [...ALLOWED_RECONCILIATION_DECISIONS].join(" | ") +
+          "."
+      );
+    }
+    const observation = String(provider_billing_observation || "").trim();
+    if (observation.length < 3) {
+      throw new ReconciliationValidationError(
+        "provider_billing_observation is required and must be meaningful evidence."
+      );
+    }
+    const evidenceReference = String(evidence_reference || "").trim();
+    if (evidenceReference.length < 3) {
+      throw new ReconciliationValidationError("evidence_reference is required.");
+    }
+    if (!Number.isFinite(observed_cost_usd) || observed_cost_usd < 0) {
+      throw new ReconciliationValidationError(
+        "observed_cost_usd must be a finite non-negative number."
+      );
+    }
+    const operator = String(reconciled_by || "").trim();
+    if (!operator) {
+      throw new ReconciliationValidationError("reconciled_by operator identity is required.");
+    }
     const now = Date.now();
+    if (!Number.isInteger(verification_timestamp) || verification_timestamp <= 0) {
+      throw new ReconciliationValidationError(
+        "verification_timestamp must be a positive integer epoch-millisecond value."
+      );
+    }
+    if (verification_timestamp > now + MAX_RECONCILIATION_TIMESTAMP_SKEW_MS) {
+      throw new ReconciliationValidationError(
+        "verification_timestamp is implausibly in the future."
+      );
+    }
+
+    if (decision === "NO_PROVIDER_CHARGE" && observed_cost_usd !== 0) {
+      throw new ReconciliationValidationError(
+        "Contradictory reconciliation: NO_PROVIDER_CHARGE requires observed_cost_usd of exactly 0."
+      );
+    }
+    if (decision === "PROVIDER_CHARGE_OBSERVED" && observed_cost_usd <= 0) {
+      throw new ReconciliationValidationError(
+        "Contradictory reconciliation: PROVIDER_CHARGE_OBSERVED requires observed_cost_usd > 0."
+      );
+    }
+
     return this.sql.transaction(() => {
-      const runRows = this.sql.query("SELECT * FROM runs WHERE run_id = ?", runId);
+      const runRows = this.sql.query("SELECT * FROM runs WHERE run_id = ?", normalizedRunId);
       if (runRows.length === 0) {
-        throw new Error(`Run '${runId}' not found in ledger.`);
+        throw new ReconciliationStateError(`Run '${normalizedRunId}' not found in ledger.`);
       }
       const run = runRows[0];
       const runUnknown = run.unknown_cost || 0.0;
       if (runUnknown <= 0) {
-        throw new Error(`Run '${runId}' has no unreconciled unknown cost to clear.`);
+        throw new ReconciliationStateError(
+          `Run '${normalizedRunId}' has no unreconciled unknown cost to clear.`
+        );
       }
-      const reconcileAmount = amount_usd === null ? runUnknown : Number(amount_usd);
-      if (!Number.isFinite(reconcileAmount) || reconcileAmount <= 0) {
-        throw new Error("Reconciliation amount must be a positive finite number.");
+      const releaseAmount =
+        release_amount_usd === null || release_amount_usd === undefined
+          ? runUnknown
+          : Number(release_amount_usd);
+      if (!Number.isFinite(releaseAmount) || releaseAmount <= 0) {
+        throw new ReconciliationValidationError(
+          "release_amount_usd must be a positive finite number."
+        );
       }
-      if (reconcileAmount > runUnknown) {
-        throw new Error("Reconciliation amount exceeds the run's unreconciled unknown cost.");
+      if (releaseAmount > runUnknown) {
+        throw new ReconciliationValidationError(
+          "release_amount_usd exceeds the run's unreconciled unknown cost."
+        );
       }
-      const remaining = runUnknown - reconcileAmount;
+      if (observed_cost_usd > releaseAmount) {
+        throw new ReconciliationValidationError(
+          "Contradictory reconciliation: attested observed cost exceeds the released exposure."
+        );
+      }
+      const remaining = runUnknown - releaseAmount;
 
       this.sql.execute(
         "UPDATE runs SET unknown_cost = ? WHERE run_id = ?",
         remaining,
-        runId
+        normalizedRunId
       );
+      // Release held unknown exposure only. Observed metered cost is NOT changed:
+      // an operator attestation is not provider-verified metering.
       this.sql.execute(
         `UPDATE costs
          SET unknown_cost = MAX(0.0, unknown_cost - ?),
-             total_metered_cost = observed_cost + (unknown_cost - ?)
+             total_metered_cost = observed_cost + MAX(0.0, unknown_cost - ?)
          WHERE id = 1`,
-        reconcileAmount,
-        reconcileAmount
+        releaseAmount,
+        releaseAmount
+      );
+      this.sql.execute(
+        `INSERT INTO reconciliations (
+           run_id, attestation_type, operator_decision, provider_billing_observation,
+           evidence_reference, observed_cost_usd, verification_timestamp,
+           released_amount_usd, remaining_unknown_cost, reconciled_by, recorded_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        normalizedRunId,
+        attestationType,
+        decision,
+        observation,
+        evidenceReference,
+        Number(observed_cost_usd),
+        verification_timestamp,
+        releaseAmount,
+        remaining,
+        operator,
+        now
       );
       this.sql.execute(
         "INSERT INTO audit_log (timestamp, event_type, details) VALUES (?, 'UNKNOWN_COST_RECONCILED', ?)",
         now,
         JSON.stringify({
-          run_id: runId,
-          reconciled_amount: reconcileAmount,
+          run_id: normalizedRunId,
+          attestation_type: attestationType,
+          operator_decision: decision,
+          provider_billing_observation: observation,
+          evidence_reference: evidenceReference,
+          observed_cost_usd: Number(observed_cost_usd),
+          verification_timestamp,
+          released_amount_usd: releaseAmount,
           remaining_unknown_cost: remaining,
-          reconciled_by,
-          note,
+          reconciled_by: operator,
+          note: String(note || ""),
+          provider_verification_claimed: false,
         })
       );
 
       return {
         reconciled: true,
-        run_id: runId,
-        reconciled_amount: reconcileAmount,
+        run_id: normalizedRunId,
+        attestation_type: attestationType,
+        operator_decision: decision,
+        attested_observed_cost_usd: Number(observed_cost_usd),
+        released_amount_usd: releaseAmount,
         remaining_unknown_cost: remaining,
+        provider_verification_claimed: false,
       };
     });
   }
@@ -1238,6 +1532,8 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       total_metered_cost: 0.0,
     };
 
+    const configStatus = this.getConfigStatus();
+
     const inFlightCount =
       this.sql.query(
         "SELECT COUNT(*) as count FROM runs WHERE status IN ('RESERVED', 'IN_FLIGHT')"
@@ -1260,8 +1556,16 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       completed_runs: completedRuns,
       global_cap: parseInt(this.getConfig("GLOBAL_INVOCATION_CAP", "5"), 10),
       kill_switch_engaged: this.getConfig("kill_switch_engaged") === "true",
-      live_enabled: this.getConfig("LIVE_ENABLED", "false") === "true",
+      live_enabled: configStatus.durable_live_enabled,
       safety_reserve_floor: parseFloat(this.getConfig("TOKEN_FACTORY_PROMO_STOP_THRESHOLD", "5.00")),
+      // Separate durable operator gate vs runtime environment gate, plus
+      // expected-source-commit consistency, for truthful preflight inspection.
+      durable_live_enabled: configStatus.durable_live_enabled,
+      runtime_live_enabled: configStatus.runtime_live_enabled,
+      effective_live_enabled: configStatus.effective_live_enabled,
+      durable_expected_source_commit: configStatus.durable_expected_source_commit,
+      runtime_expected_source_commit: configStatus.runtime_expected_source_commit,
+      source_commit_consistent: configStatus.source_commit_consistent,
     };
   }
 }

@@ -10,7 +10,7 @@
  */
 
 import { redactSecrets } from "./crypto_utils.js";
-import { AdmissionLedgerDO } from "./ledger.js";
+import { AdmissionLedgerDO, ReconciliationStateError, ReconciliationValidationError } from "./ledger.js";
 import {
   CANONICAL_DEMO_SCENARIO,
   dispatchVerificationRun,
@@ -302,6 +302,14 @@ export default {
         getDeclaredSourceCommit(env);
       const accounting =
         typeof ledger.getAccounting === "function" ? await ledger.getAccounting() : {};
+      const runtimeLiveEnabled =
+        typeof accounting.runtime_live_enabled === "boolean"
+          ? accounting.runtime_live_enabled
+          : env.LIVE_ENABLED === "true";
+      const durableLiveEnabled =
+        typeof accounting.durable_live_enabled === "boolean"
+          ? accounting.durable_live_enabled
+          : false;
 
       return jsonResponse(200, {
         status: "ok",
@@ -311,7 +319,13 @@ export default {
         source_commit_status:
           expectedCommit === UNKNOWN_BUILD_SHA ? "UNKNOWN_BUILD_SHA" : "CONFIGURED_UNVERIFIED",
         deployment_readiness: "NOT_READY_FOR_DEPLOYMENT",
-        live_enabled: env.LIVE_ENABLED === "true",
+        // Effective live execution requires BOTH the independent durable operator
+        // gate and the runtime environment authorization.
+        live_enabled: runtimeLiveEnabled && durableLiveEnabled,
+        runtime_live_enabled: runtimeLiveEnabled,
+        durable_live_enabled: durableLiveEnabled,
+        durable_expected_source_commit: accounting.durable_expected_source_commit ?? null,
+        source_commit_consistent: accounting.source_commit_consistent === true,
         kill_switch_engaged: accounting.kill_switch_engaged ?? false,
         total_runs: accounting.total_runs ?? 0,
         in_flight_count: accounting.in_flight_count ?? 0,
@@ -588,7 +602,7 @@ export default {
       return jsonResponse(200, accounting);
     }
 
-    // 9. Admin API: Independently Verified Operator Reconciliation of Unknown Cost
+    // 9. Admin API: Explicit Operator Reconciliation of Unknown Cost (evidence required)
     if (method === "POST" && path === "/admin/reconcile-unknown-cost") {
       if (!isAdminAuthorized(request, env)) {
         return jsonResponse(401, { error: "Unauthorized: Invalid operator admin key." });
@@ -612,18 +626,86 @@ export default {
 
       try {
         const result = await ledger.reconcileUnknownCost(reconcileBody.run_id.trim(), {
-          amount_usd:
-            reconcileBody.amount_usd === undefined ? null : reconcileBody.amount_usd,
-          reconciled_by:
-            typeof reconcileBody.reconciled_by === "string" && reconcileBody.reconciled_by.trim()
-              ? reconcileBody.reconciled_by.trim()
-              : "operator",
-          note: typeof reconcileBody.note === "string" ? reconcileBody.note : "",
+          attestation_type: reconcileBody.attestation_type,
+          operator_decision: reconcileBody.operator_decision,
+          provider_billing_observation: reconcileBody.provider_billing_observation,
+          evidence_reference: reconcileBody.evidence_reference,
+          observed_cost_usd: reconcileBody.observed_cost_usd,
+          verification_timestamp: reconcileBody.verification_timestamp,
+          release_amount_usd:
+            reconcileBody.release_amount_usd === undefined
+              ? null
+              : reconcileBody.release_amount_usd,
+          reconciled_by: reconcileBody.reconciled_by,
+          note: reconcileBody.note,
+        });
+        return jsonResponse(200, result);
+      } catch (error) {
+        if (error instanceof ReconciliationValidationError) {
+          return jsonResponse(400, { error: error.message, hold_preserved: true });
+        }
+        if (error instanceof ReconciliationStateError) {
+          return jsonResponse(409, { error: error.message, hold_preserved: true });
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        return jsonResponse(409, { error: message, hold_preserved: true });
+      }
+    }
+
+    // 10. Admin API: Explicit operator alignment of the durable expected source commit.
+    if (method === "POST" && path === "/admin/configure-source-commit") {
+      if (!isAdminAuthorized(request, env)) {
+        return jsonResponse(401, { error: "Unauthorized: Invalid operator admin key." });
+      }
+
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse(400, { error: "Malformed JSON body." });
+      }
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return jsonResponse(400, { error: "Body must be a JSON object." });
+      }
+
+      try {
+        const result = await ledger.configureSourceCommit(body.source_commit_id, {
+          configuredBy: body.configured_by,
+          note: body.note,
         });
         return jsonResponse(200, result);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return jsonResponse(409, { error: message });
+        return jsonResponse(400, { error: message });
+      }
+    }
+
+    // 11. Admin API: Explicit operator change of the durable live gate. Never
+    //     triggered by deployment/environment configuration.
+    if (method === "POST" && path === "/admin/configure-live-gate") {
+      if (!isAdminAuthorized(request, env)) {
+        return jsonResponse(401, { error: "Unauthorized: Invalid operator admin key." });
+      }
+
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse(400, { error: "Malformed JSON body." });
+      }
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return jsonResponse(400, { error: "Body must be a JSON object." });
+      }
+
+      try {
+        const result = await ledger.configureLiveGate(body.enabled, {
+          configuredBy: body.configured_by,
+          reason: body.reason,
+        });
+        return jsonResponse(200, result);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return jsonResponse(400, { error: message });
       }
     }
 

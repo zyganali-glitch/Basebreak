@@ -94,10 +94,16 @@ async function createHarness(options = {}) {
     })
   );
   const bindings = await miniflare.getBindings();
+  const stub = getLedgerStub(bindings);
+  // The durable operator live gate is never seeded from the environment; tests
+  // that model an operator-enabled ledger configure it explicitly.
+  if (String(options.liveEnabled).trim() === "true") {
+    await stub.configureLiveGate(true, { configuredBy: "preflight-harness" });
+  }
   return {
     miniflare,
     bindings,
-    stub: getLedgerStub(bindings),
+    stub,
     async dispose() {
       await miniflare.dispose();
       await rm(persistencePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
@@ -406,6 +412,7 @@ results.push(
       );
       const firstBindings = await firstMiniflare.getBindings();
       const firstStub = getLedgerStub(firstBindings);
+      await firstStub.configureLiveGate(true, { configuredBy: "preflight-harness" });
       const storage = await getLedgerStorage(firstMiniflare);
       const grant = await issueLiveGrant(firstStub, { clientInfo: "judge-recovery" });
       const reservation = await firstStub.reserveAdmission({

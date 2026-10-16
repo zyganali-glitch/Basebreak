@@ -82,6 +82,7 @@ describe("Basebreak Cloudflare Worker runtime compatibility preflight", () => {
 
   it("preserves single in-flight quota and idempotency context across real Durable Object RPC calls", async () => {
     const stub = getLedgerStub();
+    await stub.configureLiveGate(true, { configuredBy: "runtime-harness" });
     const grants = await Promise.all([
       issueLiveGrant(stub, { clientInfo: "judge-a" }),
       issueLiveGrant(stub, { clientInfo: "judge-b" }),
@@ -153,6 +154,7 @@ describe("Basebreak Cloudflare Worker runtime compatibility preflight", () => {
 
   it("recovers orphaned reserved runs after Durable Object eviction and restart", async () => {
     const stub = getLedgerStub();
+    await stub.configureLiveGate(true, { configuredBy: "runtime-harness" });
     const grant = await issueLiveGrant(stub, { clientInfo: "judge-recovery" });
     const reservation = await stub.reserveAdmission({
       grant_token: grant.grant_token,

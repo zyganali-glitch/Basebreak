@@ -36,7 +36,26 @@ function createTestLedger(initialConfig = {}) {
     ...initialConfig,
   };
   const ledger = new AdmissionLedgerDO(db, env);
+  // The durable operator live gate is never seeded from the environment; tests
+  // that model an operator-enabled ledger configure it explicitly. This mirrors
+  // the real explicit operator action and keeps the runtime/durable distinction.
+  if (String(env.LIVE_ENABLED).trim() === "true") {
+    ledger.configureLiveGate(true, { configuredBy: "test-harness" });
+  }
   return { ledger, db, env };
+}
+
+function reconciliationRecord(overrides = {}) {
+  return {
+    attestation_type: "OPERATOR_ATTESTED",
+    operator_decision: "NO_PROVIDER_CHARGE",
+    provider_billing_observation: "Nebius Token Factory usage dashboard showed no billed inference.",
+    evidence_reference: "nebius-console://usage/2026-10-16",
+    observed_cost_usd: 0,
+    verification_timestamp: Date.now(),
+    reconciled_by: "operator-independent-qa",
+    ...overrides,
+  };
 }
 
 function issueLiveGrant(ledger, options = {}) {
@@ -821,17 +840,29 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(blocked.status, "BLOCKED_UNRECONCILED_UNKNOWN_COST");
     assert.equal(blocked.code, 409);
 
-    // Independently verified operator reconciliation clears the hold.
-    const reconciled = ledger.reconcileUnknownCost(reservation.run_id, {
-      reconciled_by: "operator-independent-qa",
-      note: "Provider usage dashboard confirmed zero billed inference.",
-    });
+    // An explicit, evidence-backed operator reconciliation clears the hold.
+    const reconciled = ledger.reconcileUnknownCost(
+      reservation.run_id,
+      reconciliationRecord()
+    );
     assert.equal(reconciled.reconciled, true);
-    assert.equal(reconciled.reconciled_amount, 0.05);
+    assert.equal(reconciled.attestation_type, "OPERATOR_ATTESTED");
+    assert.equal(reconciled.provider_verification_claimed, false);
+    assert.equal(reconciled.released_amount_usd, 0.05);
     assert.equal(reconciled.remaining_unknown_cost, 0);
 
     const clearedAccounting = ledger.getAccounting();
     assert.equal(clearedAccounting.unknown_cost, 0.0);
+    // The operator attestation never fabricates provider-observed metered cost.
+    assert.equal(clearedAccounting.observed_cost, 0.0);
+
+    const reconRow = ledger.sql.query(
+      "SELECT * FROM reconciliations WHERE run_id = ?",
+      reservation.run_id
+    )[0];
+    assert.equal(reconRow.attestation_type, "OPERATOR_ATTESTED");
+    assert.equal(reconRow.operator_decision, "NO_PROVIDER_CHARGE");
+    assert.equal(reconRow.evidence_reference, "nebius-console://usage/2026-10-16");
 
     const afterReconcileGrant = issueLiveGrant(ledger);
     const admittedAfter = ledger.reserveAdmission({
@@ -913,7 +944,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(accounting.reserved_cost, 0.0);
   });
 
-  it("17. reconcileUnknownCost rejects invalid or unjustified reconciliation attempts", () => {
+  it("17. reconciliation requires complete evidence and rejects contradictory claims", () => {
     const { ledger } = createTestLedger();
     const grant = issueLiveGrant(ledger);
     const reservation = ledger.reserveAdmission({
@@ -925,14 +956,19 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       balance_timestamp: Date.now(),
       live_enabled: true,
     });
-    // No unknown cost yet.
+
+    // No unknown cost yet (well-formed record reaches the state check).
     assert.throws(
-      () => ledger.reconcileUnknownCost(reservation.run_id),
+      () => ledger.reconcileUnknownCost(reservation.run_id, reconciliationRecord()),
       /no unreconciled unknown cost/
     );
     // Unknown run.
     assert.throws(
-      () => ledger.reconcileUnknownCost("run_does_not_exist"),
+      () =>
+        ledger.reconcileUnknownCost(
+          "run_does_not_exist",
+          reconciliationRecord({ operator_decision: "NO_PROVIDER_CHARGE" })
+        ),
       /not found in ledger/
     );
 
@@ -940,14 +976,260 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       error_message: "unknown cost hold",
       provider_may_have_dispatched: true,
     });
+    const held = ledger.getAccounting().unknown_cost;
+    assert.equal(held, 0.05);
 
+    // A bare admin request or arbitrary free-text note cannot clear the hold.
     assert.throws(
-      () => ledger.reconcileUnknownCost(reservation.run_id, { amount_usd: 0 }),
-      /positive finite number/
+      () => ledger.reconcileUnknownCost(reservation.run_id, {}),
+      /operator_decision/
     );
     assert.throws(
-      () => ledger.reconcileUnknownCost(reservation.run_id, { amount_usd: 999 }),
+      () =>
+        ledger.reconcileUnknownCost(reservation.run_id, {
+          operator_decision: "NO_PROVIDER_CHARGE",
+          provider_billing_observation: "noted",
+          evidence_reference: "",
+          observed_cost_usd: 0,
+          verification_timestamp: Date.now(),
+          reconciled_by: "operator",
+        }),
+      /evidence_reference/
+    );
+    assert.throws(
+      () =>
+        ledger.reconcileUnknownCost(reservation.run_id, {
+          operator_decision: "NO_PROVIDER_CHARGE",
+          provider_billing_observation: "ok evidence",
+          evidence_reference: "ref-1",
+          observed_cost_usd: 0,
+          verification_timestamp: Date.now(),
+        }),
+      /reconciled_by/
+    );
+
+    // Contradictory claims are rejected.
+    assert.throws(
+      () =>
+        ledger.reconcileUnknownCost(
+          reservation.run_id,
+          reconciliationRecord({ operator_decision: "NO_PROVIDER_CHARGE", observed_cost_usd: 0.02 })
+        ),
+      /NO_PROVIDER_CHARGE requires observed_cost_usd of exactly 0/
+    );
+    assert.throws(
+      () =>
+        ledger.reconcileUnknownCost(
+          reservation.run_id,
+          reconciliationRecord({ operator_decision: "PROVIDER_CHARGE_OBSERVED", observed_cost_usd: 0 })
+        ),
+      /PROVIDER_CHARGE_OBSERVED requires observed_cost_usd > 0/
+    );
+    assert.throws(
+      () =>
+        ledger.reconcileUnknownCost(
+          reservation.run_id,
+          reconciliationRecord({ release_amount_usd: 999 })
+        ),
       /exceeds the run/
     );
+    assert.throws(
+      () =>
+        ledger.reconcileUnknownCost(
+          reservation.run_id,
+          reconciliationRecord({
+            operator_decision: "PROVIDER_CHARGE_OBSERVED",
+            observed_cost_usd: 0.9,
+            release_amount_usd: 0.05,
+          })
+        ),
+      /attested observed cost exceeds the released exposure/
+    );
+
+    // Provider verification is never claimed without an independent verifier.
+    assert.throws(
+      () =>
+        ledger.reconcileUnknownCost(
+          reservation.run_id,
+          reconciliationRecord({ attestation_type: "PROVIDER_VERIFIED" })
+        ),
+      /Only operator-attested billing observations are accepted/
+    );
+
+    // Missing/future verification timestamps are rejected.
+    assert.throws(
+      () =>
+        ledger.reconcileUnknownCost(
+          reservation.run_id,
+          reconciliationRecord({ verification_timestamp: undefined })
+        ),
+      /verification_timestamp/
+    );
+
+    // The hold is preserved through every rejected attempt.
+    assert.equal(ledger.getAccounting().unknown_cost, held);
+  });
+
+  it("18. explicit operator reconciliation can record a partial provider charge without fabricating observed cost", () => {
+    const { ledger } = createTestLedger();
+    const grant = issueLiveGrant(ledger);
+    const reservation = ledger.reserveAdmission({
+      grant_token: grant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.05,
+      verified_balance: 20.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    ledger.recordExecutionFailure(reservation.run_id, {
+      error_message: "dispatched failure with unknown cost",
+      provider_may_have_dispatched: true,
+    });
+
+    const result = ledger.reconcileUnknownCost(
+      reservation.run_id,
+      reconciliationRecord({
+        operator_decision: "PROVIDER_CHARGE_OBSERVED",
+        observed_cost_usd: 0.02,
+        provider_billing_observation: "Console usage line shows a single 0.02 USD inference charge.",
+        evidence_reference: "nebius-console://usage/line/42",
+      })
+    );
+    assert.equal(result.released_amount_usd, 0.05);
+    assert.equal(result.remaining_unknown_cost, 0);
+    assert.equal(result.attested_observed_cost_usd, 0.02);
+    assert.equal(result.provider_verification_claimed, false);
+
+    const accounting = ledger.getAccounting();
+    assert.equal(accounting.unknown_cost, 0.0);
+    // Observed metered cost is unchanged: the attestation is not provider metering.
+    assert.equal(accounting.observed_cost, 0.0);
+  });
+
+  it("19. deploying a newer Worker never implicitly authorizes or re-aligns an existing Durable Object", () => {
+    const db = new DatabaseSync(":memory:");
+    const OLD_SOURCE = "1".repeat(40);
+    const NEW_SOURCE = "2".repeat(40);
+    const baseEnv = {
+      GLOBAL_INVOCATION_CAP: "5",
+      TOKEN_FACTORY_PROMO_STOP_THRESHOLD: "5.00",
+      ALLOWLISTED_TARGET: DEFAULT_TARGET,
+    };
+
+    // Existing production Durable Object: durable gate off, older source SHA.
+    const existing = new AdmissionLedgerDO(db, {
+      ...baseEnv,
+      LIVE_ENABLED: "false",
+      EXPECTED_SOURCE_COMMIT: OLD_SOURCE,
+    });
+    assert.equal(existing.getConfig("LIVE_ENABLED"), "false");
+    assert.equal(existing.getConfig("EXPECTED_SOURCE_COMMIT"), OLD_SOURCE);
+
+    // Simulate deploying a newer Worker with updated environment variables while
+    // the SAME Durable Object storage persists.
+    const redeployed = new AdmissionLedgerDO(db, {
+      ...baseEnv,
+      LIVE_ENABLED: "true",
+      EXPECTED_SOURCE_COMMIT: NEW_SOURCE,
+    });
+
+    // No implicit authorization and no implicit source re-alignment.
+    assert.equal(redeployed.getConfig("LIVE_ENABLED"), "false");
+    assert.equal(redeployed.getConfig("EXPECTED_SOURCE_COMMIT"), OLD_SOURCE);
+
+    const status = redeployed.getConfigStatus();
+    assert.equal(status.durable_live_enabled, false);
+    assert.equal(status.runtime_live_enabled, true);
+    assert.equal(status.effective_live_enabled, false);
+    assert.equal(status.durable_expected_source_commit, OLD_SOURCE);
+    assert.equal(status.runtime_expected_source_commit, NEW_SOURCE);
+    assert.equal(status.source_commit_consistent, false);
+
+    const grant = issueLiveGrant(redeployed);
+
+    // No implicit authorization: durable gate is off, so admission is blocked.
+    const blocked = redeployed.reserveAdmission({
+      grant_token: grant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: NEW_SOURCE,
+      verified_balance: 20.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(blocked.admitted, false);
+    assert.equal(blocked.status, "BLOCKED");
+
+    // Even after an explicit operator activation, stale-source admission fails closed.
+    redeployed.configureLiveGate(true, { configuredBy: "operator", reason: "authorized batch" });
+    const stale = redeployed.reserveAdmission({
+      grant_token: grant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: NEW_SOURCE,
+      verified_balance: 20.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(stale.admitted, false);
+    assert.equal(stale.status, "INVALID_SOURCE");
+
+    // Explicit operator alignment of the durable source commit resolves it.
+    const configured = redeployed.configureSourceCommit(NEW_SOURCE, { configuredBy: "operator" });
+    assert.equal(configured.expected_source_commit, NEW_SOURCE);
+    assert.equal(configured.previous_source_commit, OLD_SOURCE);
+    assert.equal(redeployed.getConfigStatus().source_commit_consistent, true);
+
+    const admitted = redeployed.reserveAdmission({
+      grant_token: grant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: NEW_SOURCE,
+      verified_balance: 20.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(admitted.admitted, true);
+  });
+
+  it("20. operator configuration actions are explicit, validated, audited, and independent", () => {
+    const { ledger } = createTestLedger({ LIVE_ENABLED: "false" });
+    assert.equal(ledger.getConfigStatus().durable_live_enabled, false);
+
+    assert.throws(
+      () => ledger.configureSourceCommit("not-a-commit", { configuredBy: "operator" }),
+      /40-character/
+    );
+    assert.throws(
+      () => ledger.configureLiveGate(true, { configuredBy: "" }),
+      /operator identity/
+    );
+    assert.throws(
+      () => ledger.configureSourceCommit("a".repeat(40), { configuredBy: "" }),
+      /operator identity/
+    );
+    assert.throws(
+      () => ledger.configureLiveGate("yes", { configuredBy: "operator" }),
+      /boolean/
+    );
+
+    const gate = ledger.configureLiveGate(true, {
+      configuredBy: "operator-1",
+      reason: "authorized batch",
+    });
+    assert.equal(gate.durable_live_enabled, true);
+    assert.equal(gate.previous_durable_live_enabled, false);
+    assert.equal(ledger.getConfig("LIVE_ENABLED"), "true");
+
+    const source = ledger.configureSourceCommit("a".repeat(40), {
+      configuredBy: "operator-1",
+      note: "verified deployed commit",
+    });
+    assert.equal(source.configured, true);
+    assert.equal(ledger.getConfig("EXPECTED_SOURCE_COMMIT"), "a".repeat(40));
+
+    const eventTypes = ledger.sql
+      .query("SELECT event_type FROM audit_log ORDER BY id")
+      .map((row) => row.event_type);
+    assert.ok(eventTypes.includes("DURABLE_LIVE_GATE_CONFIGURED"));
+    assert.ok(eventTypes.includes("SOURCE_COMMIT_CONFIGURED"));
   });
 });

@@ -201,9 +201,10 @@ call, secret creation, or deployment mutation was performed.
    is unknown after dispatch, the Durable Object retains the reserved exposure as
    `unknown_cost` (status `FAILED_UNRECONCILED_COST`) even for deterministic failures,
    and subsequent live admission is held with `BLOCKED_UNRECONCILED_UNKNOWN_COST` until
-   an admin-authenticated operator reconciliation
-   (`POST /admin/reconcile-unknown-cost`) explicitly clears it. `FAILED`, missing receipt,
-   and missing usage are never inferred as zero cost.
+   an explicit, evidence-backed operator reconciliation
+   (`POST /admin/reconcile-unknown-cost`) clears it. `FAILED`, missing receipt,
+   and missing usage are never inferred as zero cost. (The reconciliation evidence
+   contract was subsequently hardened — see §3.2.4 DEFECT 2.)
 4. **DEFECT D — canonical provider identity and transport are positively verified.**
    Production `LIVE_NEBIUS` grounding now requires the canonical live urllib transport
    for the inference client AND the canonical Token Factory inference/sandbox endpoint
@@ -230,6 +231,63 @@ call, secret creation, or deployment mutation was performed.
 > that live-marked tests were collected and at least four executed, but whether real
 > provider network operations occurred cannot be established from the available
 > artifacts.
+
+### 3.2.4 P-27.06 Final Deployment-Gate Repair (Defects 1–2)
+
+A two-defect surgical repair closed the last pre-live gaps between the deployed Worker,
+the durable Durable Object authorization state, and the cost-hold reconciliation path.
+All evidence is `LOCAL_EXECUTION` only.
+
+1. **DEFECT 1 — persistent Durable Object config no longer blocks or silently follows a
+   deployment transition.**
+   - The durable live gate is **never seeded from the runtime environment**. A new Worker
+     deployment that supplies `LIVE_ENABLED=true` does NOT enable the durable operator
+     gate; it always starts disabled.
+   - Pre-existing durable `EXPECTED_SOURCE_COMMIT` values are never overwritten by a
+     newer deployment. A deployment whose runtime commit differs from the durable commit
+     fails closed with `INVALID_SOURCE`; the two are never silently reconciled.
+   - The only post-initialization writers are the explicit, admin-authenticated operator
+     actions: `POST /admin/configure-source-commit` (align the durable expected source
+     commit with the independently verified deployed commit) and
+     `POST /admin/configure-live-gate` (change the durable operator gate). Both are
+     validated, audited (`SOURCE_COMMIT_CONFIGURED` / `DURABLE_LIVE_GATE_CONFIGURED`),
+     and never touch run/accounting/history state.
+   - Admission still requires BOTH the durable operator gate AND the runtime live
+     authorization.
+   - Preflight inspection now reports the gates separately and the source consistency:
+     `/health` and `/admin/ledger` expose `runtime_live_enabled`, `durable_live_enabled`,
+     the effective `live_enabled` (their conjunction), `durable_expected_source_commit`,
+     `runtime_expected_source_commit`, and `source_commit_consistent`.
+   - Adversarial test: an existing Durable Object initialized with `LIVE_ENABLED=false`
+     and an older source SHA, then a newer Worker deployment supplying `LIVE_ENABLED=true`
+     and a newer SHA → no implicit authorization (`BLOCKED`), no stale-source admission
+     (`INVALID_SOURCE`), and correct behavior only after explicit operator configuration.
+2. **DEFECT 2 — unverified reconciliation can no longer clear the cost hold.**
+   - `POST /admin/reconcile-unknown-cost` now requires a complete, auditable record:
+     `operator_decision` (`NO_PROVIDER_CHARGE` | `PROVIDER_CHARGE_OBSERVED`),
+     `provider_billing_observation`, `evidence_reference`, `observed_cost_usd`,
+     `verification_timestamp`, and `reconciled_by`.
+   - Empty/malformed evidence is rejected and the hold is preserved
+     (`hold_preserved: true`). Contradictory amounts are rejected
+     (e.g. `NO_PROVIDER_CHARGE` with non-zero cost, or attested cost exceeding the
+     released exposure).
+   - Attestation honesty: only `OPERATOR_ATTESTED` records are accepted. `PROVIDER_VERIFIED`
+     is rejected while no independent provider verifier is configured; the response always
+     reports `provider_verification_claimed: false`. An operator billing observation is
+     never represented as independently verified provider fact.
+   - Reconciliation releases held unknown exposure only. It never records or fabricates
+     provider-observed metered cost and never silently converts unknown cost into zero
+     measured spend. Each accepted record is persisted in a dedicated `reconciliations`
+     table and the audit log.
+   - Focused tests prove that a bare admin request or arbitrary free-text note cannot
+     silently clear the hold.
+
+| Verification Dimension | Required Provenance | Current Execution Status |
+| :--- | :--- | :--- |
+| Durable gate / deployment-transition safety (Defect 1) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
+| Explicit operator source/gate configuration (Defect 1) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
+| Evidence-required cost-hold reconciliation (Defect 2) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
+| Deployed Live Nebius Execution (P-27.06) | `LIVE_NEBIUS` | `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN` |
 
 ### 3.3 Post-Authorization Live Verification Protocol
 
