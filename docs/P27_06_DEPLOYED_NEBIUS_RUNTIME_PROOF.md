@@ -161,8 +161,10 @@ curl -X POST "https://<deployed-url>/v1/runs" \
 | Local Packaging & Health Check (P-27.02) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
 | Health / Source SHA Parity Path (P-27.04) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
 | Signed-Out Access Control (P-27.05) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
-| Public Cloud Deployment (P-27.03) | `RECORDED_LIVE` | **Previously independently VERIFIED / PASS; deployment remains unchanged in this offline repair batch** |
+| Public Cloud Deployment (P-27.03) | `LOCAL_EXECUTION` | **Previously independently QA-verified public deployment, supported by `LOCAL_EXECUTION` observations against remotely hosted Cloudflare Workers; deployment remains unchanged in this offline repair batch** |
 | Deployed Live Nebius Execution (P-27.06) | `LIVE_NEBIUS` | `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN` |
+
+> **Provenance Note:** The P-27.03 public Cloudflare deployment must NOT be classified as `RECORDED_LIVE`. That provenance is strictly reserved for recorded genuine live execution evidence, not for HTTPS deployment observations. P-27.03 is described as previously independently QA-verified public deployment, supported by `LOCAL_EXECUTION` observations against remotely hosted Cloudflare Workers. P-27.06 `LIVE_NEBIUS` execution remains strictly `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
 
 ### Remaining hard blockers
 
@@ -173,7 +175,7 @@ curl -X POST "https://<deployed-url>/v1/runs" \
 - Provider credentials on the private bridge: **NOT CONFIGURED**
 - Public Worker `LIVE_ENABLED`: intentionally **false**
 
-Phase P-27 cannot receive full `PASS` or `GO` while deployment and live runtime remain unexecuted.
+Phase P-27 cannot receive full `PASS` or `GO` while required live Nebius/NVIDIA causal execution remains NOT_RUN. Public Cloudflare deployment is complete and was previously independently QA-verified; required live Nebius/NVIDIA causal execution remains held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
 
 ---
 
