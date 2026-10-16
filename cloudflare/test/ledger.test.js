@@ -39,10 +39,17 @@ function createTestLedger(initialConfig = {}) {
   return { ledger, db, env };
 }
 
+function issueLiveGrant(ledger, options = {}) {
+  return ledger.issueGrant({
+    estimatedCostCap: 1.0,
+    ...options,
+  });
+}
+
 describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () => {
   it("1. 100 repeated clicks produce at most one admitted run for a single grant", () => {
     const { ledger } = createTestLedger();
-    const grant = ledger.issueGrant({ maxUses: 1 });
+    const grant = issueLiveGrant(ledger, { maxUses: 1 });
 
     const results = [];
     for (let i = 0; i < 100; i++) {
@@ -83,7 +90,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     // Issue 10 distinct grants
     const grants = [];
     for (let i = 0; i < 10; i++) {
-      grants.push(ledger.issueGrant({ clientInfo: `client_${i}` }));
+      grants.push(issueLiveGrant(ledger, { clientInfo: `client_${i}` }));
     }
 
     // Client 0 reserves admission first -> enters RESERVED
@@ -146,7 +153,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(forgedRes.code, 403);
 
     // 3b. Expired grant
-    const expiredGrant = ledger.issueGrant({ ttlSeconds: -10 }); // Already expired
+    const expiredGrant = issueLiveGrant(ledger, { ttlSeconds: -10 }); // Already expired
     const expiredRes = ledger.reserveAdmission({
       grant_token: expiredGrant.grant_token,
       target: DEFAULT_TARGET,
@@ -160,7 +167,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(expiredRes.code, 403);
 
     // 3c. Reused grant
-    const validGrant = ledger.issueGrant();
+    const validGrant = issueLiveGrant(ledger);
     const run1 = ledger.reserveAdmission({
       grant_token: validGrant.grant_token,
       target: DEFAULT_TARGET,
@@ -185,7 +192,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
 
   it("4. Restart during reserved/in-flight state (orphan cleanup and unknown cost accounting)", () => {
     const { ledger, db, env } = createTestLedger();
-    const grant = ledger.issueGrant();
+    const grant = issueLiveGrant(ledger);
 
     const reservation = ledger.reserveAdmission({
       grant_token: grant.grant_token,
@@ -228,7 +235,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
 
   it("5. Unknown provider outcome and duplicate-retry prevention", () => {
     const { ledger } = createTestLedger();
-    const grant = ledger.issueGrant();
+    const grant = issueLiveGrant(ledger);
 
     const reservation = ledger.reserveAdmission({
       grant_token: grant.grant_token,
@@ -265,11 +272,70 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(retryRes.status, "GRANT_ALREADY_USED");
   });
 
+  it("5b. Durable operator live gate cannot be overridden by request flag", () => {
+    const { ledger } = createTestLedger({ LIVE_ENABLED: "false" });
+    const grant = issueLiveGrant(ledger, {
+      verifiedBalance: 20.0,
+      balanceTimestamp: Date.now(),
+    });
+
+    const blocked = ledger.reserveAdmission({
+      grant_token: grant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      verified_balance: 20.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+
+    assert.equal(blocked.admitted, false);
+    assert.equal(blocked.status, "BLOCKED");
+    assert.match(blocked.error, /durable operator-controlled gate/);
+
+    const grantRow = ledger.sql.query(
+      "SELECT use_count, status FROM grants WHERE grant_id = ?",
+      grant.grant_id
+    )[0];
+    assert.equal(grantRow.use_count, 0);
+    assert.equal(grantRow.status, "ISSUED");
+  });
+
   it("6. Missing credentials, stale balance, and promo expiry", () => {
     const { ledger } = createTestLedger();
-    const grant = ledger.issueGrant();
+    const grant = issueLiveGrant(ledger);
 
-    // 6a. Missing verified balance
+    // 6a. Missing operator cost cap
+    const missingCapGrant = ledger.issueGrant({
+      verifiedBalance: 12.0,
+      balanceTimestamp: Date.now(),
+    });
+    const missingCapRes = ledger.reserveAdmission({
+      grant_token: missingCapGrant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      live_enabled: true,
+    });
+    assert.equal(missingCapRes.admitted, false);
+    assert.equal(missingCapRes.status, "BLOCKED_ESTIMATED_COST_CAP_MISSING");
+    assert.equal(missingCapRes.code, 422);
+
+    // 6b. Malformed operator cost cap
+    const malformedCapGrant = ledger.issueGrant({
+      verifiedBalance: 12.0,
+      balanceTimestamp: Date.now(),
+      estimatedCostCap: 0,
+    });
+    const malformedCapRes = ledger.reserveAdmission({
+      grant_token: malformedCapGrant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      live_enabled: true,
+    });
+    assert.equal(malformedCapRes.admitted, false);
+    assert.equal(malformedCapRes.status, "BLOCKED_ESTIMATED_COST_CAP_MISSING");
+    assert.equal(malformedCapRes.code, 422);
+
+    // 6c. Missing verified balance
     const missingBalRes = ledger.reserveAdmission({
       grant_token: grant.grant_token,
       target: DEFAULT_TARGET,
@@ -280,7 +346,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(missingBalRes.status, "BLOCKED_BALANCE_MISSING");
     assert.equal(missingBalRes.code, 422);
 
-    // 6b. Stale balance (>15 minutes old)
+    // 6d. Stale balance (>15 minutes old)
     const staleBalRes = ledger.reserveAdmission({
       grant_token: grant.grant_token,
       target: DEFAULT_TARGET,
@@ -293,7 +359,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(staleBalRes.status, "BLOCKED_BALANCE_STALE");
     assert.equal(staleBalRes.code, 422);
 
-    // 6c. Balance at or below safety floor ($5.00)
+    // 6e. Balance at or below safety floor ($5.00)
     const floorBalRes = ledger.reserveAdmission({
       grant_token: grant.grant_token,
       target: DEFAULT_TARGET,
@@ -306,7 +372,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(floorBalRes.status, "BLOCKED_BUDGET_FLOOR");
     assert.equal(floorBalRes.code, 403);
 
-    // 6d. Balance below floor after deducting estimated cost (5.03 - 0.05 = 4.98 < 5.00)
+    // 6f. Balance below floor after deducting estimated cost (5.03 - 0.05 = 4.98 < 5.00)
     const wouldViolateFloor = ledger.reserveAdmission({
       grant_token: grant.grant_token,
       target: DEFAULT_TARGET,
@@ -320,8 +386,8 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(wouldViolateFloor.status, "BLOCKED_BUDGET_FLOOR");
     assert.equal(wouldViolateFloor.code, 403);
 
-    // 6e. Operator-bound grant cap rejects a request whose server-side estimated cost is too high
-    const cappedGrant = ledger.issueGrant({
+    // 6g. Operator-bound grant cap rejects a request whose server-side estimated cost is too high
+    const cappedGrant = issueLiveGrant(ledger, {
       verifiedBalance: 10.0,
       balanceTimestamp: Date.now(),
       estimatedCostCap: 0.04,
@@ -342,7 +408,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     const { ledger } = createTestLedger({ GLOBAL_INVOCATION_CAP: "2" });
 
     // Run 1: Admitted and completed
-    const g1 = ledger.issueGrant();
+    const g1 = issueLiveGrant(ledger);
     const r1 = ledger.reserveAdmission({
       grant_token: g1.grant_token,
       target: DEFAULT_TARGET,
@@ -358,7 +424,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     });
 
     // Run 2: Admitted and completed
-    const g2 = ledger.issueGrant();
+    const g2 = issueLiveGrant(ledger);
     const r2 = ledger.reserveAdmission({
       grant_token: g2.grant_token,
       target: DEFAULT_TARGET,
@@ -374,7 +440,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     });
 
     // Run 3: Attempt admission after cap of 2 is reached
-    const g3 = ledger.issueGrant();
+    const g3 = issueLiveGrant(ledger);
     const r3 = ledger.reserveAdmission({
       grant_token: g3.grant_token,
       target: DEFAULT_TARGET,
@@ -391,7 +457,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     const { ledger: ledger2 } = createTestLedger();
     ledger2.engageKillSwitch("Operator initiated emergency freeze");
 
-    const gk = ledger2.issueGrant();
+    const gk = issueLiveGrant(ledger2);
     const rk = ledger2.reserveAdmission({
       grant_token: gk.grant_token,
       target: DEFAULT_TARGET,
@@ -419,7 +485,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
 
   it("8. Attempted arbitrary target / source substitution rejected", () => {
     const { ledger } = createTestLedger();
-    const grant = ledger.issueGrant();
+    const grant = issueLiveGrant(ledger);
 
     // 8a. Target substitution
     const badTargetRes = ledger.reserveAdmission({
@@ -509,7 +575,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       ALLOW_HISTORICAL_LIVE_RECEIPT_IMPORT: "true",
       GLOBAL_INVOCATION_CAP: "2",
     });
-    const grant = ledger.issueGrant();
+    const grant = issueLiveGrant(ledger);
     const reservation = ledger.reserveAdmission({
       grant_token: grant.grant_token,
       target: DEFAULT_TARGET,
@@ -536,7 +602,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
 
   it("10. Read-only public access preserved after live budget exhaustion", () => {
     const { ledger } = createTestLedger({ GLOBAL_INVOCATION_CAP: "1" });
-    const grant = ledger.issueGrant();
+    const grant = issueLiveGrant(ledger);
 
     const reservation = ledger.reserveAdmission({
       grant_token: grant.grant_token,
@@ -560,7 +626,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(accounting.global_cap, 1);
 
     // New live reservation fails
-    const g2 = ledger.issueGrant();
+    const g2 = issueLiveGrant(ledger);
     const nextRes = ledger.reserveAdmission({
       grant_token: g2.grant_token,
       target: DEFAULT_TARGET,
@@ -581,7 +647,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
 
   it("11. Same-origin routing and durable state recovery", () => {
     const { ledger, db, env } = createTestLedger();
-    const grant = ledger.issueGrant({ token: "durable_grant_123" });
+    const grant = issueLiveGrant(ledger, { token: "durable_grant_123" });
 
     // Store a published receipt
     const canonicalReceipt = buildFixturePublicReceipt();
@@ -607,8 +673,8 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
 
   it("12. Idempotency replays are bound to the original authorization context", () => {
     const { ledger } = createTestLedger();
-    const grantOne = ledger.issueGrant();
-    const grantTwo = ledger.issueGrant();
+    const grantOne = issueLiveGrant(ledger);
+    const grantTwo = issueLiveGrant(ledger);
 
     const first = ledger.reserveAdmission({
       grant_token: grantOne.grant_token,

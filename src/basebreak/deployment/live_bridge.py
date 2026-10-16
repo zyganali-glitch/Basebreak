@@ -201,6 +201,9 @@ class BridgeExecutionResult:
 
 
 BridgeExecutor = Callable[[BridgeRequest], BridgeExecutionResult]
+BridgeExecutionAuthorityVerifier = Callable[
+    [BridgeRequest, BridgeExecutionResult], tuple[bool, str | None]
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -354,10 +357,7 @@ def verify_receipt_proof(
             return False
 
         verify_public_receipt_integrity(receipt)
-        if (
-            str(proof.get("receipt_digest", "")).strip().lower()
-            != receipt.receipt_digest.lower()
-        ):
+        if str(proof.get("receipt_digest", "")).strip().lower() != receipt.receipt_digest.lower():
             return False
         if (
             str(proof.get("source_commit_id", "")).strip().lower()
@@ -387,10 +387,12 @@ class TrustedVerifierBridge:
         config: TrustedBridgeConfig,
         executor: BridgeExecutor | None = None,
         signer: _PrivilegedVerifierSigner | None = None,
+        execution_authority_verifier: BridgeExecutionAuthorityVerifier | None = None,
     ) -> None:
         self.config = config
         self.executor = executor
         self.signer = signer or _PrivilegedVerifierSigner.from_environment()
+        self.execution_authority_verifier = execution_authority_verifier
 
     def _error(
         self,
@@ -569,6 +571,33 @@ class TrustedVerifierBridge:
                 502,
                 "FAILED",
                 "Bridge executor returned a non-LIVE_NEBIUS receipt for a live request.",
+            )
+
+        if self.execution_authority_verifier is None:
+            return self._error(
+                503,
+                "NOT_READY_FOR_DEPLOYMENT",
+                "Independent live execution authority is not configured. Trusted bridge "
+                "cannot certify executor-reported LIVE_NEBIUS receipts; run remains NOT_RUN.",
+            )
+
+        try:
+            authority_verified, authority_error = self.execution_authority_verifier(
+                request_obj, result
+            )
+        except Exception as exc:
+            return self._error(
+                502,
+                "FAILED",
+                f"Independent live execution authority check failed: {exc}",
+            )
+
+        if not authority_verified:
+            return self._error(
+                502,
+                "FAILED",
+                authority_error
+                or "Independent live execution authority rejected the executor-reported receipt.",
             )
 
         proof = create_receipt_proof(

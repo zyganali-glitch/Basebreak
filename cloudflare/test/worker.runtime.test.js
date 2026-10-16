@@ -11,6 +11,13 @@ function getLedgerStub() {
   return env.ADMISSION_LEDGER.get(id);
 }
 
+function issueLiveGrant(stub, options = {}) {
+  return stub.issueGrant({
+    estimatedCostCap: 1.0,
+    ...options,
+  });
+}
+
 afterEach(async () => {
   vi.restoreAllMocks();
   await reset();
@@ -76,9 +83,9 @@ describe("Basebreak Cloudflare Worker runtime compatibility preflight", () => {
   it("preserves single in-flight quota and idempotency context across real Durable Object RPC calls", async () => {
     const stub = getLedgerStub();
     const grants = await Promise.all([
-      stub.issueGrant({ clientInfo: "judge-a" }),
-      stub.issueGrant({ clientInfo: "judge-b" }),
-      stub.issueGrant({ clientInfo: "judge-c" }),
+      issueLiveGrant(stub, { clientInfo: "judge-a" }),
+      issueLiveGrant(stub, { clientInfo: "judge-b" }),
+      issueLiveGrant(stub, { clientInfo: "judge-c" }),
     ]);
 
     const results = await Promise.all(
@@ -102,7 +109,7 @@ describe("Basebreak Cloudflare Worker runtime compatibility preflight", () => {
 
     await stub.recordExecutionFailure(admitted.run_id, { error_message: "runtime preflight cleanup" });
 
-    const replayGrant = await stub.issueGrant({ clientInfo: "judge-replay" });
+    const replayGrant = await issueLiveGrant(stub, { clientInfo: "judge-replay" });
     const first = await stub.reserveAdmission({
       grant_token: replayGrant.grant_token,
       target: DEFAULT_TARGET,
@@ -121,7 +128,7 @@ describe("Basebreak Cloudflare Worker runtime compatibility preflight", () => {
       balance_timestamp: Date.now(),
       live_enabled: true,
     });
-    const conflictingGrant = await stub.issueGrant({ clientInfo: "judge-conflict" });
+    const conflictingGrant = await issueLiveGrant(stub, { clientInfo: "judge-conflict" });
     const mismatch = await stub.reserveAdmission({
       grant_token: conflictingGrant.grant_token,
       target: DEFAULT_TARGET,
@@ -146,7 +153,7 @@ describe("Basebreak Cloudflare Worker runtime compatibility preflight", () => {
 
   it("recovers orphaned reserved runs after Durable Object eviction and restart", async () => {
     const stub = getLedgerStub();
-    const grant = await stub.issueGrant({ clientInfo: "judge-recovery" });
+    const grant = await issueLiveGrant(stub, { clientInfo: "judge-recovery" });
     const reservation = await stub.reserveAdmission({
       grant_token: grant.grant_token,
       target: DEFAULT_TARGET,

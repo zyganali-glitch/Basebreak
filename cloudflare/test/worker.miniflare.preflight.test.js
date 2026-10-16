@@ -72,6 +72,13 @@ function getLedgerStub(bindings) {
   return bindings.ADMISSION_LEDGER.get(id);
 }
 
+function issueLiveGrant(stub, options = {}) {
+  return stub.issueGrant({
+    estimatedCostCap: 1.0,
+    ...options,
+  });
+}
+
 async function getLedgerStorage(miniflare) {
   return miniflare.unsafeGetDurableObjectStorage(SCRIPT_NAME, DO_CLASS_NAME, {
     name: LEDGER_OBJECT_NAME,
@@ -185,9 +192,9 @@ results.push(
   await runCheck("enforces atomic admission, contention, and idempotency", async () => {
     await withHarness({ liveEnabled: "true" }, async ({ stub }) => {
       const grants = await Promise.all([
-        stub.issueGrant({ clientInfo: "judge-a" }),
-        stub.issueGrant({ clientInfo: "judge-b" }),
-        stub.issueGrant({ clientInfo: "judge-c" }),
+        issueLiveGrant(stub, { clientInfo: "judge-a" }),
+        issueLiveGrant(stub, { clientInfo: "judge-b" }),
+        issueLiveGrant(stub, { clientInfo: "judge-c" }),
       ]);
 
       const results2 = await Promise.all(
@@ -212,7 +219,7 @@ results.push(
         error_message: "runtime preflight cleanup",
       });
 
-      const replayGrant = await stub.issueGrant({ clientInfo: "judge-replay" });
+      const replayGrant = await issueLiveGrant(stub, { clientInfo: "judge-replay" });
       const first = await stub.reserveAdmission({
         grant_token: replayGrant.grant_token,
         target: DEFAULT_TARGET,
@@ -231,7 +238,7 @@ results.push(
         balance_timestamp: Date.now(),
         live_enabled: true,
       });
-      const conflictingGrant = await stub.issueGrant({ clientInfo: "judge-conflict" });
+      const conflictingGrant = await issueLiveGrant(stub, { clientInfo: "judge-conflict" });
       const mismatch = await stub.reserveAdmission({
         grant_token: conflictingGrant.grant_token,
         target: DEFAULT_TARGET,
@@ -265,6 +272,31 @@ results.push(
           status: "IDEMPOTENCY_CONTEXT_MISMATCH",
         }
       );
+    });
+  })
+);
+
+results.push(
+  await runCheck("durable live gate cannot be overridden by request input", async () => {
+    await withHarness({ liveEnabled: "false" }, async ({ stub }) => {
+      const grant = await issueLiveGrant(stub, {
+        clientInfo: "judge-override",
+        verifiedBalance: 20.0,
+        balanceTimestamp: Date.now(),
+      });
+
+      const blocked = await stub.reserveAdmission({
+        grant_token: grant.grant_token,
+        target: DEFAULT_TARGET,
+        source_commit_id: DEFAULT_SOURCE,
+        verified_balance: 20.0,
+        balance_timestamp: Date.now(),
+        live_enabled: true,
+      });
+
+      assert.equal(blocked.admitted, false);
+      assert.equal(blocked.status, "BLOCKED");
+      assert.match(blocked.error, /durable operator-controlled gate/);
     });
   })
 );
@@ -375,7 +407,7 @@ results.push(
       const firstBindings = await firstMiniflare.getBindings();
       const firstStub = getLedgerStub(firstBindings);
       const storage = await getLedgerStorage(firstMiniflare);
-      const grant = await firstStub.issueGrant({ clientInfo: "judge-recovery" });
+      const grant = await issueLiveGrant(firstStub, { clientInfo: "judge-recovery" });
       const reservation = await firstStub.reserveAdmission({
         grant_token: grant.grant_token,
         target: DEFAULT_TARGET,

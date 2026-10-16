@@ -71,8 +71,7 @@ def _make_request_payload(source_commit_id: str) -> dict[str, Any]:
         "target": "tests/fixtures/reset_vault",
         "source_commit_id": source_commit_id,
         "frozen_contract_digest": (
-            "a1b2c3d4e5f60718293a4b5c6d7e8f90"
-            "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+            "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90"
         ),
         "max_estimated_cost_usd": 0.25,
     }
@@ -267,10 +266,10 @@ def test_bridge_preserves_ambiguous_provider_failure() -> None:
     assert body["ambiguous_outcome"] is True
 
 
-def test_bridge_returns_signed_live_receipt_proof() -> None:
+def test_bridge_rejects_executor_reported_live_receipt_without_independent_authority() -> None:
     receipt = _build_synthetic_live_receipt()
     payload = _make_request_payload(receipt.source_commit_id)
-    signer, authority = _PrivilegedVerifierSigner.create_ephemeral_pair()
+    signer, _ = _PrivilegedVerifierSigner.create_ephemeral_pair()
 
     def executor(_: Any) -> BridgeExecutionResult:
         return BridgeExecutionResult(
@@ -300,11 +299,23 @@ def test_bridge_returns_signed_live_receipt_proof() -> None:
         raw_body=json_bytes(payload),
     )
 
-    assert status_code == 201
-    signed_receipt = PublicVerificationReceipt.from_dict(body["receipt"])
+    assert status_code == 503
+    assert body["status"] == "NOT_READY_FOR_DEPLOYMENT"
+    assert "Independent live execution authority is not configured" in body["error"]
+
+
+def test_low_level_receipt_proof_round_trip_for_fixture_receipt() -> None:
+    receipt = _build_synthetic_live_receipt()
+    signer, authority = _PrivilegedVerifierSigner.create_ephemeral_pair()
+    proof = create_receipt_proof(
+        receipt,
+        signer=signer,
+        issuer_id="basebreak:verifier:nebius:worker",
+    )
+
     assert verify_receipt_proof(
-        signed_receipt,
-        body["receipt_proof"],
+        PublicVerificationReceipt.from_dict(receipt.to_dict()),
+        proof,
         modulus=authority.modulus,
         exponent=authority.exponent,
     )

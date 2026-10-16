@@ -84,7 +84,8 @@ The bounded P-27.06 offline batch now implements the minimum deployable trust bo
 3. **Trusted Python verifier bridge**
    - authenticates Worker requests with HMAC over canonical JSON plus timestamp/audience;
    - enforces exact target and source-commit binding;
-   - refuses to start if live execution is disabled, provider credentials are missing, or a trusted signer is unavailable.
+   - refuses to start if live execution is disabled, provider credentials are missing, or a trusted signer is unavailable;
+   - refuses to sign executor-reported `LIVE_NEBIUS` receipts unless an independent live execution authority is configured.
 4. **Receipt authority**
    - the Worker will only accept `LIVE_NEBIUS` after verifying both receipt integrity and a separate verifier-signed receipt proof;
    - fixture-only, self-hashed, forged, or unverifiable receipts remain rejected.
@@ -160,7 +161,7 @@ curl -X POST "https://<deployed-url>/v1/runs" \
 | Local Packaging & Health Check (P-27.02) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
 | Health / Source SHA Parity Path (P-27.04) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
 | Signed-Out Access Control (P-27.05) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
-| Public Cloud Deployment (P-27.03) | `LIVE_DEPLOYMENT` | `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN` |
+| Public Cloud Deployment (P-27.03) | `RECORDED_LIVE` | **Previously independently VERIFIED / PASS; deployment remains unchanged in this offline repair batch** |
 | Deployed Live Nebius Execution (P-27.06) | `LIVE_NEBIUS` | `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN` |
 
 ### Remaining hard blockers

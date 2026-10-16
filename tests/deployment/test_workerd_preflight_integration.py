@@ -2,7 +2,7 @@
 
 P-27.03 Closure Obligation:
 Executes the real Miniflare/workerd preflight on GitHub Actions Linux runner
-and local environments, asserting exit code 0 and all 6 runtime checks passing.
+and local environments, asserting exit code 0 and all 7 runtime checks passing.
 
 Note on Vitest vs Miniflare/workerd:
 The upstream `@cloudflare/vitest-plugin` runner currently aborts before test collection
@@ -29,6 +29,7 @@ EXPECTED_CHECK_NAMES = (
     "serves static judge asset and truthful health",
     "uses Durable Object SQLite transaction rollback",
     "enforces atomic admission, contention, and idempotency",
+    "durable live gate cannot be overridden by request input",
     "requires admin auth, sanitizes public data, and blocks provider dispatch",
     "recovers durable state across object re-instantiation",
     "rejects forged live receipts and preserves kill switch",
@@ -36,7 +37,7 @@ EXPECTED_CHECK_NAMES = (
 
 
 def test_workerd_miniflare_preflight_real_runtime() -> None:
-    """Execute real Miniflare/workerd preflight and assert all 6 checks pass."""
+    """Execute real Miniflare/workerd preflight and assert all 7 checks pass."""
     repo_root = Path(__file__).resolve().parent.parent.parent
     cloudflare_dir = repo_root / "cloudflare"
     package_lock = cloudflare_dir / "package-lock.json"
@@ -88,7 +89,7 @@ def test_workerd_miniflare_preflight_real_runtime() -> None:
         f"STDERR:\n{preflight_proc.stderr}"
     )
 
-    # 5. Assert all six genuine runtime checks passing
+    # 5. Assert all genuine runtime checks passing
     # In non-TTY environments (such as CI), Node.js node:test TAP reporter routes
     # test console output to stderr to prevent corrupting stdout TAP stream.
     combined_output = f"{preflight_proc.stdout}\n{preflight_proc.stderr}"
@@ -100,7 +101,7 @@ def test_workerd_miniflare_preflight_real_runtime() -> None:
             f"STDERR:\n{preflight_proc.stderr}"
         )
 
-    assert "Miniflare workerd preflight summary: 6/6 checks passed." in combined_output, (
+    assert "Miniflare workerd preflight summary: 7/7 checks passed." in combined_output, (
         f"Summary marker not found in preflight output:\n"
         f"STDOUT:\n{preflight_proc.stdout}\n"
         f"STDERR:\n{preflight_proc.stderr}"

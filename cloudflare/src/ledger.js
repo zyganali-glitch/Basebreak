@@ -335,7 +335,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
    * @param {number} [params.estimated_cost=0.05] Estimated worst-case cost
    * @param {number} [params.verified_balance] Trusted promotional balance snapshot fallback
    * @param {number} [params.balance_timestamp] Trusted snapshot timestamp (ms) fallback
-   * @param {boolean} [params.live_enabled] Explicit override or uses config
+   * @param {boolean} [params.live_enabled] Trusted runtime live authorization signal
    * @returns {{ admitted: boolean, status: string, code?: number, error?: string, run_id?: string, reserved_cost?: number, is_replay?: boolean }}
    */
   reserveAdmission({
@@ -364,19 +364,27 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       };
     }
 
-    // 3. Live enabled check (default LIVE_ENABLED=false)
-    const isLive =
-      live_enabled !== undefined
-        ? Boolean(live_enabled)
-        : this.getConfig("LIVE_ENABLED", "false") === "true";
-
-    if (!isLive) {
+    // 3. Live enabled checks: both the durable operator gate and trusted runtime
+    // authorization must be true. A request flag can never override a disabled
+    // durable gate.
+    const operatorLiveGateEnabled = this.getConfig("LIVE_ENABLED", "false") === "true";
+    if (!operatorLiveGateEnabled) {
       return {
         admitted: false,
         status: "BLOCKED",
         code: 403,
         error:
-          "Live execution is disabled by default. Status: OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. Zero-Cost Law enforced.",
+          "Live execution is disabled by the durable operator-controlled gate. Status: OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. Zero-Cost Law enforced.",
+      };
+    }
+
+    if (live_enabled !== true) {
+      return {
+        admitted: false,
+        status: "BLOCKED",
+        code: 403,
+        error:
+          "Trusted runtime live authorization is absent. Status: OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. Zero-Cost Law enforced.",
       };
     }
 
@@ -541,7 +549,17 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
 
     // 10. Promotional balance verification and $5.00 safety reserve floor
     const stopThreshold = parseFloat(this.getConfig("TOKEN_FACTORY_PROMO_STOP_THRESHOLD", "5.00"));
-    if (effectiveEstimatedCostCap !== null && estimated_cost > effectiveEstimatedCostCap) {
+    if (!Number.isFinite(effectiveEstimatedCostCap) || effectiveEstimatedCostCap <= 0) {
+      return {
+        admitted: false,
+        status: "BLOCKED_ESTIMATED_COST_CAP_MISSING",
+        code: 422,
+        error:
+          "Grant-bound estimated cost authority is missing or invalid. Live admission requires an explicit positive estimated_cost_cap issued by the operator.",
+      };
+    }
+
+    if (estimated_cost > effectiveEstimatedCostCap) {
       return {
         admitted: false,
         status: "BLOCKED_ESTIMATED_COST_CAP",
