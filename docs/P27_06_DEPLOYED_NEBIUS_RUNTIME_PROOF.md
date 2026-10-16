@@ -369,7 +369,7 @@ curl -X POST "https://<deployed-url>/v1/runs" \
 
 - Current verified promotional balance and expiration: **UNVERIFIED**
 - Provider-enforced hard spending stop / PAYG hard cap: **UNVERIFIED**
-- Private trusted bridge deployment: **NOT DEPLOYED**
+- Private trusted bridge deployment: **NOT DEPLOYED** (a minimal Windows-compatible localhost runner now exists at `src/basebreak/deployment/bridge_main.py`, runnable via `python -m basebreak.deployment.bridge_main`, binding strictly to `127.0.0.1`; hosting, the durable bridge state volume, the signing authority, and provider credentials remain outstanding)
 - Worker bridge URL/shared secret configuration: **NOT CONFIGURED ON PUBLIC DEPLOYMENT**
 - Provider credentials on the private bridge: **NOT CONFIGURED**
 - Trusted verifier signing authority (`BASEBREAK_VERIFIER_SIGNING_KEY`): **NOT CONFIGURED**
