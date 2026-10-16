@@ -93,7 +93,7 @@ async function createHarness(options = {}) {
     stub: getLedgerStub(bindings),
     async dispose() {
       await miniflare.dispose();
-      await rm(persistencePath, { recursive: true, force: true });
+      await rm(persistencePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     },
   };
 }
@@ -349,10 +349,10 @@ results.push(
       const nonLivePayload = await nonLiveResponse.json();
       assert.equal(nonLivePayload.status, "NOT_RUN");
       assert.match(nonLivePayload.error, /Offline synthesized causal results are disabled/);
-      assert.equal(liveDisabledResponse.status, 503);
+      assert.equal(liveDisabledResponse.status, 400);
       const liveDisabledPayload = await liveDisabledResponse.json();
-      assert.equal(liveDisabledPayload.status, "NOT_RUN");
-      assert.match(liveDisabledPayload.error, /Trusted server-controlled budget authority/);
+      assert.equal(liveDisabledPayload.status, "INVALID_INPUT");
+      assert.match(liveDisabledPayload.error, /Client-controlled authority field '.*' is forbidden/);
       assert.equal(accountingAfter.total_runs, accountingBefore.total_runs);
       assert.equal(accountingAfter.in_flight_count, accountingBefore.in_flight_count);
     });

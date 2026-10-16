@@ -68,10 +68,11 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
    * Enforce that cryptographic digest equality does not, by itself, grant live-evidence authority.
    *
    * @param {Record<string, unknown>} receiptObj
+   * @param {{ allowAuthoritativeProvenance?: boolean }} [options]
    */
-  assertReceiptAuthority(receiptObj) {
+  assertReceiptAuthority(receiptObj, { allowAuthoritativeProvenance = false } = {}) {
     const provenance = String(receiptObj.provenance || "").trim().toUpperCase();
-    if (AUTHORITATIVE_PUBLIC_PROVENANCES.has(provenance)) {
+    if (AUTHORITATIVE_PUBLIC_PROVENANCES.has(provenance) && !allowAuthoritativeProvenance) {
       throw new Error(
         "Authoritative LIVE_NEBIUS/RECORDED_LIVE receipt import is blocked until independent trusted verification authority is configured."
       );
@@ -91,7 +92,10 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
         max_uses INTEGER NOT NULL DEFAULT 1,
         use_count INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL,
-        client_info TEXT
+        client_info TEXT,
+        verified_balance REAL,
+        balance_timestamp INTEGER,
+        estimated_cost_cap REAL
       );
 
       CREATE TABLE IF NOT EXISTS runs (
@@ -147,6 +151,10 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       );
     `);
 
+    this.ensureColumnExists("grants", "verified_balance", "REAL");
+    this.ensureColumnExists("grants", "balance_timestamp", "INTEGER");
+    this.ensureColumnExists("grants", "estimated_cost_cap", "REAL");
+
     // Initialize default configs from env
     this.setConfigIfNotExists("LIVE_ENABLED", String(this.env.LIVE_ENABLED ?? "false"));
     this.setConfigIfNotExists("GLOBAL_INVOCATION_CAP", String(this.env.GLOBAL_INVOCATION_CAP ?? "5"));
@@ -175,6 +183,21 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
     const existing = this.sql.query("SELECT value FROM config WHERE key = ?", key);
     if (existing.length === 0) {
       this.sql.execute("INSERT INTO config (key, value) VALUES (?, ?)", key, value);
+    }
+  }
+
+  /**
+   * Add a missing column to a table in place.
+   *
+   * @param {string} tableName
+   * @param {string} columnName
+   * @param {string} columnDefinition
+   */
+  ensureColumnExists(tableName, columnName, columnDefinition) {
+    const columns = this.sql.query(`PRAGMA table_info(${tableName})`);
+    const hasColumn = columns.some((column) => String(column.name || "").trim() === columnName);
+    if (!hasColumn) {
+      this.sql.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
     }
   }
 
@@ -212,29 +235,52 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
    * @param {number} [options.ttlSeconds=3600] Time-to-live in seconds
    * @param {number} [options.maxUses=1] Allowed uses (strictly 1 for single-use)
    * @param {string} [options.clientInfo=""]
-   * @returns {{ grant_id: string, grant_token: string, expires_at: number, max_uses: number }}
+   * @param {number | null} [options.verifiedBalance=null]
+   * @param {number | null} [options.balanceTimestamp=null]
+   * @param {number | null} [options.estimatedCostCap=null]
+   * @returns {{ grant_id: string, grant_token: string, expires_at: number, max_uses: number, preflight_balance_bound: boolean, estimated_cost_cap: number | null }}
    */
-  issueGrant({ token, ttlSeconds = 3600, maxUses = 1, clientInfo = "" } = {}) {
+  issueGrant({
+    token,
+    ttlSeconds = 3600,
+    maxUses = 1,
+    clientInfo = "",
+    verifiedBalance = null,
+    balanceTimestamp = null,
+    estimatedCostCap = null,
+  } = {}) {
     const grantId = "grant_" + crypto.randomUUID();
     const grantToken = token || "bb_grant_" + crypto.randomBytes(16).toString("hex");
     const now = Date.now();
     const expiresAt = now + ttlSeconds * 1000;
 
     this.sql.execute(
-      `INSERT INTO grants (grant_id, grant_token, issued_at, expires_at, max_uses, use_count, status, client_info)
-       VALUES (?, ?, ?, ?, ?, 0, 'ISSUED', ?)`,
+      `INSERT INTO grants (
+         grant_id, grant_token, issued_at, expires_at, max_uses, use_count, status, client_info,
+         verified_balance, balance_timestamp, estimated_cost_cap
+       )
+       VALUES (?, ?, ?, ?, ?, 0, 'ISSUED', ?, ?, ?, ?)`,
       grantId,
       grantToken,
       now,
       expiresAt,
       maxUses,
-      clientInfo
+      clientInfo,
+      Number.isFinite(verifiedBalance) ? Number(verifiedBalance) : null,
+      typeof balanceTimestamp === "number" ? Math.trunc(balanceTimestamp) : null,
+      Number.isFinite(estimatedCostCap) ? Number(estimatedCostCap) : null
     );
 
     this.sql.execute(
       "INSERT INTO audit_log (timestamp, event_type, details) VALUES (?, 'GRANT_ISSUED', ?)",
       now,
-      JSON.stringify({ grant_id: grantId, expires_at: expiresAt, max_uses: maxUses })
+      JSON.stringify({
+        grant_id: grantId,
+        expires_at: expiresAt,
+        max_uses: maxUses,
+        preflight_balance_bound: Number.isFinite(verifiedBalance),
+        estimated_cost_cap: Number.isFinite(estimatedCostCap) ? Number(estimatedCostCap) : null,
+      })
     );
 
     return {
@@ -242,6 +288,8 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       grant_token: grantToken,
       expires_at: expiresAt,
       max_uses: maxUses,
+      preflight_balance_bound: Number.isFinite(verifiedBalance),
+      estimated_cost_cap: Number.isFinite(estimatedCostCap) ? Number(estimatedCostCap) : null,
     };
   }
 
@@ -285,8 +333,8 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
    * @param {string} params.source_commit_id Expected source commit SHA
    * @param {string} [params.idempotency_key] Optional caller idempotency key
    * @param {number} [params.estimated_cost=0.05] Estimated worst-case cost
-   * @param {number} [params.verified_balance] Trusted promotional balance snapshot
-   * @param {number} [params.balance_timestamp] Trusted snapshot timestamp (ms)
+   * @param {number} [params.verified_balance] Trusted promotional balance snapshot fallback
+   * @param {number} [params.balance_timestamp] Trusted snapshot timestamp (ms) fallback
    * @param {boolean} [params.live_enabled] Explicit override or uses config
    * @returns {{ admitted: boolean, status: string, code?: number, error?: string, run_id?: string, reserved_cost?: number, is_replay?: boolean }}
    */
@@ -329,6 +377,16 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
         code: 403,
         error:
           "Live execution is disabled by default. Status: OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN. Zero-Cost Law enforced.",
+      };
+    }
+
+    if (!Number.isFinite(estimated_cost) || estimated_cost <= 0) {
+      return {
+        admitted: false,
+        status: "BLOCKED_ESTIMATED_COST_UNKNOWN",
+        code: 422,
+        error:
+          "Maximum estimated cost is missing or invalid. Uncertain-cost live execution is forbidden.",
       };
     }
 
@@ -385,6 +443,13 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
     }
 
     const grant = grantRows[0];
+    const effectiveVerifiedBalance =
+      Number.isFinite(grant.verified_balance) ? Number(grant.verified_balance) : verified_balance;
+    const effectiveBalanceTimestamp =
+      typeof grant.balance_timestamp === "number" ? grant.balance_timestamp : balance_timestamp;
+    const effectiveEstimatedCostCap = Number.isFinite(grant.estimated_cost_cap)
+      ? Number(grant.estimated_cost_cap)
+      : null;
 
     if (idempotency_key && typeof idempotency_key === "string" && idempotency_key.trim()) {
       const existingRuns = this.sql.query(
@@ -476,7 +541,18 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
 
     // 10. Promotional balance verification and $5.00 safety reserve floor
     const stopThreshold = parseFloat(this.getConfig("TOKEN_FACTORY_PROMO_STOP_THRESHOLD", "5.00"));
-    if (verified_balance === undefined || verified_balance === null) {
+    if (effectiveEstimatedCostCap !== null && estimated_cost > effectiveEstimatedCostCap) {
+      return {
+        admitted: false,
+        status: "BLOCKED_ESTIMATED_COST_CAP",
+        code: 403,
+        error:
+          `Estimated run cost ($${estimated_cost.toFixed(2)}) exceeds the operator-approved grant cap ` +
+          `($${effectiveEstimatedCostCap.toFixed(2)}).`,
+      };
+    }
+
+    if (effectiveVerifiedBalance === undefined || effectiveVerifiedBalance === null) {
       return {
         admitted: false,
         status: "BLOCKED_BALANCE_MISSING",
@@ -486,7 +562,10 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       };
     }
 
-    if (typeof balance_timestamp !== "number" || now - balance_timestamp > 15 * 60 * 1000) {
+    if (
+      typeof effectiveBalanceTimestamp !== "number" ||
+      now - effectiveBalanceTimestamp > 15 * 60 * 1000
+    ) {
       return {
         admitted: false,
         status: "BLOCKED_BALANCE_STALE",
@@ -496,7 +575,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       };
     }
 
-    const balanceNum = parseFloat(String(verified_balance));
+    const balanceNum = parseFloat(String(effectiveVerifiedBalance));
     if (isNaN(balanceNum) || balanceNum <= stopThreshold) {
       return {
         admitted: false,
@@ -598,8 +677,12 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
    * @param {number} [params.observed_cost=0.0]
    * @param {number} [params.tokens_used=0]
    * @param {Record<string, unknown>} params.receipt
+   * @param {boolean} [params.allowAuthoritativeProvenance=false]
    */
-  recordExecutionSuccess(runId, { observed_cost = 0.0, tokens_used = 0, receipt }) {
+  recordExecutionSuccess(
+    runId,
+    { observed_cost = 0.0, tokens_used = 0, receipt, allowAuthoritativeProvenance = false }
+  ) {
     if (!receipt || typeof receipt !== "object") {
       throw new Error("A valid public verification receipt object is required.");
     }
@@ -612,7 +695,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
     if (typeof receipt.source_commit_id !== "string" || !receipt.source_commit_id.trim()) {
       throw new Error("Public receipt source_commit_id is required.");
     }
-    this.assertReceiptAuthority(receipt);
+    this.assertReceiptAuthority(receipt, { allowAuthoritativeProvenance });
 
     // Cryptographic receipt integrity verification
     if (!verifyReceiptIntegrity(receipt)) {
@@ -858,8 +941,9 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
    *
    * @param {string} runId
    * @param {Record<string, unknown>} receiptObj
+   * @param {{ allowAuthoritativeProvenance?: boolean }} [options]
    */
-  storeReceipt(runId, receiptObj) {
+  storeReceipt(runId, receiptObj, { allowAuthoritativeProvenance = false } = {}) {
     if (typeof receiptObj.overall_verdict !== "string" || !receiptObj.overall_verdict.trim()) {
       throw new Error("Receipt overall_verdict is required.");
     }
@@ -869,7 +953,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
     if (typeof receiptObj.source_commit_id !== "string" || !receiptObj.source_commit_id.trim()) {
       throw new Error("Receipt source_commit_id is required.");
     }
-    this.assertReceiptAuthority(receiptObj);
+    this.assertReceiptAuthority(receiptObj, { allowAuthoritativeProvenance });
     if (!verifyReceiptIntegrity(receiptObj)) {
       throw new Error("Public receipt integrity verification failed: recomputed digest mismatch.");
     }
@@ -894,14 +978,14 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
     );
   }
 
-  async storeReceiptRpc(runId, receiptObj) {
-    this.storeReceipt(runId, receiptObj);
+  async storeReceiptRpc(runId, receiptObj, options = {}) {
+    this.storeReceipt(runId, receiptObj, options);
     return { stored: true };
   }
 
-  async probeStoreReceiptAuthority(runId, receiptObj) {
+  async probeStoreReceiptAuthority(runId, receiptObj, options = {}) {
     try {
-      this.storeReceipt(runId, receiptObj);
+      this.storeReceipt(runId, receiptObj, options);
       return { ok: true };
     } catch (error) {
       return {

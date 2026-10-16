@@ -319,6 +319,23 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(wouldViolateFloor.admitted, false);
     assert.equal(wouldViolateFloor.status, "BLOCKED_BUDGET_FLOOR");
     assert.equal(wouldViolateFloor.code, 403);
+
+    // 6e. Operator-bound grant cap rejects a request whose server-side estimated cost is too high
+    const cappedGrant = ledger.issueGrant({
+      verifiedBalance: 10.0,
+      balanceTimestamp: Date.now(),
+      estimatedCostCap: 0.04,
+    });
+    const cappedRes = ledger.reserveAdmission({
+      grant_token: cappedGrant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.05,
+      live_enabled: true,
+    });
+    assert.equal(cappedRes.admitted, false);
+    assert.equal(cappedRes.status, "BLOCKED_ESTIMATED_COST_CAP");
+    assert.equal(cappedRes.code, 403);
   });
 
   it("7. Budget exhaustion and kill switch", () => {

@@ -7,8 +7,10 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import worker, { AdmissionLedgerDO } from "../src/index.js";
+import { canonicalJson, computeReceiptDigest } from "../src/crypto_utils.js";
 import { dispatchVerificationRun } from "../src/provider_dispatcher.js";
 import { buildFixturePublicReceipt } from "./fixtures/public_receipt_fixture.js";
 
@@ -25,6 +27,172 @@ function createWorkerEnv(overrides = {}) {
   };
   env.__ledgerInstance = new AdmissionLedgerDO(db, env);
   return { env, db };
+}
+
+function bufferToBase64UrlHex(value) {
+  return Buffer.from(value, "base64url").toString("hex").toLowerCase();
+}
+
+function hexToBigInt(hex) {
+  return BigInt("0x" + hex);
+}
+
+function modPow(base, exponent, modulus) {
+  let result = 1n;
+  let factor = base % modulus;
+  let power = exponent;
+  while (power > 0n) {
+    if (power & 1n) {
+      result = (result * factor) % modulus;
+    }
+    factor = (factor * factor) % modulus;
+    power >>= 1n;
+  }
+  return result;
+}
+
+function createTestVerifierAuthority() {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync("rsa", {
+    modulusLength: 1024,
+    publicExponent: 0x10001,
+  });
+  const privateJwk = privateKey.export({ format: "jwk" });
+  const publicJwk = publicKey.export({ format: "jwk" });
+  return {
+    modulusHex: bufferToBase64UrlHex(publicJwk.n),
+    exponent: parseInt(bufferToBase64UrlHex(publicJwk.e), 16),
+    privateExponentHex: bufferToBase64UrlHex(privateJwk.d),
+  };
+}
+
+function signProofDigest(digestHex, authority) {
+  const hashedDigest = crypto.createHash("sha256").update(digestHex, "utf8").digest("hex");
+  const message = hexToBigInt(hashedDigest);
+  const modulus = hexToBigInt(authority.modulusHex);
+  const privateExponent = hexToBigInt(authority.privateExponentHex);
+  return modPow(message, privateExponent, modulus).toString(16).padStart(256, "0");
+}
+
+function buildSignedBridgeSuccess(receipt, authority) {
+  const executions = Object.fromEntries(receipt.executions.map((execution) => [execution.world, execution]));
+  const counterfactualExecution = receipt.counterfactual?.execution_fact || null;
+  const proof = {
+    schema_version: "1.0.0",
+    receipt_digest: receipt.receipt_digest,
+    source_commit_id: receipt.source_commit_id,
+    candidate_tree_digest: receipt.candidate_tree_digest,
+    candidate_patch_digest: receipt.candidate_patch_digest ?? null,
+    overall_verdict: receipt.overall_verdict,
+    provenance: receipt.provenance,
+    issued_at_utc: receipt.timing?.created_at_utc || "2026-10-16T08:00:00+00:00",
+    issuer_id: "basebreak:verifier:nebius:worker",
+    base_execution: executions.BASE,
+    candidate_execution: executions.CANDIDATE,
+    counterfactual_execution: counterfactualExecution,
+  };
+  const proofDigest = crypto.createHash("sha256").update(canonicalJson(proof), "utf8").digest("hex").toLowerCase();
+
+  return {
+    ok: true,
+    status: "COMPLETED",
+    receipt,
+    receipt_proof: {
+      ...proof,
+      proof_digest: proofDigest,
+      signature: signProofDigest(proofDigest, authority),
+    },
+    observed_cost_usd: 0.042,
+    tokens_used: 321,
+  };
+}
+
+function buildVerifiedLiveReceiptFixture() {
+  const receipt = {
+    schema_version: "1.0.0",
+    frozen_contract_digest: "a".repeat(64),
+    task_id: "TASK-RESET-VAULT-001",
+    repo_locator: "tests/fixtures/reset_vault",
+    source_commit_id: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+    candidate_tree_digest: "b".repeat(64),
+    candidate_patch_digest: "c".repeat(64),
+    overall_verdict: "VERIFIED",
+    provenance: "LIVE_NEBIUS",
+    executions: [
+      {
+        world: "BASE",
+        outcome: "FAIL",
+        exit_code: 1,
+        sandbox_id: "sbx-base-1",
+        source_commit_id: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+        tree_digest: "a".repeat(64),
+        stdout_digest: "1".repeat(64),
+        stderr_digest: "2".repeat(64),
+      },
+      {
+        world: "CANDIDATE",
+        outcome: "PASS",
+        exit_code: 0,
+        sandbox_id: "sbx-candidate-1",
+        source_commit_id: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+        tree_digest: "b".repeat(64),
+        stdout_digest: "3".repeat(64),
+        stderr_digest: "4".repeat(64),
+      },
+    ],
+    counterfactual: {
+      is_required: true,
+      outcome: "FAIL",
+      delta_digest: "d".repeat(64),
+      execution_fact: {
+        world: "COUNTERFACTUAL",
+        outcome: "FAIL",
+        exit_code: 1,
+        sandbox_id: "sbx-counterfactual-1",
+        source_commit_id: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+        tree_digest: "e".repeat(64),
+        stdout_digest: "5".repeat(64),
+        stderr_digest: "6".repeat(64),
+      },
+    },
+    coverage_summary: {
+      contract_digest: "a".repeat(64),
+      total_requirements: 1,
+      eligible_count: 1,
+      excluded_count: 0,
+      verified_count: 1,
+      not_run_count: 0,
+      inconclusive_count: 0,
+      contradicted_count: 0,
+      blocked_count: 0,
+      coverage_ratio: 1,
+      coverage_percentage: 100,
+      is_fully_verified: true,
+      overall_verdict: "VERIFIED",
+      per_requirement_facts: [],
+      coverage_digest: "f".repeat(64),
+    },
+    witnesses: [],
+    runtime_identities: ["trusted-python-bridge"],
+    timing: {
+      created_at_utc: "2026-10-16T08:00:00+00:00",
+      total_duration_seconds: 1.25,
+    },
+    accounting: {
+      is_metered: true,
+      input_tokens: 123,
+      output_tokens: 198,
+      total_tokens: 321,
+      cost_usd: 0.042,
+      sandbox_count: 3,
+    },
+    not_run_obligations: [],
+    signature_strategy: "SHA256_DIGEST_ONLY",
+    signature: null,
+    is_authoritative: false,
+    disclaimers: ["Verifier-signed LIVE_NEBIUS bridge fixture for unit testing."],
+  };
+  receipt.receipt_digest = computeReceiptDigest(receipt);
+  return receipt;
 }
 
 describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
@@ -142,8 +310,17 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     assert.match(data.error, /Offline synthesized causal results are disabled/);
   });
 
-  it("POST /v1/runs ignores client-supplied balance authority and fails closed before any provider call", async () => {
-    const { env } = createWorkerEnv({ LIVE_ENABLED: "true" });
+  it("POST /v1/runs rejects client-controlled authority fields before any provider call", async () => {
+    let fetchCalled = false;
+    const { env } = createWorkerEnv({
+      LIVE_ENABLED: "true",
+      EXPECTED_SOURCE_COMMIT: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      LIVE_RUN_ESTIMATED_COST_USD: "0.25",
+      __bridgeFetchForTests: async () => {
+        fetchCalled = true;
+        throw new Error("bridge fetch must not be called");
+      },
+    });
     const req = new Request("https://basebreak.workers.dev/v1/runs", {
       method: "POST",
       headers: {
@@ -159,10 +336,47 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     });
     const res = await worker.fetch(req, env, {});
 
+    assert.equal(fetchCalled, false);
+    assert.equal(res.status, 400);
+    const data = await res.json();
+    assert.equal(data.status, "INVALID_INPUT");
+    assert.match(data.error, /Client-controlled authority field '.*' is forbidden/);
+  });
+
+  it("POST /v1/runs fails closed when the trusted bridge infrastructure is unavailable", async () => {
+    const { env } = createWorkerEnv({
+      LIVE_ENABLED: "true",
+      EXPECTED_SOURCE_COMMIT: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      LIVE_RUN_ESTIMATED_COST_USD: "0.25",
+    });
+    const grant = env.__ledgerInstance.issueGrant({
+      verifiedBalance: 10.0,
+      balanceTimestamp: Date.now(),
+      estimatedCostCap: 0.30,
+      clientInfo: "judge",
+    });
+
+    const req = new Request("https://basebreak.workers.dev/v1/runs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Judge-Grant": grant.grant_token,
+      },
+      body: JSON.stringify({
+        target: "tests/fixtures/reset_vault",
+        allow_live: true,
+      }),
+    });
+    const res = await worker.fetch(req, env, {});
+
     assert.equal(res.status, 503);
     const data = await res.json();
-    assert.equal(data.status, "NOT_RUN");
-    assert.match(data.error, /Trusted server-controlled budget authority/);
+    assert.equal(data.status, "NOT_READY_FOR_DEPLOYMENT");
+    assert.match(data.error, /Trusted Python verifier bridge URL is not configured/);
+
+    const accounting = env.__ledgerInstance.getAccounting();
+    assert.equal(accounting.total_runs, 1);
+    assert.equal(accounting.in_flight_count, 0);
   });
 
   it("GET /v1/runs/:id returns only sanitized public fields", async () => {
@@ -274,15 +488,90 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
         target: "tests/fixtures/reset_vault",
         sourceCommitId: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
         allowLive: true,
+        estimatedCostUsd: 0.25,
       });
 
       assert.equal(fetchCalled, false);
       assert.equal(result.success, false);
-      assert.equal(result.status, "NOT_RUN");
-      assert.match(result.error, /NOT_READY_FOR_DEPLOYMENT/);
+      assert.equal(result.status, "NOT_READY_FOR_DEPLOYMENT");
+      assert.match(result.error, /bridge URL is not configured/);
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  it("dispatchVerificationRun preserves ambiguous bridge network failures", async () => {
+    const result = await dispatchVerificationRun({
+      runId: "run_dispatch_ambiguous",
+      target: "tests/fixtures/reset_vault",
+      sourceCommitId: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      allowLive: true,
+      estimatedCostUsd: 0.25,
+      bridgeUrl: "https://bridge.example/internal/live-verifications",
+      bridgeSharedSecret: "bridge-secret",
+      fetchImpl: async () => {
+        throw new Error("dial tcp timeout");
+      },
+    });
+
+    assert.equal(result.success, false);
+    assert.equal(result.status, "UNKNOWN_OUTCOME");
+    assert.equal(result.was_ambiguous, true);
+    assert.match(result.error, /AMBIGUOUS/);
+  });
+
+  it("dispatchVerificationRun accepts verifier-signed live receipts and rejects forged witness mutations", async () => {
+    const authority = createTestVerifierAuthority();
+    const liveReceipt = buildVerifiedLiveReceiptFixture();
+    const successPayload = buildSignedBridgeSuccess(liveReceipt, authority);
+
+    const success = await dispatchVerificationRun({
+      runId: "run_dispatch_success",
+      target: "tests/fixtures/reset_vault",
+      sourceCommitId: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      allowLive: true,
+      estimatedCostUsd: 0.25,
+      bridgeUrl: "https://bridge.example/internal/live-verifications",
+      bridgeSharedSecret: "bridge-secret",
+      verifierAuthorityOverride: {
+        modulusHex: authority.modulusHex,
+        exponent: authority.exponent,
+      },
+      fetchImpl: async () =>
+        new Response(JSON.stringify(successPayload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    });
+
+    assert.equal(success.success, true);
+    assert.equal(success.status, "COMPLETED");
+    assert.equal(success.tokens_used, 321);
+
+    const forgedPayload = structuredClone(successPayload);
+    forgedPayload.receipt_proof.candidate_tree_digest = "f".repeat(64);
+    const forged = await dispatchVerificationRun({
+      runId: "run_dispatch_forged",
+      target: "tests/fixtures/reset_vault",
+      sourceCommitId: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      allowLive: true,
+      estimatedCostUsd: 0.25,
+      bridgeUrl: "https://bridge.example/internal/live-verifications",
+      bridgeSharedSecret: "bridge-secret",
+      verifierAuthorityOverride: {
+        modulusHex: authority.modulusHex,
+        exponent: authority.exponent,
+      },
+      fetchImpl: async () =>
+        new Response(JSON.stringify(forgedPayload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    });
+
+    assert.equal(forged.success, false);
+    assert.equal(forged.status, "FAILED");
+    assert.match(forged.error, /receipt proof verification failed/i);
   });
 
   it("GET /v1/runs/:id/receipt serves only explicitly supplied receipts", async () => {

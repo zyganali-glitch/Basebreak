@@ -256,8 +256,8 @@ describe("Basebreak Cloudflare Worker runtime compatibility preflight", () => {
 
     expect(nonLiveResponse.status).toBe(403);
     expect(await nonLiveResponse.json()).toMatchObject({ status: "NOT_RUN" });
-    expect(liveDisabledResponse.status).toBe(503);
-    expect(await liveDisabledResponse.json()).toMatchObject({ status: "NOT_RUN" });
+    expect(liveDisabledResponse.status).toBe(400);
+    expect(await liveDisabledResponse.json()).toMatchObject({ status: "INVALID_INPUT" });
     expect(accountingAfter.total_runs).toBe(accountingBefore.total_runs);
     expect(accountingAfter.in_flight_count).toBe(accountingBefore.in_flight_count);
   });

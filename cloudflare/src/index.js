@@ -11,6 +11,10 @@
 
 import { redactSecrets } from "./crypto_utils.js";
 import { AdmissionLedgerDO } from "./ledger.js";
+import {
+  CANONICAL_DEMO_SCENARIO,
+  dispatchVerificationRun,
+} from "./provider_dispatcher.js";
 
 // Re-export Durable Object class for Cloudflare Workers runtime
 export { AdmissionLedgerDO };
@@ -152,12 +156,61 @@ function requireLedger(env) {
 
 const UNKNOWN_BUILD_SHA = "UNKNOWN_BUILD_SHA";
 const CANONICAL_PUBLIC_IDS = ["canonical-demo", "reset_vault"];
+const DEFAULT_BRIDGE_AUDIENCE = "cloudflare-worker";
+const NON_AUTHORITATIVE_CLIENT_FIELDS = [
+  "balance_timestamp",
+  "estimated_cost",
+  "estimated_cost_usd",
+  "live_enabled",
+  "provider_facts",
+  "provider_model_id",
+  "provider_operation_ids",
+  "receipt",
+  "receipt_digest",
+  "verified_balance",
+];
 
 function getDeclaredSourceCommit(env) {
   if (typeof env.EXPECTED_SOURCE_COMMIT === "string" && env.EXPECTED_SOURCE_COMMIT.trim()) {
     return env.EXPECTED_SOURCE_COMMIT.trim();
   }
   return UNKNOWN_BUILD_SHA;
+}
+
+function getConfiguredEstimatedLiveCost(env) {
+  const raw = typeof env.LIVE_RUN_ESTIMATED_COST_USD === "string" ? env.LIVE_RUN_ESTIMATED_COST_USD : "";
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function findForbiddenClientAuthorityField(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return null;
+  }
+  for (const fieldName of NON_AUTHORITATIVE_CLIENT_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(body, fieldName)) {
+      return fieldName;
+    }
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(body, "source_commit_id") &&
+    typeof body.source_commit_id === "string" &&
+    body.source_commit_id.trim()
+  ) {
+    return "source_commit_id";
+  }
+  return null;
+}
+
+function getRequestIdempotencyKey(request, body) {
+  const headerValue = request.headers.get("Idempotency-Key");
+  if (headerValue && headerValue.trim()) {
+    return headerValue.trim();
+  }
+  if (body && typeof body.idempotency_key === "string" && body.idempotency_key.trim()) {
+    return body.idempotency_key.trim();
+  }
+  return null;
 }
 
 function buildUnavailableRunPayload(runId, error) {
@@ -345,6 +398,9 @@ export default {
       } catch {
         return jsonResponse(400, { error: "Malformed JSON body." });
       }
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return jsonResponse(400, { error: "Run request body must be a JSON object." });
+      }
 
       const allowLive =
         body.allow_live === true ||
@@ -358,11 +414,115 @@ export default {
         });
       }
 
-      return jsonResponse(503, {
-        status: "NOT_RUN",
-        error:
-          "Live execution is NOT_READY_FOR_DEPLOYMENT. Trusted server-controlled budget authority and independently validated remote Python verification integration are unavailable, so no provider call was attempted.",
+      const forbiddenField = findForbiddenClientAuthorityField(body);
+      if (forbiddenField) {
+        return jsonResponse(400, {
+          status: "INVALID_INPUT",
+          error:
+            `Client-controlled authority field '${forbiddenField}' is forbidden. ` +
+            "Budget facts, provider facts, and exact source binding are established only by trusted server-side configuration and operator-issued grants.",
+        });
+      }
+
+      const expectedCommit = getDeclaredSourceCommit(env);
+      if (expectedCommit === UNKNOWN_BUILD_SHA) {
+        return jsonResponse(503, {
+          status: "NOT_READY_FOR_DEPLOYMENT",
+          error:
+            "Live execution is blocked because EXPECTED_SOURCE_COMMIT is not configured. Exact source binding is mandatory before any provider call.",
+        });
+      }
+
+      const estimatedCostUsd = getConfiguredEstimatedLiveCost(env);
+      if (estimatedCostUsd === null) {
+        return jsonResponse(503, {
+          status: "NOT_READY_FOR_DEPLOYMENT",
+          error:
+            "Live execution is blocked because the server-controlled maximum estimated live cost is not configured. Uncertain-cost execution is forbidden.",
+        });
+      }
+
+      const requestedTarget =
+        typeof body.target === "string" && body.target.trim()
+          ? body.target.trim()
+          : CANONICAL_DEMO_SCENARIO.target;
+
+      const reservation = await ledger.reserveAdmission({
+        grant_token: request.headers.get("X-Judge-Grant") || "",
+        target: requestedTarget,
+        source_commit_id: expectedCommit,
+        idempotency_key: getRequestIdempotencyKey(request, body),
+        estimated_cost: estimatedCostUsd,
+        live_enabled: env.LIVE_ENABLED === "true",
       });
+
+      if (!reservation.admitted) {
+        return jsonResponse(reservation.code || 503, {
+          status: reservation.status,
+          error: reservation.error,
+        });
+      }
+
+      const runId = reservation.run_id;
+      if (!runId) {
+        return jsonResponse(500, {
+          status: "FAILED",
+          error: "Admission ledger admitted a run without a run_id.",
+        });
+      }
+
+      if (reservation.is_replay) {
+        const replayRun =
+          typeof ledger.getPublicRun === "function" ? await ledger.getPublicRun(runId) : null;
+        if (replayRun) {
+          return jsonResponse(200, replayRun);
+        }
+      }
+
+      await ledger.markInFlight(runId);
+
+      const dispatch = await dispatchVerificationRun({
+        runId,
+        target: requestedTarget,
+        sourceCommitId: expectedCommit,
+        allowLive: true,
+        bridgeUrl: env.TRUSTED_VERIFIER_BRIDGE_URL,
+        bridgeSharedSecret: env.TRUSTED_VERIFIER_BRIDGE_SHARED_SECRET,
+        bridgeAudience:
+          typeof env.TRUSTED_VERIFIER_BRIDGE_AUDIENCE === "string" &&
+          env.TRUSTED_VERIFIER_BRIDGE_AUDIENCE.trim()
+            ? env.TRUSTED_VERIFIER_BRIDGE_AUDIENCE.trim()
+            : DEFAULT_BRIDGE_AUDIENCE,
+        estimatedCostUsd,
+        fetchImpl: env.__bridgeFetchForTests || globalThis.fetch,
+        verifierAuthorityOverride: env.__testVerifierAuthority,
+      });
+
+      if (!dispatch.success) {
+        await ledger.recordExecutionFailure(runId, {
+          error_message: dispatch.error,
+          outcome: dispatch.status,
+          was_ambiguous: dispatch.was_ambiguous,
+          observed_cost: dispatch.observed_cost_usd || 0.0,
+        });
+        return jsonResponse(dispatch.code || 503, {
+          run_id: runId,
+          status: dispatch.status,
+          error: dispatch.error,
+          ambiguous_outcome: dispatch.was_ambiguous,
+        });
+      }
+
+      await ledger.recordExecutionSuccess(runId, {
+        observed_cost: dispatch.observed_cost_usd || 0.0,
+        tokens_used: dispatch.tokens_used || 0,
+        receipt: dispatch.receipt,
+        allowAuthoritativeProvenance: true,
+      });
+
+      const completedRun =
+        typeof ledger.getPublicRun === "function" ? await ledger.getPublicRun(runId) : null;
+      return jsonResponse(201, completedRun || { run_id: runId, status: "COMPLETED" });
     }
 
     // 6. Admin API: Issue Single-Use Access Grant
@@ -383,6 +543,9 @@ export default {
         ttlSeconds: grantBody.ttl_seconds || 3600,
         maxUses: 1, // Strictly single-use
         clientInfo: grantBody.client_info || "judge",
+        verifiedBalance: grantBody.verified_balance,
+        balanceTimestamp: grantBody.balance_timestamp,
+        estimatedCostCap: grantBody.estimated_cost_cap,
       });
 
       return jsonResponse(201, grant);

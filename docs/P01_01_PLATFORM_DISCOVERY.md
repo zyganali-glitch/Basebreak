@@ -15,7 +15,7 @@
 | Token Factory Portal | `https://tokenfactory.nebius.com/` | Active production web console (`ai-studio-ui@1.1182.0+0300d191`) | `OFFICIAL_DOC` / `LIVE_NEBIUS` | 2026-09-12 |
 | Token Factory Quickstart | `https://docs.tokenfactory.nebius.com/quickstart` | Base URL `https://api.tokenfactory.nebius.com/v1/`, env var `NEBIUS_API_KEY` | `OFFICIAL_DOC` | 2026-09-12 |
 | Token Factory API Intro & Auth | `https://docs.tokenfactory.nebius.com/api-reference/introduction` | Bearer token auth (`Authorization: Bearer <token>`), OpenAI SDK compatible | `OFFICIAL_DOC` | 2026-09-12 |
-| Token Factory List Models API | `https://docs.tokenfactory.nebius.com/api-reference/models/list-models` | `GET /v1/models`, query params `project_id`, `verbose` | `OFFICIAL_DOC` | 2026-09-12 |
+| Token Factory List Models API | `https://docs.tokenfactory.nebius.com/api-reference/models/list-models` | `GET /v1/models`, query params `ai_project_id`, `verbose` | `OFFICIAL_DOC` | 2026-10-16 |
 | Token Factory Public Model Catalog | `https://tokenfactory.nebius.com/model-catalog.md` | Public markdown table of all models, context windows, regions, pricing | `OFFICIAL_DOC` / `LIVE_NEBIUS` | 2026-09-12 |
 | Token Factory Machine-Readable Catalog | `https://tokenfactory.nebius.com/api/public/models_info` | Authoritative JSON endpoint with per-flavor status, quantization, licenses | `OFFICIAL_DOC` / `LIVE_NEBIUS` | 2026-09-12 |
 | Nebius Builder Program Terms | `https://nebius.com/builders-terms-and-conditions` | $25 Token Factory + $25 Tavily credits, 90-day expiry; Section C.3 notes PAYG continuation | `OFFICIAL_DOC` | 2026-09-12 |
