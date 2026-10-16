@@ -648,4 +648,182 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     assert.equal(data.provenance, "FIXTURE");
     assert.equal(data.receipt_digest, receipt.receipt_digest);
   });
+
+  it("dispatchVerificationRun reports chargeable-dispatch possibility conservatively", async () => {
+    const base = {
+      runId: "run_dispatch_flag",
+      target: "tests/fixtures/reset_vault",
+      sourceCommitId: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      allowLive: true,
+      estimatedCostUsd: 0.25,
+    };
+
+    // Local pre-flight block: no bridge contact, no dispatch.
+    const noBridge = await dispatchVerificationRun({ ...base });
+    assert.equal(noBridge.provider_may_have_dispatched, false);
+
+    // Connection loss after the request boundary: dispatch possible.
+    const connectionLoss = await dispatchVerificationRun({
+      ...base,
+      bridgeUrl: "https://bridge.example/internal/live-verifications",
+      bridgeSharedSecret: "bridge-secret",
+      fetchImpl: async () => {
+        throw new Error("dial tcp: connection reset");
+      },
+    });
+    assert.equal(connectionLoss.status, "UNKNOWN_OUTCOME");
+    assert.equal(connectionLoss.was_ambiguous, true);
+    assert.equal(connectionLoss.provider_may_have_dispatched, true);
+
+    // Explicit bridge pre-dispatch rejection: no dispatch.
+    const preDispatchReject = await dispatchVerificationRun({
+      ...base,
+      bridgeUrl: "https://bridge.example/internal/live-verifications",
+      bridgeSharedSecret: "bridge-secret",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            ok: false,
+            status: "BLOCKED_MISSING_PROVIDER_CREDENTIALS",
+            error: "credentials missing",
+            ambiguous_outcome: false,
+            provider_dispatched: false,
+          }),
+          { status: 503, headers: { "Content-Type": "application/json" } }
+        ),
+    });
+    assert.equal(preDispatchReject.provider_may_have_dispatched, false);
+
+    // Malformed receipt after successful inference: consumption unknown -> dispatched.
+    const authority = createTestVerifierAuthority();
+    const liveReceipt = buildVerifiedLiveReceiptFixture();
+    const successPayload = buildSignedBridgeSuccess(liveReceipt, authority);
+    delete successPayload.receipt_proof.signature;
+    const malformed = await dispatchVerificationRun({
+      ...base,
+      bridgeUrl: "https://bridge.example/internal/live-verifications",
+      bridgeSharedSecret: "bridge-secret",
+      verifierAuthorityOverride: {
+        modulusHex: authority.modulusHex,
+        exponent: authority.exponent,
+      },
+      fetchImpl: async () =>
+        new Response(JSON.stringify(successPayload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    });
+    assert.equal(malformed.success, false);
+    assert.equal(malformed.status, "FAILED");
+    assert.equal(malformed.provider_may_have_dispatched, true);
+  });
+
+  it("POST /v1/runs holds unknown cost after a dispatched deterministic failure and blocks admission until reconciliation", async () => {
+    const estimatedCost = 0.25;
+    const { env } = createWorkerEnv({
+      LIVE_ENABLED: "true",
+      EXPECTED_SOURCE_COMMIT: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      LIVE_RUN_ESTIMATED_COST_USD: String(estimatedCost),
+      TRUSTED_VERIFIER_BRIDGE_URL: "https://bridge.example/internal/live-verifications",
+      TRUSTED_VERIFIER_BRIDGE_SHARED_SECRET: "bridge-secret",
+      __bridgeFetchForTests: async () =>
+        new Response(
+          JSON.stringify({
+            ok: false,
+            status: "FAILED",
+            error: "Model returned a malformed response after inference completed.",
+            ambiguous_outcome: false,
+            provider_dispatched: true,
+          }),
+          { status: 502, headers: { "Content-Type": "application/json" } }
+        ),
+    });
+
+    const grant = env.__ledgerInstance.issueGrant({
+      verifiedBalance: 10.0,
+      balanceTimestamp: Date.now(),
+      estimatedCostCap: 0.30,
+      clientInfo: "judge",
+    });
+
+    const makeRequest = (grantToken) =>
+      new Request("https://basebreak.workers.dev/v1/runs", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Judge-Grant": grantToken,
+        },
+        body: JSON.stringify({ target: "tests/fixtures/reset_vault", allow_live: true }),
+      });
+
+    const first = await worker.fetch(makeRequest(grant.grant_token), env, {});
+    assert.equal(first.status, 502);
+    const firstData = await first.json();
+    assert.equal(firstData.status, "FAILED");
+    assert.equal(firstData.ambiguous_outcome, false);
+
+    const accounting = env.__ledgerInstance.getAccounting();
+    assert.equal(accounting.unknown_cost, estimatedCost);
+    assert.equal(accounting.observed_cost, 0.0);
+    assert.equal(accounting.reserved_cost, 0.0);
+    assert.equal(accounting.in_flight_count, 0);
+
+    // A fresh grant must be held until an independently verified reconciliation.
+    const heldGrant = env.__ledgerInstance.issueGrant({
+      verifiedBalance: 10.0,
+      balanceTimestamp: Date.now(),
+      estimatedCostCap: 0.30,
+      clientInfo: "judge-2",
+    });
+    const held = await worker.fetch(makeRequest(heldGrant.grant_token), env, {});
+    assert.equal(held.status, 409);
+    const heldData = await held.json();
+    assert.equal(heldData.status, "BLOCKED_UNRECONCILED_UNKNOWN_COST");
+
+    // Operator reconciliation clears the hold.
+    const reconcileReq = new Request(
+      "https://basebreak.workers.dev/admin/reconcile-unknown-cost",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${env.BASEBREAK_ADMIN_KEY}`,
+        },
+        body: JSON.stringify({
+          run_id: firstData.run_id,
+          reconciled_by: "operator-independent-qa",
+          note: "Provider dashboard confirmed no billed usage.",
+        }),
+      }
+    );
+    const reconcileRes = await worker.fetch(reconcileReq, env, {});
+    assert.equal(reconcileRes.status, 200);
+    const reconcileData = await reconcileRes.json();
+    assert.equal(reconcileData.reconciled, true);
+
+    const cleared = env.__ledgerInstance.getAccounting();
+    assert.equal(cleared.unknown_cost, 0.0);
+
+    const afterGrant = env.__ledgerInstance.issueGrant({
+      verifiedBalance: 10.0,
+      balanceTimestamp: Date.now(),
+      estimatedCostCap: 0.30,
+      clientInfo: "judge-3",
+    });
+    const after = await worker.fetch(makeRequest(afterGrant.grant_token), env, {});
+    // The second dispatch is again a dispatched deterministic failure (held again),
+    // but admission itself is no longer blocked by an unreconciled hold.
+    assert.equal(after.status, 502);
+  });
+
+  it("POST /admin/reconcile-unknown-cost rejects unauthenticated callers", async () => {
+    const { env } = createWorkerEnv();
+    const req = new Request("https://basebreak.workers.dev/admin/reconcile-unknown-cost", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ run_id: "run_x" }),
+    });
+    const res = await worker.fetch(req, env, {});
+    assert.equal(res.status, 401);
+  });
 });

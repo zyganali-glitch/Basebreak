@@ -56,11 +56,18 @@ class DurableIdempotencyUnavailableError(Exception):
 class ExecutionIdempotencyStore:
     """Atomic, durable single-execution guard keyed by bridge ``request_id``.
 
-    The trusted bridge is hosted as a single private Python process. Atomic file
-    creation (``O_CREAT | O_EXCL``) therefore provides durable, cross-thread
-    single-execution protection without requiring an external database. When the
-    backing store cannot be created, read, or written, the caller must fail closed
-    rather than risk a second chargeable provider dispatch.
+    Durability scope (stated precisely, never overstated): this store provides
+    single-execution protection for **a single host mounting a persistent
+    volume**. Atomic file creation (``O_CREAT | O_EXCL``) plus atomic rename
+    (``os.replace``) gives durable, cross-thread and cross-process protection
+    when the configured state directory survives process restarts. It does NOT
+    provide cross-host durability: two bridge processes on hosts that do not
+    share the configured directory cannot see each other's claims. Production
+    live execution therefore requires an explicitly configured shared persistent
+    volume, and the store must never silently fall back to ephemeral storage.
+
+    When the backing store cannot be created, read, or written, the caller must
+    fail closed rather than risk a second chargeable provider dispatch.
     """
 
     def __init__(self, state_dir: str | os.PathLike[str]) -> None:
@@ -634,17 +641,53 @@ def _assert_runtime_identity_probe_binding(request: BridgeRequest, model_content
         )
 
 
+SIGNER_COMPATIBILITY_CHALLENGE: str = "basebreak:signer-compatibility-challenge:v1"
+
+
+def _signer_holds_authority_private_key(signer: Any, *, modulus: int, exponent: int) -> bool:
+    """Prove a signer actually holds the private key for an authority's public key.
+
+    Comparing only modulus/exponent is insufficient: a signer configured with the
+    correct public modulus/exponent but an incompatible private exponent would
+    pass a structural check, then perform real chargeable provider work whose
+    receipt the Worker could never accept. This performs a deterministic local
+    challenge-signature round trip: the signer signs a fixed challenge and the
+    signature is verified (raised to the public exponent) against the same
+    challenge. A wrong private exponent produces a mismatching recovery.
+
+    No production signing key is generated or exposed; the challenge is public
+    and the verification uses only public parameters.
+    """
+    if not isinstance(signer, _PrivilegedVerifierSigner):
+        return False
+    if signer.modulus != modulus or signer.exponent != exponent:
+        return False
+    try:
+        signature_hex = signer.sign_attestation_digest(SIGNER_COMPATIBILITY_CHALLENGE)
+        signature_int = int(signature_hex, 16)
+        expected_message = int.from_bytes(
+            hashlib.sha256(SIGNER_COMPATIBILITY_CHALLENGE.encode("utf-8")).digest(), "big"
+        )
+        recovered_message = pow(signature_int, exponent, modulus)
+    except Exception:
+        return False
+    return recovered_message == expected_message
+
+
 def _signer_matches_canonical_authority(signer: Any) -> bool:
-    """Return True only when a signer corresponds to the pinned canonical authority.
+    """Return True only when a signer holds the pinned canonical private key.
 
     The Worker independently verifies receipt proofs against the pinned public
     modulus/exponent. A bridge whose signer does not match that authority could
     execute chargeable provider work that the Worker can never accept, so it must
-    fail closed before any provider operation.
+    fail closed before any provider operation. Matching the public parameters is
+    not sufficient; the private exponent must be proven compatible.
     """
-    if not isinstance(signer, _PrivilegedVerifierSigner):
-        return False
-    return signer.modulus == PINNED_VERIFIER_MODULUS and signer.exponent == PINNED_VERIFIER_EXPONENT
+    return _signer_holds_authority_private_key(
+        signer,
+        modulus=PINNED_VERIFIER_MODULUS,
+        exponent=PINNED_VERIFIER_EXPONENT,
+    )
 
 
 def _assess_production_grounding(
@@ -654,26 +697,55 @@ def _assess_production_grounding(
     sandbox_adapter: Any,
     materializer: Any,
     worker: Any,
+    signer_authority: tuple[int, int] | None = None,
 ) -> tuple[bool, str | None]:
     """Positively confirm firsthand canonical provider execution grounding.
 
     LIVE_NEBIUS authority requires the exact canonical Nebius components reached
-    through their real live transports, plus a signer bound to the pinned
-    production verification authority. Any caller-supplied fake, mock, or
-    simulation component yields FIXTURE-only provenance so that synthetic
-    operation identities and fabricated receipts can never be certified.
+    through their real canonical live transports and canonical Token Factory
+    endpoint identities, plus a signer bound to the production verification
+    authority. Any caller-supplied fake, mock, or simulation component, any
+    injected non-canonical transport, and any arbitrary HTTPS host yields
+    FIXTURE-only provenance so that synthetic operation identities and fabricated
+    receipts can never be certified.
+
+    ``signer_authority`` is provided only by isolated fixture tests that inject an
+    ephemeral authority; production callers omit it and the pinned authority is
+    enforced.
     """
-    from basebreak.adapters.nebius import NebiusModelClient, default_urllib_transport
+    from basebreak.adapters.nebius import (
+        DEFAULT_API_BASE_URL,
+        DEFAULT_SANDBOX_API_BASE_URL,
+        NebiusModelClient,
+        default_urllib_transport,
+    )
     from basebreak.causal.engine import is_genuine_nebius_sandbox_adapter
     from basebreak.causal.materializer import CausalRepositoryMaterializer
     from basebreak.verifier.trust_bridge import TrustedVerifierWorker
 
-    if not _signer_matches_canonical_authority(signer):
+    authority_modulus, authority_exponent = signer_authority or (
+        PINNED_VERIFIER_MODULUS,
+        PINNED_VERIFIER_EXPONENT,
+    )
+    if not _signer_holds_authority_private_key(
+        signer, modulus=authority_modulus, exponent=authority_exponent
+    ):
         return False, "Signer does not match the pinned production verification authority."
     if type(worker) is not TrustedVerifierWorker:
         return False, "Trusted verifier worker is not the canonical TrustedVerifierWorker."
     if type(model_client) is not NebiusModelClient:
         return False, "Model client is not the canonical NebiusModelClient."
+    # DEFECT D: the inference client must traverse the canonical live transport to
+    # the canonical Token Factory inference endpoint. A dependency-injected fake
+    # transport or an arbitrary HTTPS host must never earn LIVE_NEBIUS authority.
+    if getattr(model_client, "_transport", None) is not default_urllib_transport:
+        return False, "Model client is not using the canonical live Nebius transport."
+    model_config = getattr(model_client, "config", None)
+    model_base_url = str(getattr(model_config, "api_base_url", "")).rstrip("/")
+    if model_base_url != DEFAULT_API_BASE_URL.rstrip("/"):
+        return False, (
+            "Model client endpoint is not the canonical Nebius Token Factory inference endpoint."
+        )
     if type(materializer) is not CausalRepositoryMaterializer:
         return False, "Materializer is not the canonical CausalRepositoryMaterializer."
     if not is_genuine_nebius_sandbox_adapter(sandbox_adapter):
@@ -681,9 +753,11 @@ def _assess_production_grounding(
     if getattr(sandbox_adapter, "_transport", None) is not default_urllib_transport:
         return False, "Sandbox adapter is not using the canonical live Nebius transport."
     config = getattr(sandbox_adapter, "config", None)
-    api_base_url = str(getattr(config, "api_base_url", ""))
-    if not api_base_url.startswith("https://"):
-        return False, "Sandbox adapter endpoint is not a canonical HTTPS provider endpoint."
+    api_base_url = str(getattr(config, "api_base_url", "")).rstrip("/")
+    if api_base_url != DEFAULT_SANDBOX_API_BASE_URL.rstrip("/"):
+        return False, (
+            "Sandbox adapter endpoint is not the canonical Nebius Token Factory sandbox endpoint."
+        )
     return True, None
 
 
@@ -1367,7 +1441,16 @@ def verify_receipt_proof(
 
 
 class TrustedVerifierBridge:
-    """Fail-closed bridge controller between the Worker and Python verifier boundary."""
+    """Fail-closed bridge controller between the Worker and Python verifier boundary.
+
+    Durable single-execution state is mandatory for production live execution.
+    The bridge never silently substitutes ephemeral ``tempfile`` storage for the
+    configured durable state directory: a missing ``TRUSTED_VERIFIER_BRIDGE_STATE_DIR``
+    fails closed before any chargeable provider operation. Ephemeral state is
+    permitted only when ``allow_ephemeral_test_state`` is explicitly enabled by an
+    isolated fixture test. Durability scope is a single host with a persistent
+    volume; cross-host durability is NOT claimed.
+    """
 
     def __init__(
         self,
@@ -1377,24 +1460,47 @@ class TrustedVerifierBridge:
         signer: _PrivilegedVerifierSigner | None = None,
         execution_authority_verifier: BridgeExecutionAuthorityVerifier | None = None,
         idempotency_store: ExecutionIdempotencyStore | None = None,
+        signer_authority: tuple[int, int] | None = None,
+        allow_ephemeral_test_state: bool = False,
     ) -> None:
         self.config = config
         self.executor = executor
         self.signer = signer or _PrivilegedVerifierSigner.from_environment()
         self.execution_authority_verifier = execution_authority_verifier
+        # Production binds to the pinned verifier authority. Isolated fixture
+        # tests may inject an ephemeral authority so that the same cryptographic
+        # signer-compatibility proof is still exercised without real key material.
+        self.signer_authority: tuple[int, int] = signer_authority or (
+            PINNED_VERIFIER_MODULUS,
+            PINNED_VERIFIER_EXPONENT,
+        )
         self.idempotency_store: ExecutionIdempotencyStore | None
         self.idempotency_store_error: str | None = None
         if idempotency_store is not None:
             self.idempotency_store = idempotency_store
-        else:
+        elif config.bridge_state_dir:
             try:
-                state_dir = config.bridge_state_dir or tempfile.mkdtemp(
-                    prefix="basebreak_bridge_state_"
-                )
-                self.idempotency_store = ExecutionIdempotencyStore(state_dir)
+                self.idempotency_store = ExecutionIdempotencyStore(config.bridge_state_dir)
             except DurableIdempotencyUnavailableError as exc:
                 self.idempotency_store = None
                 self.idempotency_store_error = str(exc)
+        elif allow_ephemeral_test_state:
+            # Explicitly isolated fixture testing only. Never reachable from the
+            # production bridge factory.
+            try:
+                self.idempotency_store = ExecutionIdempotencyStore(
+                    tempfile.mkdtemp(prefix="basebreak_bridge_state_")
+                )
+            except DurableIdempotencyUnavailableError as exc:
+                self.idempotency_store = None
+                self.idempotency_store_error = str(exc)
+        else:
+            self.idempotency_store = None
+            self.idempotency_store_error = (
+                "No durable bridge state directory is configured. Production live "
+                f"execution requires an explicit persistent {BRIDGE_STATE_DIR_ENV} "
+                "volume; ephemeral storage is forbidden outside isolated fixture tests."
+            )
 
     def _error(
         self,
@@ -1403,12 +1509,17 @@ class TrustedVerifierBridge:
         error: str,
         *,
         ambiguous_outcome: bool = False,
+        provider_dispatched: bool = False,
     ) -> tuple[int, dict[str, Any]]:
         return status_code, {
             "ok": False,
             "status": status,
             "error": error,
             "ambiguous_outcome": ambiguous_outcome,
+            # Whether a chargeable provider operation may have started. The Worker
+            # uses this to distinguish execution-outcome certainty from billing
+            # certainty; it is never inferred from FAILED alone.
+            "provider_dispatched": provider_dispatched,
         }
 
     def _verify_request_auth(
@@ -1592,9 +1703,13 @@ class TrustedVerifierBridge:
             )
 
         # DEFECT D: fail closed BEFORE any chargeable provider operation when the
-        # configured signer does not match the pinned production verification
-        # authority that the Worker accepts.
-        if not _signer_matches_canonical_authority(self.signer):
+        # configured signer does not hold the production verification authority
+        # (or injected fixture authority) private key that the Worker accepts.
+        if not _signer_holds_authority_private_key(
+            self.signer,
+            modulus=self.signer_authority[0],
+            exponent=self.signer_authority[1],
+        ):
             return self._error(
                 503,
                 "BLOCKED_INCOMPATIBLE_SIGNING_AUTHORITY",
@@ -1662,6 +1777,9 @@ class TrustedVerifierBridge:
                 result.error
                 or "Trusted bridge executor completed without an authenticated public receipt.",
                 ambiguous_outcome=ambiguous,
+                # The executor may have already invoked chargeable provider work
+                # before failing, so consumption may be unknown.
+                provider_dispatched=True,
             )
         else:
             integrity_error: str | None = None
@@ -1670,12 +1788,15 @@ class TrustedVerifierBridge:
             except Exception as exc:
                 integrity_error = f"Bridge receipt integrity verification failed: {exc}"
             if integrity_error is not None:
-                response_code, response_body = self._error(502, "FAILED", integrity_error)
+                response_code, response_body = self._error(
+                    502, "FAILED", integrity_error, provider_dispatched=True
+                )
             elif result.receipt.provenance != EvidenceProvenance.LIVE_NEBIUS:
                 response_code, response_body = self._error(
                     502,
                     "FAILED",
                     "Bridge executor returned a non-LIVE_NEBIUS receipt for a live request.",
+                    provider_dispatched=True,
                 )
             elif self.execution_authority_verifier is None:
                 response_code, response_body = self._error(
@@ -1683,6 +1804,7 @@ class TrustedVerifierBridge:
                     "NOT_READY_FOR_DEPLOYMENT",
                     "Independent live execution authority is not configured. Trusted bridge "
                     "cannot certify executor-reported LIVE_NEBIUS receipts; run remains NOT_RUN.",
+                    provider_dispatched=True,
                 )
             else:
                 try:
@@ -1701,6 +1823,7 @@ class TrustedVerifierBridge:
                         authority_error
                         or "Independent live execution authority rejected the executor-reported "
                         "receipt.",
+                        provider_dispatched=True,
                     )
                 else:
                     proof = create_receipt_proof(
@@ -1721,6 +1844,7 @@ class TrustedVerifierBridge:
                         "tokens_used": result.tokens_used,
                         "provider_operation_ids": list(result.provider_operation_ids),
                         "candidate_origin": result.candidate_origin,
+                        "provider_dispatched": True,
                     }
 
         # Persist the terminal outcome so replaying this request_id never triggers
@@ -1737,6 +1861,7 @@ class TrustedVerifierBridge:
                 f"Provider work may have occurred but durable single-execution protection "
                 f"could not be persisted: {exc}",
                 ambiguous_outcome=True,
+                provider_dispatched=True,
             )
         return response_code, response_body
 

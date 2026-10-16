@@ -503,6 +503,7 @@ export default {
           error_message: dispatch.error,
           outcome: dispatch.status,
           was_ambiguous: dispatch.was_ambiguous,
+          provider_may_have_dispatched: dispatch.provider_may_have_dispatched === true,
           observed_cost:
             typeof dispatch.observed_cost_usd === "number" ? dispatch.observed_cost_usd : null,
         });
@@ -585,6 +586,45 @@ export default {
 
       const accounting = await ledger.getAccounting();
       return jsonResponse(200, accounting);
+    }
+
+    // 9. Admin API: Independently Verified Operator Reconciliation of Unknown Cost
+    if (method === "POST" && path === "/admin/reconcile-unknown-cost") {
+      if (!isAdminAuthorized(request, env)) {
+        return jsonResponse(401, { error: "Unauthorized: Invalid operator admin key." });
+      }
+
+      let reconcileBody = {};
+      try {
+        reconcileBody = await request.json();
+      } catch {
+        return jsonResponse(400, { error: "Malformed JSON body." });
+      }
+      if (!reconcileBody || typeof reconcileBody !== "object" || Array.isArray(reconcileBody)) {
+        return jsonResponse(400, { error: "Reconciliation body must be a JSON object." });
+      }
+      if (
+        typeof reconcileBody.run_id !== "string" ||
+        !reconcileBody.run_id.trim()
+      ) {
+        return jsonResponse(400, { error: "Reconciliation requires a non-empty run_id." });
+      }
+
+      try {
+        const result = await ledger.reconcileUnknownCost(reconcileBody.run_id.trim(), {
+          amount_usd:
+            reconcileBody.amount_usd === undefined ? null : reconcileBody.amount_usd,
+          reconciled_by:
+            typeof reconcileBody.reconciled_by === "string" && reconcileBody.reconciled_by.trim()
+              ? reconcileBody.reconciled_by.trim()
+              : "operator",
+          note: typeof reconcileBody.note === "string" ? reconcileBody.note : "",
+        });
+        return jsonResponse(200, result);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return jsonResponse(409, { error: message });
+      }
     }
 
     return jsonResponse(404, { error: "Not Found", path });

@@ -776,4 +776,178 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(accounting.reserved_cost, 0.0);
     assert.equal(accounting.total_metered_cost, 0.02);
   });
+
+  it("14. Deterministic failure after dispatch retains unknown cost and blocks admission until reconciliation", () => {
+    const { ledger } = createTestLedger();
+    const grant = issueLiveGrant(ledger);
+    const reservation = ledger.reserveAdmission({
+      grant_token: grant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.05,
+      verified_balance: 20.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(reservation.admitted, true);
+
+    // Deterministic failure (not ambiguous) but the provider may have already
+    // started charging — measured cost is unknown.
+    const failure = ledger.recordExecutionFailure(reservation.run_id, {
+      error_message: "Model returned a malformed response after inference completed.",
+      outcome: "FAILED",
+      was_ambiguous: false,
+      provider_may_have_dispatched: true,
+      observed_cost: null,
+    });
+    assert.equal(failure.status, "FAILED_UNRECONCILED_COST");
+
+    const accounting = ledger.getAccounting();
+    assert.equal(accounting.observed_cost, 0.0);
+    assert.equal(accounting.unknown_cost, 0.05);
+    assert.equal(accounting.reserved_cost, 0.0);
+
+    // Subsequent live admission is held while unreconciled unknown exposure remains.
+    const blockedGrant = issueLiveGrant(ledger);
+    const blocked = ledger.reserveAdmission({
+      grant_token: blockedGrant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      verified_balance: 20.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(blocked.admitted, false);
+    assert.equal(blocked.status, "BLOCKED_UNRECONCILED_UNKNOWN_COST");
+    assert.equal(blocked.code, 409);
+
+    // Independently verified operator reconciliation clears the hold.
+    const reconciled = ledger.reconcileUnknownCost(reservation.run_id, {
+      reconciled_by: "operator-independent-qa",
+      note: "Provider usage dashboard confirmed zero billed inference.",
+    });
+    assert.equal(reconciled.reconciled, true);
+    assert.equal(reconciled.reconciled_amount, 0.05);
+    assert.equal(reconciled.remaining_unknown_cost, 0);
+
+    const clearedAccounting = ledger.getAccounting();
+    assert.equal(clearedAccounting.unknown_cost, 0.0);
+
+    const afterReconcileGrant = issueLiveGrant(ledger);
+    const admittedAfter = ledger.reserveAdmission({
+      grant_token: afterReconcileGrant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      verified_balance: 20.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(admittedAfter.admitted, true);
+  });
+
+  it("15. Deterministic pre-dispatch failure releases the reservation (no provider operation)", () => {
+    const { ledger } = createTestLedger();
+    const grant = issueLiveGrant(ledger);
+    const reservation = ledger.reserveAdmission({
+      grant_token: grant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.05,
+      verified_balance: 20.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(reservation.admitted, true);
+
+    const failure = ledger.recordExecutionFailure(reservation.run_id, {
+      error_message: "Trusted bridge URL is not configured; no provider call attempted.",
+      outcome: "NOT_READY_FOR_DEPLOYMENT",
+      was_ambiguous: false,
+      provider_may_have_dispatched: false,
+      observed_cost: null,
+    });
+    assert.equal(failure.status, "FAILED");
+
+    const accounting = ledger.getAccounting();
+    assert.equal(accounting.unknown_cost, 0.0);
+    assert.equal(accounting.observed_cost, 0.0);
+    assert.equal(accounting.reserved_cost, 0.0);
+
+    // No hold remains, so a fresh admission is admitted.
+    const nextGrant = issueLiveGrant(ledger);
+    const admitted = ledger.reserveAdmission({
+      grant_token: nextGrant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      verified_balance: 20.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(admitted.admitted, true);
+  });
+
+  it("16. Known observed cost on a dispatched failure is recorded as observed, not unknown", () => {
+    const { ledger } = createTestLedger();
+    const grant = issueLiveGrant(ledger);
+    const reservation = ledger.reserveAdmission({
+      grant_token: grant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.05,
+      verified_balance: 20.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+
+    ledger.recordExecutionFailure(reservation.run_id, {
+      error_message: "Sandbox materialization error after measured inference.",
+      outcome: "FAILED",
+      was_ambiguous: false,
+      provider_may_have_dispatched: true,
+      observed_cost: 0.012,
+    });
+
+    const accounting = ledger.getAccounting();
+    assert.equal(accounting.observed_cost, 0.012);
+    assert.equal(accounting.unknown_cost, 0.0);
+    assert.equal(accounting.reserved_cost, 0.0);
+  });
+
+  it("17. reconcileUnknownCost rejects invalid or unjustified reconciliation attempts", () => {
+    const { ledger } = createTestLedger();
+    const grant = issueLiveGrant(ledger);
+    const reservation = ledger.reserveAdmission({
+      grant_token: grant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.05,
+      verified_balance: 20.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    // No unknown cost yet.
+    assert.throws(
+      () => ledger.reconcileUnknownCost(reservation.run_id),
+      /no unreconciled unknown cost/
+    );
+    // Unknown run.
+    assert.throws(
+      () => ledger.reconcileUnknownCost("run_does_not_exist"),
+      /not found in ledger/
+    );
+
+    ledger.recordExecutionFailure(reservation.run_id, {
+      error_message: "unknown cost hold",
+      provider_may_have_dispatched: true,
+    });
+
+    assert.throws(
+      () => ledger.reconcileUnknownCost(reservation.run_id, { amount_usd: 0 }),
+      /positive finite number/
+    );
+    assert.throws(
+      () => ledger.reconcileUnknownCost(reservation.run_id, { amount_usd: 999 }),
+      /exceeds the run/
+    );
+  });
 });

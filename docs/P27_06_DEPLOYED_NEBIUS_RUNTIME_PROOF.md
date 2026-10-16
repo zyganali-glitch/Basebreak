@@ -48,13 +48,18 @@ To provide a deterministic verification protocol proving that the deployed Baseb
        Without it the bridge fails closed with `BLOCKED_MISSING_SIGNING_AUTHORITY`
        before any chargeable provider operation.
      - **`TRUSTED_VERIFIER_BRIDGE_STATE_DIR`** — a writable, persistent path used
-       for atomic durable single-execution idempotency. Without durable protection
-       the bridge fails closed with `BLOCKED_DURABLE_IDEMPOTENCY_UNAVAILABLE` rather
-       than dispatch a second chargeable execution.
+       for atomic durable single-execution idempotency. It is a hard prerequisite:
+       the bridge never silently substitutes ephemeral `tempfile` storage. Without a
+       configured durable directory the bridge fails closed with
+       `BLOCKED_DURABLE_IDEMPOTENCY_UNAVAILABLE` rather than dispatch a chargeable
+       execution. Durability scope is a single host with a persistent volume;
+       cross-host durability is NOT claimed.
    - **Signer compatibility contract:** the configured private signing authority
      MUST correspond to the pinned canonical public verification authority
      (`PINNED_VERIFIER_MODULUS` / `PINNED_VERIFIER_EXPONENT`) that the public Worker
-     independently verifies against. A signer that does not match fails closed with
+     independently verifies against. Matching public parameters is insufficient: the
+     bridge performs a deterministic local challenge-signature round trip to prove the
+     private exponent is compatible. A signer that does not match fails closed with
      `BLOCKED_INCOMPATIBLE_SIGNING_AUTHORITY` before any provider call. The bridge
      never generates, prints, commits, exposes, or substitutes an ephemeral test
      signer in production. Creating/configuring the real signing secret is a
@@ -171,6 +176,60 @@ without enabling live execution. All evidence below is `LOCAL_EXECUTION` only.
    `validate_candidate_proposal`) cannot be completed safely within this surgical
    no-live batch and remains a **documented blocker**; the deployed AI-written
    candidate-generation claim remains UNVERIFIED / NOT_RUN.
+
+### 3.2.3 P-27.06 Final Pre-Live Safety Repair (Defects A–D + incident safeguard)
+
+A second pre-live safety repair hardened four remaining trust defects and added a
+live-test opt-in safeguard. All evidence is `LOCAL_EXECUTION` only; no live provider
+call, secret creation, or deployment mutation was performed.
+
+1. **DEFECT A — durable idempotency is never silently ephemeral.** The trusted bridge
+   no longer falls back to `tempfile.mkdtemp()` when `TRUSTED_VERIFIER_BRIDGE_STATE_DIR`
+   is missing. A production-shaped bridge with no configured durable state directory
+   fails closed with `BLOCKED_DURABLE_IDEMPOTENCY_UNAVAILABLE` before any chargeable
+   execution. Ephemeral state is permitted only behind an explicit, fixture-test-only
+   flag. Durability scope is documented as **single-host with a persistent volume**;
+   cross-host durability is explicitly NOT claimed.
+2. **DEFECT B — the signer is cryptographically proven, not just structurally matched.**
+   The bridge performs a deterministic local challenge-signature round trip against the
+   pinned production public authority. A signer with the correct public modulus/exponent
+   but an incompatible private exponent is now rejected with
+   `BLOCKED_INCOMPATIBLE_SIGNING_AUTHORITY` before any provider dispatch. No production
+   signing key is generated or exposed.
+3. **DEFECT C — unknown provider cost is never released on failure.** The dispatch path
+   now tracks whether a chargeable provider operation may have started. When consumption
+   is unknown after dispatch, the Durable Object retains the reserved exposure as
+   `unknown_cost` (status `FAILED_UNRECONCILED_COST`) even for deterministic failures,
+   and subsequent live admission is held with `BLOCKED_UNRECONCILED_UNKNOWN_COST` until
+   an admin-authenticated operator reconciliation
+   (`POST /admin/reconcile-unknown-cost`) explicitly clears it. `FAILED`, missing receipt,
+   and missing usage are never inferred as zero cost.
+4. **DEFECT D — canonical provider identity and transport are positively verified.**
+   Production `LIVE_NEBIUS` grounding now requires the canonical live urllib transport
+   for the inference client AND the canonical Token Factory inference/sandbox endpoint
+   identities (`https://api.tokenfactory.nebius.com/v1` and
+   `https://api.tokenfactory.nebius.com/sandboxes/v1`). Injected fake model transports
+   and arbitrary HTTPS hosts are downgraded to `FIXTURE`.
+5. **INCIDENT SAFEGUARD — live tests cannot run by default.** A prior validation run
+   executed `@pytest.mark.live` tests while provider credentials were present. A global
+   `tests/conftest.py` now skips every live-marked test unless the operator explicitly
+   sets `BASEBREAK_ALLOW_LIVE_TESTS=1`. Offline validation cannot inherit live
+   credentials, issue provider calls, or rewrite historical proof documents.
+
+| Verification Dimension | Required Provenance | Current Execution Status |
+| :--- | :--- | :--- |
+| Durable idempotency / restart replay (Defect A) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
+| Signer challenge-signature compatibility (Defect B) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
+| Unknown-cost hold + operator reconciliation (Defect C) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
+| Canonical provider identity/transport grounding (Defect D) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
+| Live-test opt-in safeguard (incident) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
+| Deployed Live Nebius Execution (P-27.06) | `LIVE_NEBIUS` | `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN` |
+
+> The incident observation is recorded as `UNKNOWN`, not "no live calls": deterministic
+> artifacts (`.pytest_cache` lastfailed entries and rewritten live proof docs) establish
+> that live-marked tests were collected and at least four executed, but whether real
+> provider network operations occurred cannot be established from the available
+> artifacts.
 
 ### 3.3 Post-Authorization Live Verification Protocol
 

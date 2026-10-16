@@ -387,6 +387,7 @@ export async function dispatchVerificationRun({
       error:
         "BLOCKED: Live execution not requested. Status: OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN.",
       was_ambiguous: false,
+      provider_may_have_dispatched: false,
       code: 403,
     };
   }
@@ -398,6 +399,7 @@ export async function dispatchVerificationRun({
       error:
         "BLOCKED: Trusted Python verifier bridge URL is not configured. No Nebius sandbox request or LIVE_NEBIUS receipt issuance was attempted.",
       was_ambiguous: false,
+      provider_may_have_dispatched: false,
       code: 503,
     };
   }
@@ -408,6 +410,7 @@ export async function dispatchVerificationRun({
       error:
         "BLOCKED: Trusted Python verifier bridge authentication secret is missing. No provider call was attempted.",
       was_ambiguous: false,
+      provider_may_have_dispatched: false,
       code: 503,
     };
   }
@@ -418,6 +421,7 @@ export async function dispatchVerificationRun({
       error:
         "BLOCKED: Server-controlled maximum estimated live cost is missing or invalid. Uncertain-cost live execution is forbidden.",
       was_ambiguous: false,
+      provider_may_have_dispatched: false,
       code: 503,
     };
   }
@@ -428,6 +432,7 @@ export async function dispatchVerificationRun({
       error:
         "BLOCKED: Fetch transport is unavailable for the trusted Python verifier bridge.",
       was_ambiguous: false,
+      provider_may_have_dispatched: false,
       code: 503,
     };
   }
@@ -473,11 +478,18 @@ export async function dispatchVerificationRun({
         "AMBIGUOUS: Trusted Python verifier bridge request failed after dispatch boundary: " +
         message,
       was_ambiguous: true,
+      // The request may have reached the bridge (and thus the provider) before the
+      // transport failed, so a chargeable operation may have started.
+      provider_may_have_dispatched: true,
       code: 502,
     };
   }
 
   const responseBody = await parseBridgeResponse(response);
+  // The trusted bridge reports whether it actually started provider work. Absent
+  // that explicit signal (older bridge / proxy error), assume the worst: the
+  // bridge was contacted and a chargeable operation may have started.
+  const providerMayHaveDispatched = responseBody?.provider_dispatched === false ? false : true;
   if (!response.ok) {
     return {
       success: false,
@@ -486,6 +498,7 @@ export async function dispatchVerificationRun({
         normalizeOptionalString(responseBody?.error) ||
         `Bridge returned HTTP ${response.status} without a structured error payload.`,
       was_ambiguous: responseBody?.ambiguous_outcome === true,
+      provider_may_have_dispatched: providerMayHaveDispatched,
       code: response.status,
     };
   }
@@ -498,6 +511,7 @@ export async function dispatchVerificationRun({
         normalizeOptionalString(responseBody?.error) ||
         "Bridge returned a non-success payload without an error message.",
       was_ambiguous: responseBody?.ambiguous_outcome === true,
+      provider_may_have_dispatched: providerMayHaveDispatched,
       code: response.status,
     };
   }
@@ -508,6 +522,7 @@ export async function dispatchVerificationRun({
       status: "FAILED",
       error: "Bridge response contains secret material and was rejected.",
       was_ambiguous: false,
+      provider_may_have_dispatched: providerMayHaveDispatched,
       code: 502,
     };
   }
@@ -529,6 +544,9 @@ export async function dispatchVerificationRun({
       status: "FAILED",
       error: `Bridge receipt proof verification failed: ${message}`,
       was_ambiguous: false,
+      // The bridge may have already performed successful inference before
+      // returning a malformed/unverifiable receipt, so consumption is unknown.
+      provider_may_have_dispatched: providerMayHaveDispatched,
       code: 502,
     };
   }
@@ -554,6 +572,7 @@ export async function dispatchVerificationRun({
     status: "COMPLETED",
     error: "",
     was_ambiguous: false,
+    provider_may_have_dispatched: providerMayHaveDispatched,
     code: 201,
     receipt: responseBody.receipt,
     observed_cost_usd: observedCost,

@@ -519,6 +519,23 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       };
     }
 
+    // 6b. Unreconciled unknown-cost hold. If provider consumption may have started
+    // but the measured cost is unknown, live admission is held until an
+    // independently verified operator reconciliation explicitly clears it.
+    const unknownCostRow = this.sql.query("SELECT unknown_cost FROM costs WHERE id = 1")[0];
+    const unreconciledUnknownCost = unknownCostRow?.unknown_cost ?? 0.0;
+    if (unreconciledUnknownCost > 0) {
+      return {
+        admitted: false,
+        status: "BLOCKED_UNRECONCILED_UNKNOWN_COST",
+        code: 409,
+        error:
+          `Unreconciled unknown provider cost exposure ($${Number(unreconciledUnknownCost).toFixed(4)}) ` +
+          "is outstanding. Live admission is held until an independently verified " +
+          "operator reconciliation clears the hold.",
+      };
+    }
+
     // 7. Global total invocation cap check
     const countRows = this.sql.query("SELECT COUNT(*) as count FROM runs WHERE status != 'REJECTED'");
     const totalRuns = countRows[0]?.count ?? 0;
@@ -819,7 +836,12 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
   /**
    * Record failure or ambiguous execution outcome.
    * Enforces Section C:
-   * - If outcome was ambiguous (timeout/disconnect), cost shifts to unknown_cost.
+   * - Execution-outcome certainty is separated from billing certainty.
+   * - If a chargeable provider operation may have started and the measured cost is
+   *   unknown, the reserved exposure is shifted into unknown_cost and HELD; it is
+   *   never released as zero. This holds even for a deterministic FAILED outcome.
+   * - Only a pre-dispatch failure (no provider operation possible) releases the
+   *   reservation.
    * - Strictly forbids automatic retries that could duplicate a cost-consuming action.
    *
    * @param {string} runId
@@ -828,12 +850,28 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
    * @param {string} [params.outcome="FAILED"]
    * @param {boolean} [params.was_ambiguous=false] True if timeout/crash occurred mid-execution
    * @param {number | null} [params.observed_cost=null] Genuine provider-observed cost, or null when unknown
+   * @param {boolean} [params.provider_may_have_dispatched=false] True when a chargeable
+   *   provider operation may have started before the failure (unknown consumption)
    */
-  recordExecutionFailure(runId, { error_message, outcome = "FAILED", was_ambiguous = false, observed_cost = null }) {
+  recordExecutionFailure(
+    runId,
+    {
+      error_message,
+      outcome = "FAILED",
+      was_ambiguous = false,
+      observed_cost = null,
+      provider_may_have_dispatched = false,
+    }
+  ) {
     const now = Date.now();
     const hasKnownObservedCost =
       typeof observed_cost === "number" && Number.isFinite(observed_cost) && observed_cost >= 0;
     const effectiveObserved = hasKnownObservedCost === true ? observed_cost : 0.0;
+    const dispatched = provider_may_have_dispatched === true;
+    // Unknown billing exposure is held whenever consumption may have occurred but
+    // the actual cost is not measured. FAILED / missing receipt / missing usage
+    // must never be inferred as zero cost.
+    const retainUnknownExposure = hasKnownObservedCost !== true && (was_ambiguous || dispatched);
 
     return this.sql.transaction(() => {
       const runRows = this.sql.query("SELECT * FROM runs WHERE run_id = ?", runId);
@@ -842,7 +880,11 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       }
       const run = runRows[0];
       const previousReserved = run.reserved_cost || 0.0;
-      const finalStatus = was_ambiguous ? "UNKNOWN_OUTCOME" : "FAILED";
+      const finalStatus = was_ambiguous
+        ? "UNKNOWN_OUTCOME"
+        : retainUnknownExposure
+          ? "FAILED_UNRECONCILED_COST"
+          : "FAILED";
 
       this.sql.execute(
         `UPDATE runs
@@ -858,13 +900,14 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
         now,
         error_message,
         outcome,
-        was_ambiguous ? previousReserved : 0.0,
+        retainUnknownExposure ? previousReserved : 0.0,
         effectiveObserved,
         runId
       );
 
-      if (was_ambiguous) {
-        // Shift reserved cost into unknown_cost to prevent double-spending while retaining conservative accounting
+      if (retainUnknownExposure) {
+        // Shift reserved cost into unknown_cost to prevent double-spending while
+        // retaining conservative accounting pending operator reconciliation.
         this.sql.execute(
           `UPDATE costs
            SET reserved_cost = MAX(0.0, reserved_cost - ?),
@@ -891,10 +934,86 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       this.sql.execute(
         "INSERT INTO audit_log (timestamp, event_type, details) VALUES (?, 'RUN_FAILED', ?)",
         now,
-        JSON.stringify({ run_id: runId, status: finalStatus, error_message, was_ambiguous })
+        JSON.stringify({
+          run_id: runId,
+          status: finalStatus,
+          error_message,
+          was_ambiguous,
+          provider_may_have_dispatched: dispatched,
+          retained_unknown_cost: retainUnknownExposure ? previousReserved : 0.0,
+        })
       );
 
       return { recorded: true, run_id: runId, status: finalStatus };
+    });
+  }
+
+  /**
+   * Independently verified operator reconciliation of unreconciled unknown cost.
+   *
+   * Only an admin-authenticated operator path may call this. It reduces a run's
+   * held unknown_cost (fully by default) and releases the global unknown-cost
+   * hold so live admission may resume. It never increases spending authority and
+   * never fabricates observed provider cost.
+   *
+   * @param {string} runId
+   * @param {object} [params]
+   * @param {number | null} [params.amount_usd=null] Amount to reconcile (defaults to the full held amount)
+   * @param {string} [params.reconciled_by="operator"]
+   * @param {string} [params.note=""]
+   */
+  reconcileUnknownCost(runId, { amount_usd = null, reconciled_by = "operator", note = "" } = {}) {
+    const now = Date.now();
+    return this.sql.transaction(() => {
+      const runRows = this.sql.query("SELECT * FROM runs WHERE run_id = ?", runId);
+      if (runRows.length === 0) {
+        throw new Error(`Run '${runId}' not found in ledger.`);
+      }
+      const run = runRows[0];
+      const runUnknown = run.unknown_cost || 0.0;
+      if (runUnknown <= 0) {
+        throw new Error(`Run '${runId}' has no unreconciled unknown cost to clear.`);
+      }
+      const reconcileAmount = amount_usd === null ? runUnknown : Number(amount_usd);
+      if (!Number.isFinite(reconcileAmount) || reconcileAmount <= 0) {
+        throw new Error("Reconciliation amount must be a positive finite number.");
+      }
+      if (reconcileAmount > runUnknown) {
+        throw new Error("Reconciliation amount exceeds the run's unreconciled unknown cost.");
+      }
+      const remaining = runUnknown - reconcileAmount;
+
+      this.sql.execute(
+        "UPDATE runs SET unknown_cost = ? WHERE run_id = ?",
+        remaining,
+        runId
+      );
+      this.sql.execute(
+        `UPDATE costs
+         SET unknown_cost = MAX(0.0, unknown_cost - ?),
+             total_metered_cost = observed_cost + (unknown_cost - ?)
+         WHERE id = 1`,
+        reconcileAmount,
+        reconcileAmount
+      );
+      this.sql.execute(
+        "INSERT INTO audit_log (timestamp, event_type, details) VALUES (?, 'UNKNOWN_COST_RECONCILED', ?)",
+        now,
+        JSON.stringify({
+          run_id: runId,
+          reconciled_amount: reconcileAmount,
+          remaining_unknown_cost: remaining,
+          reconciled_by,
+          note,
+        })
+      );
+
+      return {
+        reconciled: true,
+        run_id: runId,
+        reconciled_amount: reconcileAmount,
+        remaining_unknown_cost: remaining,
+      };
     });
   }
 
