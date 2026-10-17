@@ -99,6 +99,49 @@ function computeRequestSignature({ sharedSecret, method, path, timestamp, audien
     .toLowerCase();
 }
 
+/**
+ * Resolve the trusted-bridge fetch transport at the dispatcher seam.
+ *
+ * Preference order:
+ *   1. explicit test override,
+ *   2. a configured private Workers VPC Service binding (preferred production transport),
+ *   3. a required-but-missing VPC binding => fail closed (null fetchImpl; never global fetch),
+ *   4. the direct fetch fallback (backward-compatible default).
+ *
+ * When `mode` is "vpc" the private binding is REQUIRED: a missing binding returns a null
+ * fetchImpl so the dispatcher fails closed and NEVER silently falls back to the untrusted
+ * global fetch.
+ *
+ * @param {{ vpcBinding?: { fetch?: Function } | null, mode?: string, directFetch?: Function | null, overrideFetch?: Function | null }} [params]
+ * @returns {{ fetchImpl: Function | null, transport: string, privateRequired: boolean }}
+ */
+export function resolveBridgeTransport({
+  vpcBinding = null,
+  mode = "",
+  directFetch = globalThis.fetch,
+  overrideFetch = null,
+} = {}) {
+  if (typeof overrideFetch === "function") {
+    return { fetchImpl: overrideFetch, transport: "override", privateRequired: false };
+  }
+  if (vpcBinding && typeof vpcBinding.fetch === "function") {
+    return {
+      fetchImpl: vpcBinding.fetch.bind(vpcBinding),
+      transport: "vpc_service_binding",
+      privateRequired: true,
+    };
+  }
+  const privateRequired = String(mode == null ? "" : mode).trim().toLowerCase() === "vpc";
+  if (privateRequired) {
+    return { fetchImpl: null, transport: "missing_required_vpc_binding", privateRequired: true };
+  }
+  return {
+    fetchImpl: typeof directFetch === "function" ? directFetch : null,
+    transport: "direct_fetch",
+    privateRequired: false,
+  };
+}
+
 function hexToBigInt(hex) {
   const clean = String(hex || "").trim().toLowerCase();
   if (!/^[0-9a-f]+$/.test(clean)) {

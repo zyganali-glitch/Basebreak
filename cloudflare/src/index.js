@@ -14,6 +14,7 @@ import { AdmissionLedgerDO, ReconciliationStateError, ReconciliationValidationEr
 import {
   CANONICAL_DEMO_SCENARIO,
   dispatchVerificationRun,
+  resolveBridgeTransport,
 } from "./provider_dispatcher.js";
 
 // Re-export Durable Object class for Cloudflare Workers runtime
@@ -495,6 +496,17 @@ export default {
 
       await ledger.markInFlight(runId);
 
+      // Resolve the trusted-bridge transport at the existing fetchImpl seam. A required
+      // private Workers VPC Service binding (TRUSTED_VERIFIER_BRIDGE_MODE=vpc) must NEVER
+      // silently fall back to the global fetch; when the binding is missing the resolved
+      // fetchImpl is null and the dispatcher fails closed with NOT_READY_FOR_DEPLOYMENT.
+      const bridgeTransport = resolveBridgeTransport({
+        vpcBinding: env.TRUSTED_VERIFIER_BRIDGE,
+        mode: env.TRUSTED_VERIFIER_BRIDGE_MODE,
+        directFetch: globalThis.fetch,
+        overrideFetch: env.__bridgeFetchForTests,
+      });
+
       const dispatch = await dispatchVerificationRun({
         runId,
         target: requestedTarget,
@@ -508,7 +520,7 @@ export default {
             ? env.TRUSTED_VERIFIER_BRIDGE_AUDIENCE.trim()
             : DEFAULT_BRIDGE_AUDIENCE,
         estimatedCostUsd,
-        fetchImpl: env.__bridgeFetchForTests || globalThis.fetch,
+        fetchImpl: bridgeTransport.fetchImpl,
         verifierAuthorityOverride: env.__testVerifierAuthority,
       });
 

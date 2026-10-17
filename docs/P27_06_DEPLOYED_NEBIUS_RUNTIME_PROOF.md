@@ -400,50 +400,59 @@ provider call, no Cloudflare redeployment, no public live enablement, and no pai
 operation were performed. Deployed `LIVE_NEBIUS` runtime proof therefore remains
 `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN` and is NOT marked PASS.
 
-### 3.6 Worker→Oracle bridge connectivity readiness (operator decision required)
+### 3.6 Worker→Oracle bridge connectivity readiness (Workers VPC preferred; operator decision required)
 
 The trusted Python verifier bridge runs on the Oracle Free-tier host `basebreak-verifier`
 bound strictly to `127.0.0.1:8787`; it is currently reachable **only** over the private
 Tailscale tailnet and has **no public ingress**. No Cloudflare Worker → bridge connection
 is configured, so the public Worker cannot dispatch a live verification run.
 
-Officially verified free-tier facts (checked 2026-10-17):
+Preferred transport — **Workers VPC Services over Cloudflare Tunnel** (this corrects the
+earlier over-narrow decision that reduced the options to Tunnel+Access-with-a-domain or
+public Funnel):
 
-- **Cloudflare Tunnel** is available on all plans and is outbound-only (no inbound
-  ports). Advertising a public hostname requires a **Cloudflare-managed zone/domain**; a
-  `*.workers.dev` subdomain cannot back a Tunnel hostname or an Access self-hosted
-  application. **Zero Trust Access** is free for up to 50 users, but Zero Trust onboarding
-  requests **payment details even on the free plan** (not charged) — a Zero-Cost-Law
-  sensitivity. Access would block unauthenticated callers; the Worker would authenticate
-  with an Access **service token**.
-- **Tailscale Funnel** is available on **all plans including Free**, requires MagicDNS +
-  HTTPS certificates + a `funnel` node attribute, and exposes the service at a public
-  `https://<node>.<tailnet>.ts.net` HTTPS URL (ports 443/8443/10000 only). Funnel is
-  **publicly reachable** and must **not** be treated as a private tailnet connection;
-  anyone with the URL can reach the bridge, and an upstream beta reliability caveat
-  (public access can drop until restart) has been observed.
+- Topology: existing public judge Worker → a narrow private **VPC Service binding**
+  (`vpc_services`) → **outbound-only Cloudflare Tunnel** (`cloudflared` on the Oracle host)
+  → Oracle loopback bridge at `127.0.0.1:8787`. **No public hostname and no
+  Cloudflare-managed custom domain are required**.
+- Official docs (checked 2026-10-17): Workers VPC is **"available on Free and Paid plans"**
+  and **"free to all Workers plans" during the open beta**; the Worker reaches the private
+  service via `env.<BINDING>.fetch(...)`. A VPC Service is registered against a Cloudflare
+  Tunnel to a host/port (HTTP to `127.0.0.1:8787` for our bridge).
+- HMAC request signing, pinned verifier-authority proof verification, `issued_at_ms`/
+  `deadline_ms` expiry, durable single-execution idempotency, source binding, and durable
+  budget admission are all preserved — only the fetch transport changes.
+- **Account-level availability is UNVERIFIED**: Workers VPC needs a Workers plan with the
+  VPC / Connectivity Directory capability enabled for the account (per docs, roles
+  `Connectivity Directory Bind`/`Admin`). This machine has **no authenticated Cloudflare
+  capability** (no wrangler login), so entitlement is **NOT inferred from documentation**.
+  Verifying it is a single operator dependency.
 
-Transport options (no domain purchase, no paid trial, no PAYG):
+Secondary options (only if Workers VPC is unavailable):
 
-1. **Cloudflare Tunnel + Access service token** — preferred **only if** the operator
-   already holds a Cloudflare-managed zone/domain. Keeps the origin off the public
-   internet at the network layer and adds Cloudflare Access ahead of the bridge; the
-   Worker authenticates with a service token in addition to the existing HMAC.
-2. **Tailscale Funnel** — fallback when no Cloudflare zone exists. Zero-cost and
-   domain-free, but the endpoint is **public**; protection would rely solely on the
-   bridge's HMAC request signing, pinned-authority proof verification, deadline/expiry
-   rejection, and durable single-execution idempotency (all fail-closed). Requires
-   **explicit operator approval** of public exposure.
+- **Cloudflare Tunnel + Access service token** — requires a Cloudflare-managed
+  zone/domain; Access is free ≤ 50 users but Zero Trust onboarding requests payment details
+  even on the free plan (not charged).
+- **Tailscale Funnel** — free and domain-free, but **publicly reachable**
+  (`https://<node>.<tailnet>.ts.net`), *not* a private tailnet path; requires **explicit
+  operator approval** of public exposure.
 
-Random `TryCloudflare` quick-tunnel URLs are rejected as a stable dependency. Regardless
-of transport, `TRUSTED_VERIFIER_BRIDGE_URL` and `TRUSTED_VERIFIER_BRIDGE_SHARED_SECRET`
-(+ optional `TRUSTED_VERIFIER_BRIDGE_AUDIENCE`) must be set as Worker secrets **only
-after** operator approval; none are set now.
+Random `TryCloudflare` quick-tunnel URLs are rejected as a stable dependency.
+
+Fail-closed seam (implemented offline, `LOCAL_EXECUTION`):
+`cloudflare/src/provider_dispatcher.js` `resolveBridgeTransport()` selects the bridge fetch
+transport — explicit test override → private VPC Service binding → (if
+`TRUSTED_VERIFIER_BRIDGE_MODE=vpc` and the binding is missing) **fail closed with a null
+transport and never fall back to global fetch** → otherwise the backward-compatible direct
+fetch. `cloudflare/src/index.js` resolves the transport at the existing `fetchImpl` seam
+before dispatch. The `vpc_services` binding is **not** yet added to `wrangler.jsonc` (no
+Service ID exists); the operator adds it after account capability is confirmed. Focused
+Node tests cover the resolution and the fail-closed dispatch path.
 
 Current exposure: **none**. `BASEBREAK_LIVE_EXECUTION_ENABLED=false`, no bridge shared
-secret, no Nebius credentials, and no Cloudflare live gate. Rollback for either transport
-is non-destructive: remove the Tunnel/Funnel configuration (or `tailscale funnel reset`)
-and unset the Worker secrets; the bridge stays bound to `127.0.0.1:8787` and fail-closed.
+secret, no Nebius credentials, and no Cloudflare live gate. Rollback is non-destructive:
+remove the Tunnel/VPC Service (or `tailscale funnel reset`) and unset the Worker secrets;
+the bridge stays bound to `127.0.0.1:8787` and fail-closed.
 
 ### Remaining hard blockers
 

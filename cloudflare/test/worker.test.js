@@ -15,6 +15,7 @@ import {
   CANONICAL_DEMO_SCENARIO,
   buildBridgeRequestPayload,
   dispatchVerificationRun,
+  resolveBridgeTransport,
 } from "../src/provider_dispatcher.js";
 import { buildFixturePublicReceipt } from "./fixtures/public_receipt_fixture.js";
 
@@ -1032,5 +1033,62 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     });
     const res = await worker.fetch(req, env, {});
     assert.equal(res.status, 401);
+  });
+});
+
+describe("Bridge transport resolution (Workers VPC seam)", () => {
+  it("prefers an explicit test override", () => {
+    const override = async () => new Response("{}", { status: 200 });
+    const resolved = resolveBridgeTransport({
+      vpcBinding: { fetch: async () => new Response("{}") },
+      mode: "vpc",
+      overrideFetch: override,
+    });
+    assert.equal(resolved.transport, "override");
+    assert.equal(resolved.fetchImpl, override);
+  });
+
+  it("uses a configured private VPC Service binding", () => {
+    const vpcBinding = { fetch: async () => new Response("{}", { status: 200 }) };
+    const resolved = resolveBridgeTransport({ vpcBinding, mode: "vpc" });
+    assert.equal(resolved.transport, "vpc_service_binding");
+    assert.equal(typeof resolved.fetchImpl, "function");
+    assert.equal(resolved.privateRequired, true);
+  });
+
+  it("fails closed with a null transport when the VPC binding is required but missing", () => {
+    const resolved = resolveBridgeTransport({
+      vpcBinding: null,
+      mode: "vpc",
+      directFetch: async () => new Response("{}"),
+    });
+    assert.equal(resolved.fetchImpl, null);
+    assert.equal(resolved.transport, "missing_required_vpc_binding");
+    assert.equal(resolved.privateRequired, true);
+  });
+
+  it("falls back to direct fetch only when no private binding is required", () => {
+    const directFetch = async () => new Response("{}");
+    const resolved = resolveBridgeTransport({ vpcBinding: null, mode: "", directFetch });
+    assert.equal(resolved.transport, "direct_fetch");
+    assert.equal(resolved.fetchImpl, directFetch);
+    assert.equal(resolved.privateRequired, false);
+  });
+
+  it("dispatch fails closed (no provider dispatch) when a required private binding is missing", async () => {
+    const resolved = resolveBridgeTransport({ vpcBinding: null, mode: "vpc" });
+    const result = await dispatchVerificationRun({
+      runId: "run_vpc_missing",
+      target: "tests/fixtures/reset_vault",
+      sourceCommitId: "a".repeat(40),
+      allowLive: true,
+      bridgeUrl: "http://basebreak-bridge.internal:8787/internal/live-verifications",
+      bridgeSharedSecret: "unit-test-secret",
+      estimatedCostUsd: 0.25,
+      fetchImpl: resolved.fetchImpl,
+    });
+    assert.equal(result.success, false);
+    assert.equal(result.status, "NOT_READY_FOR_DEPLOYMENT");
+    assert.equal(result.provider_may_have_dispatched, false);
   });
 });
