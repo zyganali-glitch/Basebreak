@@ -128,7 +128,7 @@ Judge claim:
 - P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED AFTER P-28.
 
 ## Last independently VERIFIED baseline SHA
-`d9ad169e50d5fb60dcc73545f4d3e07b7a1908cf` (last independently VERIFIED baseline supplied by the operator for the handoff preceding this P-27.06 final pre-live safety repair; the intervening repair commits `59a2550` and `4206e0d` are executor candidates pending independent QA). The operator supplied `20428deb024bd795696133358f9874e44f337edb` as the last independently QA-accepted source SHA for the P-27.06 Oracle SHA-aligned signing-readiness batch (the trust-anchor rotation commit); this documentation batch produces a new executor candidate SHA pending independent QA. No self-awarded QA PASS is claimed.
+`20428deb024bd795696133358f9874e44f337edb` (last independently QA-accepted baseline; this is the P-27.06 production verifier trust-anchor rotation commit). The subsequent commit `1bd29a4e1a4201c671a20b344438c3dbd24439e4` is an executor documentation/deployment-readiness candidate (updates to `docs/HANDOFF.md`, `docs/P27_06_DEPLOYED_NEBIUS_RUNTIME_PROOF.md`, and `plans/BASEBREAK_MASTER_EXECUTION_PLAN.md`, plus the Oracle SHA-aligned signing-readiness deployment) and remains pending independent QA. No self-awarded QA PASS is claimed. The earlier repair commits `59a2550` and `4206e0d` are historical and are no longer the latest outstanding work.
 
 ## Blocking live gate vs active task
 
