@@ -44,7 +44,7 @@ To provide a deterministic verification protocol proving that the deployed Baseb
      - `NEBIUS_API_KEY`
      - `NEBIUS_PROJECT_ID`
      - **`BASEBREAK_VERIFIER_SIGNING_KEY`** — the genuine trusted verifier signing
-       authority. This is mandatory and is currently MISSING from deployment.
+       authority. This is mandatory. A production key now exists and is held only in root-protected storage on the Oracle host, loaded into the isolated bridge via a systemd credential (see §3.5); it remains unconfigured on the public Worker live path.
        Without it the bridge fails closed with `BLOCKED_MISSING_SIGNING_AUTHORITY`
        before any chargeable provider operation.
      - **`TRUSTED_VERIFIER_BRIDGE_STATE_DIR`** — a writable, persistent path used
@@ -365,15 +365,50 @@ curl -X POST "https://<deployed-url>/v1/runs" \
 
 > **Provenance Note:** The P-27.03 public Cloudflare deployment must NOT be classified as `RECORDED_LIVE`. That provenance is strictly reserved for recorded genuine live execution evidence, not for HTTPS deployment observations. P-27.03 is described as previously independently QA-verified public deployment, supported by `LOCAL_EXECUTION` observations against remotely hosted Cloudflare Workers. P-27.06 `LIVE_NEBIUS` execution remains strictly `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
 
+### 3.5 Oracle SHA-aligned signing readiness (`LOCAL_EXECUTION`)
+
+A production verifier signing authority now exists and is pinned consistently in
+`src/basebreak/verifier/trust_bridge.py` and `cloudflare/src/provider_dispatcher.js`
+(rotation commit `20428deb024bd795696133358f9874e44f337edb`): a new 2048-bit RSA
+public modulus (SHA-256 `a13605cbf0b074300f56ee1cca01d53ef8bd9b7b998dca7c864502399a3917b2`,
+exponent 65537). The corresponding private exponent is generated on and held only in
+root-protected storage on the Oracle Free-tier host `basebreak-verifier`
+(`/etc/basebreak/verifier-signing-key.hex`, `0600` root:root) and is never present in
+source, tests, logs, reports, Git, or model context.
+
+The Oracle host runs a private, fail-closed verifier bridge prepared for a later live
+batch:
+
+- private Tailscale node (`basebreak-verifier`); no Tailscale SSH, no advertised routes,
+  no exit-node advertisement;
+- dedicated non-root `basebreak` service account (`nologin`, no sudo);
+- hardened systemd unit `basebreak-bridge` bound strictly to `127.0.0.1:8787`
+  (`ProtectSystem=strict`, `ProtectHome=yes`, `NoNewPrivileges=yes`, empty capability set);
+- persistent idempotency state directory `/var/lib/basebreak` (`0700 basebreak`);
+- signer loading via a systemd credential / protected startup wrapper so that only the
+  isolated trusted verifier receives `BASEBREAK_VERIFIER_SIGNING_KEY`; the private value
+  never appears in the environment file, source, logs, or command output.
+
+Signer compatibility with both canonical public pins is proven by an opaque local
+challenge-signature round trip (`signer_matches_canonical_authority=true`). With
+`BASEBREAK_LIVE_EXECUTION_ENABLED=false`, no Nebius credentials, and no shared secret
+configured, effective live readiness remains `false` and the localhost endpoint returns a
+truthful fail-closed response with no provider dispatch.
+
+**Evidence limits:** all of the above is `LOCAL_EXECUTION` only. No Nebius/NVIDIA/Tavily
+provider call, no Cloudflare redeployment, no public live enablement, and no paid
+operation were performed. Deployed `LIVE_NEBIUS` runtime proof therefore remains
+`OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN` and is NOT marked PASS.
+
 ### Remaining hard blockers
 
 - Current verified promotional balance and expiration: **UNVERIFIED**
 - Provider-enforced hard spending stop / PAYG hard cap: **UNVERIFIED**
-- Private trusted bridge deployment: **NOT DEPLOYED** (a minimal Windows-compatible localhost runner now exists at `src/basebreak/deployment/bridge_main.py`, runnable via `python -m basebreak.deployment.bridge_main`, binding strictly to `127.0.0.1`; hosting, the durable bridge state volume, the signing authority, and provider credentials remain outstanding)
+- Private trusted bridge deployment: **DEPLOYED PRIVATE / OFFLINE-ONLY** (`LOCAL_EXECUTION`) — a hardened systemd `basebreak-bridge` runs on the Oracle Free-tier host `basebreak-verifier`, bound strictly to `127.0.0.1:8787` under a dedicated non-root `basebreak` account and reachable only through private Tailscale (no public exposure). Provider credentials on the private bridge remain outstanding.
 - Worker bridge URL/shared secret configuration: **NOT CONFIGURED ON PUBLIC DEPLOYMENT**
 - Provider credentials on the private bridge: **NOT CONFIGURED**
-- Trusted verifier signing authority (`BASEBREAK_VERIFIER_SIGNING_KEY`): **NOT CONFIGURED**
-- Durable bridge idempotency state directory (`TRUSTED_VERIFIER_BRIDGE_STATE_DIR`): **NOT CONFIGURED**
+- Trusted verifier signing authority (`BASEBREAK_VERIFIER_SIGNING_KEY`): **PREPARED / NOT LIVE-ACTIVE** — production key rotated and held root-only on the Oracle host (`/etc/basebreak/verifier-signing-key.hex`, `0600` root:root), loaded via systemd credential; live execution remains disabled.
+- Durable bridge idempotency state directory (`TRUSTED_VERIFIER_BRIDGE_STATE_DIR`): **CONFIGURED** on the Oracle host (`/var/lib/basebreak`, `0700 basebreak`); the public Worker live path remains unconfigured.
 - Genuine model-generated candidate patch (DEFECT E): **NOT INTEGRATED / UNVERIFIED** — candidate remains deterministic
 - Public Worker `LIVE_ENABLED`: intentionally **false**
 
