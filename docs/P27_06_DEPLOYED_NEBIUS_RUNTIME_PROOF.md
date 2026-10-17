@@ -400,6 +400,51 @@ provider call, no Cloudflare redeployment, no public live enablement, and no pai
 operation were performed. Deployed `LIVE_NEBIUS` runtime proof therefore remains
 `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN` and is NOT marked PASS.
 
+### 3.6 Worker→Oracle bridge connectivity readiness (operator decision required)
+
+The trusted Python verifier bridge runs on the Oracle Free-tier host `basebreak-verifier`
+bound strictly to `127.0.0.1:8787`; it is currently reachable **only** over the private
+Tailscale tailnet and has **no public ingress**. No Cloudflare Worker → bridge connection
+is configured, so the public Worker cannot dispatch a live verification run.
+
+Officially verified free-tier facts (checked 2026-10-17):
+
+- **Cloudflare Tunnel** is available on all plans and is outbound-only (no inbound
+  ports). Advertising a public hostname requires a **Cloudflare-managed zone/domain**; a
+  `*.workers.dev` subdomain cannot back a Tunnel hostname or an Access self-hosted
+  application. **Zero Trust Access** is free for up to 50 users, but Zero Trust onboarding
+  requests **payment details even on the free plan** (not charged) — a Zero-Cost-Law
+  sensitivity. Access would block unauthenticated callers; the Worker would authenticate
+  with an Access **service token**.
+- **Tailscale Funnel** is available on **all plans including Free**, requires MagicDNS +
+  HTTPS certificates + a `funnel` node attribute, and exposes the service at a public
+  `https://<node>.<tailnet>.ts.net` HTTPS URL (ports 443/8443/10000 only). Funnel is
+  **publicly reachable** and must **not** be treated as a private tailnet connection;
+  anyone with the URL can reach the bridge, and an upstream beta reliability caveat
+  (public access can drop until restart) has been observed.
+
+Transport options (no domain purchase, no paid trial, no PAYG):
+
+1. **Cloudflare Tunnel + Access service token** — preferred **only if** the operator
+   already holds a Cloudflare-managed zone/domain. Keeps the origin off the public
+   internet at the network layer and adds Cloudflare Access ahead of the bridge; the
+   Worker authenticates with a service token in addition to the existing HMAC.
+2. **Tailscale Funnel** — fallback when no Cloudflare zone exists. Zero-cost and
+   domain-free, but the endpoint is **public**; protection would rely solely on the
+   bridge's HMAC request signing, pinned-authority proof verification, deadline/expiry
+   rejection, and durable single-execution idempotency (all fail-closed). Requires
+   **explicit operator approval** of public exposure.
+
+Random `TryCloudflare` quick-tunnel URLs are rejected as a stable dependency. Regardless
+of transport, `TRUSTED_VERIFIER_BRIDGE_URL` and `TRUSTED_VERIFIER_BRIDGE_SHARED_SECRET`
+(+ optional `TRUSTED_VERIFIER_BRIDGE_AUDIENCE`) must be set as Worker secrets **only
+after** operator approval; none are set now.
+
+Current exposure: **none**. `BASEBREAK_LIVE_EXECUTION_ENABLED=false`, no bridge shared
+secret, no Nebius credentials, and no Cloudflare live gate. Rollback for either transport
+is non-destructive: remove the Tunnel/Funnel configuration (or `tailscale funnel reset`)
+and unset the Worker secrets; the bridge stays bound to `127.0.0.1:8787` and fail-closed.
+
 ### Remaining hard blockers
 
 - Current verified promotional balance and expiration: **UNVERIFIED**
