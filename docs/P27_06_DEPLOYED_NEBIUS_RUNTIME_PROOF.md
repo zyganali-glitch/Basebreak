@@ -422,11 +422,10 @@ public Funnel):
 - HMAC request signing, pinned verifier-authority proof verification, `issued_at_ms`/
   `deadline_ms` expiry, durable single-execution idempotency, source binding, and durable
   budget admission are all preserved — only the fetch transport changes.
-- **Account-level availability is UNVERIFIED**: Workers VPC needs a Workers plan with the
-  VPC / Connectivity Directory capability enabled for the account (per docs, roles
-  `Connectivity Directory Bind`/`Admin`). This machine has **no authenticated Cloudflare
-  capability** (no wrangler login), so entitlement is **NOT inferred from documentation**.
-  Verifying it is a single operator dependency.
+- **Account-level availability CONFIRMED (operator-authorized deployment, 2026-10-18)**:
+  Workers VPC worked on the existing Cloudflare Free account — a Tunnel and VPC Service
+  were created and the Worker deployed with the binding. No payment or plan change was
+  required.
 
 Secondary options (only if Workers VPC is unavailable):
 
@@ -445,14 +444,29 @@ transport — explicit test override → private VPC Service binding → (if
 `TRUSTED_VERIFIER_BRIDGE_MODE=vpc` and the binding is missing) **fail closed with a null
 transport and never fall back to global fetch** → otherwise the backward-compatible direct
 fetch. `cloudflare/src/index.js` resolves the transport at the existing `fetchImpl` seam
-before dispatch. The `vpc_services` binding is **not** yet added to `wrangler.jsonc` (no
-Service ID exists); the operator adds it after account capability is confirmed. Focused
-Node tests cover the resolution and the fail-closed dispatch path.
+before dispatch. The `vpc_services` binding is now configured in `wrangler.jsonc`
+(`TRUSTED_VERIFIER_BRIDGE` → Service ID `01a14dbe-e68f-7b31-b207-4d71aff2987e`, Tunnel
+`c4977eda-47ab-412b-9f93-970972867465`) and the existing Worker is deployed with it.
+Focused Node tests cover the resolution and the fail-closed dispatch path.
 
-Current exposure: **none**. `BASEBREAK_LIVE_EXECUTION_ENABLED=false`, no bridge shared
-secret, no Nebius credentials, and no Cloudflare live gate. Rollback is non-destructive:
-remove the Tunnel/VPC Service (or `tailscale funnel reset`) and unset the Worker secrets;
-the bridge stays bound to `127.0.0.1:8787` and fail-closed.
+Current exposure: **none**. `BASEBREAK_LIVE_EXECUTION_ENABLED=false`, no Nebius
+credentials, and both Cloudflare live gates disabled. Rollback is non-destructive: remove
+the Tunnel/VPC Service (or `tailscale funnel reset`) and unset the Worker secret; the bridge
+stays bound to `127.0.0.1:8787` and fail-closed.
+
+Deployment status (2026-10-18, operator-authorized, **non-provider**): a Cloudflare Tunnel
+connector runs on the Oracle host (outbound-only, no inbound ports), the VPC Service
+`basebreak-bridge` maps to `127.0.0.1:8787`, and the existing Worker is deployed with the
+VPC binding. A real Cloudflare-edge → VPC Service → Tunnel → Oracle fetch returned the
+bridge's `401 UNAUTHORIZED` response (`provider_dispatched=false`), proving the private
+transport with **no provider call**. The bridge has no public ingress (loopback-only; no
+Funnel). Both Cloudflare live gates remain disabled (`live_enabled=false`,
+`runtime_live_enabled=false`, `durable_live_enabled=false`), `BASEBREAK_LIVE_EXECUTION_ENABLED=false`,
+and no Nebius credentials are configured. This is **not** `LIVE_NEBIUS`; P-27.06 live proof
+remains `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. Rollback: `wrangler vpc service delete
+01a14dbe-e68f-7b31-b207-4d71aff2987e`, `wrangler tunnel delete
+c4977eda-47ab-412b-9f93-970972867465`, stop/remove the `cloudflared` unit, and unset the
+Worker secret; the bridge stays bound to `127.0.0.1:8787` and fail-closed.
 
 ### Remaining hard blockers
 

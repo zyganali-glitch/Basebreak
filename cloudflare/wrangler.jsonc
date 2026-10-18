@@ -26,10 +26,18 @@
       ]
     }
   ],
+  "vpc_services": [
+    {
+      "binding": "TRUSTED_VERIFIER_BRIDGE",
+      "service_id": "01a14dbe-e68f-7b31-b207-4d71aff2987e",
+      "remote": true
+    }
+  ],
   "vars": {
     "LIVE_ENABLED": "false",
     "GLOBAL_INVOCATION_CAP": "5",
     "TOKEN_FACTORY_PROMO_STOP_THRESHOLD": "5.00",
-    "ALLOWLISTED_TARGET": "tests/fixtures/reset_vault"
+    "ALLOWLISTED_TARGET": "tests/fixtures/reset_vault",
+    "TRUSTED_VERIFIER_BRIDGE_MODE": "vpc"
   }
 }
