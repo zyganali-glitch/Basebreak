@@ -1,14 +1,17 @@
 """Genuine model-generated candidate production for the trusted verifier bridge (P-27.06).
 
 Turns a real Nebius/NVIDIA model response into a bound candidate proposal that the
-trusted verifier can verify, reusing the existing Builder proposal contracts and
-candidate capture helpers.
+trusted verifier can verify, reusing the existing Builder proposal contracts.
 
 This module never falls back to the deterministic fixture patch: malformed, empty,
 unauthorized, or non-mutating proposals fail closed (``ModelCandidateRejectedError``).
 The generation prompt exposes only the authorized task/contract context and the
 allowlisted base source file content; it never includes sealed verifier witness
 material or expected hidden answers.
+
+Verification reconstructs the full derivation chain (response -> proposal -> files ->
+patch -> candidate identity) from the immutable authorized source-commit content, so a
+caller cannot pass off independently-supplied hash strings as proof of model authorship.
 """
 
 from __future__ import annotations
@@ -46,7 +49,34 @@ _CANDIDATE_RESPONSE_SCHEMA_HINT: str = (
 
 
 class ModelCandidateError(Exception):
-    """Base error for genuine candidate production."""
+    """Base error for genuine candidate production.
+
+    Carries observed generation-call accounting so the bridge never loses exposure
+    from an attempted (or partially completed) candidate-generation call.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        generation_attempted: bool = False,
+        generation_prompt_tokens: int | None = None,
+        generation_completion_tokens: int | None = None,
+        generation_total_tokens: int | None = None,
+        generation_duration_seconds: float | None = None,
+        provider_request_id: str | None = None,
+        returned_model: str = "",
+        response_received: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.generation_attempted = generation_attempted
+        self.generation_prompt_tokens = generation_prompt_tokens
+        self.generation_completion_tokens = generation_completion_tokens
+        self.generation_total_tokens = generation_total_tokens
+        self.generation_duration_seconds = generation_duration_seconds
+        self.provider_request_id = provider_request_id
+        self.returned_model = returned_model
+        self.response_received = response_received
 
 
 class ModelCandidateRejectedError(ModelCandidateError):
@@ -55,6 +85,10 @@ class ModelCandidateRejectedError(ModelCandidateError):
 
 class ModelCandidateIdentityMismatchError(ModelCandidateError):
     """A generated candidate did not match its bound identity."""
+
+
+class ModelCandidateTransportError(ModelCandidateError):
+    """The candidate-generation call failed at the transport/provider boundary."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,9 +119,12 @@ def _sha256_hex(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _canonical_proposal(proposal: BuilderProposal) -> str:
+    return json.dumps(proposal.to_dict(), sort_keys=True, separators=(",", ":"))
+
+
 def _proposal_digest(proposal: BuilderProposal) -> str:
-    canonical = json.dumps(proposal.to_dict(), sort_keys=True, separators=(",", ":"))
-    return _sha256_hex(canonical)
+    return _sha256_hex(_canonical_proposal(proposal))
 
 
 def _build_candidate_patch_text(
@@ -193,6 +230,28 @@ def _apply_proposed_actions(
     return files
 
 
+def _materialize_from_response(
+    *,
+    response_text: str,
+    allowed_paths: Sequence[str],
+    base_files: Mapping[str, str],
+) -> tuple[BuilderProposal, dict[str, str], str]:
+    """Deterministically derive (proposal, candidate_files, patch) from a raw response."""
+    try:
+        proposal = parse_and_validate_builder_response(response_text)
+    except Exception as exc:  # malformed model output must fail closed
+        raise ModelCandidateRejectedError(f"malformed model proposal: {exc}") from exc
+    candidate_files = _apply_proposed_actions(
+        base_files=base_files, proposal=proposal, allowed_paths=allowed_paths
+    )
+    if candidate_files == dict(base_files):
+        raise ModelCandidateRejectedError("model proposal produced no change")
+    patch_text = _build_candidate_patch_text(dict(base_files), candidate_files)
+    if not patch_text.strip():
+        raise ModelCandidateRejectedError("model proposal produced an empty patch")
+    return proposal, candidate_files, patch_text
+
+
 def generate_model_candidate(
     *,
     model_client: Any,
@@ -206,6 +265,8 @@ def generate_model_candidate(
     temperature: float = 0.0,
 ) -> ModelCandidate:
     """Obtain and bind a genuine candidate from the configured model. Fails closed."""
+    from basebreak.adapters.nebius import ModelNetworkError, ModelTimeoutError
+
     if not allowed_paths:
         raise ModelCandidateRejectedError("allowed_paths must not be empty")
     missing = [p for p in allowed_paths if p not in base_files]
@@ -219,51 +280,63 @@ def generate_model_candidate(
         target=target,
         base_files=base_files,
     )
-    result = model_client.complete(messages, max_tokens=max_tokens, temperature=temperature)
-    response_text = getattr(result, "content", None)
-    if not isinstance(response_text, str) or not response_text.strip():
-        raise ModelCandidateRejectedError("model returned an empty candidate response")
-
     try:
-        proposal = parse_and_validate_builder_response(response_text)
-    except Exception as exc:  # malformed model output must fail closed
-        raise ModelCandidateRejectedError(f"malformed model proposal: {exc}") from exc
+        result = model_client.complete(messages, max_tokens=max_tokens, temperature=temperature)
+    except (ModelTimeoutError, ModelNetworkError) as exc:
+        raise ModelCandidateTransportError(
+            f"candidate-generation transport failure: {exc}", generation_attempted=True
+        ) from exc
 
-    candidate_files = _apply_proposed_actions(
-        base_files=base_files, proposal=proposal, allowed_paths=allowed_paths
-    )
-    if candidate_files == dict(base_files):
-        raise ModelCandidateRejectedError("model proposal produced no change")
-
-    patch_text = _build_candidate_patch_text(dict(base_files), candidate_files)
-    if not patch_text.strip():
-        raise ModelCandidateRejectedError("model proposal produced an empty patch")
-
-    patch_digest = _sha256_hex(patch_text)
     usage = getattr(result, "usage", None)
     duration = getattr(result, "duration_seconds", None)
+    response_text = getattr(result, "content", None)
+    accounting: dict[str, Any] = {
+        "generation_attempted": True,
+        "generation_prompt_tokens": (
+            int(getattr(usage, "prompt_tokens", 0)) if usage is not None else None
+        ),
+        "generation_completion_tokens": (
+            int(getattr(usage, "completion_tokens", 0)) if usage is not None else None
+        ),
+        "generation_total_tokens": (
+            int(getattr(usage, "total_tokens", 0)) if usage is not None else None
+        ),
+        "generation_duration_seconds": (float(duration) if duration is not None else None),
+        "provider_request_id": (str(getattr(result, "request_id", "") or "").strip() or None),
+        "returned_model": str(getattr(result, "returned_model", "") or ""),
+        "response_received": isinstance(response_text, str) and bool(response_text.strip()),
+    }
+
+    if not isinstance(response_text, str) or not response_text.strip():
+        raise ModelCandidateRejectedError(
+            "model returned an empty candidate response", **accounting
+        )
+    try:
+        proposal, candidate_files, patch_text = _materialize_from_response(
+            response_text=response_text, allowed_paths=allowed_paths, base_files=base_files
+        )
+    except ModelCandidateRejectedError as exc:
+        for key, value in accounting.items():
+            setattr(exc, key, value)
+        raise
+
+    patch_digest = _sha256_hex(patch_text)
     return ModelCandidate(
         origin=MODEL_GENERATED_CANDIDATE_ORIGIN,
         response_text=response_text,
         response_digest=_sha256_hex(response_text),
-        returned_model=str(getattr(result, "returned_model", "") or ""),
-        provider_request_id=(str(getattr(result, "request_id", "") or "").strip() or None),
+        returned_model=accounting["returned_model"],
+        provider_request_id=accounting["provider_request_id"],
         proposal=proposal,
         proposal_digest=_proposal_digest(proposal),
         candidate_files=tuple(sorted(candidate_files.items())),
         patch_text=patch_text,
         patch_digest=patch_digest,
         candidate_id=f"cand-model-{patch_digest[:16]}",
-        generation_prompt_tokens=(
-            int(getattr(usage, "prompt_tokens", 0)) if usage is not None else None
-        ),
-        generation_completion_tokens=(
-            int(getattr(usage, "completion_tokens", 0)) if usage is not None else None
-        ),
-        generation_total_tokens=(
-            int(getattr(usage, "total_tokens", 0)) if usage is not None else None
-        ),
-        generation_duration_seconds=(float(duration) if duration is not None else None),
+        generation_prompt_tokens=accounting["generation_prompt_tokens"],
+        generation_completion_tokens=accounting["generation_completion_tokens"],
+        generation_total_tokens=accounting["generation_total_tokens"],
+        generation_duration_seconds=accounting["generation_duration_seconds"],
     )
 
 
@@ -281,20 +354,67 @@ def candidate_generation_identities(candidate: ModelCandidate) -> tuple[str, ...
 
 
 def verify_candidate_generation_binding(
-    candidate: ModelCandidate, *, receipt_runtime_identities: Sequence[str]
+    candidate: ModelCandidate,
+    *,
+    receipt_runtime_identities: Sequence[str],
+    allowed_paths: Sequence[str],
+    authorized_base_files: Mapping[str, str],
+    expected_candidate_tree_digest: str | None = None,
+    observed_candidate_tree_digest: str | None = None,
 ) -> None:
-    """Independently recompute response -> proposal -> patch identity and binding.
+    """Independently reconstruct and verify the full response -> proposal -> patch chain.
 
-    Fails closed on any missing, substituted, or inconsistent provenance fact.
+    Reparses the retained ``response_text`` with the canonical Builder parser, reconstructs
+    the candidate files and patch from the immutable authorized source-commit content, and
+    requires every derived identity (proposal, files, patch, candidate id) plus the
+    independently observed CANDIDATE sandbox tree to match. Fails closed on any
+    inconsistency. Merely matching caller-supplied hashes is not sufficient.
     """
     if candidate.origin != MODEL_GENERATED_CANDIDATE_ORIGIN:
         raise ModelCandidateError("candidate origin is not a genuine model-generated origin")
     if _sha256_hex(candidate.response_text) != candidate.response_digest:
         raise ModelCandidateIdentityMismatchError("model response digest mismatch")
-    if _proposal_digest(candidate.proposal) != candidate.proposal_digest:
-        raise ModelCandidateIdentityMismatchError("validated proposal digest mismatch")
-    if _sha256_hex(candidate.patch_text) != candidate.patch_digest:
-        raise ModelCandidateIdentityMismatchError("candidate patch digest mismatch")
+
+    try:
+        reparsed_proposal, reconstructed_files, reconstructed_patch = _materialize_from_response(
+            response_text=candidate.response_text,
+            allowed_paths=allowed_paths,
+            base_files=authorized_base_files,
+        )
+    except ModelCandidateRejectedError as exc:
+        raise ModelCandidateIdentityMismatchError(
+            f"retained model response does not reconstruct a valid candidate: {exc}"
+        ) from exc
+
+    if _canonical_proposal(reparsed_proposal) != _canonical_proposal(candidate.proposal):
+        raise ModelCandidateIdentityMismatchError(
+            "reparsed model response proposal disagrees with the retained proposal"
+        )
+    if _proposal_digest(reparsed_proposal) != candidate.proposal_digest:
+        raise ModelCandidateIdentityMismatchError("reconstructed proposal digest mismatch")
+    if reconstructed_patch != candidate.patch_text:
+        raise ModelCandidateIdentityMismatchError(
+            "reconstructed candidate patch disagrees with the retained patch"
+        )
+    if _sha256_hex(reconstructed_patch) != candidate.patch_digest:
+        raise ModelCandidateIdentityMismatchError("reconstructed candidate patch digest mismatch")
+    if dict(candidate.candidate_files) != reconstructed_files:
+        raise ModelCandidateIdentityMismatchError(
+            "reconstructed candidate files disagree with the retained candidate files"
+        )
+    if candidate.candidate_id != f"cand-model-{candidate.patch_digest[:16]}":
+        raise ModelCandidateIdentityMismatchError("candidate identity does not match its patch")
+
+    if (
+        expected_candidate_tree_digest is not None
+        and observed_candidate_tree_digest is not None
+        and expected_candidate_tree_digest != observed_candidate_tree_digest
+    ):
+        raise ModelCandidateIdentityMismatchError(
+            "independently observed candidate sandbox tree does not match the "
+            "reconstructed expected candidate tree"
+        )
+
     present = {str(identity).strip() for identity in receipt_runtime_identities}
     required = set(candidate_generation_identities(candidate))
     missing = required - present

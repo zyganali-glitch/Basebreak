@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 
 import basebreak.deployment.live_bridge as live_bridge
+from basebreak.adapters.nebius import ModelTimeoutError
 from basebreak.deployment.live_bridge import (
     BridgeRequest,
     BridgeValidationError,
@@ -50,7 +51,7 @@ _HEAD = subprocess.run(
 class _ScriptedModel:
     """Deterministic fake model client returning a scripted content per call."""
 
-    def __init__(self, responses: list[str]) -> None:
+    def __init__(self, responses: list[Any]) -> None:
         self._responses = list(responses)
         self.calls = 0
 
@@ -63,10 +64,12 @@ class _ScriptedModel:
     ) -> Any:
         del max_tokens, temperature
         idx = min(self.calls, len(self._responses) - 1)
-        content = self._responses[idx]
+        item = self._responses[idx]
         self.calls += 1
+        if isinstance(item, BaseException):
+            raise item
         return SimpleNamespace(
-            content=content,
+            content=item,
             usage=SimpleNamespace(prompt_tokens=8, completion_tokens=4, total_tokens=12),
             returned_model="nebius/fake-model",
             request_id="model-req-fake",
@@ -264,13 +267,47 @@ def test_grounded_generation_failure_blocks_and_never_falls_back(
     assert result.receipt is None
     assert result.candidate_patch_digest is None
     assert result.candidate_generation is None
-    # A failed second call must not erase the exposure of the successful first call.
+    # A malformed second response arrived with usage: exposure + partial accounting preserved.
     assert result.reserved_exposure_usd == 0.25
     assert result.observed_cost_usd is None
     assert result.cost_provenance == "UNKNOWN"
-    assert result.tokens_used == 12
+    assert result.model_call_count == 2
+    assert result.model_usage_complete is True
+    assert result.tokens_used == 24
     assert result.candidate_origin != MODEL_GENERATED_CANDIDATE_ORIGIN
     assert scenario.candidate_patch_digest not in (result.candidate_patch_digest or "")
+
+
+def test_grounded_second_call_timeout_preserves_unknown_exposure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _scenario, request = _scenario_and_request()
+    monkeypatch.setattr(live_bridge, "_assess_production_grounding", lambda **_: (True, None))
+    payload = request.to_dict()
+    client = _ScriptedModel(
+        [_identity_content(payload), ModelTimeoutError("candidate-generation timeout")]
+    )
+
+    class _WorkerMustNotRun:
+        def execute_causal_triplet(self, **_: Any) -> Any:
+            raise AssertionError("generation failure must not reach execution")
+
+    executor = create_live_nebius_bridge_executor(
+        config=TrustedBridgeConfig(
+            expected_source_commit=_HEAD, nebius_api_key="k", nebius_project_id="p"
+        ),
+        model_client=client,
+        sandbox_adapter=_FakeSandboxAdapter(),
+        verifier_worker=_WorkerMustNotRun(),
+    )
+    result = executor(request)
+    assert result.status == "BLOCKED_CANDIDATE_GENERATION_FAILED"
+    assert result.model_call_count == 2  # the second call was genuinely attempted
+    assert result.model_usage_complete is False  # second-call usage is unknown
+    assert result.tokens_used == 12  # first-call observed usage is preserved
+    assert result.reserved_exposure_usd == 0.25
+    assert result.observed_cost_usd is None
+    assert result.cost_provenance == "UNKNOWN"
 
 
 def test_grounded_valid_generation_binds_model_candidate(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -326,11 +363,24 @@ def test_grounded_valid_generation_binds_model_candidate(monkeypatch: pytest.Mon
 # --- provenance binding and source attestation --------------------------------------
 
 
+_AUTHORIZED_BASE: dict[str, str] = {"src/x.py": "print(1)\n"}
+_ALLOWED = ["src/x.py"]
+
+
 def _valid_candidate() -> Any:
     return _gen(
         _ScriptedModel([_proposal_json("src/x.py", "print(2)\n")]),
-        base_files={"src/x.py": "print(1)\n"},
-        allowed=["src/x.py"],
+        base_files=dict(_AUTHORIZED_BASE),
+        allowed=list(_ALLOWED),
+    )
+
+
+def _verify(candidate: Any) -> None:
+    verify_candidate_generation_binding(
+        candidate,
+        receipt_runtime_identities=candidate_generation_identities(candidate),
+        allowed_paths=list(_ALLOWED),
+        authorized_base_files=dict(_AUTHORIZED_BASE),
     )
 
 
@@ -338,36 +388,28 @@ def test_modified_response_is_rejected() -> None:
     candidate = _valid_candidate()
     tampered = dataclasses.replace(candidate, response_text=candidate.response_text + "x")
     with pytest.raises(ModelCandidateIdentityMismatchError):
-        verify_candidate_generation_binding(
-            tampered, receipt_runtime_identities=candidate_generation_identities(candidate)
-        )
+        _verify(tampered)
 
 
 def test_modified_proposal_is_rejected() -> None:
     candidate = _valid_candidate()
     tampered = dataclasses.replace(candidate, proposal_digest="0" * 64)
     with pytest.raises(ModelCandidateIdentityMismatchError):
-        verify_candidate_generation_binding(
-            tampered, receipt_runtime_identities=candidate_generation_identities(candidate)
-        )
+        _verify(tampered)
 
 
 def test_modified_patch_is_rejected() -> None:
     candidate = _valid_candidate()
     tampered = dataclasses.replace(candidate, patch_text=candidate.patch_text + "\n")
     with pytest.raises(ModelCandidateIdentityMismatchError):
-        verify_candidate_generation_binding(
-            tampered, receipt_runtime_identities=candidate_generation_identities(candidate)
-        )
+        _verify(tampered)
 
 
 def test_origin_label_alone_is_not_sufficient() -> None:
     candidate = _valid_candidate()
     relabeled = dataclasses.replace(candidate, origin="ARBITRARY_ORIGIN_LABEL")
     with pytest.raises(ModelCandidateError):
-        verify_candidate_generation_binding(
-            relabeled, receipt_runtime_identities=candidate_generation_identities(candidate)
-        )
+        _verify(relabeled)
 
 
 def test_identity_probe_metadata_cannot_masquerade_as_generation_evidence() -> None:
@@ -378,7 +420,53 @@ def test_identity_probe_metadata_cannot_masquerade_as_generation_evidence() -> N
         "candidate-origin:" + MODEL_GENERATED_CANDIDATE_ORIGIN,
     )
     with pytest.raises(ModelCandidateError):
-        verify_candidate_generation_binding(candidate, receipt_runtime_identities=probe_only)
+        verify_candidate_generation_binding(
+            candidate,
+            receipt_runtime_identities=probe_only,
+            allowed_paths=list(_ALLOWED),
+            authorized_base_files=dict(_AUTHORIZED_BASE),
+        )
+
+
+def test_changed_response_with_recomputed_hash_disagrees_with_proposal() -> None:
+    """A response whose hash is correct but which reparses to a different proposal rejects."""
+    candidate = _valid_candidate()
+    other_response = _proposal_json("src/x.py", "print(999)\n")
+    tampered = dataclasses.replace(
+        candidate,
+        response_text=other_response,
+        response_digest=hashlib.sha256(other_response.encode("utf-8")).hexdigest(),
+    )
+    with pytest.raises(ModelCandidateIdentityMismatchError):
+        _verify(tampered)
+
+
+def test_changed_patch_with_recomputed_hash_disagrees_with_proposal() -> None:
+    """A patch whose hash is correct but which disagrees with the reconstructed patch rejects."""
+    candidate = _valid_candidate()
+    fake_patch = candidate.patch_text + (
+        "diff --git a/src/x.py b/src/x.py\n--- a/src/x.py\n+++ b/src/x.py\n@@ -1 +1 @@\n-x\n+y\n"
+    )
+    tampered = dataclasses.replace(
+        candidate,
+        patch_text=fake_patch,
+        patch_digest=hashlib.sha256(fake_patch.encode("utf-8")).hexdigest(),
+    )
+    with pytest.raises(ModelCandidateIdentityMismatchError):
+        _verify(tampered)
+
+
+def test_observed_candidate_tree_must_match_reconstructed_tree() -> None:
+    candidate = _valid_candidate()
+    with pytest.raises(ModelCandidateIdentityMismatchError):
+        verify_candidate_generation_binding(
+            candidate,
+            receipt_runtime_identities=candidate_generation_identities(candidate),
+            allowed_paths=list(_ALLOWED),
+            authorized_base_files=dict(_AUTHORIZED_BASE),
+            expected_candidate_tree_digest="a" * 40,
+            observed_candidate_tree_digest="b" * 40,
+        )
 
 
 def test_source_content_is_bound_to_commit() -> None:

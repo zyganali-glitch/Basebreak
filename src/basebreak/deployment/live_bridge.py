@@ -328,6 +328,10 @@ class BridgeExecutionResult:
     candidate_origin: str = CANDIDATE_ORIGIN_DETERMINISTIC_FIXTURE
     candidate_patch_digest: str | None = None
     candidate_generation: Any | None = None
+    model_call_count: int = 0
+    model_prompt_tokens: int = 0
+    model_completion_tokens: int = 0
+    model_usage_complete: bool = False
 
 
 BridgeExecutor = Callable[[BridgeRequest], BridgeExecutionResult]
@@ -497,6 +501,12 @@ def _load_canonical_live_bridge_scenario() -> CanonicalLiveBridgeScenario:
             "-q",
         ),
     )
+
+
+def _default_repo_root() -> Any:
+    from pathlib import Path
+
+    return Path(__file__).resolve().parents[3]
 
 
 def _reset_vault_candidate_base_files(
@@ -1104,9 +1114,24 @@ def _validate_live_bridge_execution_authority(
                 "Model-generated candidate authority requires the bound generation evidence."
             )
         try:
+            allowed_paths, authorized_base_files = _reset_vault_candidate_base_files(
+                _default_repo_root(), request.source_commit_id
+            )
+            expected_candidate_tree = _compute_candidate_tree_digest(
+                repo_root=_default_repo_root(),
+                source_commit_id=request.source_commit_id,
+                patch_text=candidate_generation.patch_text,
+            )
+        except BridgeValidationError as exc:
+            return False, f"Model-generated candidate source binding failed: {exc}"
+        try:
             verify_candidate_generation_binding(
                 candidate_generation,
                 receipt_runtime_identities=receipt.runtime_identities,
+                allowed_paths=allowed_paths,
+                authorized_base_files=authorized_base_files,
+                expected_candidate_tree_digest=expected_candidate_tree,
+                observed_candidate_tree_digest=receipt.candidate_tree_digest,
             )
         except ModelCandidateError as exc:
             return False, f"Model-generated candidate provenance failed verification: {exc}"
@@ -1255,6 +1280,15 @@ def create_live_nebius_bridge_executor(
             EvidenceProvenance.LIVE_NEBIUS if production_grounded else EvidenceProvenance.FIXTURE
         )
 
+        # Conservative accounting defaults: never overclaim metered usage. These are
+        # refined as calls succeed; the outer failure handlers must not raise on them.
+        model_call_count = 0
+        probe_usage: Any | None = None
+        probe_prompt_tokens: int | None = None
+        probe_completion_tokens: int | None = None
+        probe_total_tokens = 0
+        probe_duration_seconds = 0.0
+
         try:
             model_result = active_model_client.complete(
                 _build_runtime_identity_probe_messages(request),
@@ -1275,6 +1309,7 @@ def create_live_nebius_bridge_executor(
             )
             probe_total_tokens = int(getattr(probe_usage, "total_tokens", 0) or 0)
             probe_duration_seconds = float(getattr(model_result, "duration_seconds", 0.0) or 0.0)
+            model_call_count = 1
 
             source_identity = SourceIdentity(
                 config.source_repo_locator,
@@ -1307,6 +1342,29 @@ def create_live_nebius_bridge_executor(
                         base_files=base_files,
                     )
                 except ModelCandidateError as exc:
+                    generation_attempted = bool(getattr(exc, "generation_attempted", False))
+                    if generation_attempted:
+                        blocked_call_count = 2
+                        blocked_prompt_tokens = (probe_prompt_tokens or 0) + int(
+                            getattr(exc, "generation_prompt_tokens", None) or 0
+                        )
+                        blocked_completion_tokens = (probe_completion_tokens or 0) + int(
+                            getattr(exc, "generation_completion_tokens", None) or 0
+                        )
+                        blocked_usage_complete = bool(
+                            probe_usage is not None
+                            and getattr(exc, "generation_prompt_tokens", None) is not None
+                            and getattr(exc, "generation_completion_tokens", None) is not None
+                        )
+                        blocked_tokens_used = probe_total_tokens + int(
+                            getattr(exc, "generation_total_tokens", None) or 0
+                        )
+                    else:
+                        blocked_call_count = 1
+                        blocked_prompt_tokens = probe_prompt_tokens or 0
+                        blocked_completion_tokens = probe_completion_tokens or 0
+                        blocked_usage_complete = probe_usage is not None
+                        blocked_tokens_used = probe_total_tokens
                     return BridgeExecutionResult(
                         status="BLOCKED_CANDIDATE_GENERATION_FAILED",
                         error=str(exc),
@@ -1314,7 +1372,11 @@ def create_live_nebius_bridge_executor(
                         reserved_exposure_usd=round(float(request.max_estimated_cost_usd), 6),
                         observed_cost_usd=None,
                         cost_provenance="UNKNOWN",
-                        tokens_used=probe_total_tokens,
+                        tokens_used=blocked_tokens_used,
+                        model_call_count=blocked_call_count,
+                        model_prompt_tokens=blocked_prompt_tokens,
+                        model_completion_tokens=blocked_completion_tokens,
+                        model_usage_complete=blocked_usage_complete,
                         provider_operation_ids=_normalize_provider_operation_ids(
                             getattr(active_sandbox_adapter, "live_operation_ids", ())
                         ),
@@ -1479,6 +1541,10 @@ def create_live_nebius_bridge_executor(
                 candidate_origin=candidate_origin_value,
                 candidate_patch_digest=candidate_patch_digest,
                 candidate_generation=candidate_generation_evidence,
+                model_call_count=model_call_count,
+                model_prompt_tokens=model_prompt_tokens,
+                model_completion_tokens=model_completion_tokens,
+                model_usage_complete=model_usage_complete,
             )
         except (
             ModelTimeoutError,
@@ -1494,14 +1560,32 @@ def create_live_nebius_bridge_executor(
                 reserved_exposure_usd=round(float(request.max_estimated_cost_usd), 6),
                 observed_cost_usd=None,
                 cost_provenance="UNKNOWN",
+                model_call_count=model_call_count,
+                model_prompt_tokens=probe_prompt_tokens or 0,
+                model_completion_tokens=probe_completion_tokens or 0,
+                model_usage_complete=False,
                 provider_operation_ids=_normalize_provider_operation_ids(
                     getattr(active_sandbox_adapter, "live_operation_ids", ())
                 ),
             )
         except VerifierExecutionBlockedError as exc:
-            return BridgeExecutionResult(status="BLOCKED", error=str(exc))
+            return BridgeExecutionResult(
+                status="BLOCKED",
+                error=str(exc),
+                model_call_count=model_call_count,
+                model_prompt_tokens=probe_prompt_tokens or 0,
+                model_completion_tokens=probe_completion_tokens or 0,
+                model_usage_complete=False,
+            )
         except Exception as exc:
-            return BridgeExecutionResult(status="FAILED", error=str(exc))
+            return BridgeExecutionResult(
+                status="FAILED",
+                error=str(exc),
+                model_call_count=model_call_count,
+                model_prompt_tokens=probe_prompt_tokens or 0,
+                model_completion_tokens=probe_completion_tokens or 0,
+                model_usage_complete=False,
+            )
 
     return _executor
 
