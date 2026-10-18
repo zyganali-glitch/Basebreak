@@ -289,6 +289,64 @@ All evidence is `LOCAL_EXECUTION` only.
 | Evidence-required cost-hold reconciliation (Defect 2) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
 | Deployed Live Nebius Execution (P-27.06) | `LIVE_NEBIUS` | `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN` |
 
+### 3.2.5 P-27.06 Authorized One-Time Cost-Hold Exception (implemented + deployed; live run BLOCKED)
+
+Under explicit operator authorization (one bounded live run), the smallest possible
+exception to the unreconciled `unknown_cost > 0` admission hold was implemented, tested,
+and deployed. It is an explicit, auditable, single-use operator control — **not** a bypass
+flag, ledger reset, or permanent override.
+
+- `AdmissionLedgerDO.authorizeCostHoldException()` is reachable only through the
+  admin-authenticated `POST /admin/cost-hold-exception`. It issues exactly ONE single-use
+  exception bound to exactly one existing, unexpired, unconsumed **single-use** grant.
+- It requires an explicit operator identity and reason (audited as
+  `COST_HOLD_EXCEPTION_AUTHORIZED`), the grant's operator-bound `estimated_cost_cap`, and
+  an operator-verified promotional balance. It is refused when no unknown-cost hold exists.
+- The promotional-budget calculation includes **BOTH** the historical unknown exposure
+  **AND** the new maximum estimated run exposure, while preserving the `$5.00` safety
+  reserve (`verified_balance − unknown_cost − estimated_cost_cap ≥ reserve_floor`).
+- `reserveAdmission()` consumes the exception atomically together with the reservation
+  (audited as `COST_HOLD_EXCEPTION_CONSUMED`, `consumed_run_id` bound); the historical
+  unknown exposure is **retained** (never cleared, reconciled, or reset); the general hold
+  continues to block every ordinary grant; duplicate, concurrent, replayed, or unauthorized
+  attempts are rejected; at most one exception may be active at a time and at most one may
+  ever be issued per grant token.
+- Receipt, sandbox, and verifier authority are untouched by this control.
+
+`LOCAL_EXECUTION` evidence:
+
+- `npm --prefix .\cloudflare run test:node` → **57 passed** (adds focused ledger tests 21–23
+  and a Worker admin-route test for the exception, including replay/duplicate/unauthorized
+  and reserve-floor rejection).
+- `npm --prefix .\cloudflare run typecheck` → pass.
+- `npm --prefix .\cloudflare run test:workerd-preflight` → **7/7** checks passed.
+- `python -m ruff format --check .`, `python -m ruff check .`, `python -m mypy src tests` → pass.
+- `python -m pytest tests\deployment tests\adapters\test_nebius_model_client.py -q` → **143 passed**.
+
+Deployment: the updated Worker was deployed with `wrangler deploy` as version
+`ff33667f-9cbf-4461-b292-29bca37cc141`. Post-deploy `https://basebreak.zyganali.workers.dev/health`
+still reports `live_enabled=false`, `durable_live_enabled=false`, `runtime_live_enabled=false`,
+`durable_expected_source_commit=80b43b84014fa61b941c7ebcd87836a56dcd7c92`; the new admin
+route returns `401` without operator auth; `/judge` returns `200`. The runtime live gate was
+intentionally **not** enabled.
+
+**Live run status: BLOCKED.** The genuine deployed live run could not be executed from the
+agent environment because the required external prerequisites are unavailable:
+
+- The operator's Cloudflare `BASEBREAK_ADMIN_KEY` is not available to the executing agent.
+  Consequently the durable operator gate could not be enabled, no operator grant could be
+  issued, and the one-time exception could not be authorized (every admin route returns
+  `401`). Admission requires the durable gate + runtime authorization + an operator grant.
+- The private trusted Python verifier bridge runs only on the Oracle Free-tier host and is
+  reachable only over the private tailnet / Workers VPC. The agent has no host access (no
+  Tailscale/SSH path), and the bridge is documented with no Nebius credentials and
+  `BASEBREAK_LIVE_EXECUTION_ENABLED=false`.
+- No genuine Nebius/NVIDIA inference or sandbox call was executed, no BASE/CANDIDATE/
+  COUNTERFACTUAL execution was produced, and no signed receipt/proof exists. The `$0.50`
+  historical unknown exposure is retained unchanged.
+
+Deployed `LIVE_NEBIUS` runtime proof therefore remains `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+
 ### 3.3 Post-Authorization Live Verification Protocol
 
 When promotional credits are redeemed, balance verified `> $5.00`, the private bridge is deployed, and operator authorization is granted:
