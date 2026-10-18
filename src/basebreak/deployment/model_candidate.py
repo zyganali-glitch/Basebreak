@@ -265,7 +265,7 @@ def generate_model_candidate(
     temperature: float = 0.0,
 ) -> ModelCandidate:
     """Obtain and bind a genuine candidate from the configured model. Fails closed."""
-    from basebreak.adapters.nebius import ModelNetworkError, ModelTimeoutError
+    from basebreak.adapters.nebius import ModelAdapterError, ModelConfigError
 
     if not allowed_paths:
         raise ModelCandidateRejectedError("allowed_paths must not be empty")
@@ -282,9 +282,19 @@ def generate_model_candidate(
     )
     try:
         result = model_client.complete(messages, max_tokens=max_tokens, temperature=temperature)
-    except (ModelTimeoutError, ModelNetworkError) as exc:
+    except ModelConfigError as exc:
+        # Pre-dispatch configuration/credential rejection: no provider work was dispatched.
+        raise ModelCandidateRejectedError(
+            f"candidate-generation request rejected before dispatch: {exc}",
+            generation_attempted=False,
+        ) from exc
+    except ModelAdapterError as exc:
+        # The provider call was dispatched but failed (timeout, network, non-2xx provider
+        # error, malformed response, or model identity mismatch). The attempt is counted;
+        # usage remains UNKNOWN unless it was actually observed.
         raise ModelCandidateTransportError(
-            f"candidate-generation transport failure: {exc}", generation_attempted=True
+            f"candidate-generation provider failure after dispatch: {exc}",
+            generation_attempted=True,
         ) from exc
 
     usage = getattr(result, "usage", None)

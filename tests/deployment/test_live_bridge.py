@@ -259,6 +259,35 @@ def test_bridge_rejects_executor_that_provisions_sandbox_without_receipt() -> No
     assert body["provider_dispatched"] is True
 
 
+def test_bridge_signals_provider_dispatched_for_generation_failure() -> None:
+    receipt = _build_synthetic_live_receipt()
+    payload = _make_request_payload(receipt.source_commit_id)
+
+    def executor(_: Any) -> BridgeExecutionResult:
+        return BridgeExecutionResult(
+            status="BLOCKED_CANDIDATE_GENERATION_FAILED",
+            error="candidate generation provider failure after dispatch",
+            model_call_count=2,
+            model_usage_complete=False,
+        )
+
+    bridge = _fixture_bridge(receipt.source_commit_id, executor=executor)
+
+    status_code, body = bridge.handle_http_request(
+        method="POST",
+        path="/internal/live-verifications",
+        headers=_sign_headers(payload, secret="bridge-secret"),
+        raw_body=json_bytes(payload),
+    )
+
+    assert status_code == 503
+    assert body["status"] == "BLOCKED_CANDIDATE_GENERATION_FAILED"
+    # A dispatched generation call may have incurred unknown cost; the response must
+    # not claim zero provider dispatch, and there is no receipt.
+    assert body["provider_dispatched"] is True
+    assert body["ambiguous_outcome"] is False
+
+
 def test_bridge_preserves_ambiguous_provider_failure() -> None:
     receipt = _build_synthetic_live_receipt()
     payload = _make_request_payload(receipt.source_commit_id)

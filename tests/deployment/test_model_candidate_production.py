@@ -17,7 +17,14 @@ from typing import Any
 import pytest
 
 import basebreak.deployment.live_bridge as live_bridge
-from basebreak.adapters.nebius import ModelTimeoutError
+from basebreak.adapters.nebius import (
+    MissingCredentialError,
+    ModelConfigError,
+    ModelIdentityMismatchError,
+    ModelProviderError,
+    ModelResponseFormatError,
+    ModelTimeoutError,
+)
 from basebreak.deployment.live_bridge import (
     BridgeRequest,
     BridgeValidationError,
@@ -475,3 +482,126 @@ def test_source_content_is_bound_to_commit() -> None:
     assert set(files) == {_VAULT_REL}
     with pytest.raises(BridgeValidationError):
         _reset_vault_candidate_base_files(_REPO_ROOT, "0" * 40)
+
+
+# --- provider-error accounting on the generation call (and identity probe) ----------
+
+
+def _run_grounded(monkeypatch: pytest.MonkeyPatch, second: Any) -> Any:
+    _scenario, request = _scenario_and_request()
+    monkeypatch.setattr(live_bridge, "_assess_production_grounding", lambda **_: (True, None))
+    payload = request.to_dict()
+    client = _ScriptedModel([_identity_content(payload), second])
+
+    class _WorkerMustNotRun:
+        def execute_causal_triplet(self, **_: Any) -> Any:
+            raise AssertionError("generation failure must not reach execution")
+
+    return create_live_nebius_bridge_executor(
+        config=TrustedBridgeConfig(
+            expected_source_commit=_HEAD, nebius_api_key="k", nebius_project_id="p"
+        ),
+        model_client=client,
+        sandbox_adapter=_FakeSandboxAdapter(),
+        verifier_worker=_WorkerMustNotRun(),
+    )(request)
+
+
+def test_second_call_provider_http_error_counts_two_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _run_grounded(monkeypatch, ModelProviderError(429, "rate limited"))
+    assert result.status == "BLOCKED_CANDIDATE_GENERATION_FAILED"
+    assert result.receipt is None
+    assert result.model_call_count == 2  # dispatched second call is counted
+    assert result.model_usage_complete is False  # usage unavailable -> UNKNOWN
+    assert result.tokens_used == 12  # first-call usage preserved
+    assert result.reserved_exposure_usd == 0.25
+    assert result.observed_cost_usd is None
+    assert result.cost_provenance == "UNKNOWN"
+    assert result.candidate_generation is None
+
+
+def test_second_call_malformed_provider_response_counts_two(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _run_grounded(monkeypatch, ModelResponseFormatError("provider payload not JSON"))
+    assert result.status == "BLOCKED_CANDIDATE_GENERATION_FAILED"
+    assert result.model_call_count == 2
+    assert result.model_usage_complete is False
+    assert result.tokens_used == 12
+    assert result.reserved_exposure_usd == 0.25
+    assert result.cost_provenance == "UNKNOWN"
+
+
+def test_second_call_model_identity_mismatch_counts_two(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = _run_grounded(monkeypatch, ModelIdentityMismatchError("configured", "returned"))
+    assert result.status == "BLOCKED_CANDIDATE_GENERATION_FAILED"
+    assert result.model_call_count == 2
+    assert result.model_usage_complete is False
+    assert result.tokens_used == 12
+
+
+def test_generation_pre_dispatch_config_rejection_not_counted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _run_grounded(monkeypatch, ModelConfigError("invalid request parameters"))
+    assert result.status == "BLOCKED_CANDIDATE_GENERATION_FAILED"
+    # Pre-dispatch rejection must NOT be counted as provider work.
+    assert result.model_call_count == 1
+    assert result.model_usage_complete is True  # only the observed probe call occurred
+    assert result.tokens_used == 12
+    assert result.reserved_exposure_usd == 0.25
+    assert result.observed_cost_usd is None
+
+
+def _probe_failure(monkeypatch: pytest.MonkeyPatch, exc: Any) -> Any:
+    _scenario, request = _scenario_and_request()
+    monkeypatch.setattr(live_bridge, "_assess_production_grounding", lambda **_: (True, None))
+    client = _ScriptedModel([exc])
+
+    class _WorkerMustNotRun:
+        def execute_causal_triplet(self, **_: Any) -> Any:
+            raise AssertionError("probe failure must not reach execution")
+
+    return create_live_nebius_bridge_executor(
+        config=TrustedBridgeConfig(
+            expected_source_commit=_HEAD, nebius_api_key="k", nebius_project_id="p"
+        ),
+        model_client=client,
+        sandbox_adapter=_FakeSandboxAdapter(),
+        verifier_worker=_WorkerMustNotRun(),
+    )(request)
+
+
+def test_identity_probe_provider_error_preserves_accounting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _probe_failure(monkeypatch, ModelProviderError(500, "provider down"))
+    assert result.status == "UNKNOWN_OUTCOME"
+    assert result.receipt is None
+    assert result.model_call_count == 1  # dispatched probe failure is not reported as zero
+    assert result.model_usage_complete is False
+    assert result.reserved_exposure_usd == 0.25
+    assert result.observed_cost_usd is None
+    assert result.cost_provenance == "UNKNOWN"
+
+
+def test_identity_probe_timeout_preserves_accounting(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = _probe_failure(monkeypatch, ModelTimeoutError("probe timeout"))
+    assert result.status == "UNKNOWN_OUTCOME"
+    assert result.model_call_count == 1
+    assert result.model_usage_complete is False
+    assert result.reserved_exposure_usd == 0.25
+    assert result.observed_cost_usd is None
+
+
+def test_identity_probe_config_rejection_reports_zero_attempted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _probe_failure(monkeypatch, MissingCredentialError("no credentials"))
+    assert result.status == "FAILED"
+    assert result.receipt is None
+    assert result.model_call_count == 0  # pre-dispatch rejection, no provider work
+    assert result.observed_cost_usd is None
+    assert result.cost_provenance == "UNKNOWN"

@@ -1216,7 +1216,9 @@ def create_live_nebius_bridge_executor(
 ) -> BridgeExecutor:
     def _executor(request: BridgeRequest) -> BridgeExecutionResult:
         from basebreak.adapters.nebius import (
+            ModelAdapterError,
             ModelClientConfig,
+            ModelConfigError,
             ModelNetworkError,
             ModelTimeoutError,
             NebiusModelClient,
@@ -1290,11 +1292,41 @@ def create_live_nebius_bridge_executor(
         probe_duration_seconds = 0.0
 
         try:
-            model_result = active_model_client.complete(
-                _build_runtime_identity_probe_messages(request),
-                max_tokens=160,
-                temperature=0.0,
-            )
+            try:
+                model_result = active_model_client.complete(
+                    _build_runtime_identity_probe_messages(request),
+                    max_tokens=160,
+                    temperature=0.0,
+                )
+            except ModelConfigError as exc:
+                # Pre-dispatch configuration/credential rejection: no provider work attempted.
+                return BridgeExecutionResult(
+                    status="FAILED",
+                    error=f"identity probe rejected before dispatch: {exc}",
+                    approved_estimate_usd=round(float(request.max_estimated_cost_usd), 6),
+                    reserved_exposure_usd=round(float(request.max_estimated_cost_usd), 6),
+                    observed_cost_usd=None,
+                    cost_provenance="UNKNOWN",
+                    model_call_count=0,
+                    model_usage_complete=False,
+                )
+            except ModelAdapterError as exc:
+                # The probe was dispatched to the provider but failed: count the attempt,
+                # keep usage UNKNOWN and conservative reserved exposure.
+                return BridgeExecutionResult(
+                    status="UNKNOWN_OUTCOME",
+                    error=str(exc),
+                    ambiguous_outcome=True,
+                    approved_estimate_usd=round(float(request.max_estimated_cost_usd), 6),
+                    reserved_exposure_usd=round(float(request.max_estimated_cost_usd), 6),
+                    observed_cost_usd=None,
+                    cost_provenance="UNKNOWN",
+                    model_call_count=1,
+                    model_usage_complete=False,
+                    provider_operation_ids=_normalize_provider_operation_ids(
+                        getattr(active_sandbox_adapter, "live_operation_ids", ())
+                    ),
+                )
             _assert_runtime_identity_probe_binding(request, model_result.content)
             probe_usage = getattr(model_result, "usage", None)
             probe_prompt_tokens = (
