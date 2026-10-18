@@ -129,7 +129,7 @@ Judge claim:
 - P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED AFTER P-28.
 
 ## Last independently VERIFIED baseline SHA
-`20428deb024bd795696133358f9874e44f337edb` (last independently QA-accepted baseline; this is the P-27.06 production verifier trust-anchor rotation commit). The subsequent commit `1bd29a4e1a4201c671a20b344438c3dbd24439e4` is an executor documentation/deployment-readiness candidate (updates to `docs/HANDOFF.md`, `docs/P27_06_DEPLOYED_NEBIUS_RUNTIME_PROOF.md`, and `plans/BASEBREAK_MASTER_EXECUTION_PLAN.md`, plus the Oracle SHA-aligned signing-readiness deployment) and remains pending independent QA. No self-awarded QA PASS is claimed. The earlier repair commits `59a2550` and `4206e0d` are historical and are no longer the latest outstanding work.
+`866438ae47790ec5347cfbd28ea68165b4c83bba` (last independently VERIFIED baseline before this QA). The submitted private-connectivity candidate `56e43087c2492bcd18c478b80303b47be695f99f` (Workers VPC Service → Cloudflare Tunnel → Oracle loopback bridge; the Worker and Oracle bridge HMAC shared secret is now configured per deployment observations) remains pending independent acceptance. Private connectivity is deployed and verified under non-provider runtime probes; deployed `LIVE_NEBIUS` runtime proof remains `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. No self-awarded QA PASS is claimed.
 
 ## Blocking live gate vs active task
 
