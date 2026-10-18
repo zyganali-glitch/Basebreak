@@ -60,6 +60,7 @@ class _ScriptedModel:
     def __init__(self, responses: list[Any]) -> None:
         self._responses = list(responses)
         self.calls = 0
+        self.requested_response_format: dict[str, str] | None = None
 
     def complete(
         self,
@@ -67,13 +68,28 @@ class _ScriptedModel:
         *,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        response_format: dict[str, str] | None = None,
+        reject_length_truncation: bool = False,
     ) -> Any:
         del max_tokens, temperature
+        if response_format is not None:
+            self.requested_response_format = dict(response_format)
         idx = min(self.calls, len(self._responses) - 1)
         item = self._responses[idx]
         self.calls += 1
         if isinstance(item, BaseException):
             raise item
+        if isinstance(item, tuple):
+            # (content, finish_reason) scripted pair — used for truncation regressions.
+            content, finish_reason = item
+            return SimpleNamespace(
+                content=content,
+                finish_reason=finish_reason,
+                usage=SimpleNamespace(prompt_tokens=8, completion_tokens=4, total_tokens=12),
+                returned_model="nebius/fake-model",
+                request_id="model-req-fake",
+                duration_seconds=0.1,
+            )
         return SimpleNamespace(
             content=item,
             usage=SimpleNamespace(prompt_tokens=8, completion_tokens=4, total_tokens=12),
@@ -533,3 +549,127 @@ def test_generation_pre_dispatch_config_rejection_not_counted(
     assert result.tokens_used == 0
     assert result.reserved_exposure_usd == 0.25
     assert result.observed_cost_usd is None
+
+
+# --- P-27.06 structured-generation repair regressions --------------------------------
+
+
+def _proposal_json_with_raw_controls(path: str, content: str, action: str = "MODIFY") -> str:
+    """Build proposal JSON with RAW (unescaped) control chars inside the content string.
+
+    Strict json.loads rejects this exact shape: JSON strings may not contain raw
+    control characters. This reproduces the genuine production failure mode of
+    run_2548fbf9 (literal newlines inside patch content).
+    """
+    template = (
+        '{{"plan": {{"summary": "s", "reasoning": "r", "steps": ["x"]}}, '
+        '"proposed_file_actions": [{{"action": "{action}", "path": "{path}", '
+        '"content": "{content}", "rationale": "fix"}}], '
+        '"proposed_commands": []}}'
+    )
+    json_text = template.format(action=action, path=path, content=content)
+    assert "\n" in content or "\t" in content or "\r" in content  # raw controls present
+    # Sanity: strict parsing must indeed fail on the raw-control payload.
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(json_text)
+    return json_text
+
+
+def test_provider_json_object_mode_is_requested() -> None:
+    client = _ScriptedModel([_proposal_json("src/x.py", "print(2)\n")])
+    _gen(client, base_files={"src/x.py": "print(1)\n"}, allowed=["src/x.py"])
+    assert client.requested_response_format == {"type": "json_object"}
+
+
+def test_raw_newline_inside_json_string_is_normalized() -> None:
+    """The genuine production defect: literal newlines inside a JSON string value.
+
+    The normalized recovery must yield exactly the model's intended string values,
+    preserving the ORIGINAL response text and digest verbatim.
+    """
+    base = {"src/x.py": "print(1)\n"}
+    content = "print(2)\nprint(3)\n"
+    client = _ScriptedModel([_proposal_json_with_raw_controls("src/x.py", content)])
+    candidate = _gen(client, base_files=base, allowed=["src/x.py"])
+
+    assert candidate.origin == MODEL_GENERATED_CANDIDATE_ORIGIN
+    assert candidate.files_mapping() == {"src/x.py": content}
+    # Original response bytes are preserved verbatim (raw newline not mutated).
+    assert "\n" in candidate.response_text
+    assert (
+        candidate.response_digest
+        == hashlib.sha256(candidate.response_text.encode("utf-8")).hexdigest()
+    )
+
+
+def test_tab_and_carriage_return_inside_json_strings_are_normalized() -> None:
+    base = {"src/x.py": "print(1)\n"}
+    content = "if True:\n\tprint(2)\r\n"
+    client = _ScriptedModel([_proposal_json_with_raw_controls("src/x.py", content)])
+    candidate = _gen(client, base_files=base, allowed=["src/x.py"])
+    assert candidate.files_mapping() == {"src/x.py": content}
+
+
+def test_control_char_normalized_response_is_independently_reconstructible() -> None:
+    """Independent reconstruction must re-derive the identical proposal/patch from
+    the SAME original response text using the SAME bounded normalization."""
+    candidate = _gen(
+        _ScriptedModel([_proposal_json_with_raw_controls("src/x.py", "print(2)\nprint(3)\n")]),
+        base_files=dict(_AUTHORIZED_BASE),
+        allowed=list(_ALLOWED),
+    )
+    _verify(candidate)
+
+
+def test_truncated_incomplete_json_fails_closed() -> None:
+    """Truncated/incomplete provider JSON must never be completed or invented."""
+    good = _proposal_json("src/x.py", "print(2)\n")
+    truncated = good[: len(good) - len('"proposed_commands": []}')]
+    assert truncated.strip().endswith("],")  # object left incomplete
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(truncated)
+    with pytest.raises(ModelCandidateRejectedError):
+        _gen(
+            _ScriptedModel([truncated]),
+            base_files={"src/x.py": "print(1)\n"},
+            allowed=["src/x.py"],
+        )
+
+
+def test_invalid_escape_sequence_fails_closed() -> None:
+    """An invalid backslash escape must NOT be 'fixed' — fail closed."""
+    bad_escape = (
+        '{"plan": {"summary": "s"}, "proposed_file_actions": '
+        '[{"action": "MODIFY", "path": "src/x.py", "content": "bad\\xescape", '
+        '"rationale": "fix"}], "proposed_commands": []}'
+    )
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(bad_escape)
+    with pytest.raises(ModelCandidateRejectedError):
+        _gen(
+            _ScriptedModel([bad_escape]),
+            base_files={"src/x.py": "print(1)\n"},
+            allowed=["src/x.py"],
+        )
+
+
+def test_finish_reason_length_fails_closed() -> None:
+    """finish_reason='length' means the provider truncated the response."""
+    with pytest.raises(ModelCandidateRejectedError) as exc_info:
+        _gen(
+            _ScriptedModel([(_proposal_json("src/x.py", "print(2)\n"), "length")]),
+            base_files={"src/x.py": "print(1)\n"},
+            allowed=["src/x.py"],
+        )
+    assert "truncated" in str(exc_info.value)
+    # The dispatched call still counts as genuine provider work for accounting.
+    assert getattr(exc_info.value, "generation_attempted", None) is True
+
+
+def test_generation_truncation_length_counts_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = _run_grounded(monkeypatch, (_proposal_json("src/x.py", "print(2)\n"), "length"))
+    assert result.status == "BLOCKED_CANDIDATE_GENERATION_FAILED"
+    assert result.receipt is None
+    assert result.model_call_count == 1  # the dispatched generation call is counted
+    assert result.candidate_generation is None
+    assert result.cost_provenance == "UNKNOWN"

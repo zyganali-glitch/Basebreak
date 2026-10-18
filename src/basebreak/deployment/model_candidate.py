@@ -33,6 +33,11 @@ MODEL_GENERATED_CANDIDATE_ORIGIN: str = "MODEL_GENERATED_NEBIUS"
 
 DEFAULT_CANDIDATE_MAX_TOKENS: int = 4096
 
+# Provider-enforced structured output for genuine candidate generation. The Nebius
+# Token Factory chat-completions interface documents support for
+# {"type": "json_object"} and {"type": "text"} only.
+CANDIDATE_RESPONSE_FORMAT: dict[str, str] = {"type": "json_object"}
+
 # Sentinel substrings that must never appear in builder-facing candidate context.
 _FORBIDDEN_CONTEXT_MARKERS: tuple[str, ...] = (
     "witness",
@@ -281,7 +286,13 @@ def generate_model_candidate(
         base_files=base_files,
     )
     try:
-        result = model_client.complete(messages, max_tokens=max_tokens, temperature=temperature)
+        result = model_client.complete(
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            response_format=CANDIDATE_RESPONSE_FORMAT,
+            reject_length_truncation=True,
+        )
     except ModelConfigError as exc:
         # Pre-dispatch configuration/credential rejection: no provider work was dispatched.
         raise ModelCandidateRejectedError(
@@ -316,6 +327,19 @@ def generate_model_candidate(
         "returned_model": str(getattr(result, "returned_model", "") or ""),
         "response_received": isinstance(response_text, str) and bool(response_text.strip()),
     }
+
+    # Explicitly reject a truncated generation response before any parsing. A provider
+    # ``finish_reason == "length"`` (or a client-bound truncation, surfaced as a raised
+    # ModelTruncatedResponseError) must never be accepted as a complete proposal, and
+    # truncation must never be "repaired" by inventing missing fields.
+    finish_reason = getattr(result, "finish_reason", None)
+    if isinstance(finish_reason, str) and finish_reason.strip().lower() == "length":
+        truncated = ModelCandidateRejectedError(
+            "candidate-generation response was truncated (finish_reason='length')"
+        )
+        for key, value in accounting.items():
+            setattr(truncated, key, value)
+        raise truncated
 
     if not isinstance(response_text, str) or not response_text.strip():
         raise ModelCandidateRejectedError(

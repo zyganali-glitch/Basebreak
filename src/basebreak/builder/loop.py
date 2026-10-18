@@ -558,6 +558,67 @@ def _recover_malformed_redundant_quotes(candidate: str) -> str:
     return re.sub(r'("(?:\w+)"\s*:\s*)"{3,}', r'\1"', candidate)
 
 
+_JSON_STRING_CONTROL_CHAR_ESCAPES: dict[str, str] = {
+    "\n": "\\n",
+    "\r": "\\r",
+    "\t": "\\t",
+    "\b": "\\b",
+    "\f": "\\f",
+}
+
+
+def _escape_raw_control_chars_in_json_strings(text: str) -> str:
+    """Deterministically escape raw control characters inside JSON string literals.
+
+    ONLY invoked as a bounded fallback when strict json.loads() has already failed.
+    JSON grammar forbids unescaped control characters (U+0000-U+001F) inside string
+    literals; the target defect is a model emitting literal newlines/CR/tabs inside
+    string values (e.g. patch content), which strict parsing rejects with
+    "Unterminated string".
+
+    Bounds (never relaxed):
+    - Only transforms raw control characters that occur strictly between the
+      opening and closing quotes of a JSON string literal, honoring backslash
+      escape state.
+    - Control characters OUTSIDE string literals are legal JSON whitespace and
+      are preserved unchanged.
+    - Never adds, removes, reorders, or completes any JSON token; the resulting
+      text describes exactly the same string values as the model's intent.
+    - If no control char occurred inside a string, the input is returned unchanged.
+    """
+    out: list[str] = []
+    in_string = False
+    escaped = False
+    changed = False
+    for ch in text:
+        if not in_string:
+            out.append(ch)
+            if ch == '"':
+                in_string = True
+            continue
+        if escaped:
+            out.append(ch)
+            escaped = False
+            continue
+        if ch == "\\":
+            out.append(ch)
+            escaped = True
+            continue
+        if ch == '"':
+            out.append(ch)
+            in_string = False
+            continue
+        code = ord(ch)
+        if code < 0x20:
+            out.append(_JSON_STRING_CONTROL_CHAR_ESCAPES.get(ch, f"\\u{code:04x}"))
+            changed = True
+            continue
+        out.append(ch)
+    if not changed:
+        return text
+    return "".join(out)
+
+
 def _extract_json_payload(raw_text: str) -> str:
     """Extract JSON string from model response, stripping markdown fences and thinking blocks.
 
@@ -631,14 +692,25 @@ def parse_and_validate_builder_response(raw_text: str) -> BuilderProposal:
         data = json.loads(json_str)
     except Exception as strict_exc:
         # Strict parsing failed. Only now attempt bounded deterministic malformed-output recovery.
-        recovered_str = _recover_malformed_redundant_quotes(json_str)
-        if recovered_str != json_str:
+        data = None
+
+        # Recovery 1: raw control characters inside JSON string literals (e.g. literal
+        # newlines inside patch content) — the observed production failure mode.
+        normalized_str = _escape_raw_control_chars_in_json_strings(json_str)
+        if normalized_str != json_str:
             try:
-                data = json.loads(recovered_str)
+                data = json.loads(normalized_str)
             except Exception:
                 data = None
-        else:
-            data = None
+
+        # Recovery 2: redundant unescaped opening quotes on string values.
+        if data is None:
+            recovered_str = _recover_malformed_redundant_quotes(json_str)
+            if recovered_str != json_str:
+                try:
+                    data = json.loads(recovered_str)
+                except Exception:
+                    data = None
 
         if data is None:
             raise MalformedBuilderOutputError(

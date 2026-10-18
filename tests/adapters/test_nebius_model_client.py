@@ -28,6 +28,7 @@ from basebreak.adapters.nebius import (
     ModelProviderError,
     ModelResponseFormatError,
     ModelTimeoutError,
+    ModelTruncatedResponseError,
     NebiusModelClient,
     TokenUsage,
     TransportResponse,
@@ -438,3 +439,76 @@ class TestNebiusModelClient:
         assert not hasattr(result, "is_verified")
         assert not hasattr(result, "causal_verdict")
         assert not hasattr(result, "pass_fail")
+
+    # 21. P-27.06: opt-in truncation rejection fails closed on finish_reason='length'
+    def test_reject_length_truncation_fails_closed(self) -> None:
+        client = NebiusModelClient(
+            config=ModelClientConfig(api_key="valid-key"),
+            transport=lambda req, timeout: TransportResponse(
+                200, _make_success_body(content='{"partial":', finish_reason="length"), {}
+            ),
+        )
+        with pytest.raises(ModelTruncatedResponseError):
+            client.complete([ChatMessage(role="user", content="hi")], reject_length_truncation=True)
+
+    # 22. default behaviour unchanged: truncation returned for the caller to judge
+    def test_truncation_without_reject_flag_preserved(self) -> None:
+        client = NebiusModelClient(
+            config=ModelClientConfig(api_key="valid-key"),
+            transport=lambda req, timeout: TransportResponse(
+                200, _make_success_body(content='{"partial":', finish_reason="length"), {}
+            ),
+        )
+        result = client.complete([ChatMessage(role="user", content="hi")])
+        assert result.finish_reason == "length"
+        assert result.content == '{"partial":'
+
+    # 23. P-27.06: provider-enforced response_format reaches the wire
+    def test_response_format_sent_in_payload(self) -> None:
+        captured_request: list[urllib.request.Request] = []
+
+        def mock_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            captured_request.append(req)
+            return TransportResponse(200, _make_success_body(), {})
+
+        client = NebiusModelClient(
+            config=ModelClientConfig(api_key="valid-key"),
+            transport=mock_transport,
+        )
+        client.complete(
+            [ChatMessage(role="user", content="hi")],
+            response_format={"type": "json_object"},
+        )
+        assert len(captured_request) == 1
+        body = json.loads(captured_request[0].data.decode("utf-8"))
+        assert body["response_format"] == {"type": "json_object"}
+
+    # 24. P-27.06: unsupported response_format type fails closed pre-dispatch
+    def test_response_format_invalid_type_fails_closed(self) -> None:
+        call_count = 0
+
+        def mock_transport(req: urllib.request.Request, timeout: float) -> TransportResponse:
+            nonlocal call_count
+            call_count += 1
+            return TransportResponse(200, _make_success_body(), {})
+
+        client = NebiusModelClient(
+            config=ModelClientConfig(api_key="valid-key", max_response_characters=50),
+            transport=mock_transport,
+        )
+        with pytest.raises(ModelConfigError):
+            client.complete(
+                [ChatMessage(role="user", content="hi")], response_format={"type": "bogus"}
+            )
+        assert call_count == 0  # rejected before any provider dispatch
+
+    # 25. P-27.06: client-bound truncation rejected when opted in
+    def test_bound_truncation_rejected_when_opted_in(self) -> None:
+        client = NebiusModelClient(
+            config=ModelClientConfig(api_key="valid-key", max_response_characters=5),
+            transport=lambda req, timeout: TransportResponse(
+                200, _make_success_body(content="X" * 100, finish_reason="stop"), {}
+            ),
+        )
+        with pytest.raises(ModelTruncatedResponseError):
+            client.complete([ChatMessage(role="user", content="hi")], reject_length_truncation=True)

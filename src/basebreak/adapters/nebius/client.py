@@ -17,7 +17,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -88,6 +88,15 @@ class ModelProviderError(ModelAdapterError):
 
 class ModelResponseFormatError(ModelAdapterError):
     """Raised when the provider response is malformed or missing required structure."""
+
+
+class ModelTruncatedResponseError(ModelAdapterError):
+    """Raised when a provider response was truncated.
+
+    Covers an explicit provider ``finish_reason == "length"`` and local
+    ``max_response_characters`` bound truncation. Truncated output must never be
+    silently accepted as a complete structured payload.
+    """
 
 
 class ModelIdentityMismatchError(ModelAdapterError):
@@ -318,10 +327,20 @@ class NebiusModelClient:
         *,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        response_format: Mapping[str, Any] | None = None,
+        reject_length_truncation: bool = False,
     ) -> ModelClientResult:
         """Execute exactly ONE bounded chat completion request.
 
         No automatic retries. Missing credential fails closed.
+
+        ``response_format`` (optional) requests provider-enforced output shaping.
+        The Nebius Token Factory chat-completions interface documents support for
+        ``{"type": "json_object"}`` and ``{"type": "text"}`` only.
+
+        ``reject_length_truncation`` (optional, default False) makes a truncated
+        provider response fail closed with ``ModelTruncatedResponseError`` instead
+        of returning partial content. The default preserves legacy behaviour.
         """
         api_key = self._resolve_api_key()
         project_id = self._resolve_project_id()
@@ -371,6 +390,16 @@ class NebiusModelClient:
             "max_tokens": eff_max_tokens,
             "temperature": eff_temperature,
         }
+
+        if response_format is not None:
+            if not isinstance(response_format, Mapping):
+                raise ModelConfigError("response_format must be a mapping")
+            rf_type = response_format.get("type")
+            if rf_type not in ("text", "json_object", "json_schema"):
+                raise ModelConfigError(
+                    "response_format.type must be one of 'text', 'json_object', or 'json_schema'"
+                )
+            payload["response_format"] = dict(response_format)
 
         payload_bytes = json.dumps(payload).encode("utf-8")
         url = (
@@ -443,6 +472,9 @@ class NebiusModelClient:
 
         if len(content) > self.config.max_response_characters:
             content = content[: self.config.max_response_characters]
+            content_exceeded_bound = True
+        else:
+            content_exceeded_bound = False
 
         returned_model = data.get("model")
         if not isinstance(returned_model, str) or not returned_model.strip():
@@ -457,6 +489,16 @@ class NebiusModelClient:
         finish_reason = choice.get("finish_reason")
         if finish_reason is not None and not isinstance(finish_reason, str):
             finish_reason = str(finish_reason)
+
+        if reject_length_truncation:
+            if finish_reason == "length":
+                raise ModelTruncatedResponseError(
+                    "Provider signaled a truncated response (finish_reason='length')."
+                )
+            if content_exceeded_bound:
+                raise ModelTruncatedResponseError(
+                    "Provider response exceeded max_response_characters and was truncated."
+                )
 
         request_id = data.get("id")
         if request_id is not None and not isinstance(request_id, str):
