@@ -643,42 +643,6 @@ def _compute_candidate_tree_digest(
         return tree_digest
 
 
-def _build_runtime_identity_probe_messages(request: BridgeRequest) -> list[Any]:
-    """Build a runtime identity probe for the model.
-
-    IMPORTANT: this probe only confirms that the live inference endpoint returns
-    the request-bound identity facts. It is NOT candidate-patch generation and
-    must never be described as an AI-written change. See DEFECT E handling.
-    """
-    from basebreak.adapters.nebius import ChatMessage
-
-    challenge = (
-        "LIVE_ATTESTATION "
-        f"request_id={request.request_id} "
-        f"source_commit_id={request.source_commit_id} "
-        f"contract_digest={request.frozen_contract_digest}"
-    )
-    return [
-        ChatMessage(
-            role="system",
-            content="Return the exact attestation line requested by the user. No commentary.",
-        ),
-        ChatMessage(role="user", content=challenge),
-    ]
-
-
-def _assert_runtime_identity_probe_binding(request: BridgeRequest, model_content: str) -> None:
-    required_fragments = (
-        request.request_id,
-        request.source_commit_id,
-        request.frozen_contract_digest,
-    )
-    if any(fragment not in model_content for fragment in required_fragments):
-        raise BridgeValidationError(
-            "Nebius model runtime identity probe response omitted one or more bound request facts."
-        )
-
-
 SIGNER_COMPATIBILITY_CHALLENGE: str = "basebreak:signer-compatibility-challenge:v1"
 
 
@@ -954,13 +918,14 @@ def _build_public_receipt_from_local_receipt(
 
     runtime_identities = [
         "bridge:trusted-python",
-        f"model:{model_result.returned_model}",
         f"source:{request.source_commit_id}",
         f"candidate-origin:{candidate_origin}",
         f"sandbox:{local_receipt.base_execution.sandbox_id}",
         f"sandbox:{local_receipt.candidate_execution.sandbox_id}",
     ]
-    if model_result.request_id:
+    if str(getattr(model_result, "returned_model", "")).strip():
+        runtime_identities.append(f"model:{model_result.returned_model}")
+    if getattr(model_result, "request_id", None):
         runtime_identities.append(f"model-request:{model_result.request_id}")
     if local_receipt.counterfactual_execution is not None:
         runtime_identities.append(f"sandbox:{local_receipt.counterfactual_execution.sandbox_id}")
@@ -1009,7 +974,7 @@ def _build_public_receipt_from_local_receipt(
                 + (
                     float(model_total_duration_seconds)
                     if model_total_duration_seconds is not None
-                    else float(model_result.duration_seconds)
+                    else float(getattr(model_result, "duration_seconds", 0.0) or 0.0)
                 ),
                 4,
             ),
@@ -1215,10 +1180,10 @@ def create_live_nebius_bridge_executor(
     vault: Any | None = None,
 ) -> BridgeExecutor:
     def _executor(request: BridgeRequest) -> BridgeExecutionResult:
+        from types import SimpleNamespace
+
         from basebreak.adapters.nebius import (
-            ModelAdapterError,
             ModelClientConfig,
-            ModelConfigError,
             ModelNetworkError,
             ModelTimeoutError,
             NebiusModelClient,
@@ -1285,64 +1250,10 @@ def create_live_nebius_bridge_executor(
         # Conservative accounting defaults: never overclaim metered usage. These are
         # refined as calls succeed; the outer failure handlers must not raise on them.
         model_call_count = 0
-        probe_usage: Any | None = None
         probe_prompt_tokens: int | None = None
         probe_completion_tokens: int | None = None
-        probe_total_tokens = 0
-        probe_duration_seconds = 0.0
 
         try:
-            try:
-                model_result = active_model_client.complete(
-                    _build_runtime_identity_probe_messages(request),
-                    max_tokens=160,
-                    temperature=0.0,
-                )
-            except ModelConfigError as exc:
-                # Pre-dispatch configuration/credential rejection: no provider work attempted.
-                return BridgeExecutionResult(
-                    status="FAILED",
-                    error=f"identity probe rejected before dispatch: {exc}",
-                    approved_estimate_usd=round(float(request.max_estimated_cost_usd), 6),
-                    reserved_exposure_usd=round(float(request.max_estimated_cost_usd), 6),
-                    observed_cost_usd=None,
-                    cost_provenance="UNKNOWN",
-                    model_call_count=0,
-                    model_usage_complete=False,
-                )
-            except ModelAdapterError as exc:
-                # The probe was dispatched to the provider but failed: count the attempt,
-                # keep usage UNKNOWN and conservative reserved exposure.
-                return BridgeExecutionResult(
-                    status="UNKNOWN_OUTCOME",
-                    error=str(exc),
-                    ambiguous_outcome=True,
-                    approved_estimate_usd=round(float(request.max_estimated_cost_usd), 6),
-                    reserved_exposure_usd=round(float(request.max_estimated_cost_usd), 6),
-                    observed_cost_usd=None,
-                    cost_provenance="UNKNOWN",
-                    model_call_count=1,
-                    model_usage_complete=False,
-                    provider_operation_ids=_normalize_provider_operation_ids(
-                        getattr(active_sandbox_adapter, "live_operation_ids", ())
-                    ),
-                )
-            _assert_runtime_identity_probe_binding(request, model_result.content)
-            probe_usage = getattr(model_result, "usage", None)
-            probe_prompt_tokens = (
-                int(getattr(probe_usage, "prompt_tokens", 0) or 0)
-                if probe_usage is not None
-                else None
-            )
-            probe_completion_tokens = (
-                int(getattr(probe_usage, "completion_tokens", 0) or 0)
-                if probe_usage is not None
-                else None
-            )
-            probe_total_tokens = int(getattr(probe_usage, "total_tokens", 0) or 0)
-            probe_duration_seconds = float(getattr(model_result, "duration_seconds", 0.0) or 0.0)
-            model_call_count = 1
-
             source_identity = SourceIdentity(
                 config.source_repo_locator,
                 CommitRevision(request.source_commit_id),
@@ -1376,27 +1287,26 @@ def create_live_nebius_bridge_executor(
                 except ModelCandidateError as exc:
                     generation_attempted = bool(getattr(exc, "generation_attempted", False))
                     if generation_attempted:
-                        blocked_call_count = 2
-                        blocked_prompt_tokens = (probe_prompt_tokens or 0) + int(
+                        blocked_call_count = 1
+                        blocked_prompt_tokens = int(
                             getattr(exc, "generation_prompt_tokens", None) or 0
                         )
-                        blocked_completion_tokens = (probe_completion_tokens or 0) + int(
+                        blocked_completion_tokens = int(
                             getattr(exc, "generation_completion_tokens", None) or 0
                         )
                         blocked_usage_complete = bool(
-                            probe_usage is not None
-                            and getattr(exc, "generation_prompt_tokens", None) is not None
+                            getattr(exc, "generation_prompt_tokens", None) is not None
                             and getattr(exc, "generation_completion_tokens", None) is not None
                         )
-                        blocked_tokens_used = probe_total_tokens + int(
+                        blocked_tokens_used = int(
                             getattr(exc, "generation_total_tokens", None) or 0
                         )
                     else:
-                        blocked_call_count = 1
-                        blocked_prompt_tokens = probe_prompt_tokens or 0
-                        blocked_completion_tokens = probe_completion_tokens or 0
-                        blocked_usage_complete = probe_usage is not None
-                        blocked_tokens_used = probe_total_tokens
+                        blocked_call_count = 0
+                        blocked_prompt_tokens = 0
+                        blocked_completion_tokens = 0
+                        blocked_usage_complete = True
+                        blocked_tokens_used = 0
                     return BridgeExecutionResult(
                         status="BLOCKED_CANDIDATE_GENERATION_FAILED",
                         error=str(exc),
@@ -1448,35 +1358,28 @@ def create_live_nebius_bridge_executor(
             )
 
             if production_grounded:
-                model_call_count = 2
-                model_prompt_tokens = (probe_prompt_tokens or 0) + (
-                    model_candidate.generation_prompt_tokens or 0
+                # Exactly one genuine model call: candidate generation. Request identity is
+                # bound through deterministic authenticated runtime facts (returned model,
+                # provider request id, response/proposal/patch digests), never an LLM echo.
+                model_call_count = 1
+                model_prompt_tokens = model_candidate.generation_prompt_tokens or 0
+                model_completion_tokens = model_candidate.generation_completion_tokens or 0
+                model_usage_complete = (
+                    model_candidate.generation_prompt_tokens is not None
+                    and model_candidate.generation_completion_tokens is not None
                 )
-                model_completion_tokens = (probe_completion_tokens or 0) + (
-                    model_candidate.generation_completion_tokens or 0
-                )
-                model_usage_complete = all(
-                    value is not None
-                    for value in (
-                        probe_prompt_tokens,
-                        probe_completion_tokens,
-                        model_candidate.generation_prompt_tokens,
-                        model_candidate.generation_completion_tokens,
-                    )
-                )
-                model_total_duration_seconds = probe_duration_seconds + float(
+                model_total_duration_seconds = float(
                     model_candidate.generation_duration_seconds or 0.0
                 )
-                result_tokens_used = probe_total_tokens + int(
-                    model_candidate.generation_total_tokens or 0
-                )
+                result_tokens_used = int(model_candidate.generation_total_tokens or 0)
             else:
-                model_call_count = 1
-                model_prompt_tokens = probe_prompt_tokens or 0
-                model_completion_tokens = probe_completion_tokens or 0
-                model_usage_complete = probe_usage is not None
-                model_total_duration_seconds = probe_duration_seconds
-                result_tokens_used = probe_total_tokens
+                # Deterministic fixture path: no provider model call is made.
+                model_call_count = 0
+                model_prompt_tokens = 0
+                model_completion_tokens = 0
+                model_usage_complete = True
+                model_total_duration_seconds = 0.0
+                result_tokens_used = 0
 
             witness_artifact = WitnessArtifact.from_text(
                 scenario.witness_artifact_path,
@@ -1537,6 +1440,17 @@ def create_live_nebius_bridge_executor(
                 if len(after_ops) >= len(before_ops) and after_ops[: len(before_ops)] == before_ops
                 else after_ops
             )
+
+            if production_grounded:
+                model_result = SimpleNamespace(
+                    returned_model=model_candidate.returned_model,
+                    request_id=model_candidate.provider_request_id,
+                    duration_seconds=float(model_candidate.generation_duration_seconds or 0.0),
+                )
+            else:
+                model_result = SimpleNamespace(
+                    returned_model="", request_id=None, duration_seconds=0.0
+                )
 
             public_receipt = _build_public_receipt_from_local_receipt(
                 request=request,

@@ -18,7 +18,6 @@ import pytest
 
 import basebreak.deployment.live_bridge as live_bridge
 from basebreak.adapters.nebius import (
-    MissingCredentialError,
     ModelConfigError,
     ModelIdentityMismatchError,
     ModelProviderError,
@@ -233,15 +232,6 @@ def _scenario_and_request() -> tuple[Any, BridgeRequest]:
     return scenario, BridgeRequest.from_dict(payload)
 
 
-def _identity_content(payload: dict[str, Any]) -> str:
-    return (
-        "LIVE_ATTESTATION "
-        f"request_id={payload['request_id']} "
-        f"source_commit_id={payload['source_commit_id']} "
-        f"contract_digest={payload['frozen_contract_digest']}"
-    )
-
-
 class _FakeSandboxAdapter:
     @property
     def live_operation_ids(self) -> tuple[str, ...]:
@@ -254,8 +244,7 @@ def test_grounded_generation_failure_blocks_and_never_falls_back(
     scenario, request = _scenario_and_request()
     monkeypatch.setattr(live_bridge, "_assess_production_grounding", lambda **_: (True, None))
 
-    payload = request.to_dict()
-    client = _ScriptedModel([_identity_content(payload)])  # identity probe, never a proposal
+    client = _ScriptedModel(["not a valid proposal"])  # single generation call, malformed content
 
     class _WorkerMustNotRun:
         def execute_causal_triplet(self, **_: Any) -> Any:
@@ -274,13 +263,13 @@ def test_grounded_generation_failure_blocks_and_never_falls_back(
     assert result.receipt is None
     assert result.candidate_patch_digest is None
     assert result.candidate_generation is None
-    # A malformed second response arrived with usage: exposure + partial accounting preserved.
+    # A malformed generation response arrived with usage: exposure + accounting preserved.
     assert result.reserved_exposure_usd == 0.25
     assert result.observed_cost_usd is None
     assert result.cost_provenance == "UNKNOWN"
-    assert result.model_call_count == 2
+    assert result.model_call_count == 1
     assert result.model_usage_complete is True
-    assert result.tokens_used == 24
+    assert result.tokens_used == 12
     assert result.candidate_origin != MODEL_GENERATED_CANDIDATE_ORIGIN
     assert scenario.candidate_patch_digest not in (result.candidate_patch_digest or "")
 
@@ -290,10 +279,7 @@ def test_grounded_second_call_timeout_preserves_unknown_exposure(
 ) -> None:
     _scenario, request = _scenario_and_request()
     monkeypatch.setattr(live_bridge, "_assess_production_grounding", lambda **_: (True, None))
-    payload = request.to_dict()
-    client = _ScriptedModel(
-        [_identity_content(payload), ModelTimeoutError("candidate-generation timeout")]
-    )
+    client = _ScriptedModel([ModelTimeoutError("candidate-generation timeout")])
 
     class _WorkerMustNotRun:
         def execute_causal_triplet(self, **_: Any) -> Any:
@@ -309,9 +295,9 @@ def test_grounded_second_call_timeout_preserves_unknown_exposure(
     )
     result = executor(request)
     assert result.status == "BLOCKED_CANDIDATE_GENERATION_FAILED"
-    assert result.model_call_count == 2  # the second call was genuinely attempted
-    assert result.model_usage_complete is False  # second-call usage is unknown
-    assert result.tokens_used == 12  # first-call observed usage is preserved
+    assert result.model_call_count == 1  # the generation call was dispatched
+    assert result.model_usage_complete is False  # usage is unknown
+    assert result.tokens_used == 0
     assert result.reserved_exposure_usd == 0.25
     assert result.observed_cost_usd is None
     assert result.cost_provenance == "UNKNOWN"
@@ -319,7 +305,6 @@ def test_grounded_second_call_timeout_preserves_unknown_exposure(
 
 def test_grounded_valid_generation_binds_model_candidate(monkeypatch: pytest.MonkeyPatch) -> None:
     scenario, request = _scenario_and_request()
-    payload = request.to_dict()
     vault_content = (_REPO_ROOT / _VAULT_REL).read_text(encoding="utf-8")
     proposal = _proposal_json(_VAULT_REL, vault_content + "\n# candidate-from-model\n")
 
@@ -332,7 +317,7 @@ def test_grounded_valid_generation_binds_model_candidate(monkeypatch: pytest.Mon
         return object()
 
     monkeypatch.setattr(live_bridge, "_build_public_receipt_from_local_receipt", _fake_build)
-    client = _ScriptedModel([_identity_content(payload), proposal])
+    client = _ScriptedModel([proposal])
 
     class _Worker:
         def execute_causal_triplet(self, **_: Any) -> Any:
@@ -355,12 +340,12 @@ def test_grounded_valid_generation_binds_model_candidate(monkeypatch: pytest.Mon
     assert captured["candidate_patch_digest"] == result.candidate_patch_digest
     # Bound to genuine model output, never the deterministic fixture digest.
     assert result.candidate_patch_digest != scenario.candidate_patch_digest
-    # Both model calls are accounted for (identity probe + candidate generation).
-    assert captured["model_call_count"] == 2
-    assert captured["model_prompt_tokens"] == 16
-    assert captured["model_completion_tokens"] == 8
+    # A single genuine model call (candidate generation) is accounted for.
+    assert captured["model_call_count"] == 1
+    assert captured["model_prompt_tokens"] == 8
+    assert captured["model_completion_tokens"] == 4
     assert captured["model_usage_complete"] is True
-    assert result.tokens_used == 24
+    assert result.tokens_used == 12
     # Candidate-generation provenance is bound into the receipt identities.
     identity_blob = " ".join(captured["candidate_generation_identities"])
     assert f"response-sha256:{result.candidate_generation.response_digest}" in identity_blob
@@ -484,14 +469,13 @@ def test_source_content_is_bound_to_commit() -> None:
         _reset_vault_candidate_base_files(_REPO_ROOT, "0" * 40)
 
 
-# --- provider-error accounting on the generation call (and identity probe) ----------
+# --- provider-error accounting on the single candidate-generation call --------------
 
 
-def _run_grounded(monkeypatch: pytest.MonkeyPatch, second: Any) -> Any:
+def _run_grounded(monkeypatch: pytest.MonkeyPatch, response: Any) -> Any:
     _scenario, request = _scenario_and_request()
     monkeypatch.setattr(live_bridge, "_assess_production_grounding", lambda **_: (True, None))
-    payload = request.to_dict()
-    client = _ScriptedModel([_identity_content(payload), second])
+    client = _ScriptedModel([response])
 
     class _WorkerMustNotRun:
         def execute_causal_triplet(self, **_: Any) -> Any:
@@ -507,39 +491,35 @@ def _run_grounded(monkeypatch: pytest.MonkeyPatch, second: Any) -> Any:
     )(request)
 
 
-def test_second_call_provider_http_error_counts_two_attempts(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_generation_provider_http_error_counts_one_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
     result = _run_grounded(monkeypatch, ModelProviderError(429, "rate limited"))
     assert result.status == "BLOCKED_CANDIDATE_GENERATION_FAILED"
     assert result.receipt is None
-    assert result.model_call_count == 2  # dispatched second call is counted
+    assert result.model_call_count == 1  # the dispatched generation call is counted
     assert result.model_usage_complete is False  # usage unavailable -> UNKNOWN
-    assert result.tokens_used == 12  # first-call usage preserved
+    assert result.tokens_used == 0
     assert result.reserved_exposure_usd == 0.25
     assert result.observed_cost_usd is None
     assert result.cost_provenance == "UNKNOWN"
     assert result.candidate_generation is None
 
 
-def test_second_call_malformed_provider_response_counts_two(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_generation_malformed_provider_response_counts_one(monkeypatch: pytest.MonkeyPatch) -> None:
     result = _run_grounded(monkeypatch, ModelResponseFormatError("provider payload not JSON"))
     assert result.status == "BLOCKED_CANDIDATE_GENERATION_FAILED"
-    assert result.model_call_count == 2
+    assert result.model_call_count == 1
     assert result.model_usage_complete is False
-    assert result.tokens_used == 12
+    assert result.tokens_used == 0
     assert result.reserved_exposure_usd == 0.25
     assert result.cost_provenance == "UNKNOWN"
 
 
-def test_second_call_model_identity_mismatch_counts_two(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_generation_model_identity_mismatch_counts_one(monkeypatch: pytest.MonkeyPatch) -> None:
     result = _run_grounded(monkeypatch, ModelIdentityMismatchError("configured", "returned"))
     assert result.status == "BLOCKED_CANDIDATE_GENERATION_FAILED"
-    assert result.model_call_count == 2
+    assert result.model_call_count == 1
     assert result.model_usage_complete is False
-    assert result.tokens_used == 12
+    assert result.tokens_used == 0
 
 
 def test_generation_pre_dispatch_config_rejection_not_counted(
@@ -548,60 +528,8 @@ def test_generation_pre_dispatch_config_rejection_not_counted(
     result = _run_grounded(monkeypatch, ModelConfigError("invalid request parameters"))
     assert result.status == "BLOCKED_CANDIDATE_GENERATION_FAILED"
     # Pre-dispatch rejection must NOT be counted as provider work.
-    assert result.model_call_count == 1
-    assert result.model_usage_complete is True  # only the observed probe call occurred
-    assert result.tokens_used == 12
+    assert result.model_call_count == 0
+    assert result.model_usage_complete is True
+    assert result.tokens_used == 0
     assert result.reserved_exposure_usd == 0.25
     assert result.observed_cost_usd is None
-
-
-def _probe_failure(monkeypatch: pytest.MonkeyPatch, exc: Any) -> Any:
-    _scenario, request = _scenario_and_request()
-    monkeypatch.setattr(live_bridge, "_assess_production_grounding", lambda **_: (True, None))
-    client = _ScriptedModel([exc])
-
-    class _WorkerMustNotRun:
-        def execute_causal_triplet(self, **_: Any) -> Any:
-            raise AssertionError("probe failure must not reach execution")
-
-    return create_live_nebius_bridge_executor(
-        config=TrustedBridgeConfig(
-            expected_source_commit=_HEAD, nebius_api_key="k", nebius_project_id="p"
-        ),
-        model_client=client,
-        sandbox_adapter=_FakeSandboxAdapter(),
-        verifier_worker=_WorkerMustNotRun(),
-    )(request)
-
-
-def test_identity_probe_provider_error_preserves_accounting(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    result = _probe_failure(monkeypatch, ModelProviderError(500, "provider down"))
-    assert result.status == "UNKNOWN_OUTCOME"
-    assert result.receipt is None
-    assert result.model_call_count == 1  # dispatched probe failure is not reported as zero
-    assert result.model_usage_complete is False
-    assert result.reserved_exposure_usd == 0.25
-    assert result.observed_cost_usd is None
-    assert result.cost_provenance == "UNKNOWN"
-
-
-def test_identity_probe_timeout_preserves_accounting(monkeypatch: pytest.MonkeyPatch) -> None:
-    result = _probe_failure(monkeypatch, ModelTimeoutError("probe timeout"))
-    assert result.status == "UNKNOWN_OUTCOME"
-    assert result.model_call_count == 1
-    assert result.model_usage_complete is False
-    assert result.reserved_exposure_usd == 0.25
-    assert result.observed_cost_usd is None
-
-
-def test_identity_probe_config_rejection_reports_zero_attempted(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    result = _probe_failure(monkeypatch, MissingCredentialError("no credentials"))
-    assert result.status == "FAILED"
-    assert result.receipt is None
-    assert result.model_call_count == 0  # pre-dispatch rejection, no provider work
-    assert result.observed_cost_usd is None
-    assert result.cost_provenance == "UNKNOWN"

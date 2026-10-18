@@ -420,7 +420,9 @@ def test_live_nebius_executor_downgrades_synthetic_dependencies_to_fixture() -> 
     assert result.production_grounded is False
     assert result.candidate_origin == "DETERMINISTIC_BRIDGE_FIXTURE"
     assert result.receipt.provenance == EvidenceProvenance.FIXTURE
-    assert result.tokens_used == 18
+    # The deterministic fixture path makes NO provider model call.
+    assert result.model_call_count == 0
+    assert result.tokens_used == 0
     assert result.provider_operation_ids == ("op-live-base", "op-live-candidate", "op-live-cf")
     assert result.receipt.source_commit_id == source_commit_id
     assert result.receipt.candidate_patch_digest == (

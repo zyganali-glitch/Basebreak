@@ -31,7 +31,7 @@ from basebreak.builder.loop import (
 
 MODEL_GENERATED_CANDIDATE_ORIGIN: str = "MODEL_GENERATED_NEBIUS"
 
-DEFAULT_CANDIDATE_MAX_TOKENS: int = 1024
+DEFAULT_CANDIDATE_MAX_TOKENS: int = 4096
 
 # Sentinel substrings that must never appear in builder-facing candidate context.
 _FORBIDDEN_CONTEXT_MARKERS: tuple[str, ...] = (
