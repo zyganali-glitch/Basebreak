@@ -480,7 +480,9 @@ class TestNebiusModelClient:
             response_format={"type": "json_object"},
         )
         assert len(captured_request) == 1
-        body = json.loads(captured_request[0].data.decode("utf-8"))
+        payload_bytes = captured_request[0].data
+        assert isinstance(payload_bytes, bytes)
+        body = json.loads(payload_bytes.decode("utf-8"))
         assert body["response_format"] == {"type": "json_object"}
 
     # 24. P-27.06: unsupported response_format type fails closed pre-dispatch
