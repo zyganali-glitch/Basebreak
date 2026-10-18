@@ -14,6 +14,7 @@ material or expected hidden answers.
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -62,11 +63,19 @@ class ModelCandidate:
 
     origin: str
     response_text: str
+    response_digest: str
+    returned_model: str
+    provider_request_id: str | None
     proposal: BuilderProposal
+    proposal_digest: str
     candidate_files: tuple[tuple[str, str], ...]
     patch_text: str
     patch_digest: str
     candidate_id: str
+    generation_prompt_tokens: int | None = None
+    generation_completion_tokens: int | None = None
+    generation_total_tokens: int | None = None
+    generation_duration_seconds: float | None = None
 
     def files_mapping(self) -> dict[str, str]:
         return dict(self.candidate_files)
@@ -74,6 +83,11 @@ class ModelCandidate:
 
 def _sha256_hex(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _proposal_digest(proposal: BuilderProposal) -> str:
+    canonical = json.dumps(proposal.to_dict(), sort_keys=True, separators=(",", ":"))
+    return _sha256_hex(canonical)
 
 
 def _build_candidate_patch_text(
@@ -226,15 +240,69 @@ def generate_model_candidate(
         raise ModelCandidateRejectedError("model proposal produced an empty patch")
 
     patch_digest = _sha256_hex(patch_text)
+    usage = getattr(result, "usage", None)
+    duration = getattr(result, "duration_seconds", None)
     return ModelCandidate(
         origin=MODEL_GENERATED_CANDIDATE_ORIGIN,
         response_text=response_text,
+        response_digest=_sha256_hex(response_text),
+        returned_model=str(getattr(result, "returned_model", "") or ""),
+        provider_request_id=(str(getattr(result, "request_id", "") or "").strip() or None),
         proposal=proposal,
+        proposal_digest=_proposal_digest(proposal),
         candidate_files=tuple(sorted(candidate_files.items())),
         patch_text=patch_text,
         patch_digest=patch_digest,
         candidate_id=f"cand-model-{patch_digest[:16]}",
+        generation_prompt_tokens=(
+            int(getattr(usage, "prompt_tokens", 0)) if usage is not None else None
+        ),
+        generation_completion_tokens=(
+            int(getattr(usage, "completion_tokens", 0)) if usage is not None else None
+        ),
+        generation_total_tokens=(
+            int(getattr(usage, "total_tokens", 0)) if usage is not None else None
+        ),
+        generation_duration_seconds=(float(duration) if duration is not None else None),
     )
+
+
+def candidate_generation_identities(candidate: ModelCandidate) -> tuple[str, ...]:
+    """Deterministic runtime-identity bindings for a genuine candidate generation call."""
+    identities = [
+        f"candidate-generation:model:{candidate.returned_model or 'unknown'}",
+        f"candidate-generation:response-sha256:{candidate.response_digest}",
+        f"candidate-generation:proposal-sha256:{candidate.proposal_digest}",
+        f"candidate-generation:patch-sha256:{candidate.patch_digest}",
+    ]
+    if candidate.provider_request_id:
+        identities.append(f"candidate-generation:request:{candidate.provider_request_id}")
+    return tuple(identities)
+
+
+def verify_candidate_generation_binding(
+    candidate: ModelCandidate, *, receipt_runtime_identities: Sequence[str]
+) -> None:
+    """Independently recompute response -> proposal -> patch identity and binding.
+
+    Fails closed on any missing, substituted, or inconsistent provenance fact.
+    """
+    if candidate.origin != MODEL_GENERATED_CANDIDATE_ORIGIN:
+        raise ModelCandidateError("candidate origin is not a genuine model-generated origin")
+    if _sha256_hex(candidate.response_text) != candidate.response_digest:
+        raise ModelCandidateIdentityMismatchError("model response digest mismatch")
+    if _proposal_digest(candidate.proposal) != candidate.proposal_digest:
+        raise ModelCandidateIdentityMismatchError("validated proposal digest mismatch")
+    if _sha256_hex(candidate.patch_text) != candidate.patch_digest:
+        raise ModelCandidateIdentityMismatchError("candidate patch digest mismatch")
+    present = {str(identity).strip() for identity in receipt_runtime_identities}
+    required = set(candidate_generation_identities(candidate))
+    missing = required - present
+    if missing:
+        raise ModelCandidateError(
+            "receipt is missing required candidate-generation provenance bindings: "
+            + ", ".join(sorted(missing))
+        )
 
 
 def assert_candidate_identity(

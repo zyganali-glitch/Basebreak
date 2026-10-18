@@ -327,6 +327,7 @@ class BridgeExecutionResult:
     grounding_error: str | None = None
     candidate_origin: str = CANDIDATE_ORIGIN_DETERMINISTIC_FIXTURE
     candidate_patch_digest: str | None = None
+    candidate_generation: Any | None = None
 
 
 BridgeExecutor = Callable[[BridgeRequest], BridgeExecutionResult]
@@ -498,14 +499,31 @@ def _load_canonical_live_bridge_scenario() -> CanonicalLiveBridgeScenario:
     )
 
 
-def _reset_vault_candidate_base_files(repo_root: Any) -> tuple[tuple[str, ...], dict[str, str]]:
+def _reset_vault_candidate_base_files(
+    repo_root: Any, source_commit_id: str
+) -> tuple[tuple[str, ...], dict[str, str]]:
+    import subprocess
     from pathlib import Path
 
     rel = "tests/fixtures/reset_vault/src/reset_vault/vault.py"
     path = Path(repo_root) / rel
+    committed = subprocess.run(
+        ["git", "-C", str(repo_root), "cat-file", "-p", f"{source_commit_id}:{rel}"],
+        capture_output=True,
+        text=True,
+    )
+    if committed.returncode != 0 or not committed.stdout:
+        raise BridgeValidationError(
+            "Authorized source commit/path could not be read for Builder base content."
+        )
     if not path.is_file():
         raise BridgeValidationError(f"Canonical ResetVault source file is missing: {path}")
-    return (rel,), {rel: path.read_text(encoding="utf-8")}
+    working_tree = path.read_text(encoding="utf-8")
+    if working_tree != committed.stdout:
+        raise BridgeValidationError(
+            "ResetVault working-tree source does not match the authorized source commit."
+        )
+    return (rel,), {rel: committed.stdout}
 
 
 def _resolve_local_repo_root(config: TrustedBridgeConfig) -> Any:
@@ -799,6 +817,12 @@ def _build_public_receipt_from_local_receipt(
     provenance: EvidenceProvenance,
     candidate_origin: str,
     candidate_patch_digest: str,
+    model_call_count: int = 1,
+    model_prompt_tokens: int = 0,
+    model_completion_tokens: int = 0,
+    model_usage_complete: bool = True,
+    model_total_duration_seconds: float | None = None,
+    candidate_generation_identities: Sequence[str] = (),
 ) -> PublicVerificationReceipt:
     from basebreak.causal.coverage import (
         CausalCoverageSummary,
@@ -903,14 +927,16 @@ def _build_public_receipt_from_local_receipt(
             execution_fact=cf_exec,
         )
 
-    usage = getattr(model_result, "usage", None)
     # ``estimated_cost_usd`` records the operator/server-approved worst-case
     # estimate only. It is explicitly NOT provider-observed consumption, and
     # ``is_metered`` remains False while genuine provider cost is unknown.
+    # Accounting aggregates EVERY attempted model call (identity probe plus, on the
+    # genuine path, candidate generation); a failed later call never erases the
+    # exposure of an earlier successful call.
     accounting = PublicCostAccountingFact(
-        model_call_count=1,
-        prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
-        completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+        model_call_count=model_call_count,
+        prompt_tokens=model_prompt_tokens,
+        completion_tokens=model_completion_tokens,
         sandbox_runtime_seconds=round(sandbox_runtime_seconds, 4),
         estimated_cost_usd=round(float(request.max_estimated_cost_usd), 6),
         is_metered=False,
@@ -929,6 +955,11 @@ def _build_public_receipt_from_local_receipt(
     if local_receipt.counterfactual_execution is not None:
         runtime_identities.append(f"sandbox:{local_receipt.counterfactual_execution.sandbox_id}")
     runtime_identities.extend(f"nebius-operation:{op_id}" for op_id in provider_operation_ids)
+    runtime_identities.append(f"model-calls:{model_call_count}")
+    runtime_identities.append(
+        "model-usage:complete" if model_usage_complete else "model-usage:incomplete"
+    )
+    runtime_identities.extend(str(identity).strip() for identity in candidate_generation_identities)
 
     return create_public_verification_receipt(
         frozen_contract_digest=scenario.frozen_contract_digest,
@@ -964,7 +995,12 @@ def _build_public_receipt_from_local_receipt(
         timing={
             "created_at_utc": local_receipt.created_at_utc,
             "total_duration_seconds": round(
-                sandbox_runtime_seconds + float(model_result.duration_seconds),
+                sandbox_runtime_seconds
+                + (
+                    float(model_total_duration_seconds)
+                    if model_total_duration_seconds is not None
+                    else float(model_result.duration_seconds)
+                ),
                 4,
             ),
         },
@@ -1050,13 +1086,30 @@ def _validate_live_bridge_execution_authority(
         return False, (
             "Deterministic candidate receipt does not match the canonical fixture patch."
         )
-    from basebreak.deployment.model_candidate import MODEL_GENERATED_CANDIDATE_ORIGIN
+    from basebreak.deployment.model_candidate import (
+        MODEL_GENERATED_CANDIDATE_ORIGIN,
+        ModelCandidateError,
+        verify_candidate_generation_binding,
+    )
 
     if (
         receipt.provenance == EvidenceProvenance.LIVE_NEBIUS
         and result.candidate_origin != MODEL_GENERATED_CANDIDATE_ORIGIN
     ):
         return False, ("LIVE_NEBIUS authority requires a genuine model-generated candidate origin.")
+    if result.candidate_origin == MODEL_GENERATED_CANDIDATE_ORIGIN:
+        candidate_generation = result.candidate_generation
+        if candidate_generation is None:
+            return False, (
+                "Model-generated candidate authority requires the bound generation evidence."
+            )
+        try:
+            verify_candidate_generation_binding(
+                candidate_generation,
+                receipt_runtime_identities=receipt.runtime_identities,
+            )
+        except ModelCandidateError as exc:
+            return False, f"Model-generated candidate provenance failed verification: {exc}"
 
     operation_ids = _normalize_provider_operation_ids(result.provider_operation_ids)
     if not operation_ids:
@@ -1209,6 +1262,19 @@ def create_live_nebius_bridge_executor(
                 temperature=0.0,
             )
             _assert_runtime_identity_probe_binding(request, model_result.content)
+            probe_usage = getattr(model_result, "usage", None)
+            probe_prompt_tokens = (
+                int(getattr(probe_usage, "prompt_tokens", 0) or 0)
+                if probe_usage is not None
+                else None
+            )
+            probe_completion_tokens = (
+                int(getattr(probe_usage, "completion_tokens", 0) or 0)
+                if probe_usage is not None
+                else None
+            )
+            probe_total_tokens = int(getattr(probe_usage, "total_tokens", 0) or 0)
+            probe_duration_seconds = float(getattr(model_result, "duration_seconds", 0.0) or 0.0)
 
             source_identity = SourceIdentity(
                 config.source_repo_locator,
@@ -1223,10 +1289,13 @@ def create_live_nebius_bridge_executor(
                 from basebreak.deployment.model_candidate import (
                     MODEL_GENERATED_CANDIDATE_ORIGIN,
                     ModelCandidateError,
+                    candidate_generation_identities,
                     generate_model_candidate,
                 )
 
-                allowed_paths, base_files = _reset_vault_candidate_base_files(repo_root)
+                allowed_paths, base_files = _reset_vault_candidate_base_files(
+                    repo_root, request.source_commit_id
+                )
                 try:
                     model_candidate = generate_model_candidate(
                         model_client=active_model_client,
@@ -1245,6 +1314,7 @@ def create_live_nebius_bridge_executor(
                         reserved_exposure_usd=round(float(request.max_estimated_cost_usd), 6),
                         observed_cost_usd=None,
                         cost_provenance="UNKNOWN",
+                        tokens_used=probe_total_tokens,
                         provider_operation_ids=_normalize_provider_operation_ids(
                             getattr(active_sandbox_adapter, "live_operation_ids", ())
                         ),
@@ -1252,6 +1322,10 @@ def create_live_nebius_bridge_executor(
                 candidate_patch_text = model_candidate.patch_text
                 candidate_patch_digest = model_candidate.patch_digest
                 candidate_origin_value = MODEL_GENERATED_CANDIDATE_ORIGIN
+                candidate_generation_evidence = model_candidate
+                candidate_generation_identity_values = candidate_generation_identities(
+                    model_candidate
+                )
                 candidate_identity = CandidateIdentity(
                     model_candidate.candidate_id,
                     source_identity,
@@ -1264,6 +1338,8 @@ def create_live_nebius_bridge_executor(
                 candidate_patch_text = scenario.candidate_patch_text
                 candidate_patch_digest = scenario.candidate_patch_digest
                 candidate_origin_value = CANDIDATE_ORIGIN_DETERMINISTIC_FIXTURE
+                candidate_generation_evidence = None
+                candidate_generation_identity_values = ()
                 candidate_identity = CandidateIdentity(
                     f"cand-live-{scenario.candidate_patch_digest[:16]}",
                     source_identity,
@@ -1276,6 +1352,37 @@ def create_live_nebius_bridge_executor(
                 source_commit_id=request.source_commit_id,
                 patch_text=candidate_patch_text,
             )
+
+            if production_grounded:
+                model_call_count = 2
+                model_prompt_tokens = (probe_prompt_tokens or 0) + (
+                    model_candidate.generation_prompt_tokens or 0
+                )
+                model_completion_tokens = (probe_completion_tokens or 0) + (
+                    model_candidate.generation_completion_tokens or 0
+                )
+                model_usage_complete = all(
+                    value is not None
+                    for value in (
+                        probe_prompt_tokens,
+                        probe_completion_tokens,
+                        model_candidate.generation_prompt_tokens,
+                        model_candidate.generation_completion_tokens,
+                    )
+                )
+                model_total_duration_seconds = probe_duration_seconds + float(
+                    model_candidate.generation_duration_seconds or 0.0
+                )
+                result_tokens_used = probe_total_tokens + int(
+                    model_candidate.generation_total_tokens or 0
+                )
+            else:
+                model_call_count = 1
+                model_prompt_tokens = probe_prompt_tokens or 0
+                model_completion_tokens = probe_completion_tokens or 0
+                model_usage_complete = probe_usage is not None
+                model_total_duration_seconds = probe_duration_seconds
+                result_tokens_used = probe_total_tokens
 
             witness_artifact = WitnessArtifact.from_text(
                 scenario.witness_artifact_path,
@@ -1347,6 +1454,12 @@ def create_live_nebius_bridge_executor(
                 provenance=result_provenance,
                 candidate_origin=candidate_origin_value,
                 candidate_patch_digest=candidate_patch_digest,
+                model_call_count=model_call_count,
+                model_prompt_tokens=model_prompt_tokens,
+                model_completion_tokens=model_completion_tokens,
+                model_usage_complete=model_usage_complete,
+                model_total_duration_seconds=model_total_duration_seconds,
+                candidate_generation_identities=candidate_generation_identity_values,
             )
 
             return BridgeExecutionResult(
@@ -1361,12 +1474,11 @@ def create_live_nebius_bridge_executor(
                 # never be substituted with the approved estimate or the grant cap.
                 observed_cost_usd=None,
                 cost_provenance="UNKNOWN",
-                tokens_used=int(
-                    getattr(getattr(model_result, "usage", None), "total_tokens", 0) or 0
-                ),
+                tokens_used=result_tokens_used,
                 provider_operation_ids=provider_operation_ids,
                 candidate_origin=candidate_origin_value,
                 candidate_patch_digest=candidate_patch_digest,
+                candidate_generation=candidate_generation_evidence,
             )
         except (
             ModelTimeoutError,
