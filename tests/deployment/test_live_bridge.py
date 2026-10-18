@@ -389,6 +389,7 @@ def test_live_nebius_executor_downgrades_synthetic_dependencies_to_fixture() -> 
     assert result.status == "COMPLETED"
     assert result.receipt is not None
     assert result.production_grounded is False
+    assert result.candidate_origin == "DETERMINISTIC_BRIDGE_FIXTURE"
     assert result.receipt.provenance == EvidenceProvenance.FIXTURE
     assert result.tokens_used == 18
     assert result.provider_operation_ids == ("op-live-base", "op-live-candidate", "op-live-cf")

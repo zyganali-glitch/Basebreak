@@ -326,6 +326,7 @@ class BridgeExecutionResult:
     production_grounded: bool = False
     grounding_error: str | None = None
     candidate_origin: str = CANDIDATE_ORIGIN_DETERMINISTIC_FIXTURE
+    candidate_patch_digest: str | None = None
 
 
 BridgeExecutor = Callable[[BridgeRequest], BridgeExecutionResult]
@@ -495,6 +496,16 @@ def _load_canonical_live_bridge_scenario() -> CanonicalLiveBridgeScenario:
             "-q",
         ),
     )
+
+
+def _reset_vault_candidate_base_files(repo_root: Any) -> tuple[tuple[str, ...], dict[str, str]]:
+    from pathlib import Path
+
+    rel = "tests/fixtures/reset_vault/src/reset_vault/vault.py"
+    path = Path(repo_root) / rel
+    if not path.is_file():
+        raise BridgeValidationError(f"Canonical ResetVault source file is missing: {path}")
+    return (rel,), {rel: path.read_text(encoding="utf-8")}
 
 
 def _resolve_local_repo_root(config: TrustedBridgeConfig) -> Any:
@@ -787,6 +798,7 @@ def _build_public_receipt_from_local_receipt(
     provider_operation_ids: Sequence[str],
     provenance: EvidenceProvenance,
     candidate_origin: str,
+    candidate_patch_digest: str,
 ) -> PublicVerificationReceipt:
     from basebreak.causal.coverage import (
         CausalCoverageSummary,
@@ -924,7 +936,7 @@ def _build_public_receipt_from_local_receipt(
         repo_locator=config.source_repo_locator,
         source_commit_id=request.source_commit_id,
         candidate_tree_digest=local_receipt.candidate_execution.tree_digest,
-        candidate_patch_digest=scenario.candidate_patch_digest,
+        candidate_patch_digest=candidate_patch_digest,
         coverage_summary=coverage_summary,
         executions=tuple(
             exec_fact
@@ -1026,8 +1038,25 @@ def _validate_live_bridge_execution_authority(
         return False, "Receipt source_commit_id does not match the trusted bridge request."
     if receipt.frozen_contract_digest.lower() != request.frozen_contract_digest.lower():
         return False, "Receipt frozen_contract_digest does not match the trusted request."
-    if receipt.candidate_patch_digest != scenario.candidate_patch_digest:
-        return False, "Receipt candidate_patch_digest does not match the canonical live patch."
+    if (
+        result.candidate_patch_digest is None
+        or receipt.candidate_patch_digest != result.candidate_patch_digest
+    ):
+        return False, "Receipt candidate_patch_digest does not match the executed candidate."
+    if (
+        result.candidate_origin == CANDIDATE_ORIGIN_DETERMINISTIC_FIXTURE
+        and receipt.candidate_patch_digest != scenario.candidate_patch_digest
+    ):
+        return False, (
+            "Deterministic candidate receipt does not match the canonical fixture patch."
+        )
+    from basebreak.deployment.model_candidate import MODEL_GENERATED_CANDIDATE_ORIGIN
+
+    if (
+        receipt.provenance == EvidenceProvenance.LIVE_NEBIUS
+        and result.candidate_origin != MODEL_GENERATED_CANDIDATE_ORIGIN
+    ):
+        return False, ("LIVE_NEBIUS authority requires a genuine model-generated candidate origin.")
 
     operation_ids = _normalize_provider_operation_ids(result.provider_operation_ids)
     if not operation_ids:
@@ -1181,22 +1210,71 @@ def create_live_nebius_bridge_executor(
             )
             _assert_runtime_identity_probe_binding(request, model_result.content)
 
-            candidate_tree_digest = _compute_candidate_tree_digest(
-                repo_root=repo_root,
-                source_commit_id=request.source_commit_id,
-                patch_text=scenario.candidate_patch_text,
-            )
-
             source_identity = SourceIdentity(
                 config.source_repo_locator,
                 CommitRevision(request.source_commit_id),
                 subpath=request.target,
             )
-            candidate_identity = CandidateIdentity(
-                f"cand-live-{scenario.candidate_patch_digest[:16]}",
-                source_identity,
-                scenario.candidate_patch_digest,
-                description="Canonical ResetVault candidate (deterministic bridge fixture)",
+
+            if production_grounded:
+                # Genuine path: the candidate MUST come from the configured model.
+                # On any generation failure this fails closed and NEVER substitutes the
+                # deterministic fixture patch or promotes it to an AI-written claim.
+                from basebreak.deployment.model_candidate import (
+                    MODEL_GENERATED_CANDIDATE_ORIGIN,
+                    ModelCandidateError,
+                    generate_model_candidate,
+                )
+
+                allowed_paths, base_files = _reset_vault_candidate_base_files(repo_root)
+                try:
+                    model_candidate = generate_model_candidate(
+                        model_client=active_model_client,
+                        task_id=scenario.task_id,
+                        requirement_statement=scenario.frozen_contract.requirements[0].statement,
+                        frozen_contract_digest=scenario.frozen_contract_digest,
+                        target=scenario.target,
+                        allowed_paths=allowed_paths,
+                        base_files=base_files,
+                    )
+                except ModelCandidateError as exc:
+                    return BridgeExecutionResult(
+                        status="BLOCKED_CANDIDATE_GENERATION_FAILED",
+                        error=str(exc),
+                        approved_estimate_usd=round(float(request.max_estimated_cost_usd), 6),
+                        reserved_exposure_usd=round(float(request.max_estimated_cost_usd), 6),
+                        observed_cost_usd=None,
+                        cost_provenance="UNKNOWN",
+                        provider_operation_ids=_normalize_provider_operation_ids(
+                            getattr(active_sandbox_adapter, "live_operation_ids", ())
+                        ),
+                    )
+                candidate_patch_text = model_candidate.patch_text
+                candidate_patch_digest = model_candidate.patch_digest
+                candidate_origin_value = MODEL_GENERATED_CANDIDATE_ORIGIN
+                candidate_identity = CandidateIdentity(
+                    model_candidate.candidate_id,
+                    source_identity,
+                    candidate_patch_digest,
+                    description="Model-generated ResetVault candidate (genuine model output)",
+                )
+            else:
+                # Synthetic/fixture dependencies: deterministic fixture candidate, honestly
+                # labeled. This path can never claim a genuine AI-written candidate.
+                candidate_patch_text = scenario.candidate_patch_text
+                candidate_patch_digest = scenario.candidate_patch_digest
+                candidate_origin_value = CANDIDATE_ORIGIN_DETERMINISTIC_FIXTURE
+                candidate_identity = CandidateIdentity(
+                    f"cand-live-{scenario.candidate_patch_digest[:16]}",
+                    source_identity,
+                    candidate_patch_digest,
+                    description="Canonical ResetVault candidate (deterministic bridge fixture)",
+                )
+
+            candidate_tree_digest = _compute_candidate_tree_digest(
+                repo_root=repo_root,
+                source_commit_id=request.source_commit_id,
+                patch_text=candidate_patch_text,
             )
 
             witness_artifact = WitnessArtifact.from_text(
@@ -1216,14 +1294,14 @@ def create_live_nebius_bridge_executor(
                 frozen_contract=scenario.frozen_contract,
                 source_identity=source_identity,
                 candidate_identity=candidate_identity,
-                candidate_patch_text=scenario.candidate_patch_text,
+                candidate_patch_text=candidate_patch_text,
                 candidate_tree_digest=candidate_tree_digest,
                 sealed_witness_references=(sealed_record.witness_id,),
             )
             counterfactual_plan = CandidateDeltaSubtractor.plan_subtraction(
                 candidate_id=candidate_identity.candidate_id,
-                candidate_patch_text=scenario.candidate_patch_text,
-                candidate_patch_digest=scenario.candidate_patch_digest,
+                candidate_patch_text=candidate_patch_text,
+                candidate_patch_digest=candidate_patch_digest,
                 candidate_tree_digest=candidate_tree_digest,
                 source_commit_id=request.source_commit_id,
                 frozen_contract_digest=scenario.frozen_contract_digest,
@@ -1267,7 +1345,8 @@ def create_live_nebius_bridge_executor(
                 model_result=model_result,
                 provider_operation_ids=provider_operation_ids,
                 provenance=result_provenance,
-                candidate_origin=CANDIDATE_ORIGIN_DETERMINISTIC_FIXTURE,
+                candidate_origin=candidate_origin_value,
+                candidate_patch_digest=candidate_patch_digest,
             )
 
             return BridgeExecutionResult(
@@ -1286,7 +1365,8 @@ def create_live_nebius_bridge_executor(
                     getattr(getattr(model_result, "usage", None), "total_tokens", 0) or 0
                 ),
                 provider_operation_ids=provider_operation_ids,
-                candidate_origin=CANDIDATE_ORIGIN_DETERMINISTIC_FIXTURE,
+                candidate_origin=candidate_origin_value,
+                candidate_patch_digest=candidate_patch_digest,
             )
         except (
             ModelTimeoutError,
