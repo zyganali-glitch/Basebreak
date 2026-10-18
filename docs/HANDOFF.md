@@ -129,7 +129,7 @@ Judge claim:
 - P-29+ remain strictly NOT AUTHORIZED / NOT_RUN. HARD STOP ENFORCED AFTER P-28.
 
 ## Last independently VERIFIED baseline SHA
-`866438ae47790ec5347cfbd28ea68165b4c83bba` (last independently VERIFIED baseline before this QA). The submitted private-connectivity candidate `56e43087c2492bcd18c478b80303b47be695f99f` (Workers VPC Service → Cloudflare Tunnel → Oracle loopback bridge; the Worker and Oracle bridge HMAC shared secret is now configured per deployment observations) remains pending independent acceptance. Private connectivity is deployed and verified under non-provider runtime probes; deployed `LIVE_NEBIUS` runtime proof remains `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. No self-awarded QA PASS is claimed.
+`866438ae47790ec5347cfbd28ea68165b4c83bba` (last independently VERIFIED baseline before this QA). The submitted private-connectivity candidate `19d41bf71d6f5a3cc8d6ffee31cbe64943314a0b` (Workers VPC Service → Cloudflare Tunnel → Oracle loopback bridge; the Worker and Oracle bridge HMAC shared secret is now configured per deployment observations; supersedes `56e43087c2492bcd18c478b80303b47be695f99f` by repairing the production bridge scenario-import defect so a correctly HMAC-signed request no longer crashes before the disabled-live gate) remains pending independent acceptance. Private connectivity is deployed and verified under non-provider runtime probes; deployed `LIVE_NEBIUS` runtime proof remains `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. No self-awarded QA PASS is claimed.
 
 ## Blocking live gate vs active task
 
