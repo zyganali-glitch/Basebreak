@@ -1034,6 +1034,80 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     const res = await worker.fetch(req, env, {});
     assert.equal(res.status, 401);
   });
+
+  it("POST /admin/cost-hold-exception requires operator auth and issues a single-use exception", async () => {
+    const { env } = createWorkerEnv({ LIVE_ENABLED: "true" });
+    const ledger = env.__ledgerInstance;
+    const source = "80b43b84014fa61b941c7ebcd87836a56dcd7c92";
+
+    // Seed a dispatched unknown-cost hold.
+    const seedGrant = ledger.issueGrant({
+      verifiedBalance: 25.0,
+      balanceTimestamp: Date.now(),
+      estimatedCostCap: 0.5,
+    });
+    const seedRun = ledger.reserveAdmission({
+      grant_token: seedGrant.grant_token,
+      target: "tests/fixtures/reset_vault",
+      source_commit_id: source,
+      estimated_cost: 0.5,
+      verified_balance: 25.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    ledger.recordExecutionFailure(seedRun.run_id, {
+      error_message: "dispatched failure with unknown cost",
+      provider_may_have_dispatched: true,
+    });
+    assert.equal(ledger.getAccounting().unknown_cost, 0.5);
+
+    const grant = ledger.issueGrant({
+      verifiedBalance: 25.0,
+      balanceTimestamp: Date.now(),
+      estimatedCostCap: 0.5,
+    });
+
+    const body = JSON.stringify({
+      grant_token: grant.grant_token,
+      authorized_by: "operator",
+      reason: "One explicitly authorized bounded live run.",
+    });
+
+    const unauth = await worker.fetch(
+      new Request("https://basebreak.workers.dev/admin/cost-hold-exception", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      }),
+      env,
+      {}
+    );
+    assert.equal(unauth.status, 401);
+
+    const authed = await worker.fetch(
+      new Request("https://basebreak.workers.dev/admin/cost-hold-exception", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${env.BASEBREAK_ADMIN_KEY}`,
+        },
+        body,
+      }),
+      env,
+      {}
+    );
+    assert.equal(authed.status, 201);
+    const data = await authed.json();
+    assert.equal(data.authorized, true);
+    assert.equal(data.existing_unknown_cost_usd, 0.5);
+    assert.equal(data.estimated_cost_cap_usd, 0.5);
+    assert.equal(data.total_budget_required_usd, 1.0);
+
+    // The historical hold is retained and reported as an active exception.
+    const accounting = ledger.getAccounting();
+    assert.equal(accounting.unknown_cost, 0.5);
+    assert.equal(accounting.active_cost_hold_exception.exception_id, data.exception_id);
+  });
 });
 
 describe("Bridge transport resolution (Workers VPC seam)", () => {

@@ -721,6 +721,47 @@ export default {
       }
     }
 
+    // 12. Admin API: Issue a single-use one-time unknown-cost-hold exception.
+    //     This is the smallest explicit, auditable exception to the unknown-cost
+    //     admission hold. It is bound to exactly one existing single-use grant,
+    //     records the historical unknown exposure, requires the promotional-budget
+    //     calculation to include both the historical exposure and the new estimated
+    //     run exposure, preserves the $5.00 reserve, and is consumed exactly once.
+    if (method === "POST" && path === "/admin/cost-hold-exception") {
+      if (!isAdminAuthorized(request, env)) {
+        return jsonResponse(401, { error: "Unauthorized: Invalid operator admin key." });
+      }
+
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse(400, { error: "Malformed JSON body." });
+      }
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return jsonResponse(400, { error: "Body must be a JSON object." });
+      }
+
+      try {
+        const result = await ledger.authorizeCostHoldException({
+          grantToken: body.grant_token,
+          authorizedBy: body.authorized_by,
+          reason: body.reason,
+          note: body.note,
+        });
+        return jsonResponse(201, result);
+      } catch (error) {
+        if (error instanceof ReconciliationValidationError) {
+          return jsonResponse(400, { error: error.message, exception_issued: false });
+        }
+        if (error instanceof ReconciliationStateError) {
+          return jsonResponse(409, { error: error.message, exception_issued: false });
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        return jsonResponse(409, { error: message, exception_issued: false });
+      }
+    }
+
     return jsonResponse(404, { error: "Not Found", path });
   },
 };

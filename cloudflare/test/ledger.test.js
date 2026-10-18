@@ -1232,4 +1232,241 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.ok(eventTypes.includes("DURABLE_LIVE_GATE_CONFIGURED"));
     assert.ok(eventTypes.includes("SOURCE_COMMIT_CONFIGURED"));
   });
+
+  it("21. one-time cost-hold exception admits exactly one authorized run and preserves the historical hold", () => {
+    const { ledger } = createTestLedger();
+
+    // Seed a $0.50 historical unknown exposure via a dispatched failure.
+    const seedGrant = issueLiveGrant(ledger, { estimatedCostCap: 0.5, verifiedBalance: 25.0 });
+    const seedRun = ledger.reserveAdmission({
+      grant_token: seedGrant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.5,
+      verified_balance: 25.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(seedRun.admitted, true);
+    ledger.recordExecutionFailure(seedRun.run_id, {
+      error_message: "dispatched failure with unknown cost",
+      provider_may_have_dispatched: true,
+    });
+    assert.equal(ledger.getAccounting().unknown_cost, 0.5);
+
+    const originArgs = (token) => ({
+      grant_token: token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.5,
+      verified_balance: 25.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+
+    // An ordinary grant remains blocked while the hold is outstanding.
+    const ordinary = issueLiveGrant(ledger, { estimatedCostCap: 0.5, verifiedBalance: 25.0 });
+    const blocked = ledger.reserveAdmission(originArgs(ordinary.grant_token));
+    assert.equal(blocked.admitted, false);
+    assert.equal(blocked.status, "BLOCKED_UNRECONCILED_UNKNOWN_COST");
+
+    // Operator authorizes a single-use exception bound to one new single-use grant.
+    const grant = issueLiveGrant(ledger, { estimatedCostCap: 0.5, verifiedBalance: 25.0 });
+    const auth = ledger.authorizeCostHoldException({
+      grantToken: grant.grant_token,
+      authorizedBy: "operator",
+      reason: "One explicitly authorized bounded live run.",
+    });
+    assert.equal(auth.authorized, true);
+    assert.equal(auth.existing_unknown_cost_usd, 0.5);
+    assert.equal(auth.estimated_cost_cap_usd, 0.5);
+    assert.equal(auth.total_budget_required_usd, 1.0);
+    assert.equal(auth.single_use, true);
+
+    // The historical unknown exposure remains recorded (never cleared).
+    assert.equal(ledger.getAccounting().unknown_cost, 0.5);
+
+    // The authorized run is admitted exactly once.
+    const admitted = ledger.reserveAdmission(originArgs(grant.grant_token));
+    assert.equal(admitted.admitted, true);
+
+    const excRow = ledger.sql.query(
+      "SELECT status, consumed_run_id FROM cost_hold_exceptions WHERE exception_id = ?",
+      auth.exception_id
+    )[0];
+    assert.equal(excRow.status, "CONSUMED");
+    assert.equal(excRow.consumed_run_id, admitted.run_id);
+
+    // Replaying the same grant is rejected (single-use).
+    const replay = ledger.reserveAdmission(originArgs(grant.grant_token));
+    assert.equal(replay.admitted, false);
+    assert.equal(replay.status, "GRANT_ALREADY_USED");
+
+    // With the exception consumed, ordinary grants remain blocked by the hold.
+    const after = issueLiveGrant(ledger, { estimatedCostCap: 0.5, verifiedBalance: 25.0 });
+    const blockedAfter = ledger.reserveAdmission(originArgs(after.grant_token));
+    assert.equal(blockedAfter.status, "BLOCKED_UNRECONCILED_UNKNOWN_COST");
+    assert.equal(ledger.getAccounting().unknown_cost, 0.5);
+
+    // A second exception cannot be issued for the same (now consumed) grant token.
+    assert.throws(
+      () =>
+        ledger.authorizeCostHoldException({
+          grantToken: grant.grant_token,
+          authorizedBy: "operator",
+          reason: "replay attempt",
+        }),
+      /unconsumed issued single-use grant/
+    );
+  });
+
+  it("22. cost-hold exception requires explicit operator authorization and a valid single-use binding", () => {
+    const { ledger } = createTestLedger();
+
+    // Without any outstanding hold, an exception is not required and is refused.
+    const noHoldGrant = issueLiveGrant(ledger, { estimatedCostCap: 0.5, verifiedBalance: 25.0 });
+    assert.throws(
+      () =>
+        ledger.authorizeCostHoldException({
+          grantToken: noHoldGrant.grant_token,
+          authorizedBy: "operator",
+          reason: "premature",
+        }),
+      /not required/
+    );
+
+    // Create the hold.
+    const seedGrant = issueLiveGrant(ledger, { estimatedCostCap: 0.5, verifiedBalance: 25.0 });
+    const seedRun = ledger.reserveAdmission({
+      grant_token: seedGrant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.5,
+      verified_balance: 25.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    ledger.recordExecutionFailure(seedRun.run_id, {
+      error_message: "dispatched failure with unknown cost",
+      provider_may_have_dispatched: true,
+    });
+
+    const grant = issueLiveGrant(ledger, { estimatedCostCap: 0.5, verifiedBalance: 25.0 });
+
+    // Missing authorization inputs are rejected.
+    assert.throws(() => ledger.authorizeCostHoldException({}), /grant_token/);
+    assert.throws(
+      () => ledger.authorizeCostHoldException({ grantToken: grant.grant_token }),
+      /authorized_by/
+    );
+    assert.throws(
+      () =>
+        ledger.authorizeCostHoldException({
+          grantToken: grant.grant_token,
+          authorizedBy: "operator",
+        }),
+      /reason/
+    );
+    assert.throws(
+      () =>
+        ledger.authorizeCostHoldException({
+          grantToken: "bb_grant_missing",
+          authorizedBy: "operator",
+          reason: "nonexistent grant",
+        }),
+      /does not exist/
+    );
+
+    // A grant without an operator-bound estimated cost cap cannot be excepted.
+    const noCap = ledger.issueGrant({ verifiedBalance: 25.0, balanceTimestamp: Date.now() });
+    assert.throws(
+      () =>
+        ledger.authorizeCostHoldException({
+          grantToken: noCap.grant_token,
+          authorizedBy: "operator",
+          reason: "missing cap",
+        }),
+      /estimated_cost_cap/
+    );
+
+    // Only one exception may be active at a time; a different grant is rejected.
+    const authorized = ledger.authorizeCostHoldException({
+      grantToken: grant.grant_token,
+      authorizedBy: "operator",
+      reason: "single authorized run",
+    });
+    assert.equal(authorized.authorized, true);
+
+    const other = issueLiveGrant(ledger, { estimatedCostCap: 0.5, verifiedBalance: 25.0 });
+    assert.throws(
+      () =>
+        ledger.authorizeCostHoldException({
+          grantToken: other.grant_token,
+          authorizedBy: "operator",
+          reason: "second concurrent exception",
+        }),
+      /already exists/
+    );
+
+    // The general hold still blocks that other ordinary grant.
+    const blocked = ledger.reserveAdmission({
+      grant_token: other.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.5,
+      verified_balance: 25.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(blocked.status, "BLOCKED_UNRECONCILED_UNKNOWN_COST");
+  });
+
+  it("23. cost-hold exception budget calculation includes historical exposure and preserves the $5 reserve", () => {
+    const { ledger } = createTestLedger();
+
+    const seedGrant = issueLiveGrant(ledger, { estimatedCostCap: 0.5, verifiedBalance: 25.0 });
+    const seedRun = ledger.reserveAdmission({
+      grant_token: seedGrant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.5,
+      verified_balance: 25.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    ledger.recordExecutionFailure(seedRun.run_id, {
+      error_message: "dispatched failure with unknown cost",
+      provider_may_have_dispatched: true,
+    });
+    assert.equal(ledger.getAccounting().unknown_cost, 0.5);
+
+    // Balance $5.40: 5.40 - 0.50 (historical) - 0.50 (new cap) = 4.40 < 5.00 -> denied.
+    const tight = issueLiveGrant(ledger, { estimatedCostCap: 0.5, verifiedBalance: 5.4 });
+    assert.throws(
+      () =>
+        ledger.authorizeCostHoldException({
+          grantToken: tight.grant_token,
+          authorizedBy: "operator",
+          reason: "insufficient reserve",
+        }),
+      /safety reserve/
+    );
+
+    // Balance $6.00: 6.00 - 0.50 - 0.50 = 5.00 (not below the floor) -> allowed.
+    const ok = issueLiveGrant(ledger, { estimatedCostCap: 0.5, verifiedBalance: 6.0 });
+    const authorized = ledger.authorizeCostHoldException({
+      grantToken: ok.grant_token,
+      authorizedBy: "operator",
+      reason: "reserve preserved including historical exposure",
+    });
+    assert.equal(authorized.authorized, true);
+    assert.equal(authorized.total_budget_required_usd, 1.0);
+    assert.equal(authorized.verified_balance_usd, 6.0);
+    assert.equal(authorized.reserve_floor_usd, 5.0);
+
+    // The historical hold remains untouched by the authorization.
+    assert.equal(ledger.getAccounting().unknown_cost, 0.5);
+    const active = ledger.getAccounting().active_cost_hold_exception;
+    assert.equal(active.exception_id, authorized.exception_id);
+  });
 });

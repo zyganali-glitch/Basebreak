@@ -57,6 +57,8 @@ const ALLOWED_RECONCILIATION_DECISIONS = new Set([
 ]);
 const ALLOWED_ATTESTATION_TYPES = new Set(["OPERATOR_ATTESTED"]);
 const MAX_RECONCILIATION_TIMESTAMP_SKEW_MS = 24 * 60 * 60 * 1000;
+const COST_HOLD_EXCEPTION_AUTHORIZED = "AUTHORIZED";
+const COST_HOLD_EXCEPTION_CONSUMED = "CONSUMED";
 
 /** Raised when a reconciliation record is missing/invalid evidence. */
 export class ReconciliationValidationError extends Error {}
@@ -177,6 +179,23 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
         remaining_unknown_cost REAL NOT NULL,
         reconciled_by TEXT NOT NULL,
         recorded_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS cost_hold_exceptions (
+        exception_id TEXT PRIMARY KEY,
+        grant_id TEXT NOT NULL,
+        grant_token TEXT NOT NULL,
+        authorized_by TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        authorized_at INTEGER NOT NULL,
+        existing_unknown_cost_usd REAL NOT NULL,
+        estimated_cost_cap_usd REAL NOT NULL,
+        reserve_floor_usd REAL NOT NULL,
+        total_budget_required_usd REAL NOT NULL,
+        verified_balance_usd REAL NOT NULL,
+        status TEXT NOT NULL,
+        consumed_at INTEGER,
+        consumed_run_id TEXT
       );
     `);
 
@@ -684,18 +703,35 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
     // 6b. Unreconciled unknown-cost hold. If provider consumption may have started
     // but the measured cost is unknown, live admission is held until an
     // independently verified operator reconciliation explicitly clears it.
+    //
+    // The ONLY exception is a single-use, operator-authorized cost-hold exception
+    // bound to this exact grant. It is consumed atomically with the reservation and
+    // never weakens the general hold for ordinary grants.
     const unknownCostRow = this.sql.query("SELECT unknown_cost FROM costs WHERE id = 1")[0];
-    const unreconciledUnknownCost = unknownCostRow?.unknown_cost ?? 0.0;
+    const unreconciledUnknownCost = Number(unknownCostRow?.unknown_cost ?? 0.0);
+    let costHoldException = null;
     if (unreconciledUnknownCost > 0) {
-      return {
-        admitted: false,
-        status: "BLOCKED_UNRECONCILED_UNKNOWN_COST",
-        code: 409,
-        error:
-          `Unreconciled unknown provider cost exposure ($${Number(unreconciledUnknownCost).toFixed(4)}) ` +
-          "is outstanding. Live admission is held until an independently verified " +
-          "operator reconciliation clears the hold.",
-      };
+      costHoldException = this.getAuthorizedCostHoldException(grant.grant_token);
+      if (!costHoldException) {
+        return {
+          admitted: false,
+          status: "BLOCKED_UNRECONCILED_UNKNOWN_COST",
+          code: 409,
+          error:
+            `Unreconciled unknown provider cost exposure ($${unreconciledUnknownCost.toFixed(4)}) ` +
+            "is outstanding. Live admission is held until an independently verified " +
+            "operator reconciliation clears the hold.",
+        };
+      }
+      if (Number(costHoldException.estimated_cost_cap_usd) < Number(estimated_cost)) {
+        return {
+          admitted: false,
+          status: "BLOCKED_ESTIMATED_COST_CAP",
+          code: 403,
+          error:
+            "The authorized one-time cost-hold exception does not cover the requested run cost.",
+        };
+      }
     }
 
     // 7. Global total invocation cap check
@@ -782,12 +818,14 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       };
     }
 
-    if (balanceNum - estimated_cost < stopThreshold) {
+    // The promotional-budget calculation MUST include any outstanding historical
+    // unknown-cost exposure in addition to the new maximum estimated run exposure.
+    if (balanceNum - unreconciledUnknownCost - estimated_cost < stopThreshold) {
       return {
         admitted: false,
         status: "BLOCKED_BUDGET_FLOOR",
         code: 403,
-        error: `Estimated run cost ($${estimated_cost.toFixed(2)}) would reduce promotional balance ($${(balanceNum - estimated_cost).toFixed(2)}) below the $${stopThreshold.toFixed(2)} safety floor.`,
+        error: `Estimated run cost ($${estimated_cost.toFixed(2)}) plus outstanding unknown exposure ($${unreconciledUnknownCost.toFixed(2)}) would reduce promotional balance ($${(balanceNum - unreconciledUnknownCost - estimated_cost).toFixed(2)}) below the $${stopThreshold.toFixed(2)} safety floor.`,
       };
     }
 
@@ -813,6 +851,41 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       );
 
       const runId = "run_" + crypto.randomUUID();
+
+      // Atomically consume the one-time cost-hold exception (if any) as part of the
+      // same reservation transaction. A duplicate/concurrent/replayed attempt can
+      // never find an AUTHORIZED exception again once it has been consumed.
+      if (costHoldException) {
+        const consumeResult = this.sql.execute(
+          `UPDATE cost_hold_exceptions
+           SET status = ?, consumed_at = ?, consumed_run_id = ?
+           WHERE exception_id = ? AND status = ?`,
+          COST_HOLD_EXCEPTION_CONSUMED,
+          now,
+          runId,
+          costHoldException.exception_id,
+          COST_HOLD_EXCEPTION_AUTHORIZED
+        );
+        if (consumeResult.changes !== 1) {
+          return {
+            admitted: false,
+            status: "COST_HOLD_EXCEPTION_UNAVAILABLE",
+            code: 409,
+            error:
+              "The authorized one-time cost-hold exception is no longer available " +
+              "(already consumed or replayed).",
+          };
+        }
+        this.sql.execute(
+          "INSERT INTO audit_log (timestamp, event_type, details) VALUES (?, 'COST_HOLD_EXCEPTION_CONSUMED', ?)",
+          now,
+          JSON.stringify({
+            exception_id: costHoldException.exception_id,
+            grant_id: grant.grant_id,
+            run_id: runId,
+          })
+        );
+      }
 
       // Insert run as RESERVED
       this.sql.execute(
@@ -1312,6 +1385,208 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
   }
 
   /**
+   * Look up an unconsumed, operator-authorized one-time unknown-cost-hold
+   * exception bound to a specific single-use grant token.
+   *
+   * @param {string} grantToken
+   * @returns {object | null}
+   */
+  getAuthorizedCostHoldException(grantToken) {
+    const normalized = String(grantToken || "").trim();
+    if (!normalized) {
+      return null;
+    }
+    const rows = this.sql.query(
+      "SELECT * FROM cost_hold_exceptions WHERE grant_token = ? AND status = ?",
+      normalized,
+      COST_HOLD_EXCEPTION_AUTHORIZED
+    );
+    return rows.length > 0 ? rows[0] : null;
+  }
+
+  /**
+   * Explicit, auditable, single-use operator authorization that allows exactly one
+   * subsequent live admission to proceed while a known unreconciled unknown-cost
+   * exposure remains outstanding.
+   *
+   * This is the SMALLEST possible exception to the unknown-cost admission hold. It
+   * is NOT a bypass flag and NOT a ledger reset:
+   * - it must be bound to an existing, unexpired, unconsumed single-use grant;
+   * - it requires an explicit operator identity and a reason (audit record);
+   * - it requires the grant's operator-bound estimated cost cap;
+   * - it records the historical unknown exposure and requires the promotional-budget
+   *   calculation to include BOTH the historical unknown exposure AND the new
+   *   maximum estimated run exposure while preserving the $5.00 safety reserve;
+   * - at most one exception may be active at a time and at most one ever exists per
+   *   grant token (duplicates/replays are rejected);
+   * - the historical unknown exposure is retained (never cleared, never reconciled,
+   *   never reset) and the general hold remains in force for all ordinary grants.
+   *
+   * @param {object} params
+   * @param {string} params.grantToken Single-use grant token the exception is bound to
+   * @param {string} params.authorizedBy Explicit operator identity (audit)
+   * @param {string} params.reason Explicit authorization reason (audit)
+   * @param {string} [params.note=""]
+   * @returns {object}
+   */
+  authorizeCostHoldException({ grantToken, authorizedBy, reason, note = "" } = {}) {
+    const normalizedToken = String(grantToken || "").trim();
+    if (!normalizedToken) {
+      throw new ReconciliationValidationError(
+        "authorizeCostHoldException requires a non-empty grant_token."
+      );
+    }
+    const operator = String(authorizedBy || "").trim();
+    if (!operator) {
+      throw new ReconciliationValidationError(
+        "authorizeCostHoldException requires an explicit operator identity (authorized_by)."
+      );
+    }
+    const reasonText = String(reason || "").trim();
+    if (reasonText.length < 3) {
+      throw new ReconciliationValidationError(
+        "authorizeCostHoldException requires an explicit authorization reason."
+      );
+    }
+
+    const now = Date.now();
+
+    return this.sql.transaction(() => {
+      const costRow = this.sql.query("SELECT unknown_cost FROM costs WHERE id = 1")[0];
+      const existingUnknownCost = Number(costRow?.unknown_cost ?? 0.0);
+      if (!(existingUnknownCost > 0)) {
+        throw new ReconciliationStateError(
+          "No unreconciled unknown-cost exposure is outstanding; a cost-hold exception is not required."
+        );
+      }
+
+      const grantRows = this.sql.query(
+        "SELECT * FROM grants WHERE grant_token = ?",
+        normalizedToken
+      );
+      if (grantRows.length === 0) {
+        throw new ReconciliationStateError(
+          "The grant token bound to a cost-hold exception does not exist."
+        );
+      }
+      const grant = grantRows[0];
+      if (grant.status !== "ISSUED" || grant.use_count >= grant.max_uses) {
+        throw new ReconciliationStateError(
+          "The grant bound to a cost-hold exception must be an unconsumed issued single-use grant."
+        );
+      }
+      if (Number(grant.max_uses) !== 1) {
+        throw new ReconciliationValidationError(
+          "A cost-hold exception may only be bound to a strictly single-use grant (max_uses = 1)."
+        );
+      }
+      if (Number(grant.expires_at) < now) {
+        throw new ReconciliationStateError("The grant bound to a cost-hold exception has expired.");
+      }
+
+      const estimatedCostCap = Number(grant.estimated_cost_cap);
+      if (!Number.isFinite(estimatedCostCap) || estimatedCostCap <= 0) {
+        throw new ReconciliationValidationError(
+          "The grant bound to a cost-hold exception must carry a positive operator-approved estimated_cost_cap."
+        );
+      }
+      const verifiedBalance = Number(grant.verified_balance);
+      if (!Number.isFinite(verifiedBalance)) {
+        throw new ReconciliationValidationError(
+          "The grant bound to a cost-hold exception must carry an operator-verified promotional balance."
+        );
+      }
+
+      const reserveFloor = parseFloat(
+        this.getConfig("TOKEN_FACTORY_PROMO_STOP_THRESHOLD", "5.00")
+      );
+
+      // Budget authority MUST include BOTH the historical unknown exposure AND the
+      // new maximum estimated run exposure, while preserving the safety reserve.
+      const totalBudgetRequired = existingUnknownCost + estimatedCostCap;
+      if (verifiedBalance - totalBudgetRequired < reserveFloor) {
+        throw new ReconciliationValidationError(
+          `Cost-hold exception denied: promotional balance ($${verifiedBalance.toFixed(2)}) minus ` +
+            `historical unknown exposure ($${existingUnknownCost.toFixed(2)}) and maximum estimated run ` +
+            `exposure ($${estimatedCostCap.toFixed(2)}) would breach the $${reserveFloor.toFixed(2)} safety reserve.`
+        );
+      }
+
+      // Reject duplicate/replayed authorization: at most one active exception and at
+      // most one exception ever per grant token.
+      const activeRows = this.sql.query(
+        "SELECT COUNT(*) AS count FROM cost_hold_exceptions WHERE status = ?",
+        COST_HOLD_EXCEPTION_AUTHORIZED
+      );
+      if ((activeRows[0]?.count ?? 0) > 0) {
+        throw new ReconciliationStateError(
+          "An active cost-hold exception already exists. Only one may be active at a time."
+        );
+      }
+      const existingForGrant = this.sql.query(
+        "SELECT COUNT(*) AS count FROM cost_hold_exceptions WHERE grant_token = ?",
+        normalizedToken
+      );
+      if ((existingForGrant[0]?.count ?? 0) > 0) {
+        throw new ReconciliationStateError(
+          "A cost-hold exception has already been issued for this grant token."
+        );
+      }
+
+      const exceptionId = "chx_" + crypto.randomUUID();
+      this.sql.execute(
+        `INSERT INTO cost_hold_exceptions (
+           exception_id, grant_id, grant_token, authorized_by, reason, authorized_at,
+           existing_unknown_cost_usd, estimated_cost_cap_usd, reserve_floor_usd,
+           total_budget_required_usd, verified_balance_usd, status
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        exceptionId,
+        grant.grant_id,
+        normalizedToken,
+        operator,
+        reasonText,
+        now,
+        existingUnknownCost,
+        estimatedCostCap,
+        reserveFloor,
+        totalBudgetRequired,
+        verifiedBalance,
+        COST_HOLD_EXCEPTION_AUTHORIZED
+      );
+
+      this.sql.execute(
+        "INSERT INTO audit_log (timestamp, event_type, details) VALUES (?, 'COST_HOLD_EXCEPTION_AUTHORIZED', ?)",
+        now,
+        JSON.stringify({
+          exception_id: exceptionId,
+          grant_id: grant.grant_id,
+          authorized_by: operator,
+          reason: reasonText,
+          existing_unknown_cost_usd: existingUnknownCost,
+          estimated_cost_cap_usd: estimatedCostCap,
+          reserve_floor_usd: reserveFloor,
+          total_budget_required_usd: totalBudgetRequired,
+          verified_balance_usd: verifiedBalance,
+          note: String(note || ""),
+        })
+      );
+
+      return {
+        authorized: true,
+        exception_id: exceptionId,
+        grant_id: grant.grant_id,
+        status: COST_HOLD_EXCEPTION_AUTHORIZED,
+        existing_unknown_cost_usd: existingUnknownCost,
+        estimated_cost_cap_usd: estimatedCostCap,
+        reserve_floor_usd: reserveFloor,
+        total_budget_required_usd: totalBudgetRequired,
+        verified_balance_usd: verifiedBalance,
+        single_use: true,
+      };
+    });
+  }
+
+  /**
    * Fail-closed recovery after restarts, worker crashes, or network loss.
    * Clears dead in-flight locks and permanently shifts costs to unknown_cost.
    *
@@ -1546,6 +1821,12 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
     const completedRuns =
       this.sql.query("SELECT COUNT(*) as count FROM runs WHERE status = 'COMPLETED'")[0]?.count ?? 0;
 
+    const activeExceptionRows = this.sql.query(
+      "SELECT * FROM cost_hold_exceptions WHERE status = ?",
+      COST_HOLD_EXCEPTION_AUTHORIZED
+    );
+    const activeException = activeExceptionRows[0] || null;
+
     return {
       reserved_cost: costs.reserved_cost,
       observed_cost: costs.observed_cost,
@@ -1566,6 +1847,22 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       durable_expected_source_commit: configStatus.durable_expected_source_commit,
       runtime_expected_source_commit: configStatus.runtime_expected_source_commit,
       source_commit_consistent: configStatus.source_commit_consistent,
+      // The single active one-time cost-hold exception, if any. Historical unknown
+      // exposure above remains recorded and is never cleared by an exception.
+      active_cost_hold_exception: activeException
+        ? {
+            exception_id: activeException.exception_id,
+            grant_id: activeException.grant_id,
+            authorized_by: activeException.authorized_by,
+            reason: activeException.reason,
+            existing_unknown_cost_usd: activeException.existing_unknown_cost_usd,
+            estimated_cost_cap_usd: activeException.estimated_cost_cap_usd,
+            reserve_floor_usd: activeException.reserve_floor_usd,
+            total_budget_required_usd: activeException.total_budget_required_usd,
+            verified_balance_usd: activeException.verified_balance_usd,
+            status: activeException.status,
+          }
+        : null,
     };
   }
 }
