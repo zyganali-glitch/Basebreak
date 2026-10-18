@@ -25,9 +25,7 @@ from pathlib import Path
 import pytest
 
 from basebreak.causal.reconciliation import CausalTransition
-from basebreak.compiler.freeze import FrozenContract, FrozenRequirement
-from basebreak.compiler.semantics import CertaintyLevel
-from basebreak.domain.semantics import ChangeClass
+from basebreak.deployment.reset_vault_contract import create_reset_vault_frozen_contract
 from basebreak.domain.verdict import EvidenceProvenance, PreliminaryVerdict
 from basebreak.replays.real_world import (
     CANONICAL_CLICK_REPLAY,
@@ -44,12 +42,6 @@ from basebreak.replays.real_world import (
 from basebreak.verifier.witness_result import WitnessOutcome
 
 RESET_VAULT_ROOT = Path(__file__).resolve().parent.parent / "fixtures" / "reset_vault"
-
-RESET_VAULT_TASK_TEXT: str = (
-    "Make reset tokens single-use without breaking first valid reset: "
-    "once a token has been successfully used to update a password, "
-    "any subsequent redemption attempt with that same token must fail."
-)
 
 RESET_VAULT_PATCH_UNIFIED: str = (
     "--- a/src/reset_vault/vault.py\n"
@@ -211,41 +203,6 @@ def execute_reset_vault_triplet() -> ResetVaultReproductionFacts:
             verdict=verdict,
             provenance=EvidenceProvenance.LOCAL_EXECUTION,
         )
-
-
-def create_reset_vault_frozen_contract() -> FrozenContract:
-    """Create authentic FrozenContract for ResetVault scenario (P-23.02)."""
-    req = FrozenRequirement(
-        requirement_id="REQ-RESET-001",
-        statement="Reset tokens must be strictly single-use; subsequent redemption attempts fail",
-        citation="once a token has been successfully used, any subsequent redemption must fail",
-        citation_start=0,
-        citation_end=75,
-        rationale="Prevent replay attacks reusing valid password reset tokens",
-    )
-    contract = object.__new__(FrozenContract)
-    object.__setattr__(contract, "schema_version", "1.0.0")
-    object.__setattr__(
-        contract,
-        "task_digest",
-        hashlib.sha256(RESET_VAULT_TASK_TEXT.encode("utf-8")).hexdigest(),
-    )
-    object.__setattr__(contract, "change_class", ChangeClass.BUG_FIX)
-    object.__setattr__(contract, "certainty", CertaintyLevel.CONFIDENT)
-    object.__setattr__(contract, "requirements", (req,))
-    contract_bytes = json.dumps(
-        {
-            "requirements": [req.to_dict()],
-            "task": RESET_VAULT_TASK_TEXT,
-        },
-        sort_keys=True,
-    ).encode("utf-8")
-    object.__setattr__(
-        contract,
-        "contract_digest",
-        hashlib.sha256(contract_bytes).hexdigest(),
-    )
-    return contract
 
 
 class TestResetVaultKillerDemo:

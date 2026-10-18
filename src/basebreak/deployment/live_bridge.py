@@ -473,10 +473,9 @@ def _build_reset_vault_witness_content() -> str:
 
 
 def _load_canonical_live_bridge_scenario() -> CanonicalLiveBridgeScenario:
-    from importlib import import_module
+    from basebreak.deployment.reset_vault_contract import create_reset_vault_frozen_contract
 
-    demo_module = import_module("tests.demo.test_p23_killer_demo")
-    contract = demo_module.create_reset_vault_frozen_contract()
+    contract = create_reset_vault_frozen_contract()
     patch_text = _build_reset_vault_candidate_patch_text()
     return CanonicalLiveBridgeScenario(
         task_id="TASK-RESET-VAULT-001",
