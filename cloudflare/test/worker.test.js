@@ -267,6 +267,22 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     assert.equal(data.live_enabled, false);
   });
 
+  it("GET /health reports configured source commit and consistency when EXPECTED_SOURCE_COMMIT matches DO", async () => {
+    const { env } = createWorkerEnv({
+      EXPECTED_SOURCE_COMMIT: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+    });
+    const req = new Request("https://basebreak.workers.dev/health", { method: "GET" });
+    const res = await worker.fetch(req, env, {});
+
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.source_commit_id, "80b43b84014fa61b941c7ebcd87836a56dcd7c92");
+    assert.equal(data.source_commit_status, "CONFIGURED_UNVERIFIED");
+    assert.equal(data.durable_expected_source_commit, "80b43b84014fa61b941c7ebcd87836a56dcd7c92");
+    assert.equal(data.source_commit_consistent, true);
+    assert.equal(data.live_enabled, false);
+  });
+
   it("GET /health fails closed when the Durable Object binding is missing outside explicit test fallback", async () => {
     const req = new Request("https://basebreak.workers.dev/health", { method: "GET" });
     const res = await worker.fetch(req, {}, {});
