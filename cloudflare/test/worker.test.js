@@ -1213,6 +1213,167 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     assert.ok(typeof data.total === "number");
     assert.ok(Array.isArray(data.runs));
   });
+
+  it("DEFECT A: boolean true and exact string 'true' both permit admission when all other trusted gates and constraints are valid", async () => {
+    for (const liveFlag of [true, "true"]) {
+      const authority = createTestVerifierAuthority();
+      const liveReceipt = buildVerifiedLiveReceiptFixture();
+      const successPayload = buildSignedBridgeSuccess(liveReceipt, authority);
+      let bridgeDispatched = false;
+
+      const { env } = createWorkerEnv({
+        LIVE_ENABLED: liveFlag,
+        EXPECTED_SOURCE_COMMIT: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+        LIVE_RUN_ESTIMATED_COST_USD: "0.25",
+        TRUSTED_VERIFIER_BRIDGE_URL: "https://bridge.example/internal/live-verifications",
+        TRUSTED_VERIFIER_BRIDGE_SHARED_SECRET: "bridge-secret",
+        __testVerifierAuthority: {
+          modulusHex: authority.modulusHex,
+          exponent: authority.exponent,
+        },
+        __bridgeFetchForTests: async () => {
+          bridgeDispatched = true;
+          return new Response(JSON.stringify(successPayload), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        },
+      });
+
+      const healthRes = await worker.fetch(
+        new Request("https://basebreak.workers.dev/health", { method: "GET" }),
+        env,
+        {}
+      );
+      const healthData = await healthRes.json();
+      assert.equal(healthData.runtime_live_enabled, true);
+      assert.equal(healthData.durable_live_enabled, true);
+      assert.equal(healthData.live_enabled, true);
+
+      const grant = env.__ledgerInstance.issueGrant({
+        verifiedBalance: 20.0,
+        balanceTimestamp: Date.now(),
+        estimatedCostCap: 0.5,
+        clientInfo: "judge-defect-a",
+      });
+
+      const runRes = await worker.fetch(
+        new Request("https://basebreak.workers.dev/v1/runs", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Judge-Grant": grant.grant_token,
+          },
+          body: JSON.stringify({ target: "tests/fixtures/reset_vault", allow_live: true }),
+        }),
+        env,
+        {}
+      );
+      assert.equal(runRes.status, 201);
+      assert.equal(bridgeDispatched, true);
+    }
+  });
+
+  it("DEFECT A: boolean false, string 'false', missing, and malformed truthy values remain disabled and agree between /health and admission", async () => {
+    const disabledValues = [
+      false,
+      "false",
+      undefined,
+      null,
+      1,
+      "1",
+      "TRUE",
+      "True",
+      "yes",
+      "on",
+      " true ",
+      {},
+      [],
+    ];
+
+    for (const invalidVal of disabledValues) {
+      let bridgeDispatched = false;
+      const { env } = createWorkerEnv({
+        LIVE_ENABLED: invalidVal,
+        EXPECTED_SOURCE_COMMIT: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+        LIVE_RUN_ESTIMATED_COST_USD: "0.25",
+        TRUSTED_VERIFIER_BRIDGE_URL: "https://bridge.example/internal/live-verifications",
+        TRUSTED_VERIFIER_BRIDGE_SHARED_SECRET: "bridge-secret",
+        __bridgeFetchForTests: async () => {
+          bridgeDispatched = true;
+          throw new Error("bridge must not be called when runtime gate is disabled");
+        },
+      });
+      if (invalidVal === undefined) {
+        delete env.LIVE_ENABLED;
+      }
+
+      // Explicitly enable the separate durable operator gate so ONLY the runtime flag is under test.
+      env.__ledgerInstance.configureLiveGate(true, {
+        configuredBy: "operator",
+        reason: "test runtime flag isolation",
+      });
+
+      const healthRes = await worker.fetch(
+        new Request("https://basebreak.workers.dev/health", { method: "GET" }),
+        env,
+        {}
+      );
+      const healthData = await healthRes.json();
+      assert.equal(healthData.durable_live_enabled, true);
+      assert.equal(healthData.runtime_live_enabled, false);
+      assert.equal(healthData.live_enabled, false);
+
+      const grant = env.__ledgerInstance.issueGrant({
+        verifiedBalance: 20.0,
+        balanceTimestamp: Date.now(),
+        estimatedCostCap: 0.5,
+        clientInfo: "judge-defect-a-disabled",
+      });
+
+      const runRes = await worker.fetch(
+        new Request("https://basebreak.workers.dev/v1/runs", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Judge-Grant": grant.grant_token,
+            "X-Allow-Live": "true",
+            "X-Live-Enabled": "true",
+          },
+          body: JSON.stringify({ target: "tests/fixtures/reset_vault", allow_live: true }),
+        }),
+        env,
+        {}
+      );
+      assert.equal(runRes.status, 403);
+      const runData = await runRes.json();
+      assert.equal(runData.status, "BLOCKED");
+      assert.match(runData.error, /Trusted runtime live authorization is absent/);
+      assert.equal(bridgeDispatched, false);
+      assert.equal(env.__ledgerInstance.getAccounting().total_runs, 0);
+
+      // Caller supplying live_enabled in body is also rejected as a forbidden authority field.
+      const callerOverrideRes = await worker.fetch(
+        new Request("https://basebreak.workers.dev/v1/runs", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Judge-Grant": grant.grant_token,
+          },
+          body: JSON.stringify({
+            target: "tests/fixtures/reset_vault",
+            allow_live: true,
+            live_enabled: true,
+          }),
+        }),
+        env,
+        {}
+      );
+      assert.equal(callerOverrideRes.status, 400);
+      assert.equal((await callerOverrideRes.json()).status, "INVALID_INPUT");
+      assert.equal(bridgeDispatched, false);
+    }
+  });
 });
 
 describe("Bridge transport resolution (Workers VPC seam)", () => {

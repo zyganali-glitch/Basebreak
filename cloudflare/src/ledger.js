@@ -59,6 +59,7 @@ const ALLOWED_ATTESTATION_TYPES = new Set(["OPERATOR_ATTESTED"]);
 const MAX_RECONCILIATION_TIMESTAMP_SKEW_MS = 24 * 60 * 60 * 1000;
 const COST_HOLD_EXCEPTION_AUTHORIZED = "AUTHORIZED";
 const COST_HOLD_EXCEPTION_CONSUMED = "CONSUMED";
+const COST_HOLD_EXCEPTION_EXPIRED = "EXPIRED";
 
 /** Raised when a reconciliation record is missing/invalid evidence. */
 export class ReconciliationValidationError extends Error {}
@@ -474,7 +475,8 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
    */
   getConfigStatus() {
     const durableLiveEnabled = this.getConfig("LIVE_ENABLED", "false") === "true";
-    const runtimeLiveEnabled = String(this.env?.LIVE_ENABLED ?? "false").trim() === "true";
+    const runtimeLiveEnabled =
+      this.env?.LIVE_ENABLED === true || this.env?.LIVE_ENABLED === "true";
     const durableSource = String(this.getConfig("EXPECTED_SOURCE_COMMIT", "")).trim().toLowerCase();
     const runtimeSource = String(this.env?.EXPECTED_SOURCE_COMMIT ?? "").trim().toLowerCase();
     const durableSourceOrNull = HEX_40_REGEX.test(durableSource) ? durableSource : null;
@@ -759,6 +761,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
 
     if (grant.status === "EXPIRED" || grant.expires_at < now) {
       this.sql.execute("UPDATE grants SET status = 'EXPIRED' WHERE grant_id = ?", grant.grant_id);
+      this.expireStaleCostHoldExceptions(now);
       return {
         admitted: false,
         status: "EXPIRED_GRANT",
@@ -1470,6 +1473,87 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
   }
 
   /**
+   * Atomically and idempotently transition any unconsumed AUTHORIZED cost-hold
+   * exception whose bound grant has expired or become invalid into the terminal
+   * EXPIRED state, recording an explicit audit event once per transition.
+   *
+   * Never modifies CONSUMED exceptions, never deletes historical rows or audit
+   * entries, never revives expired grants, and never releases or reduces
+   * historical unknown_cost exposure.
+   *
+   * @param {number} [now=Date.now()]
+   * @returns {number} Count of newly expired cost-hold exceptions
+   */
+  expireStaleCostHoldExceptions(now = Date.now()) {
+    const authorizedRows = this.sql.query(
+      "SELECT * FROM cost_hold_exceptions WHERE status = ?",
+      COST_HOLD_EXCEPTION_AUTHORIZED
+    );
+    if (authorizedRows.length === 0) {
+      return 0;
+    }
+
+    return this.sql.transaction(() => {
+      let expiredCount = 0;
+      for (const exc of authorizedRows) {
+        const grantRows = this.sql.query(
+          "SELECT * FROM grants WHERE grant_id = ? AND grant_token = ?",
+          exc.grant_id,
+          exc.grant_token
+        );
+        const grant = grantRows[0] || null;
+
+        let invalidReason = null;
+        if (!grant) {
+          invalidReason = "BOUND_GRANT_MISSING";
+        } else if (grant.status === "EXPIRED" || Number(grant.expires_at) < now) {
+          invalidReason = "BOUND_GRANT_EXPIRED";
+        } else if (
+          grant.status === "CONSUMED" ||
+          Number(grant.use_count) >= Number(grant.max_uses)
+        ) {
+          invalidReason = "BOUND_GRANT_ALREADY_CONSUMED";
+        } else if (grant.status !== "ISSUED" || Number(grant.max_uses) !== 1) {
+          invalidReason = `BOUND_GRANT_INVALID_STATUS_${String(grant.status)}`;
+        }
+
+        if (!invalidReason) {
+          continue;
+        }
+
+        if (grant && grant.status === "ISSUED" && Number(grant.expires_at) < now) {
+          this.sql.execute(
+            "UPDATE grants SET status = 'EXPIRED' WHERE grant_id = ? AND status = 'ISSUED'",
+            grant.grant_id
+          );
+        }
+
+        const updateResult = this.sql.execute(
+          "UPDATE cost_hold_exceptions SET status = ? WHERE exception_id = ? AND status = ?",
+          COST_HOLD_EXCEPTION_EXPIRED,
+          exc.exception_id,
+          COST_HOLD_EXCEPTION_AUTHORIZED
+        );
+
+        if (updateResult.changes === 1) {
+          this.sql.execute(
+            "INSERT INTO audit_log (timestamp, event_type, details) VALUES (?, 'COST_HOLD_EXCEPTION_EXPIRED', ?)",
+            now,
+            JSON.stringify({
+              exception_id: exc.exception_id,
+              grant_id: exc.grant_id,
+              reason: invalidReason,
+              grant_expires_at: grant ? grant.expires_at : null,
+            })
+          );
+          expiredCount += 1;
+        }
+      }
+      return expiredCount;
+    });
+  }
+
+  /**
    * Look up an unconsumed, operator-authorized one-time unknown-cost-hold
    * exception bound to a specific single-use grant token.
    *
@@ -1477,6 +1561,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
    * @returns {object | null}
    */
   getAuthorizedCostHoldException(grantToken) {
+    this.expireStaleCostHoldExceptions();
     const normalized = String(grantToken || "").trim();
     if (!normalized) {
       return null;
@@ -1535,6 +1620,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
     }
 
     const now = Date.now();
+    this.expireStaleCostHoldExceptions(now);
 
     return this.sql.transaction(() => {
       const costRow = this.sql.query("SELECT unknown_cost FROM costs WHERE id = 1")[0];
@@ -1555,6 +1641,15 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
         );
       }
       const grant = grantRows[0];
+      if (grant.status === "EXPIRED" || Number(grant.expires_at) < now) {
+        this.sql.execute(
+          "UPDATE grants SET status = 'EXPIRED' WHERE grant_id = ? AND status = 'ISSUED'",
+          grant.grant_id
+        );
+        throw new ReconciliationStateError(
+          "The grant bound to a cost-hold exception has expired; an unconsumed issued single-use grant is required."
+        );
+      }
       if (grant.status !== "ISSUED" || grant.use_count >= grant.max_uses) {
         throw new ReconciliationStateError(
           "The grant bound to a cost-hold exception must be an unconsumed issued single-use grant."
@@ -1564,9 +1659,6 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
         throw new ReconciliationValidationError(
           "A cost-hold exception may only be bound to a strictly single-use grant (max_uses = 1)."
         );
-      }
-      if (Number(grant.expires_at) < now) {
-        throw new ReconciliationStateError("The grant bound to a cost-hold exception has expired.");
       }
 
       const estimatedCostCap = Number(grant.estimated_cost_cap);
@@ -1679,6 +1771,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
    * @returns {number} Count of recovered orphan runs
    */
   recoverDurableState(deadlineSeconds = 60) {
+    this.expireStaleCostHoldExceptions();
     const thresholdTime = Date.now() - deadlineSeconds * 1000;
     const orphans = this.sql.query(
       "SELECT run_id, reserved_cost FROM runs WHERE status IN ('RESERVED', 'IN_FLIGHT') AND started_at < ?",
@@ -1884,6 +1977,8 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
    * @returns {object}
    */
   getAccounting() {
+    this.expireStaleCostHoldExceptions();
+
     const costRows = this.sql.query("SELECT * FROM costs WHERE id = 1");
     const costs = costRows[0] || {
       reserved_cost: 0.0,
@@ -1911,6 +2006,16 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       COST_HOLD_EXCEPTION_AUTHORIZED
     );
     const activeException = activeExceptionRows[0] || null;
+
+    const recentExceptions = this.sql.query(
+      `SELECT exception_id, grant_id, authorized_by, reason, authorized_at,
+              existing_unknown_cost_usd, estimated_cost_cap_usd, reserve_floor_usd,
+              total_budget_required_usd, verified_balance_usd, status,
+              consumed_at, consumed_run_id
+       FROM cost_hold_exceptions
+       ORDER BY authorized_at DESC
+       LIMIT 10`
+    );
 
     const recentRuns = this.sql.query(
       `SELECT run_id, status, outcome, error_message, started_at, completed_at,
@@ -1956,6 +2061,21 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
             status: activeException.status,
           }
         : null,
+      recent_cost_hold_exceptions: recentExceptions.map((exc) => ({
+        exception_id: exc.exception_id,
+        grant_id: exc.grant_id,
+        authorized_by: exc.authorized_by,
+        reason: exc.reason,
+        authorized_at: exc.authorized_at,
+        existing_unknown_cost_usd: exc.existing_unknown_cost_usd,
+        estimated_cost_cap_usd: exc.estimated_cost_cap_usd,
+        reserve_floor_usd: exc.reserve_floor_usd,
+        total_budget_required_usd: exc.total_budget_required_usd,
+        verified_balance_usd: exc.verified_balance_usd,
+        status: exc.status,
+        consumed_at: exc.consumed_at ?? null,
+        consumed_run_id: exc.consumed_run_id ?? null,
+      })),
       recent_runs: recentRuns.map((r) => ({
         run_id: r.run_id,
         status: r.status,

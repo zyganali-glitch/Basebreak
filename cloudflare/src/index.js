@@ -179,6 +179,17 @@ function getDeclaredSourceCommit(env) {
   return UNKNOWN_BUILD_SHA;
 }
 
+/**
+ * Normalize the trusted Worker runtime live-execution flag from env.
+ * Accepts ONLY boolean true or exact string "true". All other values are disabled.
+ *
+ * @param {any} env
+ * @returns {boolean}
+ */
+export function isTrustedRuntimeLiveEnabled(env) {
+  return env?.LIVE_ENABLED === true || env?.LIVE_ENABLED === "true";
+}
+
 function getConfiguredEstimatedLiveCost(env) {
   const raw =
     typeof env.LIVE_RUN_ESTIMATED_COST_USD === "string" && env.LIVE_RUN_ESTIMATED_COST_USD.trim()
@@ -301,6 +312,8 @@ export default {
       return missingLedgerResponse;
     }
 
+    const trustedRuntimeLiveEnabled = isTrustedRuntimeLiveEnabled(env);
+
     // 2. Health & Source SHA Parity Endpoint (P-27.04)
     if (method === "GET" && (path === "/health" || path === "/v1/health")) {
       const expectedCommit =
@@ -308,9 +321,11 @@ export default {
       const accounting =
         typeof ledger.getAccounting === "function" ? await ledger.getAccounting() : {};
       const runtimeLiveEnabled =
-        typeof accounting.runtime_live_enabled === "boolean"
-          ? accounting.runtime_live_enabled
-          : env.LIVE_ENABLED === "true";
+        env && Object.prototype.hasOwnProperty.call(env, "LIVE_ENABLED")
+          ? trustedRuntimeLiveEnabled
+          : typeof accounting.runtime_live_enabled === "boolean"
+            ? accounting.runtime_live_enabled
+            : trustedRuntimeLiveEnabled;
       const durableLiveEnabled =
         typeof accounting.durable_live_enabled === "boolean"
           ? accounting.durable_live_enabled
@@ -472,7 +487,7 @@ export default {
         source_commit_id: expectedCommit,
         idempotency_key: getRequestIdempotencyKey(request, body),
         estimated_cost: estimatedCostUsd,
-        live_enabled: env.LIVE_ENABLED === "true",
+        live_enabled: trustedRuntimeLiveEnabled,
       });
 
       if (!reservation.admitted) {

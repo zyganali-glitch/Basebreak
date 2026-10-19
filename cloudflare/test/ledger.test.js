@@ -1568,4 +1568,197 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(allRuns.total, 3);
     assert.equal(allRuns.runs.length, 3);
   });
+
+  it("25. DEFECT B: expired-grant AUTHORIZED cost-hold exception transitions atomically/idempotently to EXPIRED and unblocks subsequent legitimate authorization while preserving historical state", () => {
+    const { ledger } = createTestLedger({ GLOBAL_INVOCATION_CAP: "10" });
+
+    // 1. Seed a historical run with consumed exception and $2.50 total unknown cost exposure.
+    const gConsumed = issueLiveGrant(ledger, { estimatedCostCap: 2.5, verifiedBalance: 24.99 });
+    const rConsumed = ledger.reserveAdmission({
+      grant_token: gConsumed.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 2.5,
+      verified_balance: 24.99,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(rConsumed.admitted, true);
+    ledger.recordExecutionFailure(rConsumed.run_id, {
+      error_message: "post-generation failure with unknown cost",
+      provider_may_have_dispatched: true,
+    });
+    assert.equal(ledger.getAccounting().unknown_cost, 2.5);
+
+    // Seed a second historical run that consumed a cost-hold exception so we verify CONSUMED exceptions remain untouched.
+    const gHistExc = issueLiveGrant(ledger, { estimatedCostCap: 0.5, verifiedBalance: 24.99 });
+    const consumedExc = ledger.authorizeCostHoldException({
+      grantToken: gHistExc.grant_token,
+      authorizedBy: "operator:zyganali",
+      reason: "Historical fifth run exception",
+    });
+    const rHistExc = ledger.reserveAdmission({
+      grant_token: gHistExc.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.5,
+      verified_balance: 24.99,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(rHistExc.admitted, true);
+    ledger.recordExecutionFailure(rHistExc.run_id, {
+      error_message: "pre-dispatch failure for test setup",
+      provider_may_have_dispatched: false,
+    });
+
+    // Verify historical unknown_cost is still 2.50 and consumedExc is CONSUMED.
+    assert.equal(ledger.getAccounting().unknown_cost, 2.5);
+    const consumedRowBefore = ledger.sql.query(
+      "SELECT * FROM cost_hold_exceptions WHERE exception_id = ?",
+      consumedExc.exception_id
+    )[0];
+    assert.equal(consumedRowBefore.status, "CONSUMED");
+
+    // 2. Issue a grant and authorize a cost-hold exception bound to it.
+    const orphanGrant = issueLiveGrant(ledger, {
+      ttlSeconds: 300,
+      estimatedCostCap: 0.5,
+      verifiedBalance: 24.99,
+      balanceTimestamp: Date.now(),
+    });
+    const orphanExc = ledger.authorizeCostHoldException({
+      grantToken: orphanGrant.grant_token,
+      authorizedBy: "operator:zyganali",
+      reason: "Sixth run authorization whose grant will expire before admission",
+    });
+    assert.equal(orphanExc.authorized, true);
+    assert.equal(orphanExc.status, "AUTHORIZED");
+
+    // While orphanGrant is still valid, a second concurrent exception is rejected.
+    const concurrentGrant = issueLiveGrant(ledger, {
+      ttlSeconds: 600,
+      estimatedCostCap: 0.5,
+      verifiedBalance: 24.99,
+      balanceTimestamp: Date.now(),
+    });
+    assert.throws(
+      () =>
+        ledger.authorizeCostHoldException({
+          grantToken: concurrentGrant.grant_token,
+          authorizedBy: "operator:zyganali",
+          reason: "Should be blocked while first exception is still valid",
+        }),
+      /An active cost-hold exception already exists/
+    );
+
+    // 3. Expire the bound grant (backdate expires_at into the past).
+    const pastExpiresAt = Date.now() - 10_000;
+    ledger.sql.execute(
+      "UPDATE grants SET expires_at = ? WHERE grant_id = ?",
+      pastExpiresAt,
+      orphanGrant.grant_id
+    );
+
+    // Authenticated ledger inspection (getAccounting) expires the orphaned exception and reports no active exception.
+    const acctAfterExpiry = ledger.getAccounting();
+    assert.equal(acctAfterExpiry.active_cost_hold_exception, null);
+    assert.equal(acctAfterExpiry.unknown_cost, 2.5, "Historical unknown_cost must never be reduced by grant expiry");
+
+    // Verify terminal EXPIRED state is persisted on the orphaned exception and grant.
+    const orphanExcRow = ledger.sql.query(
+      "SELECT * FROM cost_hold_exceptions WHERE exception_id = ?",
+      orphanExc.exception_id
+    )[0];
+    assert.equal(orphanExcRow.status, "EXPIRED");
+    assert.equal(orphanExcRow.consumed_at, null);
+    assert.equal(orphanExcRow.consumed_run_id, null);
+
+    const orphanGrantRow = ledger.sql.query(
+      "SELECT * FROM grants WHERE grant_id = ?",
+      orphanGrant.grant_id
+    )[0];
+    assert.equal(orphanGrantRow.status, "EXPIRED");
+
+    // Verify repeated cleanup is idempotent and emits no duplicate audit events.
+    assert.equal(ledger.expireStaleCostHoldExceptions(), 0);
+    assert.equal(ledger.getAccounting().active_cost_hold_exception, null);
+    const expiredAuditEvents = ledger.sql.query(
+      "SELECT * FROM audit_log WHERE event_type = 'COST_HOLD_EXCEPTION_EXPIRED'"
+    );
+    assert.equal(expiredAuditEvents.length, 1);
+    const expiredDetails = JSON.parse(expiredAuditEvents[0].details);
+    assert.equal(expiredDetails.exception_id, orphanExc.exception_id);
+    assert.equal(expiredDetails.grant_id, orphanGrant.grant_id);
+    assert.equal(expiredDetails.reason, "BOUND_GRANT_EXPIRED");
+
+    // 4. Expired grant/token remains unusable for admission and cannot be re-authorized.
+    const expiredAdmit = ledger.reserveAdmission({
+      grant_token: orphanGrant.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.5,
+      verified_balance: 24.99,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(expiredAdmit.admitted, false);
+    assert.equal(expiredAdmit.status, "EXPIRED_GRANT");
+
+    assert.throws(
+      () =>
+        ledger.authorizeCostHoldException({
+          grantToken: orphanGrant.grant_token,
+          authorizedBy: "operator:zyganali",
+          reason: "Attempt to revive expired grant",
+        }),
+      /expired/
+    );
+
+    // 5. A new legitimate grant can now be authorized for a new single-use exception.
+    const newExc = ledger.authorizeCostHoldException({
+      grantToken: concurrentGrant.grant_token,
+      authorizedBy: "operator:zyganali",
+      reason: "New legitimate exception after expired orphan cleanup",
+    });
+    assert.equal(newExc.authorized, true);
+    assert.equal(newExc.status, "AUTHORIZED");
+    assert.equal(ledger.getAccounting().active_cost_hold_exception.exception_id, newExc.exception_id);
+
+    // If a second orphan expires right before authorizeCostHoldException is called directly,
+    // authorizeCostHoldException expires it first before the uniqueness check.
+    ledger.sql.execute(
+      "UPDATE grants SET expires_at = ? WHERE grant_id = ?",
+      Date.now() - 5_000,
+      concurrentGrant.grant_id
+    );
+    const thirdGrant = issueLiveGrant(ledger, {
+      ttlSeconds: 600,
+      estimatedCostCap: 0.5,
+      verifiedBalance: 24.99,
+      balanceTimestamp: Date.now(),
+    });
+    const thirdExc = ledger.authorizeCostHoldException({
+      grantToken: thirdGrant.grant_token,
+      authorizedBy: "operator:zyganali",
+      reason: "Authorized directly while prior exception grant had just expired",
+    });
+    assert.equal(thirdExc.authorized, true);
+    assert.equal(
+      ledger.sql.query(
+        "SELECT status FROM cost_hold_exceptions WHERE exception_id = ?",
+        newExc.exception_id
+      )[0].status,
+      "EXPIRED"
+    );
+
+    // 6. Consumed exception and historical accounting remain completely unchanged.
+    const consumedRowAfter = ledger.sql.query(
+      "SELECT * FROM cost_hold_exceptions WHERE exception_id = ?",
+      consumedExc.exception_id
+    )[0];
+    assert.deepEqual(consumedRowAfter, consumedRowBefore);
+    assert.equal(ledger.getAccounting().unknown_cost, 2.5);
+    assert.equal(ledger.getAccounting().total_runs, 2);
+  });
 });
