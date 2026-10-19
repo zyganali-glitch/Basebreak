@@ -810,3 +810,84 @@ def test_trusted_bridge_config_model_timeout_and_candidate_tokens(
     cfg = TrustedBridgeConfig.from_env()
     assert cfg.model_timeout_seconds == 75.0
     assert cfg.candidate_max_tokens == 6000
+
+
+def test_post_generation_tree_digest_failure_retains_accounting_and_never_runs_sandbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reproduce run_dd5a215f: genuine candidate generation succeeds, then
+    _compute_candidate_tree_digest() fails before sandbox execution.
+
+    Must retain model call count, prompt/completion/total tokens, usage completeness,
+    provider request identity, candidate origin/patch identity, approved estimate,
+    reserved exposure, and UNKNOWN cost provenance, while returning FAILED with no
+    receipt, zero sandbox calls, and no retry.
+    """
+    scenario, request = _scenario_and_request()
+    vault_content = (_REPO_ROOT / _VAULT_REL).read_text(encoding="utf-8")
+    proposal = _proposal_json(_VAULT_REL, vault_content + "\n# candidate-from-model\n")
+
+    monkeypatch.setattr(live_bridge, "_assess_production_grounding", lambda **_: (True, None))
+
+    def _fail_tree_digest(**_: Any) -> str:
+        raise BridgeValidationError(
+            "Failed to create deterministic local clone for candidate tree binding: "
+            "fatal: detected dubious ownership in repository at '/opt/basebreak/.git'"
+        )
+
+    monkeypatch.setattr(live_bridge, "_compute_candidate_tree_digest", _fail_tree_digest)
+
+    client = _ScriptedModel([proposal])
+    sandbox_calls = 0
+
+    class _CountingSandboxAdapter:
+        @property
+        def live_operation_ids(self) -> tuple[str, ...]:
+            return ()
+
+        def __getattr__(self, name: str) -> Any:
+            nonlocal sandbox_calls
+            sandbox_calls += 1
+            raise AssertionError(f"sandbox adapter method {name!r} must not be invoked")
+
+    class _WorkerMustNotRun:
+        def execute_causal_triplet(self, **_: Any) -> Any:
+            nonlocal sandbox_calls
+            sandbox_calls += 1
+            raise AssertionError("post-generation tree-digest failure must not reach sandbox")
+
+    executor = create_live_nebius_bridge_executor(
+        config=TrustedBridgeConfig(
+            expected_source_commit=_HEAD, nebius_api_key="k", nebius_project_id="p"
+        ),
+        model_client=client,
+        sandbox_adapter=_CountingSandboxAdapter(),
+        verifier_worker=_WorkerMustNotRun(),
+    )
+    result = executor(request)
+
+    assert result.status == "FAILED"
+    assert result.receipt is None
+    assert result.local_receipt is None
+    assert "dubious ownership" in (result.error or "")
+    # No retry: exactly one model call was dispatched and zero sandbox calls occurred.
+    assert client.calls == 1
+    assert sandbox_calls == 0
+    assert result.provider_operation_ids == ()
+    # Post-generation accounting and candidate provenance are retained, not erased.
+    assert result.model_call_count == 1
+    assert result.model_prompt_tokens == 8
+    assert result.model_completion_tokens == 4
+    assert result.tokens_used == 12
+    assert result.model_usage_complete is True
+    assert result.provider_request_id == "model-req-fake"
+    assert result.candidate_origin == MODEL_GENERATED_CANDIDATE_ORIGIN
+    assert result.candidate_patch_digest is not None
+    assert result.candidate_patch_digest != scenario.candidate_patch_digest
+    assert result.candidate_generation is not None
+    assert result.candidate_generation.provider_request_id == "model-req-fake"
+    assert result.candidate_generation.patch_digest == result.candidate_patch_digest
+    assert result.approved_estimate_usd == 0.25
+    assert result.reserved_exposure_usd == 0.25
+    assert result.observed_cost_usd is None
+    assert result.cost_provenance == "UNKNOWN"

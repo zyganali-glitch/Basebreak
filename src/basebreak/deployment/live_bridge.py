@@ -333,6 +333,7 @@ class BridgeExecutionResult:
     model_prompt_tokens: int = 0
     model_completion_tokens: int = 0
     model_usage_complete: bool = False
+    provider_request_id: str | None = None
 
 
 BridgeExecutor = Callable[[BridgeRequest], BridgeExecutionResult]
@@ -1267,10 +1268,20 @@ def create_live_nebius_bridge_executor(
         )
 
         # Conservative accounting defaults: never overclaim metered usage. These are
-        # refined as calls succeed; the outer failure handlers must not raise on them.
+        # refined immediately as calls succeed; outer failure handlers retain all
+        # already-observed generation facts rather than resetting them.
+        approved_estimate_usd = round(float(request.max_estimated_cost_usd), 6)
+        reserved_exposure_usd = round(float(request.max_estimated_cost_usd), 6)
         model_call_count = 0
-        probe_prompt_tokens: int | None = None
-        probe_completion_tokens: int | None = None
+        model_prompt_tokens = 0
+        model_completion_tokens = 0
+        model_usage_complete = not production_grounded
+        model_total_duration_seconds = 0.0
+        result_tokens_used = 0
+        provider_request_id: str | None = None
+        candidate_origin_value = CANDIDATE_ORIGIN_DETERMINISTIC_FIXTURE
+        candidate_patch_digest: str | None = None
+        candidate_generation_evidence: Any | None = None
 
         try:
             source_identity = SourceIdentity(
@@ -1306,6 +1317,7 @@ def create_live_nebius_bridge_executor(
                     )
                 except ModelCandidateError as exc:
                     generation_attempted = bool(getattr(exc, "generation_attempted", False))
+                    exc_provider_request_id = getattr(exc, "provider_request_id", None)
                     if generation_attempted:
                         blocked_call_count = 1
                         blocked_prompt_tokens = int(
@@ -1330,8 +1342,8 @@ def create_live_nebius_bridge_executor(
                     return BridgeExecutionResult(
                         status="BLOCKED_CANDIDATE_GENERATION_FAILED",
                         error=str(exc),
-                        approved_estimate_usd=round(float(request.max_estimated_cost_usd), 6),
-                        reserved_exposure_usd=round(float(request.max_estimated_cost_usd), 6),
+                        approved_estimate_usd=approved_estimate_usd,
+                        reserved_exposure_usd=reserved_exposure_usd,
                         observed_cost_usd=None,
                         cost_provenance="UNKNOWN",
                         tokens_used=blocked_tokens_used,
@@ -1339,6 +1351,7 @@ def create_live_nebius_bridge_executor(
                         model_prompt_tokens=blocked_prompt_tokens,
                         model_completion_tokens=blocked_completion_tokens,
                         model_usage_complete=blocked_usage_complete,
+                        provider_request_id=exc_provider_request_id,
                         provider_operation_ids=_normalize_provider_operation_ids(
                             getattr(active_sandbox_adapter, "live_operation_ids", ())
                         ),
@@ -1356,6 +1369,21 @@ def create_live_nebius_bridge_executor(
                     candidate_patch_digest,
                     description="Model-generated ResetVault candidate (genuine model output)",
                 )
+                # Assign post-generation accounting immediately after genuine candidate
+                # generation succeeds so any subsequent tree calculation, materialization,
+                # or verifier setup failure retains already-observed inference facts.
+                model_call_count = 1
+                model_prompt_tokens = int(model_candidate.generation_prompt_tokens or 0)
+                model_completion_tokens = int(model_candidate.generation_completion_tokens or 0)
+                model_usage_complete = (
+                    model_candidate.generation_prompt_tokens is not None
+                    and model_candidate.generation_completion_tokens is not None
+                )
+                model_total_duration_seconds = float(
+                    model_candidate.generation_duration_seconds or 0.0
+                )
+                result_tokens_used = int(model_candidate.generation_total_tokens or 0)
+                provider_request_id = model_candidate.provider_request_id
             else:
                 # Synthetic/fixture dependencies: deterministic fixture candidate, honestly
                 # labeled. This path can never claim a genuine AI-written candidate.
@@ -1370,36 +1398,19 @@ def create_live_nebius_bridge_executor(
                     candidate_patch_digest,
                     description="Canonical ResetVault candidate (deterministic bridge fixture)",
                 )
-
-            candidate_tree_digest = _compute_candidate_tree_digest(
-                repo_root=repo_root,
-                source_commit_id=request.source_commit_id,
-                patch_text=candidate_patch_text,
-            )
-
-            if production_grounded:
-                # Exactly one genuine model call: candidate generation. Request identity is
-                # bound through deterministic authenticated runtime facts (returned model,
-                # provider request id, response/proposal/patch digests), never an LLM echo.
-                model_call_count = 1
-                model_prompt_tokens = model_candidate.generation_prompt_tokens or 0
-                model_completion_tokens = model_candidate.generation_completion_tokens or 0
-                model_usage_complete = (
-                    model_candidate.generation_prompt_tokens is not None
-                    and model_candidate.generation_completion_tokens is not None
-                )
-                model_total_duration_seconds = float(
-                    model_candidate.generation_duration_seconds or 0.0
-                )
-                result_tokens_used = int(model_candidate.generation_total_tokens or 0)
-            else:
-                # Deterministic fixture path: no provider model call is made.
                 model_call_count = 0
                 model_prompt_tokens = 0
                 model_completion_tokens = 0
                 model_usage_complete = True
                 model_total_duration_seconds = 0.0
                 result_tokens_used = 0
+                provider_request_id = None
+
+            candidate_tree_digest = _compute_candidate_tree_digest(
+                repo_root=repo_root,
+                source_commit_id=request.source_commit_id,
+                patch_text=candidate_patch_text,
+            )
 
             witness_artifact = WitnessArtifact.from_text(
                 scenario.witness_artifact_path,
@@ -1496,8 +1507,8 @@ def create_live_nebius_bridge_executor(
                 local_receipt=local_receipt,
                 production_grounded=production_grounded,
                 grounding_error=grounding_error,
-                approved_estimate_usd=round(float(request.max_estimated_cost_usd), 6),
-                reserved_exposure_usd=round(float(request.max_estimated_cost_usd), 6),
+                approved_estimate_usd=approved_estimate_usd,
+                reserved_exposure_usd=reserved_exposure_usd,
                 # Genuine provider-observed cost is not measured here. UNKNOWN must
                 # never be substituted with the approved estimate or the grant cap.
                 observed_cost_usd=None,
@@ -1511,6 +1522,7 @@ def create_live_nebius_bridge_executor(
                 model_prompt_tokens=model_prompt_tokens,
                 model_completion_tokens=model_completion_tokens,
                 model_usage_complete=model_usage_complete,
+                provider_request_id=provider_request_id,
             )
         except (
             ModelTimeoutError,
@@ -1522,14 +1534,21 @@ def create_live_nebius_bridge_executor(
                 status="UNKNOWN_OUTCOME",
                 error=str(exc),
                 ambiguous_outcome=True,
-                approved_estimate_usd=round(float(request.max_estimated_cost_usd), 6),
-                reserved_exposure_usd=round(float(request.max_estimated_cost_usd), 6),
+                production_grounded=production_grounded,
+                grounding_error=grounding_error,
+                approved_estimate_usd=approved_estimate_usd,
+                reserved_exposure_usd=reserved_exposure_usd,
                 observed_cost_usd=None,
                 cost_provenance="UNKNOWN",
+                tokens_used=result_tokens_used,
+                candidate_origin=candidate_origin_value,
+                candidate_patch_digest=candidate_patch_digest,
+                candidate_generation=candidate_generation_evidence,
                 model_call_count=model_call_count,
-                model_prompt_tokens=probe_prompt_tokens or 0,
-                model_completion_tokens=probe_completion_tokens or 0,
-                model_usage_complete=False,
+                model_prompt_tokens=model_prompt_tokens,
+                model_completion_tokens=model_completion_tokens,
+                model_usage_complete=model_usage_complete,
+                provider_request_id=provider_request_id,
                 provider_operation_ids=_normalize_provider_operation_ids(
                     getattr(active_sandbox_adapter, "live_operation_ids", ())
                 ),
@@ -1538,19 +1557,47 @@ def create_live_nebius_bridge_executor(
             return BridgeExecutionResult(
                 status="BLOCKED",
                 error=str(exc),
+                production_grounded=production_grounded,
+                grounding_error=grounding_error,
+                approved_estimate_usd=approved_estimate_usd,
+                reserved_exposure_usd=reserved_exposure_usd,
+                observed_cost_usd=None,
+                cost_provenance="UNKNOWN",
+                tokens_used=result_tokens_used,
+                candidate_origin=candidate_origin_value,
+                candidate_patch_digest=candidate_patch_digest,
+                candidate_generation=candidate_generation_evidence,
                 model_call_count=model_call_count,
-                model_prompt_tokens=probe_prompt_tokens or 0,
-                model_completion_tokens=probe_completion_tokens or 0,
-                model_usage_complete=False,
+                model_prompt_tokens=model_prompt_tokens,
+                model_completion_tokens=model_completion_tokens,
+                model_usage_complete=model_usage_complete,
+                provider_request_id=provider_request_id,
+                provider_operation_ids=_normalize_provider_operation_ids(
+                    getattr(active_sandbox_adapter, "live_operation_ids", ())
+                ),
             )
         except Exception as exc:
             return BridgeExecutionResult(
                 status="FAILED",
                 error=str(exc),
+                production_grounded=production_grounded,
+                grounding_error=grounding_error,
+                approved_estimate_usd=approved_estimate_usd,
+                reserved_exposure_usd=reserved_exposure_usd,
+                observed_cost_usd=None,
+                cost_provenance="UNKNOWN",
+                tokens_used=result_tokens_used,
+                candidate_origin=candidate_origin_value,
+                candidate_patch_digest=candidate_patch_digest,
+                candidate_generation=candidate_generation_evidence,
                 model_call_count=model_call_count,
-                model_prompt_tokens=probe_prompt_tokens or 0,
-                model_completion_tokens=probe_completion_tokens or 0,
-                model_usage_complete=False,
+                model_prompt_tokens=model_prompt_tokens,
+                model_completion_tokens=model_completion_tokens,
+                model_usage_complete=model_usage_complete,
+                provider_request_id=provider_request_id,
+                provider_operation_ids=_normalize_provider_operation_ids(
+                    getattr(active_sandbox_adapter, "live_operation_ids", ())
+                ),
             )
 
     return _executor
@@ -2021,6 +2068,23 @@ class TrustedVerifierBridge:
                 # The executor may have already invoked chargeable provider work
                 # before failing, so consumption may be unknown.
                 provider_dispatched=True,
+            )
+            response_body.update(
+                {
+                    "observed_cost_usd": result.observed_cost_usd,
+                    "reserved_exposure_usd": result.reserved_exposure_usd,
+                    "approved_estimate_usd": result.approved_estimate_usd,
+                    "cost_provenance": result.cost_provenance,
+                    "tokens_used": result.tokens_used,
+                    "model_call_count": result.model_call_count,
+                    "model_prompt_tokens": result.model_prompt_tokens,
+                    "model_completion_tokens": result.model_completion_tokens,
+                    "model_usage_complete": result.model_usage_complete,
+                    "provider_request_id": result.provider_request_id,
+                    "candidate_origin": result.candidate_origin,
+                    "candidate_patch_digest": result.candidate_patch_digest,
+                    "provider_operation_ids": list(result.provider_operation_ids),
+                }
             )
         else:
             integrity_error: str | None = None
