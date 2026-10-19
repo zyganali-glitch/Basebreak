@@ -18,6 +18,8 @@ import pytest
 
 import basebreak.deployment.live_bridge as live_bridge
 from basebreak.adapters.nebius import (
+    DEFAULT_TIMEOUT_SECONDS,
+    ModelClientConfig,
     ModelConfigError,
     ModelIdentityMismatchError,
     ModelProviderError,
@@ -34,6 +36,7 @@ from basebreak.deployment.live_bridge import (
     create_live_nebius_bridge_executor,
 )
 from basebreak.deployment.model_candidate import (
+    DEFAULT_CANDIDATE_MAX_TOKENS,
     MODEL_GENERATED_CANDIDATE_ORIGIN,
     ModelCandidateError,
     ModelCandidateIdentityMismatchError,
@@ -42,6 +45,7 @@ from basebreak.deployment.model_candidate import (
     build_candidate_generation_messages,
     candidate_generation_identities,
     generate_model_candidate,
+    resolve_candidate_max_tokens,
     verify_candidate_generation_binding,
 )
 
@@ -747,3 +751,62 @@ def test_fenced_json_response_in_text_mode_is_handled() -> None:
     assert candidate.origin == MODEL_GENERATED_CANDIDATE_ORIGIN
     assert candidate.files_mapping() == {"src/x.py": "print(2)\n"}
     _verify(candidate)
+
+
+def test_resolve_candidate_max_tokens_bounds_and_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Candidate max tokens budget resolution must honor bounds, env vars, and fallback."""
+    # Default fallback
+    monkeypatch.delenv("BASEBREAK_CANDIDATE_MAX_TOKENS", raising=False)
+    assert resolve_candidate_max_tokens(None) == DEFAULT_CANDIDATE_MAX_TOKENS
+    assert resolve_candidate_max_tokens(None) == 8192
+
+    # Explicit configuration clamps within 1..16384
+    assert resolve_candidate_max_tokens(4096) == 4096
+    assert resolve_candidate_max_tokens(10000) == 10000
+    assert resolve_candidate_max_tokens(20000) == 16384
+
+    # Env var resolution
+    monkeypatch.setenv("BASEBREAK_CANDIDATE_MAX_TOKENS", "12288")
+    assert resolve_candidate_max_tokens(None) == 12288
+
+    # Invalid env var falls back safely
+    monkeypatch.setenv("BASEBREAK_CANDIDATE_MAX_TOKENS", "not_a_number")
+    assert resolve_candidate_max_tokens(None) == DEFAULT_CANDIDATE_MAX_TOKENS
+
+    # Out-of-bounds env var falls back safely
+    monkeypatch.setenv("BASEBREAK_CANDIDATE_MAX_TOKENS", "999999")
+    assert resolve_candidate_max_tokens(None) == DEFAULT_CANDIDATE_MAX_TOKENS
+
+
+def test_model_client_config_timeout_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ModelClientConfig must safely resolve timeout from environment and maintain bounds."""
+    monkeypatch.delenv("BASEBREAK_MODEL_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("NEBIUS_MODEL_TIMEOUT_SECONDS", raising=False)
+
+    cfg_default = ModelClientConfig()
+    assert cfg_default.timeout_seconds == DEFAULT_TIMEOUT_SECONDS
+    assert cfg_default.timeout_seconds == 90.0
+
+    monkeypatch.setenv("BASEBREAK_MODEL_TIMEOUT_SECONDS", "120.0")
+    cfg_env = ModelClientConfig()
+    assert cfg_env.timeout_seconds == 120.0
+
+    # Explicitly passed timeout overrides default and ignores env
+    cfg_explicit = ModelClientConfig(timeout_seconds=45.0)
+    assert cfg_explicit.timeout_seconds == 45.0
+
+
+def test_trusted_bridge_config_model_timeout_and_candidate_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TrustedBridgeConfig must load model timeout and candidate token settings from env."""
+    monkeypatch.setenv("BASEBREAK_MODEL_TIMEOUT_SECONDS", "75.0")
+    monkeypatch.setenv("BASEBREAK_CANDIDATE_MAX_TOKENS", "6000")
+
+    cfg = TrustedBridgeConfig.from_env()
+    assert cfg.model_timeout_seconds == 75.0
+    assert cfg.candidate_max_tokens == 6000

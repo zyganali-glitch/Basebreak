@@ -381,6 +381,91 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
   }
 
   /**
+   * Explicit, operator-controlled change of the durable global invocation cap.
+   *
+   * Allows the operator to adjust the lifetime invocation cap to permit
+   * additional explicitly authorized runs while promotional budget allows.
+   * Updates the durable config in SQLite and records an audit event.
+   * Never clears or alters run history, accounting, or billing exposure.
+   *
+   * @param {number} newCap Bounded integer (1 <= newCap <= 100)
+   * @param {{ configuredBy?: string, reason?: string }} [options]
+   * @returns {{ configured: boolean, global_cap: number, previous_global_cap: number }}
+   */
+  configureInvocationCap(newCap, { configuredBy = "operator", reason = "" } = {}) {
+    const parsed =
+      typeof newCap === "number" ? Math.trunc(newCap) : parseInt(String(newCap || ""), 10);
+    if (!Number.isFinite(parsed) || parsed < 1 || parsed > 100) {
+      throw new ReconciliationValidationError(
+        "configureInvocationCap requires an integer cap between 1 and 100."
+      );
+    }
+    const operator = String(configuredBy || "").trim();
+    if (!operator) {
+      throw new ReconciliationValidationError(
+        "configureInvocationCap requires an explicit operator identity (configuredBy)."
+      );
+    }
+
+    const previous = parseInt(this.getConfig("GLOBAL_INVOCATION_CAP", "5"), 10);
+    const now = Date.now();
+    this.sql.transaction(() => {
+      this.setConfig("GLOBAL_INVOCATION_CAP", String(parsed));
+      this.sql.execute(
+        "INSERT INTO audit_log (timestamp, event_type, details) VALUES (?, 'INVOCATION_CAP_CONFIGURED', ?)",
+        now,
+        JSON.stringify({
+          previous_global_cap: previous,
+          global_cap: parsed,
+          configured_by: operator,
+          reason: String(reason || ""),
+        })
+      );
+    });
+
+    return {
+      configured: true,
+      global_cap: parsed,
+      previous_global_cap: previous,
+    };
+  }
+
+  /**
+   * Return recent or all historical runs for operator inspection.
+   *
+   * @param {object} [options]
+   * @param {number} [options.limit=50]
+   * @returns {{ total: number, runs: Array<object> }}
+   */
+  getAllRuns({ limit = 50 } = {}) {
+    const lim = Math.max(1, Math.min(limit, 200));
+    const total = this.sql.query("SELECT COUNT(*) as count FROM runs")[0]?.count ?? 0;
+    const runs = this.sql.query(
+      `SELECT run_id, status, outcome, error_message, started_at, completed_at,
+              reserved_cost, observed_cost, unknown_cost, tokens_used, payload_fingerprint
+       FROM runs
+       ORDER BY started_at DESC
+       LIMIT ?`,
+      lim
+    );
+    return {
+      total,
+      runs: runs.map((r) => ({
+        run_id: r.run_id,
+        status: r.status,
+        outcome: r.outcome,
+        error_message: r.error_message,
+        started_at: r.started_at,
+        completed_at: r.completed_at,
+        reserved_cost: r.reserved_cost,
+        observed_cost: r.observed_cost,
+        unknown_cost: r.unknown_cost,
+        tokens_used: r.tokens_used,
+      })),
+    };
+  }
+
+  /**
    * Report the durable operator gate and the runtime environment gate separately,
    * including expected-source-commit consistency. Uses the runtime bindings the
    * Durable Object received so the two authority sources are never conflated.
@@ -1827,6 +1912,14 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
     );
     const activeException = activeExceptionRows[0] || null;
 
+    const recentRuns = this.sql.query(
+      `SELECT run_id, status, outcome, error_message, started_at, completed_at,
+              reserved_cost, observed_cost, unknown_cost, tokens_used
+       FROM runs
+       ORDER BY started_at DESC
+       LIMIT 10`
+    );
+
     return {
       reserved_cost: costs.reserved_cost,
       observed_cost: costs.observed_cost,
@@ -1863,6 +1956,18 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
             status: activeException.status,
           }
         : null,
+      recent_runs: recentRuns.map((r) => ({
+        run_id: r.run_id,
+        status: r.status,
+        outcome: r.outcome,
+        error_message: r.error_message,
+        started_at: r.started_at,
+        completed_at: r.completed_at,
+        reserved_cost: r.reserved_cost,
+        observed_cost: r.observed_cost,
+        unknown_cost: r.unknown_cost,
+        tokens_used: r.tokens_used,
+      })),
     };
   }
 }

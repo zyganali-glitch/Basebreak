@@ -1469,4 +1469,103 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     const active = ledger.getAccounting().active_cost_hold_exception;
     assert.equal(active.exception_id, authorized.exception_id);
   });
+
+  it("24. operator can update global invocation cap without losing history, admitting runs beyond initial cap", () => {
+    // Start with a cap of 2
+    const { ledger } = createTestLedger({ GLOBAL_INVOCATION_CAP: "2" });
+    assert.equal(ledger.getAccounting().global_cap, 2);
+
+    // Run 1: admitted
+    const g1 = issueLiveGrant(ledger);
+    const r1 = ledger.reserveAdmission({
+      grant_token: g1.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.5,
+      verified_balance: 10.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(r1.admitted, true);
+    ledger.recordExecutionSuccess(r1.run_id, {
+      observed_cost: 0.1,
+      receipt: buildFixturePublicReceipt(),
+      cost_provenance: "PROVIDER_OBSERVED",
+      tokens_used: 100,
+    });
+
+    // Run 2: admitted
+    const g2 = issueLiveGrant(ledger);
+    const r2 = ledger.reserveAdmission({
+      grant_token: g2.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.5,
+      verified_balance: 10.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(r2.admitted, true);
+    ledger.recordExecutionSuccess(r2.run_id, {
+      observed_cost: 0.1,
+      receipt: buildFixturePublicReceipt(),
+      cost_provenance: "PROVIDER_OBSERVED",
+      tokens_used: 100,
+    });
+
+    // Run 3: BLOCKED by cap = 2
+    const g3 = issueLiveGrant(ledger);
+    const r3Blocked = ledger.reserveAdmission({
+      grant_token: g3.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.5,
+      verified_balance: 10.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(r3Blocked.admitted, false);
+    assert.equal(r3Blocked.status, "CAP_EXHAUSTED");
+
+    // Invalid cap configurations fail validation
+    assert.throws(() => ledger.configureInvocationCap(0, { configuredBy: "operator" }), /between 1 and 100/);
+    assert.throws(() => ledger.configureInvocationCap(101, { configuredBy: "operator" }), /between 1 and 100/);
+    assert.throws(() => ledger.configureInvocationCap(10, { configuredBy: "" }), /explicit operator identity/);
+
+    // Operator updates cap to 10
+    const updateResult = ledger.configureInvocationCap(10, {
+      configuredBy: "operator:zyganali",
+      reason: "promotional balance verified; increase bounded cap",
+    });
+    assert.equal(updateResult.configured, true);
+    assert.equal(updateResult.global_cap, 10);
+    assert.equal(updateResult.previous_global_cap, 2);
+
+    // Verify accounting retains prior runs and observed costs
+    const acct = ledger.getAccounting();
+    assert.equal(acct.global_cap, 10);
+    assert.equal(acct.total_runs, 2);
+    assert.equal(acct.completed_runs, 2);
+    assert.equal(acct.observed_cost, 0.2);
+    assert.ok(Array.isArray(acct.recent_runs));
+    assert.equal(acct.recent_runs.length, 2);
+
+    // Now Run 3 can be admitted under the expanded cap
+    const r3Allowed = ledger.reserveAdmission({
+      grant_token: g3.grant_token,
+      target: DEFAULT_TARGET,
+      source_commit_id: DEFAULT_SOURCE,
+      estimated_cost: 0.5,
+      verified_balance: 10.0,
+      balance_timestamp: Date.now(),
+      live_enabled: true,
+    });
+    assert.equal(r3Allowed.admitted, true);
+    assert.equal(r3Allowed.run_id.startsWith("run_"), true);
+
+    // getAllRuns reports the runs accurately
+    const allRuns = ledger.getAllRuns();
+    assert.equal(allRuns.total, 3);
+    assert.equal(allRuns.runs.length, 3);
+  });
 });

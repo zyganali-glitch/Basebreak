@@ -35,9 +35,10 @@
   ],
   "vars": {
     "LIVE_ENABLED": "false",
-    "GLOBAL_INVOCATION_CAP": "5",
+    "GLOBAL_INVOCATION_CAP": "10",
     "TOKEN_FACTORY_PROMO_STOP_THRESHOLD": "5.00",
     "ALLOWLISTED_TARGET": "tests/fixtures/reset_vault",
-    "TRUSTED_VERIFIER_BRIDGE_MODE": "vpc"
+    "TRUSTED_VERIFIER_BRIDGE_MODE": "vpc",
+    "LIVE_RUN_ESTIMATED_COST_USD": "0.50"
   }
 }

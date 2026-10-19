@@ -213,6 +213,17 @@ class ModelClientConfig:
             self.api_base_url.startswith("http://") or self.api_base_url.startswith("https://")
         ):
             raise ModelConfigError("api_base_url must start with http:// or https://")
+        if self.timeout_seconds == DEFAULT_TIMEOUT_SECONDS:
+            env_timeout = os.environ.get("BASEBREAK_MODEL_TIMEOUT_SECONDS") or os.environ.get(
+                "NEBIUS_MODEL_TIMEOUT_SECONDS"
+            )
+            if env_timeout:
+                try:
+                    parsed_timeout = float(env_timeout.strip())
+                    if MIN_TIMEOUT_SECONDS <= parsed_timeout <= MAX_TIMEOUT_SECONDS:
+                        object.__setattr__(self, "timeout_seconds", parsed_timeout)
+                except ValueError:
+                    pass
         if not (MIN_TIMEOUT_SECONDS <= self.timeout_seconds <= MAX_TIMEOUT_SECONDS):
             raise ModelConfigError(
                 f"timeout_seconds must be between {MIN_TIMEOUT_SECONDS} and {MAX_TIMEOUT_SECONDS}, "

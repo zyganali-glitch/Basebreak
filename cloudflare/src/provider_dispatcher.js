@@ -25,7 +25,7 @@ export const CANONICAL_DEMO_SCENARIO = {
 const BRIDGE_REQUEST_SCHEMA_VERSION = "1.0.0";
 const BRIDGE_PROOF_SCHEMA_VERSION = "1.0.0";
 const DEFAULT_BRIDGE_AUDIENCE = "cloudflare-worker";
-const DEFAULT_BRIDGE_TIMEOUT_MS = 65000;
+export const DEFAULT_BRIDGE_TIMEOUT_MS = 180000;
 const PINNED_VERIFIER_EXPONENT = 65537;
 const PINNED_VERIFIER_MODULUS_HEX =
   "9f7dd01fb54c511cb50e01dcb27988345f4877632a1ae38819db17efb8751f1e2907963fce5ee20b" +
@@ -420,6 +420,7 @@ export async function dispatchVerificationRun({
   bridgeSharedSecret,
   bridgeAudience = DEFAULT_BRIDGE_AUDIENCE,
   estimatedCostUsd,
+  bridgeTimeoutMs = DEFAULT_BRIDGE_TIMEOUT_MS,
   fetchImpl = globalThis.fetch,
   verifierAuthorityOverride,
 }) {
@@ -482,6 +483,10 @@ export async function dispatchVerificationRun({
 
   const requestUrl = new URL(bridgeUrl);
   const nowMs = Date.now();
+  const timeoutMs =
+    Number.isFinite(bridgeTimeoutMs) && bridgeTimeoutMs > 0
+      ? bridgeTimeoutMs
+      : DEFAULT_BRIDGE_TIMEOUT_MS;
   const requestBody = buildBridgeRequestPayload({
     runId,
     target,
@@ -489,6 +494,7 @@ export async function dispatchVerificationRun({
     estimatedCostUsd,
     audience: bridgeAudience,
     nowMs,
+    timeoutMs,
   });
   const timestamp = String(nowMs);
   const signature = computeRequestSignature({

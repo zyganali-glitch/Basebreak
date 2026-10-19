@@ -19,7 +19,7 @@ DEFAULT_API_BASE_URL: str = "https://api.tokenfactory.nebius.com/v1"
 CHAT_COMPLETIONS_PATH: str = "/chat/completions"
 
 # Operational bounds
-DEFAULT_TIMEOUT_SECONDS: float = 30.0
+DEFAULT_TIMEOUT_SECONDS: float = 90.0
 MIN_TIMEOUT_SECONDS: float = 0.5
 MAX_TIMEOUT_SECONDS: float = 300.0
 

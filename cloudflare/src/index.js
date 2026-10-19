@@ -13,6 +13,7 @@ import { redactSecrets } from "./crypto_utils.js";
 import { AdmissionLedgerDO, ReconciliationStateError, ReconciliationValidationError } from "./ledger.js";
 import {
   CANONICAL_DEMO_SCENARIO,
+  DEFAULT_BRIDGE_TIMEOUT_MS,
   dispatchVerificationRun,
   resolveBridgeTransport,
 } from "./provider_dispatcher.js";
@@ -179,7 +180,10 @@ function getDeclaredSourceCommit(env) {
 }
 
 function getConfiguredEstimatedLiveCost(env) {
-  const raw = typeof env.LIVE_RUN_ESTIMATED_COST_USD === "string" ? env.LIVE_RUN_ESTIMATED_COST_USD : "";
+  const raw =
+    typeof env.LIVE_RUN_ESTIMATED_COST_USD === "string" && env.LIVE_RUN_ESTIMATED_COST_USD.trim()
+      ? env.LIVE_RUN_ESTIMATED_COST_USD.trim()
+      : "0.50";
   const parsed = Number.parseFloat(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
@@ -520,6 +524,9 @@ export default {
             ? env.TRUSTED_VERIFIER_BRIDGE_AUDIENCE.trim()
             : DEFAULT_BRIDGE_AUDIENCE,
         estimatedCostUsd,
+        bridgeTimeoutMs:
+          Number.parseInt(env.TRUSTED_VERIFIER_BRIDGE_TIMEOUT_MS || "", 10) ||
+          DEFAULT_BRIDGE_TIMEOUT_MS,
         fetchImpl: bridgeTransport.fetchImpl,
         verifierAuthorityOverride: env.__testVerifierAuthority,
       });
@@ -760,6 +767,50 @@ export default {
         const message = error instanceof Error ? error.message : String(error);
         return jsonResponse(409, { error: message, exception_issued: false });
       }
+    }
+
+    // 13. Admin API: Explicit operator change of the durable global invocation cap.
+    if (method === "POST" && path === "/admin/configure-invocation-cap") {
+      if (!isAdminAuthorized(request, env)) {
+        return jsonResponse(401, { error: "Unauthorized: Invalid operator admin key." });
+      }
+
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse(400, { error: "Malformed JSON body." });
+      }
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return jsonResponse(400, { error: "Body must be a JSON object." });
+      }
+
+      try {
+        const result = await ledger.configureInvocationCap(body.global_cap, {
+          configuredBy: body.configured_by,
+          reason: body.reason,
+        });
+        return jsonResponse(200, result);
+      } catch (error) {
+        if (error instanceof ReconciliationValidationError) {
+          return jsonResponse(400, { error: error.message, configured: false });
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        return jsonResponse(400, { error: message, configured: false });
+      }
+    }
+
+    // 14. Admin API: List historical verification runs with exact identifiers.
+    if (method === "GET" && path === "/admin/runs") {
+      if (!isAdminAuthorized(request, env)) {
+        return jsonResponse(401, { error: "Unauthorized: Invalid operator admin key." });
+      }
+
+      const runs =
+        typeof ledger.getAllRuns === "function"
+          ? await ledger.getAllRuns()
+          : { total: 0, runs: [] };
+      return jsonResponse(200, runs);
     }
 
     return jsonResponse(404, { error: "Not Found", path });

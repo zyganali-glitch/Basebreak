@@ -31,7 +31,30 @@ from basebreak.builder.loop import (
 
 MODEL_GENERATED_CANDIDATE_ORIGIN: str = "MODEL_GENERATED_NEBIUS"
 
-DEFAULT_CANDIDATE_MAX_TOKENS: int = 4096
+DEFAULT_CANDIDATE_MAX_TOKENS: int = 8192
+CANDIDATE_MAX_TOKENS_ENV_VAR: str = "BASEBREAK_CANDIDATE_MAX_TOKENS"
+
+
+def resolve_candidate_max_tokens(configured: int | None = None) -> int:
+    """Resolve the candidate generation max token budget.
+
+    Supports operator configuration up to the model adapter ceiling (16,384 tokens),
+    falling back to DEFAULT_CANDIDATE_MAX_TOKENS (8,192).
+    """
+    if configured is not None and configured > 0:
+        return max(1, min(configured, 16384))
+    import os
+
+    env_val = os.environ.get(CANDIDATE_MAX_TOKENS_ENV_VAR, "").strip()
+    if env_val:
+        try:
+            parsed = int(env_val)
+            if 1 <= parsed <= 16384:
+                return parsed
+        except ValueError:
+            pass
+    return DEFAULT_CANDIDATE_MAX_TOKENS
+
 
 # Provider response format for genuine candidate generation.
 # Reverted to text mode (None) because Nebius Token Factory with Nemotron-3.5-Lightning
@@ -190,6 +213,8 @@ def build_candidate_generation_messages(
         "Do NOT wrap in markdown fences (no ```json or ```). "
         "Do NOT include any preamble, commentary, explanation, or "
         "postscript outside the JSON object.\n"
+        "Keep the plan summary, reasoning, and steps concise (1-2 sentences each). "
+        "Focus the token budget on exact proposed file content.\n"
         "Respond with strict JSON matching this schema exactly:\n"
         f"{_CANDIDATE_RESPONSE_SCHEMA_HINT}"
     )
@@ -209,6 +234,8 @@ def build_candidate_generation_messages(
                 "Produce ONLY a valid, raw JSON object matching the requested schema. "
                 "Do NOT wrap in markdown fences or backticks. Do NOT include any preamble, "
                 "explanation, or postscript outside the JSON object. "
+                "Be concise: keep plan reasoning and summaries brief so the entire JSON "
+                "object completes within budget.\n"
                 "Never invent execution authority. Propose file content only."
             ),
         },
@@ -280,7 +307,7 @@ def generate_model_candidate(
     target: str,
     allowed_paths: Sequence[str],
     base_files: Mapping[str, str],
-    max_tokens: int = DEFAULT_CANDIDATE_MAX_TOKENS,
+    max_tokens: int | None = None,
     temperature: float = 0.0,
 ) -> ModelCandidate:
     """Obtain and bind a genuine candidate from the configured model. Fails closed."""
@@ -299,10 +326,11 @@ def generate_model_candidate(
         target=target,
         base_files=base_files,
     )
+    eff_max_tokens = resolve_candidate_max_tokens(max_tokens)
     try:
         result = model_client.complete(
             messages,
-            max_tokens=max_tokens,
+            max_tokens=eff_max_tokens,
             temperature=temperature,
             response_format=CANDIDATE_RESPONSE_FORMAT,
             reject_length_truncation=True,

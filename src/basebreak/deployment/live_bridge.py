@@ -24,6 +24,7 @@ from basebreak.causal.public_receipt import (
     PublicVerificationReceipt,
     verify_public_receipt_integrity,
 )
+from basebreak.deployment.model_candidate import DEFAULT_CANDIDATE_MAX_TOKENS
 from basebreak.domain.verdict import EvidenceProvenance
 from basebreak.verifier.trust_bridge import (
     PINNED_VERIFIER_EXPONENT,
@@ -356,6 +357,8 @@ class TrustedBridgeConfig:
     source_repo_locator: str = DEFAULT_BRIDGE_SOURCE_REPO_LOCATOR
     local_repo_root: str | None = None
     bridge_state_dir: str | None = None
+    model_timeout_seconds: float = 90.0
+    candidate_max_tokens: int = DEFAULT_CANDIDATE_MAX_TOKENS
 
     @classmethod
     def from_env(cls) -> TrustedBridgeConfig:
@@ -394,6 +397,21 @@ class TrustedBridgeConfig:
             or DEFAULT_BRIDGE_SOURCE_REPO_LOCATOR,
             local_repo_root=os.environ.get("TRUSTED_VERIFIER_BRIDGE_LOCAL_REPO_ROOT"),
             bridge_state_dir=os.environ.get(BRIDGE_STATE_DIR_ENV),
+            model_timeout_seconds=float(
+                os.environ.get(
+                    "TRUSTED_VERIFIER_BRIDGE_MODEL_TIMEOUT_SECONDS",
+                    os.environ.get("BASEBREAK_MODEL_TIMEOUT_SECONDS", "90.0"),
+                )
+            ),
+            candidate_max_tokens=int(
+                os.environ.get(
+                    "TRUSTED_VERIFIER_BRIDGE_CANDIDATE_MAX_TOKENS",
+                    os.environ.get(
+                        "BASEBREAK_CANDIDATE_MAX_TOKENS",
+                        str(DEFAULT_CANDIDATE_MAX_TOKENS),
+                    ),
+                )
+            ),
         )
 
 
@@ -1217,6 +1235,7 @@ def create_live_nebius_bridge_executor(
             config=ModelClientConfig(
                 api_key=config.nebius_api_key,
                 project_id=config.nebius_project_id,
+                timeout_seconds=config.model_timeout_seconds,
             )
         )
         active_sandbox_adapter = sandbox_adapter or NebiusSandboxAdapter(
@@ -1283,6 +1302,7 @@ def create_live_nebius_bridge_executor(
                         target=scenario.target,
                         allowed_paths=allowed_paths,
                         base_files=base_files,
+                        max_tokens=config.candidate_max_tokens,
                     )
                 except ModelCandidateError as exc:
                     generation_attempted = bool(getattr(exc, "generation_attempted", False))

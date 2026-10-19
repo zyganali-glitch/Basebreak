@@ -1108,6 +1108,95 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     assert.equal(accounting.unknown_cost, 0.5);
     assert.equal(accounting.active_cost_hold_exception.exception_id, data.exception_id);
   });
+
+  it("POST /admin/configure-invocation-cap requires operator auth and updates the cap", async () => {
+    const { env } = createWorkerEnv({
+      BASEBREAK_ADMIN_KEY: "admin-secret-test-key",
+      GLOBAL_INVOCATION_CAP: "5",
+    });
+    const ledger = env.__ledgerInstance;
+
+    // Unauthenticated -> 401
+    const unauthed = await worker.fetch(
+      new Request("https://basebreak.workers.dev/admin/configure-invocation-cap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ global_cap: 10, configured_by: "operator" }),
+      }),
+      env,
+      {}
+    );
+    assert.equal(unauthed.status, 401);
+
+    // Malformed body -> 400
+    const malformed = await worker.fetch(
+      new Request("https://basebreak.workers.dev/admin/configure-invocation-cap", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer admin-secret-test-key",
+        },
+        body: JSON.stringify({ global_cap: -1, configured_by: "operator" }),
+      }),
+      env,
+      {}
+    );
+    assert.equal(malformed.status, 400);
+
+    // Valid authenticated update -> 200
+    const authed = await worker.fetch(
+      new Request("https://basebreak.workers.dev/admin/configure-invocation-cap", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer admin-secret-test-key",
+        },
+        body: JSON.stringify({
+          global_cap: 12,
+          configured_by: "operator:zyganali",
+          reason: "promotional balance confirmed",
+        }),
+      }),
+      env,
+      {}
+    );
+    assert.equal(authed.status, 200);
+    const data = await authed.json();
+    assert.equal(data.configured, true);
+    assert.equal(data.global_cap, 12);
+    assert.equal(data.previous_global_cap, 5);
+
+    // Verified in ledger accounting
+    assert.equal(ledger.getAccounting().global_cap, 12);
+  });
+
+  it("GET /admin/runs requires operator auth and lists historical runs", async () => {
+    const { env } = createWorkerEnv({
+      BASEBREAK_ADMIN_KEY: "admin-secret-test-key",
+    });
+
+    // Unauthenticated -> 401
+    const unauthed = await worker.fetch(
+      new Request("https://basebreak.workers.dev/admin/runs", { method: "GET" }),
+      env,
+      {}
+    );
+    assert.equal(unauthed.status, 401);
+
+    // Authenticated -> 200 with total and runs array
+    const authed = await worker.fetch(
+      new Request("https://basebreak.workers.dev/admin/runs", {
+        method: "GET",
+        headers: { Authorization: "Bearer admin-secret-test-key" },
+      }),
+      env,
+      {}
+    );
+    assert.equal(authed.status, 200);
+    const data = await authed.json();
+    assert.ok(typeof data.total === "number");
+    assert.ok(Array.isArray(data.runs));
+  });
 });
 
 describe("Bridge transport resolution (Workers VPC seam)", () => {
