@@ -23,6 +23,7 @@ from basebreak.adapters.nebius import (
     ModelProviderError,
     ModelResponseFormatError,
     ModelTimeoutError,
+    TokenUsage,
 )
 from basebreak.deployment.live_bridge import (
     BridgeRequest,
@@ -575,10 +576,10 @@ def _proposal_json_with_raw_controls(path: str, content: str, action: str = "MOD
     return json_text
 
 
-def test_provider_json_object_mode_is_requested() -> None:
+def test_text_response_mode_is_default_and_omits_response_format() -> None:
     client = _ScriptedModel([_proposal_json("src/x.py", "print(2)\n")])
     _gen(client, base_files={"src/x.py": "print(1)\n"}, allowed=["src/x.py"])
-    assert client.requested_response_format == {"type": "json_object"}
+    assert client.requested_response_format is None
 
 
 def test_raw_newline_inside_json_string_is_normalized() -> None:
@@ -673,3 +674,76 @@ def test_generation_truncation_length_counts_one(monkeypatch: pytest.MonkeyPatch
     assert result.model_call_count == 1  # the dispatched generation call is counted
     assert result.candidate_generation is None
     assert result.cost_provenance == "UNKNOWN"
+
+
+def test_null_content_with_reasoning_fails_closed_and_retains_token_usage() -> None:
+    """When the provider returns null content and reasoning content, it must fail closed
+    while retaining token usage, finish reason, and reasoning presence facts."""
+    exc = ModelResponseFormatError(
+        "missing content",
+        usage=TokenUsage(120, 45, 165),
+        finish_reason="stop",
+        has_reasoning_content=True,
+        request_id="req-null-1",
+        returned_model="nebius/fake-model",
+    )
+    client = _ScriptedModel([exc])
+    with pytest.raises(ModelCandidateRejectedError) as exc_info:
+        _gen(client, base_files={"src/x.py": "print(1)\n"}, allowed=["src/x.py"])
+
+    err = exc_info.value
+    assert err.generation_attempted is True
+    assert err.generation_prompt_tokens == 120
+    assert err.generation_completion_tokens == 45
+    assert err.generation_total_tokens == 165
+    assert err.finish_reason == "stop"
+    assert err.has_reasoning_content is True
+    assert err.provider_request_id == "req-null-1"
+    assert err.returned_model == "nebius/fake-model"
+
+
+def test_null_content_in_grounded_bridge_returns_blocked_with_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The trusted bridge must report token counts even when candidate generation fails
+    due to null/reasoning-only content."""
+    exc = ModelResponseFormatError(
+        "missing content",
+        usage=TokenUsage(120, 45, 165),
+        finish_reason="stop",
+        has_reasoning_content=True,
+        request_id="req-null-2",
+        returned_model="nebius/fake-model",
+    )
+    result = _run_grounded(monkeypatch, exc)
+    assert result.status == "BLOCKED_CANDIDATE_GENERATION_FAILED"
+    assert result.receipt is None
+    assert result.model_call_count == 1
+    assert result.model_usage_complete is True
+    assert result.model_prompt_tokens == 120
+    assert result.model_completion_tokens == 45
+    assert result.tokens_used == 165
+    assert result.cost_provenance == "UNKNOWN"
+
+
+def test_unauthorized_file_action_fails_closed() -> None:
+    """A proposal modifying an unauthorized path must fail closed."""
+    proposal = _proposal_json("unauthorized/file.py", "print(2)\n")
+    client = _ScriptedModel([proposal])
+    with pytest.raises(ModelCandidateRejectedError) as exc_info:
+        _gen(client, base_files={"src/x.py": "print(1)\n"}, allowed=["src/x.py"])
+    assert "unauthorized file path" in str(exc_info.value)
+
+
+def test_fenced_json_response_in_text_mode_is_handled() -> None:
+    """A model response wrapped in markdown fences in text mode must be parsed and verified."""
+    raw = (
+        "Here is the requested fix:\n```json\n"
+        + _proposal_json("src/x.py", "print(2)\n")
+        + "\n```\nAll done."
+    )
+    client = _ScriptedModel([raw])
+    candidate = _gen(client, base_files=dict(_AUTHORIZED_BASE), allowed=list(_ALLOWED))
+    assert candidate.origin == MODEL_GENERATED_CANDIDATE_ORIGIN
+    assert candidate.files_mapping() == {"src/x.py": "print(2)\n"}
+    _verify(candidate)

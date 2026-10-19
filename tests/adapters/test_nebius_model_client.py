@@ -514,3 +514,75 @@ class TestNebiusModelClient:
         )
         with pytest.raises(ModelTruncatedResponseError):
             client.complete([ChatMessage(role="user", content="hi")], reject_length_truncation=True)
+
+    # 26. P-27.06: null content with reasoning content fails closed and retains metadata
+    def test_null_content_with_reasoning_retains_metadata(self) -> None:
+        payload = {
+            "id": "req-null-content-1",
+            "model": DEFAULT_PRIMARY_MODEL,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "reasoning_content": "Internal model reasoning steps...",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 120, "completion_tokens": 45, "total_tokens": 165},
+        }
+        client = NebiusModelClient(
+            config=ModelClientConfig(api_key="valid-key"),
+            transport=lambda req, timeout: TransportResponse(
+                200, json.dumps(payload).encode("utf-8"), {}
+            ),
+        )
+        with pytest.raises(ModelResponseFormatError) as exc_info:
+            client.complete([ChatMessage(role="user", content="hi")])
+
+        exc = exc_info.value
+        assert "missing 'content' string field" in str(exc)
+        assert exc.usage is not None
+        assert exc.usage.prompt_tokens == 120
+        assert exc.usage.completion_tokens == 45
+        assert exc.usage.total_tokens == 165
+        assert exc.finish_reason == "stop"
+        assert exc.has_reasoning_content is True
+        assert exc.request_id == "req-null-content-1"
+        assert exc.returned_model == DEFAULT_PRIMARY_MODEL
+
+    # 27. P-27.06: refusal fails closed and retains metadata
+    def test_refusal_fails_closed_and_retains_metadata(self) -> None:
+        payload = {
+            "id": "req-refusal-1",
+            "model": DEFAULT_PRIMARY_MODEL,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "I cannot fulfill this request.",
+                        "refusal": "Policy violation.",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 50, "completion_tokens": 10, "total_tokens": 60},
+        }
+        client = NebiusModelClient(
+            config=ModelClientConfig(api_key="valid-key"),
+            transport=lambda req, timeout: TransportResponse(
+                200, json.dumps(payload).encode("utf-8"), {}
+            ),
+        )
+        with pytest.raises(ModelResponseFormatError) as exc_info:
+            client.complete([ChatMessage(role="user", content="hi")])
+
+        exc = exc_info.value
+        assert "refused" in str(exc).lower()
+        assert exc.usage is not None
+        assert exc.usage.total_tokens == 60
+        assert exc.finish_reason == "stop"
+        assert exc.request_id == "req-refusal-1"

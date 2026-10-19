@@ -33,10 +33,12 @@ MODEL_GENERATED_CANDIDATE_ORIGIN: str = "MODEL_GENERATED_NEBIUS"
 
 DEFAULT_CANDIDATE_MAX_TOKENS: int = 4096
 
-# Provider-enforced structured output for genuine candidate generation. The Nebius
-# Token Factory chat-completions interface documents support for
-# {"type": "json_object"} and {"type": "text"} only.
-CANDIDATE_RESPONSE_FORMAT: dict[str, str] = {"type": "json_object"}
+# Provider response format for genuine candidate generation.
+# Reverted to text mode (None) because Nebius Token Factory with Nemotron-3.5-Lightning
+# routes model output into reasoning_content when {"type": "json_object"} is passed,
+# leaving choices[0].message.content null. Text mode allows full output into content,
+# with strict JSON prompting and bounded control-character recovery.
+CANDIDATE_RESPONSE_FORMAT: dict[str, str] | None = None
 
 # Sentinel substrings that must never appear in builder-facing candidate context.
 _FORBIDDEN_CONTEXT_MARKERS: tuple[str, ...] = (
@@ -72,6 +74,8 @@ class ModelCandidateError(Exception):
         provider_request_id: str | None = None,
         returned_model: str = "",
         response_received: bool = False,
+        finish_reason: str | None = None,
+        has_reasoning_content: bool = False,
     ) -> None:
         super().__init__(message)
         self.generation_attempted = generation_attempted
@@ -82,6 +86,8 @@ class ModelCandidateError(Exception):
         self.provider_request_id = provider_request_id
         self.returned_model = returned_model
         self.response_received = response_received
+        self.finish_reason = finish_reason
+        self.has_reasoning_content = has_reasoning_content
 
 
 class ModelCandidateRejectedError(ModelCandidateError):
@@ -178,8 +184,13 @@ def build_candidate_generation_messages(
         "Base source (untrusted, read-only):\n"
         f"{UNTRUSTED_FILE_FENCE_START}\n{rendered_files}\n{UNTRUSTED_FILE_FENCE_END}\n\n"
         "Propose the smallest change that satisfies the frozen requirement. "
-        "You have zero execution authority; propose file content only. "
-        "Respond with strict JSON matching this schema and nothing else:\n"
+        "You have zero execution authority; propose file content only.\n"
+        "CRITICAL INSTRUCTION: Output MUST be a single raw JSON object "
+        "starting with '{' and ending with '}'. "
+        "Do NOT wrap in markdown fences (no ```json or ```). "
+        "Do NOT include any preamble, commentary, explanation, or "
+        "postscript outside the JSON object.\n"
+        "Respond with strict JSON matching this schema exactly:\n"
         f"{_CANDIDATE_RESPONSE_SCHEMA_HINT}"
     )
     lowered = context_blob.lower()
@@ -194,8 +205,11 @@ def build_candidate_generation_messages(
         {
             "role": "system",
             "content": (
-                "You are the Basebreak Builder. Produce only strict JSON describing a "
-                "minimal code change. Never invent execution authority."
+                "You are the Basebreak Builder runtime agent.\n"
+                "Produce ONLY a valid, raw JSON object matching the requested schema. "
+                "Do NOT wrap in markdown fences or backticks. Do NOT include any preamble, "
+                "explanation, or postscript outside the JSON object. "
+                "Never invent execution authority. Propose file content only."
             ),
         },
         {"role": "user", "content": context_blob},
@@ -302,15 +316,46 @@ def generate_model_candidate(
     except ModelAdapterError as exc:
         # The provider call was dispatched but failed (timeout, network, non-2xx provider
         # error, malformed response, or model identity mismatch). The attempt is counted;
-        # usage remains UNKNOWN unless it was actually observed.
+        # actual token usage and response facts are retained when reported by the provider.
+        from basebreak.adapters.nebius import (
+            ModelResponseFormatError,
+            ModelTruncatedResponseError,
+        )
+
+        usage = getattr(exc, "usage", None)
+        err_prompt_tokens = int(usage.prompt_tokens) if usage is not None else None
+        err_completion_tokens = int(usage.completion_tokens) if usage is not None else None
+        err_total_tokens = int(usage.total_tokens) if usage is not None else None
+        err_req_id = getattr(exc, "request_id", None)
+        err_ret_model = getattr(exc, "returned_model", None) or ""
+        err_finish_reason = getattr(exc, "finish_reason", None)
+        err_has_reasoning = bool(getattr(exc, "has_reasoning_content", False))
+        common_error_kwargs: dict[str, Any] = {
+            "generation_attempted": True,
+            "generation_prompt_tokens": err_prompt_tokens,
+            "generation_completion_tokens": err_completion_tokens,
+            "generation_total_tokens": err_total_tokens,
+            "provider_request_id": str(err_req_id).strip() or None if err_req_id else None,
+            "returned_model": str(err_ret_model),
+            "response_received": False,
+            "finish_reason": err_finish_reason,
+            "has_reasoning_content": err_has_reasoning,
+        }
+        if isinstance(exc, (ModelResponseFormatError, ModelTruncatedResponseError)):
+            raise ModelCandidateRejectedError(
+                f"candidate-generation response rejected: {exc}",
+                **common_error_kwargs,
+            ) from exc
         raise ModelCandidateTransportError(
             f"candidate-generation provider failure after dispatch: {exc}",
-            generation_attempted=True,
+            **common_error_kwargs,
         ) from exc
 
     usage = getattr(result, "usage", None)
     duration = getattr(result, "duration_seconds", None)
     response_text = getattr(result, "content", None)
+    finish_reason = getattr(result, "finish_reason", None)
+    has_reasoning = bool(getattr(result, "has_reasoning_content", False))
     accounting: dict[str, Any] = {
         "generation_attempted": True,
         "generation_prompt_tokens": (
@@ -326,19 +371,19 @@ def generate_model_candidate(
         "provider_request_id": (str(getattr(result, "request_id", "") or "").strip() or None),
         "returned_model": str(getattr(result, "returned_model", "") or ""),
         "response_received": isinstance(response_text, str) and bool(response_text.strip()),
+        "finish_reason": finish_reason,
+        "has_reasoning_content": has_reasoning,
     }
 
     # Explicitly reject a truncated generation response before any parsing. A provider
     # ``finish_reason == "length"`` (or a client-bound truncation, surfaced as a raised
     # ModelTruncatedResponseError) must never be accepted as a complete proposal, and
     # truncation must never be "repaired" by inventing missing fields.
-    finish_reason = getattr(result, "finish_reason", None)
     if isinstance(finish_reason, str) and finish_reason.strip().lower() == "length":
         truncated = ModelCandidateRejectedError(
-            "candidate-generation response was truncated (finish_reason='length')"
+            "candidate-generation response was truncated (finish_reason='length')",
+            **accounting,
         )
-        for key, value in accounting.items():
-            setattr(truncated, key, value)
         raise truncated
 
     if not isinstance(response_text, str) or not response_text.strip():

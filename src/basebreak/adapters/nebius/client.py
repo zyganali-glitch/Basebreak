@@ -46,6 +46,23 @@ from .models import (
 class ModelAdapterError(Exception):
     """Base exception for model adapter failures."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        usage: TokenUsage | None = None,
+        finish_reason: str | None = None,
+        request_id: str | None = None,
+        returned_model: str | None = None,
+        has_reasoning_content: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.usage = usage
+        self.finish_reason = finish_reason
+        self.request_id = request_id
+        self.returned_model = returned_model
+        self.has_reasoning_content = has_reasoning_content
+
 
 class ModelConfigError(ModelAdapterError):
     """Raised when client configuration or request parameters are invalid."""
@@ -71,12 +88,25 @@ class ModelProviderError(ModelAdapterError):
         status_code: int,
         sanitized_message: str,
         error_type: str | None = None,
+        *,
+        usage: TokenUsage | None = None,
+        finish_reason: str | None = None,
+        request_id: str | None = None,
+        returned_model: str | None = None,
+        has_reasoning_content: bool = False,
     ) -> None:
         self.status_code = status_code
         self.sanitized_message = sanitized_message
         self.error_type = error_type
         suffix = f" (type: {error_type})" if error_type else ""
-        super().__init__(f"Provider error HTTP {status_code}: {sanitized_message}{suffix}")
+        super().__init__(
+            f"Provider error HTTP {status_code}: {sanitized_message}{suffix}",
+            usage=usage,
+            finish_reason=finish_reason,
+            request_id=request_id,
+            returned_model=returned_model,
+            has_reasoning_content=has_reasoning_content,
+        )
 
     def __repr__(self) -> str:
         return (
@@ -102,12 +132,26 @@ class ModelTruncatedResponseError(ModelAdapterError):
 class ModelIdentityMismatchError(ModelAdapterError):
     """Raised when provider returns a model identifier different from the configured model."""
 
-    def __init__(self, configured_model: str, returned_model: str) -> None:
+    def __init__(
+        self,
+        configured_model: str,
+        returned_model: str,
+        *,
+        usage: TokenUsage | None = None,
+        finish_reason: str | None = None,
+        request_id: str | None = None,
+        has_reasoning_content: bool = False,
+    ) -> None:
         self.configured_model = configured_model
         self.returned_model = returned_model
         super().__init__(
             f"Model identity mismatch: requested '{configured_model}' "
-            f"but provider returned '{returned_model}'"
+            f"but provider returned '{returned_model}'",
+            usage=usage,
+            finish_reason=finish_reason,
+            request_id=request_id,
+            returned_model=returned_model,
+            has_reasoning_content=has_reasoning_content,
         )
 
     def __repr__(self) -> str:
@@ -218,6 +262,7 @@ class ModelClientResult:
     usage: TokenUsage | None
     duration_seconds: float
     raw_status: str = "COMPLETED"
+    has_reasoning_content: bool = False
 
     def __repr__(self) -> str:
         content_preview = self.content[:60] + "..." if len(self.content) > 60 else self.content
@@ -450,39 +495,41 @@ class NebiusModelClient:
         if not isinstance(data, dict):
             raise ModelResponseFormatError("Model response root must be a JSON object")
 
+        request_id = data.get("id")
+        if request_id is not None and not isinstance(request_id, str):
+            request_id = str(request_id)
+
+        returned_model = data.get("model")
+        if returned_model is not None and not isinstance(returned_model, str):
+            returned_model = str(returned_model)
+
+        usage = None
+        usage_data = data.get("usage")
+        if isinstance(usage_data, dict):
+            try:
+                usage = TokenUsage(
+                    prompt_tokens=int(usage_data.get("prompt_tokens", 0)),
+                    completion_tokens=int(usage_data.get("completion_tokens", 0)),
+                    total_tokens=int(usage_data.get("total_tokens", 0)),
+                )
+            except (ValueError, TypeError):
+                usage = None
+
         choices = data.get("choices")
         if not isinstance(choices, list) or len(choices) == 0:
             raise ModelResponseFormatError(
-                "Model response missing required 'choices' array or choices is empty"
+                "Model response missing required 'choices' array or choices is empty",
+                usage=usage,
+                request_id=request_id,
+                returned_model=returned_model,
             )
 
         choice = choices[0]
         if not isinstance(choice, dict):
-            raise ModelResponseFormatError("Model response choice item must be an object")
-
-        message = choice.get("message")
-        if not isinstance(message, dict):
             raise ModelResponseFormatError(
-                "Model response choice missing required 'message' object"
-            )
-
-        content = message.get("content")
-        if not isinstance(content, str):
-            raise ModelResponseFormatError("Model response message missing 'content' string field")
-
-        if len(content) > self.config.max_response_characters:
-            content = content[: self.config.max_response_characters]
-            content_exceeded_bound = True
-        else:
-            content_exceeded_bound = False
-
-        returned_model = data.get("model")
-        if not isinstance(returned_model, str) or not returned_model.strip():
-            raise ModelResponseFormatError("Model response missing required 'model' string field")
-
-        if returned_model != self.config.model:
-            raise ModelIdentityMismatchError(
-                configured_model=self.config.model,
+                "Model response choice item must be an object",
+                usage=usage,
+                request_id=request_id,
                 returned_model=returned_model,
             )
 
@@ -490,28 +537,87 @@ class NebiusModelClient:
         if finish_reason is not None and not isinstance(finish_reason, str):
             finish_reason = str(finish_reason)
 
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            raise ModelResponseFormatError(
+                "Model response choice missing required 'message' object",
+                usage=usage,
+                finish_reason=finish_reason,
+                request_id=request_id,
+                returned_model=returned_model,
+            )
+
+        has_reasoning = bool(message.get("reasoning_content"))
+
+        refusal = message.get("refusal")
+        if refusal:
+            raise ModelResponseFormatError(
+                f"Model refused request: {refusal}",
+                usage=usage,
+                finish_reason=finish_reason,
+                request_id=request_id,
+                returned_model=returned_model,
+                has_reasoning_content=has_reasoning,
+            )
+
+        content = message.get("content")
+        if not isinstance(content, str):
+            content_type = type(content).__name__
+            raise ModelResponseFormatError(
+                f"Model response message missing 'content' string field "
+                f"(content_type={content_type}, finish_reason={finish_reason!r}, "
+                f"has_reasoning_content={has_reasoning})",
+                usage=usage,
+                finish_reason=finish_reason,
+                request_id=request_id,
+                returned_model=returned_model,
+                has_reasoning_content=has_reasoning,
+            )
+
+        if len(content) > self.config.max_response_characters:
+            content = content[: self.config.max_response_characters]
+            content_exceeded_bound = True
+        else:
+            content_exceeded_bound = False
+
+        if not returned_model or not returned_model.strip():
+            raise ModelResponseFormatError(
+                "Model response missing required 'model' string field",
+                usage=usage,
+                finish_reason=finish_reason,
+                request_id=request_id,
+                has_reasoning_content=has_reasoning,
+            )
+
+        if returned_model != self.config.model:
+            raise ModelIdentityMismatchError(
+                configured_model=self.config.model,
+                returned_model=returned_model,
+                usage=usage,
+                finish_reason=finish_reason,
+                request_id=request_id,
+                has_reasoning_content=has_reasoning,
+            )
+
         if reject_length_truncation:
             if finish_reason == "length":
                 raise ModelTruncatedResponseError(
-                    "Provider signaled a truncated response (finish_reason='length')."
+                    "Provider signaled a truncated response (finish_reason='length').",
+                    usage=usage,
+                    finish_reason=finish_reason,
+                    request_id=request_id,
+                    returned_model=returned_model,
+                    has_reasoning_content=has_reasoning,
                 )
             if content_exceeded_bound:
                 raise ModelTruncatedResponseError(
-                    "Provider response exceeded max_response_characters and was truncated."
+                    "Provider response exceeded max_response_characters and was truncated.",
+                    usage=usage,
+                    finish_reason=finish_reason,
+                    request_id=request_id,
+                    returned_model=returned_model,
+                    has_reasoning_content=has_reasoning,
                 )
-
-        request_id = data.get("id")
-        if request_id is not None and not isinstance(request_id, str):
-            request_id = str(request_id)
-
-        usage = None
-        usage_data = data.get("usage")
-        if isinstance(usage_data, dict):
-            usage = TokenUsage(
-                prompt_tokens=int(usage_data.get("prompt_tokens", 0)),
-                completion_tokens=int(usage_data.get("completion_tokens", 0)),
-                total_tokens=int(usage_data.get("total_tokens", 0)),
-            )
 
         return ModelClientResult(
             configured_model=self.config.model,
@@ -521,6 +627,7 @@ class NebiusModelClient:
             request_id=request_id,
             usage=usage,
             duration_seconds=elapsed,
+            has_reasoning_content=has_reasoning,
         )
 
     def _extract_error_message(self, body: bytes, status_code: int) -> str:
