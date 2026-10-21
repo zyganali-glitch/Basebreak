@@ -70,7 +70,7 @@ from basebreak.security.protected_surfaces import (
 )
 from basebreak.security.secret_policy import (
     SecretPersistenceError,
-    validate_no_secrets,
+    validate_no_secrets_in_source_patch,
 )
 from basebreak.verifier.witness_result import WitnessOutcome
 
@@ -322,9 +322,9 @@ def create_tested_patch_subset_from_hunks(
         ) from exc
 
     try:
-        validate_no_secrets(retained_patch_text, path="retained_patch_text")
+        validate_no_secrets_in_source_patch(retained_patch_text, path="retained_patch_text")
         if subtracted_delta_text:
-            validate_no_secrets(subtracted_delta_text, path="subtracted_delta_text")
+            validate_no_secrets_in_source_patch(subtracted_delta_text, path="subtracted_delta_text")
     except SecretPersistenceError:
         raise
 

@@ -95,6 +95,10 @@ class TestP0402ClosureProviderPurity:
             "sys",
             "collections",
             "collections.abc",
+            # P-27.06 source-patch secret repair: both are pure Python stdlib
+            # (AST-based Python source analysis + offset binary search).
+            "ast",
+            "bisect",
         }
 
         for py_file in security_dir.glob("*.py"):

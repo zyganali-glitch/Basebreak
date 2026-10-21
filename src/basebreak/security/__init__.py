@@ -85,6 +85,7 @@ from basebreak.security.secret_policy import (
     validate_evidence_record_for_persistence,
     validate_execution_command_for_persistence,
     validate_no_secrets,
+    validate_no_secrets_in_source_patch,
     validate_source_identity_for_persistence,
 )
 
@@ -164,6 +165,7 @@ __all__ = [
     "validate_execution_command_for_persistence",
     "validate_image_identifier",
     "validate_no_secrets",
+    "validate_no_secrets_in_source_patch",
     "validate_path",
     "validate_protected_surfaces",
     "validate_source_identity_for_persistence",

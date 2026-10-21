@@ -45,7 +45,7 @@ from basebreak.security.protected_surfaces import (
 )
 from basebreak.security.secret_policy import (
     SecretPersistenceError,
-    validate_no_secrets,
+    validate_no_secrets_in_source_patch,
 )
 
 _HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -951,7 +951,7 @@ class CandidateDeltaSubtractor:
             ) from exc
 
         try:
-            validate_no_secrets(candidate_patch_text, path="candidate_patch_text")
+            validate_no_secrets_in_source_patch(candidate_patch_text, path="candidate_patch_text")
         except SecretPersistenceError as exc:
             raise SecretPolicySubtractionError(
                 f"Candidate patch contains unredacted secret: {exc}"
@@ -1086,9 +1086,11 @@ class CandidateDeltaSubtractor:
             ) from exc
 
         try:
-            validate_no_secrets(subtracted_delta_text, path="subtracted_delta_text")
+            validate_no_secrets_in_source_patch(subtracted_delta_text, path="subtracted_delta_text")
             if counterfactual_patch_text:
-                validate_no_secrets(counterfactual_patch_text, path="counterfactual_patch_text")
+                validate_no_secrets_in_source_patch(
+                    counterfactual_patch_text, path="counterfactual_patch_text"
+                )
         except SecretPersistenceError as exc:
             raise SecretPolicySubtractionError(f"Subtraction delta contains secret: {exc}") from exc
 

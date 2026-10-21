@@ -7,6 +7,8 @@ redaction from authoritative evidence fail-closed persistence boundaries.
 
 from __future__ import annotations
 
+import ast
+import bisect
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -500,6 +502,257 @@ def validate_no_secrets(value: Any, path: str = "") -> None:
                     )
             validate_no_secrets(v, val_path)
         return
+
+
+# --- Context-Aware Source-Code Patch Validation (P-27.06 surgical repair) ---
+#
+# Root cause: the generic KEY_VALUE_ASSIGNMENT rule also matches ordinary Python
+# source expressions such as ``token = secrets.token_hex(16)``, ``token = new_token``
+# or ``token = None``, none of which embed a credential value. Applying the generic
+# rule verbatim to model-generated candidate patches therefore rejects benign code.
+#
+# Repair semantics (strictly bounded, fail-closed):
+# - Only applies at explicit source-code patch boundaries
+#   (``validate_no_secrets_in_source_patch``). The generic ``validate_no_secrets``
+#   boundary used for logs, JSON evidence, receipts, environment variables,
+#   provider responses and other non-code text is unchanged.
+# - Only KEY_VALUE_ASSIGNMENT findings are eligible for exemption. Every other
+#   category (PEM keys, URL credentials, Authorization headers, token prefixes)
+#   remains strictly forbidden even inside Python source patches.
+# - A KEY_VALUE_ASSIGNMENT finding is exempt only when ALL of the following hold:
+#   1. the patch text carries at least one ``diff --git`` file header;
+#   2. the finding lies on an added, removed, or context hunk line of a file whose
+#      path ends with a Python source suffix (``.py`` / ``.pyi``);
+#   3. the marker-stripped line parses as exactly one Python statement;
+#   4. that statement binds at least one sensitive-named key, and every sensitive
+#      binding's value/annotation expression contains no embedded string or bytes
+#      literal (hardcoded credential values remain forbidden).
+# - Anything ambiguous or malformed (headerless diffs, non-Python files, unparseable
+#   lines, multi-statement lines, comments, string literals) fails closed to the
+#   strict generic verdict.
+
+
+_PYTHON_SOURCE_SUFFIXES: tuple[str, ...] = (".py", ".pyi")
+
+_DIFF_GIT_QUOTED_HEADER_PATTERN = re.compile(r'^"(?:a/|b/)?(.+?)"\s+"(?:a/|b/)?(.+?)"$')
+
+
+def _parse_diff_git_new_path(line: str) -> str | None:
+    """Extract the target file path from a ``diff --git X Y`` header line.
+
+    Handles both canonical order (``a/path b/path``), inverted order produced by
+    reverse-delta construction (``b/path a/path``), ``/dev/null`` sides, and
+    git-quoted paths. Returns None when the line is not a recognizable header.
+    """
+    stripped = line.rstrip("\r\n")
+    prefix = "diff --git "
+    if not stripped.startswith(prefix):
+        return None
+    rest = stripped[len(prefix) :]
+    tokens: list[str] | None = None
+    if rest.startswith('"'):
+        match = _DIFF_GIT_QUOTED_HEADER_PATTERN.match(rest)
+        if match is None:
+            return None
+        tokens = [f"a/{match.group(1)}", f"b/{match.group(2)}"]
+    else:
+        tokens = rest.split(" ")
+    if len(tokens) != 2:
+        return None
+    for token in tokens:
+        if token.startswith(("a/", "b/")) and token not in ("a/", "b/"):
+            return token[2:]
+    return None
+
+
+def _is_python_source_path(file_path: str) -> bool:
+    """Determine whether a diff target path is a Python source file."""
+    normalized = file_path.strip().replace("\\", "/").lower()
+    return normalized.endswith(_PYTHON_SOURCE_SUFFIXES)
+
+
+def _sensitive_binding_expressions(statement: ast.stmt) -> list[ast.expr]:
+    """Collect value/annotation expressions bound to sensitive-named keys.
+
+    Covers assignments (``=``, annotated, augmented, walrus), keyword arguments,
+    function parameter annotations/defaults, and dictionary literal entries whose
+    key is a sensitive name. Returns an empty list when the statement binds no
+    sensitive-named key (callers must treat that as not provably nonsecret).
+    """
+    bound: list[ast.expr] = []
+
+    for node in ast.walk(statement):
+        if isinstance(node, ast.Assign):
+            if isinstance(node.value, ast.expr):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and is_sensitive_key(target.id):
+                        bound.append(node.value)
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and is_sensitive_key(node.target.id):
+                if isinstance(node.value, ast.expr):
+                    bound.append(node.value)
+                elif isinstance(node.annotation, ast.expr):
+                    bound.append(node.annotation)
+        elif isinstance(node, ast.AugAssign):
+            if isinstance(node.target, ast.Name) and is_sensitive_key(node.target.id):
+                if isinstance(node.value, ast.expr):
+                    bound.append(node.value)
+        elif isinstance(node, ast.NamedExpr):
+            if isinstance(node.target, ast.Name) and is_sensitive_key(node.target.id):
+                if isinstance(node.value, ast.expr):
+                    bound.append(node.value)
+        elif isinstance(node, ast.keyword):
+            if node.arg is not None and is_sensitive_key(node.arg):
+                if isinstance(node.value, ast.expr):
+                    bound.append(node.value)
+        elif isinstance(node, ast.arg):
+            if is_sensitive_key(node.arg):
+                if isinstance(node.annotation, ast.expr):
+                    bound.append(node.annotation)
+        elif isinstance(node, ast.arguments):
+            # Positional defaults align with the tail of node.args; keyword-only
+            # defaults align with node.kwonlyargs (None means no default).
+            positional_defaults = node.defaults
+            offset = len(node.args) - len(positional_defaults)
+            for arg, default in zip(node.args[offset:], positional_defaults):
+                if is_sensitive_key(arg.arg) and isinstance(default, ast.expr):
+                    bound.append(default)
+            for kw_arg, kw_default in zip(node.kwonlyargs, node.kw_defaults):
+                if kw_default is not None and is_sensitive_key(kw_arg.arg):
+                    if isinstance(kw_default, ast.expr):
+                        bound.append(kw_default)
+        elif isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if (
+                    isinstance(key, ast.Constant)
+                    and isinstance(key.value, str)
+                    and is_sensitive_key(key.value)
+                    and isinstance(value, ast.expr)
+                ):
+                    bound.append(value)
+
+    return bound
+
+
+def _contains_embedded_literal_text(expression: ast.expr) -> bool:
+    """Return True when the expression embeds any string or bytes literal.
+
+    A hardcoded credential value must appear as a string/bytes literal; runtime
+    references (names, calls, attributes, subscripts) and non-string constants
+    (None, bools, numbers) cannot embed one. Fails closed: any string or bytes
+    literal anywhere in the expression disqualifies the exemption.
+    """
+    for node in ast.walk(expression):
+        if isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)):
+            return True
+    return False
+
+
+def _is_provably_nonsecret_python_line(code_line: str) -> bool:
+    """Return True when a single Python line binds sensitive keys only to
+    provably nonsecret runtime expressions (no embedded string/bytes literals).
+
+    A diff line containing only a block header (``def``/``class``/``if``/...) ends
+    with ``:`` and cannot parse alone, so it is completed with a placeholder
+    ``...`` body before parsing; the placeholder cannot introduce bindings or
+    literals, leaving the header's annotations/defaults as the only evaluated
+    content. Fails closed: syntax errors, multiple statements, comments, empty
+    parses, and statements without any sensitive-named binding are never exempt.
+    """
+    # Strip the diff marker, surrounding indentation, and the line terminator so a
+    # single indented statement parses at module level.
+    source = code_line.strip()
+    if not source:
+        return False
+    try:
+        tree = ast.parse(source, mode="exec")
+    except (SyntaxError, ValueError):
+        if not source.endswith(":"):
+            return False
+        try:
+            tree = ast.parse(source + " ...", mode="exec")
+        except (SyntaxError, ValueError):
+            return False
+    statements = tree.body
+    if len(statements) != 1 or not isinstance(statements[0], ast.stmt):
+        return False
+    bound = _sensitive_binding_expressions(statements[0])
+    if not bound:
+        return False
+    return all(not _contains_embedded_literal_text(expr) for expr in bound)
+
+
+def _source_patch_exempt_line_indices(patch_text: str) -> tuple[set[int], list[str], bool]:
+    """Compute the set of hunk-line indices eligible for the Python-source exemption.
+
+    Returns (exempt_line_indices, lines, saw_diff_header). Lines are only eligible
+    when they carry a unified-diff marker (``+``, ``-``, or `` ``), belong to a
+    ``.py``/``.pyi`` file declared by a preceding ``diff --git`` header, and parse
+    as one provably nonsecret Python statement.
+    """
+    lines = patch_text.splitlines(keepends=True)
+    exempt: set[int] = set()
+    saw_diff_header = False
+    current_file_is_python = False
+
+    for idx, line in enumerate(lines):
+        header_path = _parse_diff_git_new_path(line)
+        if header_path is not None:
+            saw_diff_header = True
+            current_file_is_python = _is_python_source_path(header_path)
+            continue
+        if not line.startswith(("+", "-", " ")):
+            continue
+        if not saw_diff_header or not current_file_is_python:
+            continue
+        if _is_provably_nonsecret_python_line(line[1:]):
+            exempt.add(idx)
+
+    return exempt, lines, saw_diff_header
+
+
+def validate_no_secrets_in_source_patch(patch_text: str, path: str = "") -> None:
+    """Validate that a unified source-code patch contains no raw secrets.
+
+    Context-aware boundary for actual source-code patches: detection is identical
+    to :func:`validate_no_secrets`, except that a ``KEY_VALUE_ASSIGNMENT`` finding
+    is permitted only when it lies on an added/removed/context line of a Python
+    source file inside the diff and that single line parses as exactly one Python
+    statement whose sensitive-named bindings are provably nonsecret runtime
+    expressions. Hardcoded string/bytes credential literals, every other secret
+    category, non-Python files, and malformed or headerless diffs remain strictly
+    forbidden. Fails closed on any ambiguity.
+
+    Raises SecretPersistenceError on violation without echoing raw secrets.
+    """
+    if not isinstance(patch_text, str):
+        raise TypeError(f"patch_text must be a str, got {type(patch_text).__name__}")
+
+    findings = find_secret_findings(patch_text)
+    if not findings:
+        return
+
+    exempt, lines, saw_diff_header = _source_patch_exempt_line_indices(patch_text)
+    if not lines or not saw_diff_header:
+        # Not a recognizable unified diff: fail closed with the strict generic rules.
+        validate_no_secrets(patch_text, path=path)
+        return
+
+    line_start_offsets: list[int] = []
+    position = 0
+    for line in lines:
+        line_start_offsets.append(position)
+        position += len(line)
+
+    for finding in findings:
+        line_index = bisect.bisect_right(line_start_offsets, finding.start) - 1
+        if finding.category is SecretCategory.KEY_VALUE_ASSIGNMENT and line_index in exempt:
+            continue
+        raise SecretPersistenceError(
+            rule_id=finding.rule_id,
+            path=path or "source_patch",
+            category="SECRET_PERSISTENCE_FORBIDDEN",
+        )
 
 
 def validate_source_identity_for_persistence(source: Any, path: str = "source") -> None:

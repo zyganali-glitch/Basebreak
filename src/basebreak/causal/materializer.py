@@ -36,7 +36,7 @@ from basebreak.security.protected_surfaces import (
 )
 from basebreak.security.secret_policy import (
     SecretPersistenceError,
-    validate_no_secrets,
+    validate_no_secrets_in_source_patch,
 )
 from basebreak.verifier.context import VerifierContextEnvelope
 from basebreak.verifier.sandbox import (
@@ -150,8 +150,8 @@ class CausalRepositoryMaterializer:
             canonical_manifest = get_canonical_basebreak_protected_manifest()
             validate_diff(patch_text, canonical_manifest)
 
-            # Step D: Canonical Secret Safety Check
-            validate_no_secrets(patch_text, path="candidate_patch_text")
+            # Step D: Canonical Secret Safety Check (source-patch context aware)
+            validate_no_secrets_in_source_patch(patch_text, path="candidate_patch_text")
 
             # Step E: Apply Exact Captured Patch via Canonical P-07 Script
             sbx_id = getattr(sandbox, "sandbox_id", None) or getattr(
@@ -306,8 +306,10 @@ class CausalRepositoryMaterializer:
                 ) from exc
 
             try:
-                validate_no_secrets(cand_patch, path="candidate_patch_text")
-                validate_no_secrets(cf_plan.reverse_delta_text, path="reverse_delta_text")
+                validate_no_secrets_in_source_patch(cand_patch, path="candidate_patch_text")
+                validate_no_secrets_in_source_patch(
+                    cf_plan.reverse_delta_text, path="reverse_delta_text"
+                )
             except SecretPersistenceError as exc:
                 raise CounterfactualMaterializationError(
                     f"Counterfactual patch contains secrets: {exc}"
