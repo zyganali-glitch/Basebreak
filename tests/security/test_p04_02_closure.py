@@ -99,6 +99,10 @@ class TestP0402ClosureProviderPurity:
             # (AST-based Python source analysis + offset binary search).
             "ast",
             "bisect",
+            # P-27.06 final edge repair: lexical comment-span analysis uses the
+            # pure Python stdlib tokenize lexer (io is its feeding helper).
+            "io",
+            "tokenize",
         }
 
         for py_file in security_dir.glob("*.py"):

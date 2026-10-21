@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import ast
 import bisect
+import io
 import re
+import tokenize
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
@@ -526,7 +528,15 @@ def validate_no_secrets(value: Any, path: str = "") -> None:
 #   3. the marker-stripped line parses as exactly one Python statement;
 #   4. that statement binds at least one sensitive-named key, and every sensitive
 #      binding's value/annotation expression contains no embedded string or bytes
-#      literal (hardcoded credential values remain forbidden).
+#      literal and is not itself a hardcoded numeric literal or a straightforward
+#      value derived purely from numeric literals (hardcoded credential values,
+#      including numeric ones such as ``password = 123456``, remain forbidden);
+#   5. the particular finding's span lies entirely inside the source span of one
+#      of those independently validated nonsecret binding expressions and does
+#      not overlap any Python comment on the line (determined lexically via
+#      ``tokenize``, so ``#`` inside string literals is not a comment), so a
+#      sensitive assignment hidden in an inline comment such as
+#      ``token = new_token  # password = "hunter2"`` is never exempt.
 # - Anything ambiguous or malformed (headerless diffs, non-Python files, unparseable
 #   lines, multi-statement lines, comments, string literals) fails closed to the
 #   strict generic verdict.
@@ -571,44 +581,57 @@ def _is_python_source_path(file_path: str) -> bool:
     return normalized.endswith(_PYTHON_SOURCE_SUFFIXES)
 
 
-def _sensitive_binding_expressions(statement: ast.stmt) -> list[ast.expr]:
-    """Collect value/annotation expressions bound to sensitive-named keys.
+def _sensitive_binding_spans(
+    statement: ast.stmt,
+) -> list[tuple[tuple[int, int], ast.expr]]:
+    """Collect (source span, value expression) pairs for sensitive-named keys.
 
     Covers assignments (``=``, annotated, augmented, walrus), keyword arguments,
     function parameter annotations/defaults, and dictionary literal entries whose
-    key is a sensitive name. Returns an empty list when the statement binds no
-    sensitive-named key (callers must treat that as not provably nonsecret).
+    key is a sensitive name. Each span covers the binding construct from its
+    key/target start through the end of its value expression, in the coordinate
+    space of the parsed source. Returns an empty list when the statement binds
+    no sensitive-named key (callers must treat that as not provably nonsecret).
+    Raises ValueError when a relevant node lacks source position information.
     """
-    bound: list[ast.expr] = []
+
+    def _node_span(node: ast.AST) -> tuple[int, int]:
+        start = getattr(node, "col_offset", None)
+        end = getattr(node, "end_col_offset", None)
+        if not isinstance(start, int) or not isinstance(end, int):
+            raise ValueError("AST node missing source position information")
+        return (start, end)
+
+    bound: list[tuple[tuple[int, int], ast.expr]] = []
 
     for node in ast.walk(statement):
         if isinstance(node, ast.Assign):
             if isinstance(node.value, ast.expr):
                 for target in node.targets:
                     if isinstance(target, ast.Name) and is_sensitive_key(target.id):
-                        bound.append(node.value)
+                        bound.append((_node_span(node), node.value))
         elif isinstance(node, ast.AnnAssign):
             if isinstance(node.target, ast.Name) and is_sensitive_key(node.target.id):
                 if isinstance(node.value, ast.expr):
-                    bound.append(node.value)
+                    bound.append((_node_span(node), node.value))
                 elif isinstance(node.annotation, ast.expr):
-                    bound.append(node.annotation)
+                    bound.append((_node_span(node), node.annotation))
         elif isinstance(node, ast.AugAssign):
             if isinstance(node.target, ast.Name) and is_sensitive_key(node.target.id):
                 if isinstance(node.value, ast.expr):
-                    bound.append(node.value)
+                    bound.append((_node_span(node), node.value))
         elif isinstance(node, ast.NamedExpr):
             if isinstance(node.target, ast.Name) and is_sensitive_key(node.target.id):
                 if isinstance(node.value, ast.expr):
-                    bound.append(node.value)
+                    bound.append((_node_span(node), node.value))
         elif isinstance(node, ast.keyword):
             if node.arg is not None and is_sensitive_key(node.arg):
                 if isinstance(node.value, ast.expr):
-                    bound.append(node.value)
+                    bound.append((_node_span(node), node.value))
         elif isinstance(node, ast.arg):
             if is_sensitive_key(node.arg):
                 if isinstance(node.annotation, ast.expr):
-                    bound.append(node.annotation)
+                    bound.append((_node_span(node), node.annotation))
         elif isinstance(node, ast.arguments):
             # Positional defaults align with the tail of node.args; keyword-only
             # defaults align with node.kwonlyargs (None means no default).
@@ -616,11 +639,15 @@ def _sensitive_binding_expressions(statement: ast.stmt) -> list[ast.expr]:
             offset = len(node.args) - len(positional_defaults)
             for arg, default in zip(node.args[offset:], positional_defaults):
                 if is_sensitive_key(arg.arg) and isinstance(default, ast.expr):
-                    bound.append(default)
+                    arg_start, _ = _node_span(arg)
+                    _, default_end = _node_span(default)
+                    bound.append(((arg_start, default_end), default))
             for kw_arg, kw_default in zip(node.kwonlyargs, node.kw_defaults):
                 if kw_default is not None and is_sensitive_key(kw_arg.arg):
                     if isinstance(kw_default, ast.expr):
-                        bound.append(kw_default)
+                        kw_start, _ = _node_span(kw_arg)
+                        _, kw_default_end = _node_span(kw_default)
+                        bound.append(((kw_start, kw_default_end), kw_default))
         elif isinstance(node, ast.Dict):
             for key, value in zip(node.keys, node.values):
                 if (
@@ -629,7 +656,9 @@ def _sensitive_binding_expressions(statement: ast.stmt) -> list[ast.expr]:
                     and is_sensitive_key(key.value)
                     and isinstance(value, ast.expr)
                 ):
-                    bound.append(value)
+                    key_start, _ = _node_span(key)
+                    _, value_end = _node_span(value)
+                    bound.append(((key_start, value_end), value))
 
     return bound
 
@@ -638,8 +667,10 @@ def _contains_embedded_literal_text(expression: ast.expr) -> bool:
     """Return True when the expression embeds any string or bytes literal.
 
     A hardcoded credential value must appear as a string/bytes literal; runtime
-    references (names, calls, attributes, subscripts) and non-string constants
-    (None, bools, numbers) cannot embed one. Fails closed: any string or bytes
+    references (names, calls, attributes, subscripts) cannot embed one.
+    Non-string constants (None, bools, numbers) cannot embed literal text, but
+    numeric constants are separately rejected as binding values by
+    :func:`_is_literal_derived_numeric_value`. Fails closed: any string or bytes
     literal anywhere in the expression disqualifies the exemption.
     """
     for node in ast.walk(expression):
@@ -648,50 +679,165 @@ def _contains_embedded_literal_text(expression: ast.expr) -> bool:
     return False
 
 
-def _is_provably_nonsecret_python_line(code_line: str) -> bool:
-    """Return True when a single Python line binds sensitive keys only to
-    provably nonsecret runtime expressions (no embedded string/bytes literals).
+# Pure builtins whose result is deterministically derived from literal inputs;
+# a sensitive binding whose value is such a conversion of numeric literals is a
+# hardcoded credential, not a runtime-generated secret.
+_NUMERIC_LITERAL_CONVERSION_BUILTINS: frozenset[str] = frozenset(
+    {
+        "ascii",
+        "bin",
+        "bool",
+        "chr",
+        "complex",
+        "float",
+        "format",
+        "hex",
+        "int",
+        "oct",
+        "ord",
+        "repr",
+        "str",
+    }
+)
+
+
+def _is_literal_derived_numeric_value(expression: ast.expr) -> bool:
+    """Return True when the expression is a hardcoded numeric literal or a
+    straightforward value derived purely from numeric literals.
+
+    Rejects direct hardcoded numeric credential assignments (``password =
+    123456``, ``token = 0x1a2b``) and literal-only derivations (``token =
+    123 * 456``, ``token = str(123456)``). Genuine runtime generation calls and
+    references are not literal-derived: numeric arguments inside them (e.g. the
+    ``16`` in ``secrets.token_hex(16)``) are inputs, not the credential value
+    itself, and ``None``/bool constants are not numeric credentials.
+    """
+    if isinstance(expression, ast.Constant):
+        if isinstance(expression.value, bool):
+            return False
+        return isinstance(expression.value, (int, float, complex))
+    if isinstance(expression, ast.UnaryOp) and isinstance(
+        expression.op, (ast.USub, ast.UAdd, ast.Invert)
+    ):
+        return _is_literal_derived_numeric_value(expression.operand)
+    if isinstance(expression, ast.BinOp):
+        return _is_literal_derived_numeric_value(
+            expression.left
+        ) and _is_literal_derived_numeric_value(expression.right)
+    if isinstance(expression, ast.Call):
+        if (
+            isinstance(expression.func, ast.Name)
+            and expression.func.id in _NUMERIC_LITERAL_CONVERSION_BUILTINS
+            and not expression.keywords
+        ):
+            return all(_is_literal_derived_numeric_value(arg) for arg in expression.args)
+        return False
+    return False
+
+
+def _python_comment_spans(code_line: str) -> list[tuple[int, int]] | None:
+    """Compute the character spans of Python comments on a single code line.
+
+    Uses the ``tokenize`` lexer so ``#`` inside string literals is never mistaken
+    for a comment. Spans are half-open intervals relative to ``code_line``.
+    Returns None when lexical analysis fails; callers must treat that as a
+    refusal to exempt anything on the line (fail closed).
+    """
+    comments: list[tuple[int, int]] = []
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(code_line).readline):
+            if token.type == tokenize.COMMENT:
+                comments.append((token.start[1], token.end[1]))
+    except (tokenize.TokenError, IndentationError, SyntaxError, ValueError):
+        return None
+    return comments
+
+
+def _provably_nonsecret_line_regions(
+    code_line: str,
+) -> tuple[list[tuple[int, int]], list[tuple[int, int]]] | None:
+    """Compute exemption regions for one Python diff line, or None when the
+    line is not provably nonsecret.
+
+    Returns ``(safe_regions, comment_spans)`` relative to ``code_line`` when the
+    line parses as exactly one Python statement that binds at least one
+    sensitive-named key and every sensitive binding's value/annotation
+    expression is a provably nonsecret runtime expression (no embedded
+    string/bytes literal, not a hardcoded or literal-derived numeric value).
+    ``safe_regions`` are the source spans of the validated binding constructs;
+    a KEY_VALUE_ASSIGNMENT finding is exempt only when it lies inside one of
+    them and outside every comment span, so sensitive assignments hidden in
+    inline comments are never exempt.
 
     A diff line containing only a block header (``def``/``class``/``if``/...) ends
     with ``:`` and cannot parse alone, so it is completed with a placeholder
     ``...`` body before parsing; the placeholder cannot introduce bindings or
     literals, leaving the header's annotations/defaults as the only evaluated
-    content. Fails closed: syntax errors, multiple statements, comments, empty
-    parses, and statements without any sensitive-named binding are never exempt.
+    content. Fails closed: syntax errors, lexical errors, multiple statements,
+    comments-only lines, empty parses, missing AST positions, and statements
+    without any sensitive-named binding are never exempt.
     """
-    # Strip the diff marker, surrounding indentation, and the line terminator so a
-    # single indented statement parses at module level.
+    comment_spans = _python_comment_spans(code_line)
+    if comment_spans is None:
+        return None
+    # Strip the surrounding indentation and the line terminator so a single
+    # indented statement parses at module level.
     source = code_line.strip()
     if not source:
-        return False
+        return None
     try:
         tree = ast.parse(source, mode="exec")
     except (SyntaxError, ValueError):
         if not source.endswith(":"):
-            return False
+            return None
         try:
             tree = ast.parse(source + " ...", mode="exec")
         except (SyntaxError, ValueError):
-            return False
+            return None
     statements = tree.body
     if len(statements) != 1 or not isinstance(statements[0], ast.stmt):
-        return False
-    bound = _sensitive_binding_expressions(statements[0])
+        return None
+    try:
+        bound = _sensitive_binding_spans(statements[0])
+    except ValueError:
+        return None
     if not bound:
-        return False
-    return all(not _contains_embedded_literal_text(expr) for expr in bound)
+        return None
+    # AST positions are relative to the stripped source; shift them back into
+    # the original line's coordinate space.
+    leading = len(code_line) - len(code_line.lstrip())
+    safe_regions: list[tuple[int, int]] = []
+    for span, expression in bound:
+        if _contains_embedded_literal_text(expression):
+            return None
+        if _is_literal_derived_numeric_value(expression):
+            return None
+        safe_regions.append((span[0] + leading, span[1] + leading))
+    return safe_regions, comment_spans
 
 
-def _source_patch_exempt_line_indices(patch_text: str) -> tuple[set[int], list[str], bool]:
-    """Compute the set of hunk-line indices eligible for the Python-source exemption.
+def _span_contained_in_any(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
+    return any(span_start <= start and end <= span_end for span_start, span_end in spans)
 
-    Returns (exempt_line_indices, lines, saw_diff_header). Lines are only eligible
+
+def _span_overlaps_any(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
+    return any(start < span_end and span_start < end for span_start, span_end in spans)
+
+
+def _source_patch_exempt_line_regions(
+    patch_text: str,
+) -> tuple[dict[int, tuple[list[tuple[int, int]], list[tuple[int, int]]]], list[str], bool]:
+    """Compute per-line exemption regions for the Python-source exemption.
+
+    Returns (line_regions, lines, saw_diff_header). Lines are only eligible
     when they carry a unified-diff marker (``+``, ``-``, or `` ``), belong to a
-    ``.py``/``.pyi`` file declared by a preceding ``diff --git`` header, and parse
-    as one provably nonsecret Python statement.
+    ``.py``/``.pyi`` file declared by a preceding ``diff --git`` header, and
+    parse as one provably nonsecret Python statement. ``line_regions`` maps each
+    eligible line index to its ``(safe_regions, comment_spans)`` expressed in
+    coordinates relative to the line content after the diff marker.
     """
     lines = patch_text.splitlines(keepends=True)
-    exempt: set[int] = set()
+    line_regions: dict[int, tuple[list[tuple[int, int]], list[tuple[int, int]]]] = {}
     saw_diff_header = False
     current_file_is_python = False
 
@@ -705,10 +851,11 @@ def _source_patch_exempt_line_indices(patch_text: str) -> tuple[set[int], list[s
             continue
         if not saw_diff_header or not current_file_is_python:
             continue
-        if _is_provably_nonsecret_python_line(line[1:]):
-            exempt.add(idx)
+        regions = _provably_nonsecret_line_regions(line[1:])
+        if regions is not None:
+            line_regions[idx] = regions
 
-    return exempt, lines, saw_diff_header
+    return line_regions, lines, saw_diff_header
 
 
 def validate_no_secrets_in_source_patch(patch_text: str, path: str = "") -> None:
@@ -717,11 +864,15 @@ def validate_no_secrets_in_source_patch(patch_text: str, path: str = "") -> None
     Context-aware boundary for actual source-code patches: detection is identical
     to :func:`validate_no_secrets`, except that a ``KEY_VALUE_ASSIGNMENT`` finding
     is permitted only when it lies on an added/removed/context line of a Python
-    source file inside the diff and that single line parses as exactly one Python
+    source file inside the diff, that single line parses as exactly one Python
     statement whose sensitive-named bindings are provably nonsecret runtime
-    expressions. Hardcoded string/bytes credential literals, every other secret
-    category, non-Python files, and malformed or headerless diffs remain strictly
-    forbidden. Fails closed on any ambiguity.
+    expressions, and the particular finding's span lies inside one of those
+    independently validated binding spans while not overlapping any Python
+    comment on the line. Hardcoded string/bytes credential literals, hardcoded
+    or literal-derived numeric credential values, sensitive assignments hidden
+    in inline comments, every other secret category, non-Python files, and
+    malformed or headerless diffs remain strictly forbidden. Fails closed on
+    any ambiguity.
 
     Raises SecretPersistenceError on violation without echoing raw secrets.
     """
@@ -732,7 +883,7 @@ def validate_no_secrets_in_source_patch(patch_text: str, path: str = "") -> None
     if not findings:
         return
 
-    exempt, lines, saw_diff_header = _source_patch_exempt_line_indices(patch_text)
+    line_regions, lines, saw_diff_header = _source_patch_exempt_line_regions(patch_text)
     if not lines or not saw_diff_header:
         # Not a recognizable unified diff: fail closed with the strict generic rules.
         validate_no_secrets(patch_text, path=path)
@@ -746,8 +897,18 @@ def validate_no_secrets_in_source_patch(patch_text: str, path: str = "") -> None
 
     for finding in findings:
         line_index = bisect.bisect_right(line_start_offsets, finding.start) - 1
-        if finding.category is SecretCategory.KEY_VALUE_ASSIGNMENT and line_index in exempt:
-            continue
+        if finding.category is SecretCategory.KEY_VALUE_ASSIGNMENT:
+            regions = line_regions.get(line_index)
+            if regions is not None:
+                safe_regions, comment_spans = regions
+                line_start = line_start_offsets[line_index]
+                # Coordinates relative to the line content after the diff marker.
+                rel_start = finding.start - line_start - 1
+                rel_end = finding.end - line_start - 1
+                if _span_contained_in_any(
+                    rel_start, rel_end, safe_regions
+                ) and not _span_overlaps_any(rel_start, rel_end, comment_spans):
+                    continue
         raise SecretPersistenceError(
             rule_id=finding.rule_id,
             path=path or "source_patch",

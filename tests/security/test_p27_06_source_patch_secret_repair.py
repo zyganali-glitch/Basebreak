@@ -21,6 +21,10 @@ Adversarial matrix:
 - Real hardcoded credentials remain rejected.
 - Secrets in added code, string literals, diff context or removed lines are not
   silently allowed into persistent evidence.
+- Hardcoded numeric credential assignments (direct and literal-derived) and
+  sensitive assignments hidden in inline Python comments fail closed, while
+  harmless comments and numeric arguments inside runtime generation calls do
+  not cause false positives (final edge repair, Defects 1-2).
 - Malformed or ambiguous patch/security input fails closed.
 - Protected-surface mutations remain rejected.
 - Candidate patch digest and tree identity remain unchanged by validation.
@@ -117,6 +121,20 @@ BENIGN_RUNTIME_ASSIGNMENT_PATCH = (
     "     return token\n"
 )
 
+# Benign patch whose added lines carry harmless inline comments: the comment
+# text must not trigger the comment-aware exemption nor broad false positives.
+BENIGN_INLINE_COMMENT_PATCH = (
+    "diff --git a/src/demo_service.py b/src/demo_service.py\n"
+    "--- a/src/demo_service.py\n"
+    "+++ b/src/demo_service.py\n"
+    "@@ -2,3 +2,5 @@ import secrets\n"
+    " def issue():\n"
+    "     token = None\n"
+    "+    token = secrets.token_hex(16)  # 16 random bytes per issued token\n"
+    "+    password = derive_password(user)  # derived at runtime, never hardcoded\n"
+    "     return token\n"
+)
+
 
 def _patch_digest(patch_text: str) -> str:
     return hashlib.sha256(patch_text.encode("utf-8")).hexdigest()
@@ -174,6 +192,17 @@ def _python_patch(added_line: str, context_line: str | None = None) -> str:
         header = f"@@ -1,{lines_header_old} +1,{lines_header_old} @@\n"
     lines[3] = header
     return "".join(lines)
+
+
+def _marker_line_patch(line: str, marker: str = "+") -> str:
+    """Build a single-hunk Python patch carrying ``line`` under ``marker``."""
+    return (
+        "diff --git a/src/module.py b/src/module.py\n"
+        "--- a/src/module.py\n"
+        "+++ b/src/module.py\n"
+        "@@ -1,1 +1,1 @@\n"
+        f"{marker}{line}\n"
+    )
 
 
 # ==============================================================================
@@ -617,3 +646,219 @@ class TestOfflineChainReachesNextBoundary:
                 counterfactual_plan=plan,
                 candidate_patch_text=BENIGN_RESET_VAULT_PATCH,
             )
+
+
+# ==============================================================================
+# 9. Same-line comment credential bypass repair (final edge repair, Defect 1)
+# ==============================================================================
+
+
+class TestInlineCommentCredentialsRejected:
+    """A KEY_VALUE_ASSIGNMENT finding inside a Python comment is never exempt.
+
+    Root cause repaired: AST parsing ignores comments, so the exemption was
+    granted to the entire line and a sensitive assignment hidden in an inline
+    comment (``token = new_token  # password = "hunter2"``) escaped detection.
+    The exemption is now granted per finding and only inside independently
+    validated nonsecret source-expression spans that do not overlap comments.
+    """
+
+    INLINE_SECRET_COMMENT = 'token = new_token  # password = "hunter2"'
+
+    @pytest.mark.parametrize("marker", ["+", "-", " "])
+    def test_inline_comment_secret_rejected_on_added_removed_context(self, marker: str) -> None:
+        with pytest.raises(SecretPersistenceError, match="KEY_VALUE_ASSIGNMENT"):
+            validate_no_secrets_in_source_patch(
+                _marker_line_patch(self.INLINE_SECRET_COMMENT, marker)
+            )
+
+    def test_runtime_generation_with_secret_comment_rejected(self) -> None:
+        line = 'token = secrets.token_hex(16)  # api_key = "nb_live_123456789012345678901234567890"'
+        with pytest.raises(SecretPersistenceError):
+            validate_no_secrets_in_source_patch(_marker_line_patch(line))
+
+    def test_numeric_credential_in_inline_comment_rejected(self) -> None:
+        line = "token = new_token  # password = 123456"
+        with pytest.raises(SecretPersistenceError):
+            validate_no_secrets_in_source_patch(_marker_line_patch(line))
+
+    def test_comment_only_numeric_secret_rejected(self) -> None:
+        with pytest.raises(SecretPersistenceError):
+            validate_no_secrets_in_source_patch(_marker_line_patch("# password = 123456"))
+
+    def test_comment_only_string_secret_rejected(self) -> None:
+        with pytest.raises(SecretPersistenceError):
+            validate_no_secrets_in_source_patch(_marker_line_patch('# token = "abc123secret"'))
+
+    def test_secret_comment_after_benign_nonbinding_code_rejected(self) -> None:
+        line = 'value = compute()  # password = "hunter2"'
+        with pytest.raises(SecretPersistenceError):
+            validate_no_secrets_in_source_patch(_marker_line_patch(line))
+
+    def test_hash_inside_string_literal_is_not_a_comment(self) -> None:
+        # A '#' inside a genuine string is lexically not a comment, but the
+        # string literal itself disqualifies the exemption: fail closed.
+        line = 'token = new_token.replace("#", "")  # strip markers'
+        with pytest.raises(SecretPersistenceError):
+            validate_no_secrets_in_source_patch(_marker_line_patch(line))
+
+
+# ==============================================================================
+# 10. Hardcoded numeric credential bypass repair (final edge repair, Defect 2)
+# ==============================================================================
+
+
+class TestHardcodedNumericCredentialsRejected:
+    """Direct hardcoded numeric credential assignments are never exempt.
+
+    Root cause repaired: only string/bytes literals were treated as hardcoded
+    credential values, so ``password = 123456`` and ``token = 123456`` qualified
+    for the nonsecret runtime-expression exemption. Numeric constants and
+    straightforward literal-derived numeric values are now rejected.
+    """
+
+    @pytest.mark.parametrize("marker", ["+", "-", " "])
+    def test_numeric_password_rejected_on_added_removed_context(self, marker: str) -> None:
+        with pytest.raises(SecretPersistenceError, match="KEY_VALUE_ASSIGNMENT"):
+            validate_no_secrets_in_source_patch(_marker_line_patch("password = 123456", marker))
+
+    @pytest.mark.parametrize(
+        "added_line",
+        [
+            "token = 123456",
+            "password = 123456",
+            "api_key = 987654321",
+            "secret = 3.14159",
+            "auth_token = 0x1a2b3c4d",
+            "client_secret = 1_000_000",
+            "token = 123 * 456",
+            "token = -987654321",
+            "token = str(123456)",
+            "auth_token = int(654321)",
+        ],
+    )
+    def test_hardcoded_numeric_literal_credentials_rejected(self, added_line: str) -> None:
+        with pytest.raises(SecretPersistenceError, match="KEY_VALUE_ASSIGNMENT"):
+            validate_no_secrets_in_source_patch(_python_patch(added_line))
+
+    def test_numeric_keyword_argument_rejected(self) -> None:
+        with pytest.raises(SecretPersistenceError):
+            validate_no_secrets_in_source_patch(_python_patch("connect(api_key=12345678)"))
+
+    def test_numeric_dict_value_rejected(self) -> None:
+        with pytest.raises(SecretPersistenceError):
+            validate_no_secrets_in_source_patch(_python_patch('cfg = {"token": 123456}'))
+
+    def test_numeric_default_parameter_rejected(self) -> None:
+        with pytest.raises(SecretPersistenceError):
+            validate_no_secrets_in_source_patch(_python_patch("def connect(token=123456):"))
+
+    def test_numeric_credential_removed_line_rejected(self) -> None:
+        with pytest.raises(SecretPersistenceError):
+            validate_no_secrets_in_source_patch(_marker_line_patch("token = 123456", "-"))
+
+
+# ==============================================================================
+# 11. Benign runtime shapes and harmless comments still accepted
+# ==============================================================================
+
+
+class TestBenignShapesStillAccepted:
+    """Positive controls: the repair must not reject benign credential code."""
+
+    @pytest.mark.parametrize(
+        "added_line",
+        [
+            "token = None",
+            "token = secrets.token_hex(16)",
+            "token = new_token",
+            "token = uuid.uuid4().hex",
+            "token = derive(16)",
+            "token = int(entropy)",
+            "password = derive_password(user)",
+        ],
+    )
+    def test_benign_runtime_and_numeric_argument_shapes_pass(self, added_line: str) -> None:
+        validate_no_secrets_in_source_patch(_python_patch(added_line))
+
+    @pytest.mark.parametrize(
+        "added_line",
+        [
+            "token = new_token  # reuse the rotated credential value",
+            "password = new_password  # pragma: no cover",
+            "token = secrets.token_hex(16)  # 16 random bytes per token",
+            "token = None  # not yet issued",
+        ],
+    )
+    def test_harmless_inline_comments_do_not_cause_false_positives(self, added_line: str) -> None:
+        validate_no_secrets_in_source_patch(_python_patch(added_line))
+
+    def test_benign_patch_with_inline_comments_passes(self) -> None:
+        validate_no_secrets_in_source_patch(
+            BENIGN_INLINE_COMMENT_PATCH, path="candidate_patch_text"
+        )
+
+    def test_generic_boundary_still_rejects_numeric_credential_text(self) -> None:
+        # Negative control: the generic (non-code) boundary is NOT weakened.
+        with pytest.raises(SecretPersistenceError):
+            validate_no_secrets("password = 123456", path="candidate_patch_text")
+
+
+# ==============================================================================
+# 12. Repaired defects are enforced across the causal chain
+# ==============================================================================
+
+
+class TestRepairedDefectsEnforcedAcrossChain:
+    def test_inline_comment_secret_patch_rejected_by_subtraction(self) -> None:
+        secret_patch = (
+            "diff --git a/src/demo_service.py b/src/demo_service.py\n"
+            "--- a/src/demo_service.py\n"
+            "+++ b/src/demo_service.py\n"
+            "@@ -2,3 +2,4 @@ import secrets\n"
+            " def issue():\n"
+            '+    token = new_token  # password = "hunter2"\n'
+            "     return token\n"
+        )
+        with pytest.raises(SecretPolicySubtractionError, match="secret"):
+            _plan_subtraction(secret_patch)
+
+    def test_numeric_credential_patch_rejected_by_subtraction(self) -> None:
+        secret_patch = (
+            "diff --git a/src/demo_service.py b/src/demo_service.py\n"
+            "--- a/src/demo_service.py\n"
+            "+++ b/src/demo_service.py\n"
+            "@@ -2,3 +2,4 @@ import secrets\n"
+            " def issue():\n"
+            "+    password = 123456\n"
+            "     return token\n"
+        )
+        with pytest.raises(SecretPolicySubtractionError, match="secret"):
+            _plan_subtraction(secret_patch)
+
+    def test_benign_inline_comment_patch_passes_subtraction_chain(self) -> None:
+        plan = _plan_subtraction(BENIGN_INLINE_COMMENT_PATCH)
+        assert plan.target_candidate_patch_digest == _patch_digest(BENIGN_INLINE_COMMENT_PATCH)
+        assert plan.subtracted_delta_text == BENIGN_INLINE_COMMENT_PATCH
+        assert plan.counterfactual_patch_text == ""
+        assert plan.is_authoritative is False
+        assert plan.grants_pass is False
+
+    def test_benign_inline_comment_patch_materializes_candidate_world(self) -> None:
+        stdout = (
+            f"BASEBREAK_RESOLVED_COMMIT={SOURCE_COMMIT}\nBASEBREAK_RESOLVED_TREE={CANDIDATE_TREE}\n"
+        )
+        materializer = CausalRepositoryMaterializer(
+            adapter=_MockSandboxAdapter(stdout),
+            source_materializer=_MockSourceMaterializer(),
+        )
+        record = materializer.materialize_repository(
+            source_identity=_source_identity(),
+            sandbox=SandboxIdentity(sandbox_id="sbx-mock-cand-003"),
+            world=ExecutionWorld.CANDIDATE,
+            candidate_patch_text=BENIGN_INLINE_COMMENT_PATCH,
+            expected_tree_sha=CANDIDATE_TREE,
+        )
+        assert isinstance(record, MaterializedSourceRecord)
+        assert record.resolved_tree_sha == CANDIDATE_TREE
+        assert record.is_verified is True
