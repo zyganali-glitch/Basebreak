@@ -55,6 +55,8 @@ from .models import (
     MIN_MAX_TOKENS,
     MIN_TEMPERATURE,
     MIN_TIMEOUT_SECONDS,
+    MODEL_CONTEXT_LENGTHS,
+    MODEL_MAX_OUTPUT_TOKENS,
 )
 from .retry import (
     CEILING_MAX_ATTEMPTS,
@@ -161,6 +163,8 @@ __all__ = [
     "MIN_SANDBOX_TIMEOUT_SECONDS",
     "MIN_TEMPERATURE",
     "MIN_TIMEOUT_SECONDS",
+    "MODEL_CONTEXT_LENGTHS",
+    "MODEL_MAX_OUTPUT_TOKENS",
     "AttemptRecord",
     "KNOWN_OPERATION_EFFECTS",
     "MalformedSourceIdentityError",

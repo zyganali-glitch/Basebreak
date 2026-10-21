@@ -250,7 +250,7 @@ class TestNebiusModelClient:
         assert result.usage.total_tokens == 23
         assert result.duration_seconds >= 0.0
 
-    # 9b. chat_template_kwargs and reasoning_effort are passed into payload
+    # 9b. chat_template_kwargs and reasoning_effort are passed into top-level payload
     def test_chat_template_kwargs_and_reasoning_effort(self) -> None:
         captured_payload = {}
 
@@ -271,9 +271,104 @@ class TestNebiusModelClient:
         )
         assert result.content == "BASEBREAK_LIVE_OK"
         assert captured_payload.get("chat_template_kwargs") == {"enable_thinking": False}
-        expected_extra = {"chat_template_kwargs": {"enable_thinking": False}}
-        assert captured_payload.get("extra_body") == expected_extra
+        assert "extra_body" not in captured_payload
         assert captured_payload.get("reasoning_effort") == "none"
+
+    # 9c. Focused request-byte serialization regression tests
+    def test_raw_http_wire_bytes_serialization(self) -> None:
+        captured_raw_data = b""
+
+        def mock_transport(req: Any, timeout: float) -> TransportResponse:
+            nonlocal captured_raw_data
+            captured_raw_data = req.data
+            return TransportResponse(200, _make_success_body(), {})
+
+        client = NebiusModelClient(
+            config=ModelClientConfig(api_key="valid-key"),
+            transport=mock_transport,
+        )
+        client.complete(
+            [{"role": "user", "content": "code proposal"}],
+            chat_template_kwargs={"enable_thinking": False},
+        )
+        assert isinstance(captured_raw_data, bytes)
+        assert b'"enable_thinking": false' in captured_raw_data
+        assert b'"chat_template_kwargs"' in captured_raw_data
+        assert b'"extra_body"' not in captured_raw_data
+        parsed = json.loads(captured_raw_data.decode("utf-8"))
+        assert parsed["chat_template_kwargs"] == {"enable_thinking": False}
+        assert "extra_body" not in parsed
+
+    def test_extra_body_options_unpacked_to_top_level_over_the_wire(self) -> None:
+        captured_payload = {}
+
+        def mock_transport(req: Any, timeout: float) -> TransportResponse:
+            nonlocal captured_payload
+            captured_payload = json.loads(req.data.decode("utf-8"))
+            return TransportResponse(200, _make_success_body(), {})
+
+        client = NebiusModelClient(
+            config=ModelClientConfig(api_key="valid-key"),
+            transport=mock_transport,
+        )
+        client.complete(
+            [{"role": "user", "content": "hi"}],
+            extra_body={"custom_sampling_flag": "fast_mode"},
+        )
+        assert captured_payload.get("custom_sampling_flag") == "fast_mode"
+        assert "extra_body" not in captured_payload
+
+    def test_extra_body_with_chat_template_kwargs_merged_without_duplication(self) -> None:
+        captured_payload = {}
+        captured_bytes = b""
+
+        def mock_transport(req: Any, timeout: float) -> TransportResponse:
+            nonlocal captured_payload, captured_bytes
+            captured_bytes = req.data
+            captured_payload = json.loads(req.data.decode("utf-8"))
+            return TransportResponse(200, _make_success_body(), {})
+
+        client = NebiusModelClient(
+            config=ModelClientConfig(api_key="valid-key"),
+            transport=mock_transport,
+        )
+        client.complete(
+            [{"role": "user", "content": "hi"}],
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+        )
+        assert captured_payload.get("chat_template_kwargs") == {"enable_thinking": False}
+        assert "extra_body" not in captured_payload
+        assert b'"extra_body"' not in captured_bytes
+
+    def test_context_window_vs_output_limit_distinction(self) -> None:
+        from basebreak.adapters.nebius.models import (
+            MODEL_CONTEXT_LENGTHS,
+            MODEL_MAX_OUTPUT_TOKENS,
+        )
+
+        assert MODEL_CONTEXT_LENGTHS[DEFAULT_PRIMARY_MODEL] == 1_048_576
+        assert MODEL_MAX_OUTPUT_TOKENS[DEFAULT_PRIMARY_MODEL] == 262_144
+        assert MAX_MAX_TOKENS == 262_144
+        assert MAX_MAX_TOKENS < MODEL_CONTEXT_LENGTHS[DEFAULT_PRIMARY_MODEL]
+
+        client = NebiusModelClient(
+            config=ModelClientConfig(api_key="valid-key"),
+            transport=lambda req, timeout: TransportResponse(200, _make_success_body(), {}),
+        )
+        # Requesting context window size as output max_tokens fails closed
+        with pytest.raises(ModelConfigError):
+            client.complete([ChatMessage(role="user", content="hi")], max_tokens=1_048_576)
+
+        # Requesting beyond MAX_MAX_TOKENS fails closed
+        with pytest.raises(ModelConfigError):
+            client.complete([ChatMessage(role="user", content="hi")], max_tokens=MAX_MAX_TOKENS + 1)
+
+        # Genuine architectural max output limit is accepted
+        result = client.complete(
+            [ChatMessage(role="user", content="hi")],
+            max_tokens=MAX_MAX_TOKENS,
+        )
+        assert isinstance(result, ModelClientResult)
 
     # 10. response text is bounded
     def test_response_text_bounding(self) -> None:

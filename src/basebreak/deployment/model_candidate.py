@@ -38,18 +38,22 @@ CANDIDATE_MAX_TOKENS_ENV_VAR: str = "BASEBREAK_CANDIDATE_MAX_TOKENS"
 def resolve_candidate_max_tokens(configured: int | None = None) -> int:
     """Resolve the candidate generation max token budget.
 
-    Supports operator configuration up to the model context length (1,048,576 tokens),
+    Supports operator configuration up to the model output limit (262,144 tokens),
     falling back to DEFAULT_CANDIDATE_MAX_TOKENS (32,768).
+    The 1,048,576 context window bounds total sequence length (prompt + output),
+    not the output token limit alone.
     """
+    from basebreak.adapters.nebius.models import MAX_MAX_TOKENS
+
     if configured is not None and configured > 0:
-        return max(1, min(configured, 1_048_576))
+        return max(1, min(configured, MAX_MAX_TOKENS))
     import os
 
     env_val = os.environ.get(CANDIDATE_MAX_TOKENS_ENV_VAR, "").strip()
     if env_val:
         try:
             parsed = int(env_val)
-            if 1 <= parsed <= 1_048_576:
+            if 1 <= parsed <= MAX_MAX_TOKENS:
                 return parsed
         except ValueError:
             pass

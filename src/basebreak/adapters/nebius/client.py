@@ -450,20 +450,25 @@ class NebiusModelClient:
             "temperature": eff_temperature,
         }
 
-        merged_extra: dict[str, Any] = {}
+        # Merge client-level extra_body options into top-level wire payload.
+        # In the OpenAI SDK, extra_body unpacks additional JSON properties into the
+        # request payload. Nebius Token Factory endpoints reject literal "extra_body"
+        # wrapper keys over HTTP; additional parameters belong at the JSON root.
         if extra_body is not None:
             if not isinstance(extra_body, Mapping):
                 raise ModelConfigError("extra_body must be a mapping")
-            merged_extra.update(extra_body)
+            for k, v in extra_body.items():
+                if k not in payload:
+                    payload[k] = v
 
+        # Transmit chat_template_kwargs at top level of HTTP payload.
+        # Required by Nebius Token Factory / vLLM for Nemotron-3.5-Lightning to disable
+        # internal thinking (enable_thinking: false). Must not be duplicated inside a
+        # literal extra_body key or silently omitted.
         if chat_template_kwargs is not None:
             if not isinstance(chat_template_kwargs, Mapping):
                 raise ModelConfigError("chat_template_kwargs must be a mapping")
             payload["chat_template_kwargs"] = dict(chat_template_kwargs)
-            merged_extra["chat_template_kwargs"] = dict(chat_template_kwargs)
-
-        if merged_extra:
-            payload["extra_body"] = merged_extra
 
         if reasoning_effort is not None:
             if not isinstance(reasoning_effort, str) or not reasoning_effort.strip():

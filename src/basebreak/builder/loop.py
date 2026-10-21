@@ -431,9 +431,9 @@ class BuilderLoopConfig:
             raise BuilderLoopConfigError(
                 f"max_model_calls must be between 1 and 5, got {self.max_model_calls}"
             )
-        if self.max_tokens < 1 or self.max_tokens > 1_048_576:
+        if self.max_tokens < 1 or self.max_tokens > 262_144:
             raise BuilderLoopConfigError(
-                f"max_tokens must be between 1 and 1048576, got {self.max_tokens}"
+                f"max_tokens must be between 1 and 262144, got {self.max_tokens}"
             )
         if self.temperature < 0.0 or self.temperature > 2.0:
             raise BuilderLoopConfigError(

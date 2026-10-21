@@ -762,11 +762,11 @@ def test_resolve_candidate_max_tokens_bounds_and_env(
     assert resolve_candidate_max_tokens(None) == DEFAULT_CANDIDATE_MAX_TOKENS
     assert resolve_candidate_max_tokens(None) == 32768
 
-    # Explicit configuration clamps within 1..1048576
+    # Explicit configuration clamps within 1..262144
     assert resolve_candidate_max_tokens(4096) == 4096
     assert resolve_candidate_max_tokens(10000) == 10000
     assert resolve_candidate_max_tokens(20000) == 20000
-    assert resolve_candidate_max_tokens(2_000_000) == 1_048_576
+    assert resolve_candidate_max_tokens(2_000_000) == 262_144
 
     # Env var resolution
     monkeypatch.setenv("BASEBREAK_CANDIDATE_MAX_TOKENS", "65536")
