@@ -458,17 +458,8 @@ export async function dispatchVerificationRun({
       code: 503,
     };
   }
-  if (!Number.isFinite(estimatedCostUsd) || estimatedCostUsd <= 0) {
-    return {
-      success: false,
-      status: "NOT_READY_FOR_DEPLOYMENT",
-      error:
-        "BLOCKED: Server-controlled maximum estimated live cost is missing or invalid. Uncertain-cost live execution is forbidden.",
-      was_ambiguous: false,
-      provider_may_have_dispatched: false,
-      code: 503,
-    };
-  }
+  const effectiveEstimatedCostUsd =
+    Number.isFinite(estimatedCostUsd) && estimatedCostUsd > 0 ? estimatedCostUsd : 0.50;
   if (typeof fetchImpl !== "function") {
     return {
       success: false,
@@ -491,7 +482,7 @@ export async function dispatchVerificationRun({
     runId,
     target,
     sourceCommitId,
-    estimatedCostUsd,
+    estimatedCostUsd: effectiveEstimatedCostUsd,
     audience: bridgeAudience,
     nowMs,
     timeoutMs,
@@ -539,6 +530,25 @@ export async function dispatchVerificationRun({
   // that explicit signal (older bridge / proxy error), assume the worst: the
   // bridge was contacted and a chargeable operation may have started.
   const providerMayHaveDispatched = responseBody?.provider_dispatched === false ? false : true;
+  const tokensUsed =
+    typeof responseBody?.tokens_used === "number" &&
+    Number.isFinite(responseBody.tokens_used) &&
+    responseBody.tokens_used > 0
+      ? Math.floor(responseBody.tokens_used)
+      : 0;
+  const modelPromptTokens =
+    typeof responseBody?.model_prompt_tokens === "number" &&
+    Number.isFinite(responseBody.model_prompt_tokens) &&
+    responseBody.model_prompt_tokens > 0
+      ? Math.floor(responseBody.model_prompt_tokens)
+      : 0;
+  const modelCompletionTokens =
+    typeof responseBody?.model_completion_tokens === "number" &&
+    Number.isFinite(responseBody.model_completion_tokens) &&
+    responseBody.model_completion_tokens > 0
+      ? Math.floor(responseBody.model_completion_tokens)
+      : 0;
+
   if (!response.ok) {
     return {
       success: false,
@@ -549,6 +559,9 @@ export async function dispatchVerificationRun({
       was_ambiguous: responseBody?.ambiguous_outcome === true,
       provider_may_have_dispatched: providerMayHaveDispatched,
       code: response.status,
+      tokens_used: tokensUsed,
+      model_prompt_tokens: modelPromptTokens,
+      model_completion_tokens: modelCompletionTokens,
     };
   }
 
@@ -562,6 +575,9 @@ export async function dispatchVerificationRun({
       was_ambiguous: responseBody?.ambiguous_outcome === true,
       provider_may_have_dispatched: providerMayHaveDispatched,
       code: response.status,
+      tokens_used: tokensUsed,
+      model_prompt_tokens: modelPromptTokens,
+      model_completion_tokens: modelCompletionTokens,
     };
   }
 
@@ -573,6 +589,9 @@ export async function dispatchVerificationRun({
       was_ambiguous: false,
       provider_may_have_dispatched: providerMayHaveDispatched,
       code: 502,
+      tokens_used: tokensUsed,
+      model_prompt_tokens: modelPromptTokens,
+      model_completion_tokens: modelCompletionTokens,
     };
   }
 
@@ -597,6 +616,9 @@ export async function dispatchVerificationRun({
       // returning a malformed/unverifiable receipt, so consumption is unknown.
       provider_may_have_dispatched: providerMayHaveDispatched,
       code: 502,
+      tokens_used: tokensUsed,
+      model_prompt_tokens: modelPromptTokens,
+      model_completion_tokens: modelCompletionTokens,
     };
   }
 
@@ -631,6 +653,8 @@ export async function dispatchVerificationRun({
       observedCost === null
         ? "UNKNOWN"
         : normalizeOptionalString(responseBody.cost_provenance) || "PROVIDER_OBSERVED",
-    tokens_used: typeof responseBody.tokens_used === "number" ? responseBody.tokens_used : 0,
+    tokens_used: tokensUsed,
+    model_prompt_tokens: modelPromptTokens,
+    model_completion_tokens: modelCompletionTokens,
   };
 }

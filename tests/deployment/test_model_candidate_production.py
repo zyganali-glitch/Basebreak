@@ -760,23 +760,24 @@ def test_resolve_candidate_max_tokens_bounds_and_env(
     # Default fallback
     monkeypatch.delenv("BASEBREAK_CANDIDATE_MAX_TOKENS", raising=False)
     assert resolve_candidate_max_tokens(None) == DEFAULT_CANDIDATE_MAX_TOKENS
-    assert resolve_candidate_max_tokens(None) == 8192
+    assert resolve_candidate_max_tokens(None) == 32768
 
-    # Explicit configuration clamps within 1..16384
+    # Explicit configuration clamps within 1..1048576
     assert resolve_candidate_max_tokens(4096) == 4096
     assert resolve_candidate_max_tokens(10000) == 10000
-    assert resolve_candidate_max_tokens(20000) == 16384
+    assert resolve_candidate_max_tokens(20000) == 20000
+    assert resolve_candidate_max_tokens(2_000_000) == 1_048_576
 
     # Env var resolution
-    monkeypatch.setenv("BASEBREAK_CANDIDATE_MAX_TOKENS", "12288")
-    assert resolve_candidate_max_tokens(None) == 12288
+    monkeypatch.setenv("BASEBREAK_CANDIDATE_MAX_TOKENS", "65536")
+    assert resolve_candidate_max_tokens(None) == 65536
 
     # Invalid env var falls back safely
     monkeypatch.setenv("BASEBREAK_CANDIDATE_MAX_TOKENS", "not_a_number")
     assert resolve_candidate_max_tokens(None) == DEFAULT_CANDIDATE_MAX_TOKENS
 
     # Out-of-bounds env var falls back safely
-    monkeypatch.setenv("BASEBREAK_CANDIDATE_MAX_TOKENS", "999999")
+    monkeypatch.setenv("BASEBREAK_CANDIDATE_MAX_TOKENS", "9999999")
     assert resolve_candidate_max_tokens(None) == DEFAULT_CANDIDATE_MAX_TOKENS
 
 

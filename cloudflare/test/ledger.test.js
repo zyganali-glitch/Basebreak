@@ -319,11 +319,11 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(grantRow.status, "ISSUED");
   });
 
-  it("6. Missing credentials, stale balance, and promo expiry", () => {
+  it("6. Software financial admission limits removed: grants without balance or cost cap are admitted", () => {
     const { ledger } = createTestLedger();
     const grant = issueLiveGrant(ledger);
 
-    // 6a. Missing operator cost cap
+    // 6a. Missing operator cost cap is admitted (informational)
     const missingCapGrant = ledger.issueGrant({
       verifiedBalance: 12.0,
       balanceTimestamp: Date.now(),
@@ -334,11 +334,14 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       source_commit_id: DEFAULT_SOURCE,
       live_enabled: true,
     });
-    assert.equal(missingCapRes.admitted, false);
-    assert.equal(missingCapRes.status, "BLOCKED_ESTIMATED_COST_CAP_MISSING");
-    assert.equal(missingCapRes.code, 422);
+    assert.equal(missingCapRes.admitted, true);
+    assert.equal(missingCapRes.status, "RESERVED");
+    ledger.recordExecutionSuccess(missingCapRes.run_id, {
+      observed_cost: 0.0,
+      receipt: buildFixturePublicReceipt(),
+    });
 
-    // 6b. Malformed operator cost cap
+    // 6b. Zero operator cost cap is admitted (informational)
     const malformedCapGrant = ledger.issueGrant({
       verifiedBalance: 12.0,
       balanceTimestamp: Date.now(),
@@ -350,50 +353,65 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       source_commit_id: DEFAULT_SOURCE,
       live_enabled: true,
     });
-    assert.equal(malformedCapRes.admitted, false);
-    assert.equal(malformedCapRes.status, "BLOCKED_ESTIMATED_COST_CAP_MISSING");
-    assert.equal(malformedCapRes.code, 422);
+    assert.equal(malformedCapRes.admitted, true);
+    assert.equal(malformedCapRes.status, "RESERVED");
+    ledger.recordExecutionSuccess(malformedCapRes.run_id, {
+      observed_cost: 0.0,
+      receipt: buildFixturePublicReceipt(),
+    });
 
-    // 6c. Missing verified balance
+    // 6c. Missing verified balance is admitted (informational)
     const missingBalRes = ledger.reserveAdmission({
       grant_token: grant.grant_token,
       target: DEFAULT_TARGET,
       source_commit_id: DEFAULT_SOURCE,
       live_enabled: true,
     });
-    assert.equal(missingBalRes.admitted, false);
-    assert.equal(missingBalRes.status, "BLOCKED_BALANCE_MISSING");
-    assert.equal(missingBalRes.code, 422);
+    assert.equal(missingBalRes.admitted, true);
+    assert.equal(missingBalRes.status, "RESERVED");
+    ledger.recordExecutionSuccess(missingBalRes.run_id, {
+      observed_cost: 0.0,
+      receipt: buildFixturePublicReceipt(),
+    });
 
-    // 6d. Stale balance (>15 minutes old)
+    // 6d. Stale balance (>15 minutes old) is admitted (informational)
+    const gStale = issueLiveGrant(ledger);
     const staleBalRes = ledger.reserveAdmission({
-      grant_token: grant.grant_token,
+      grant_token: gStale.grant_token,
       target: DEFAULT_TARGET,
       source_commit_id: DEFAULT_SOURCE,
       verified_balance: 12.0,
       balance_timestamp: Date.now() - 16 * 60 * 1000,
       live_enabled: true,
     });
-    assert.equal(staleBalRes.admitted, false);
-    assert.equal(staleBalRes.status, "BLOCKED_BALANCE_STALE");
-    assert.equal(staleBalRes.code, 422);
+    assert.equal(staleBalRes.admitted, true);
+    assert.equal(staleBalRes.status, "RESERVED");
+    ledger.recordExecutionSuccess(staleBalRes.run_id, {
+      observed_cost: 0.0,
+      receipt: buildFixturePublicReceipt(),
+    });
 
-    // 6e. Balance at or below safety floor ($5.00)
+    // 6e. Balance at or below safety floor ($5.00) is admitted (informational)
+    const gFloor = issueLiveGrant(ledger);
     const floorBalRes = ledger.reserveAdmission({
-      grant_token: grant.grant_token,
+      grant_token: gFloor.grant_token,
       target: DEFAULT_TARGET,
       source_commit_id: DEFAULT_SOURCE,
       verified_balance: 5.0, // Exactly at $5.00 floor
       balance_timestamp: Date.now(),
       live_enabled: true,
     });
-    assert.equal(floorBalRes.admitted, false);
-    assert.equal(floorBalRes.status, "BLOCKED_BUDGET_FLOOR");
-    assert.equal(floorBalRes.code, 403);
+    assert.equal(floorBalRes.admitted, true);
+    assert.equal(floorBalRes.status, "RESERVED");
+    ledger.recordExecutionSuccess(floorBalRes.run_id, {
+      observed_cost: 0.0,
+      receipt: buildFixturePublicReceipt(),
+    });
 
-    // 6f. Balance below floor after deducting estimated cost (5.03 - 0.05 = 4.98 < 5.00)
+    // 6f. Balance below floor after deducting estimated cost is admitted (informational)
+    const gViolate = issueLiveGrant(ledger);
     const wouldViolateFloor = ledger.reserveAdmission({
-      grant_token: grant.grant_token,
+      grant_token: gViolate.grant_token,
       target: DEFAULT_TARGET,
       source_commit_id: DEFAULT_SOURCE,
       estimated_cost: 0.05,
@@ -401,11 +419,14 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       balance_timestamp: Date.now(),
       live_enabled: true,
     });
-    assert.equal(wouldViolateFloor.admitted, false);
-    assert.equal(wouldViolateFloor.status, "BLOCKED_BUDGET_FLOOR");
-    assert.equal(wouldViolateFloor.code, 403);
+    assert.equal(wouldViolateFloor.admitted, true);
+    assert.equal(wouldViolateFloor.status, "RESERVED");
+    ledger.recordExecutionSuccess(wouldViolateFloor.run_id, {
+      observed_cost: 0.0,
+      receipt: buildFixturePublicReceipt(),
+    });
 
-    // 6g. Operator-bound grant cap rejects a request whose server-side estimated cost is too high
+    // 6g. Grant cap smaller than estimated cost is admitted (informational)
     const cappedGrant = issueLiveGrant(ledger, {
       verifiedBalance: 10.0,
       balanceTimestamp: Date.now(),
@@ -418,9 +439,8 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       estimated_cost: 0.05,
       live_enabled: true,
     });
-    assert.equal(cappedRes.admitted, false);
-    assert.equal(cappedRes.status, "BLOCKED_ESTIMATED_COST_CAP");
-    assert.equal(cappedRes.code, 403);
+    assert.equal(cappedRes.admitted, true);
+    assert.equal(cappedRes.status, "RESERVED");
   });
 
   it("7. Budget exhaustion and kill switch", () => {
@@ -458,7 +478,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       receipt: buildFixturePublicReceipt(),
     });
 
-    // Run 3: Attempt admission after cap of 2 is reached
+    // Run 3: Admitted despite cap of 2 because financial admission limits are removed
     const g3 = issueLiveGrant(ledger);
     const r3 = ledger.reserveAdmission({
       grant_token: g3.grant_token,
@@ -468,9 +488,12 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       balance_timestamp: Date.now(),
       live_enabled: true,
     });
-    assert.equal(r3.admitted, false);
-    assert.equal(r3.status, "CAP_EXHAUSTED");
-    assert.equal(r3.code, 429);
+    assert.equal(r3.admitted, true);
+    assert.equal(r3.status, "RESERVED");
+    ledger.recordExecutionSuccess(r3.run_id, {
+      observed_cost: 0.01,
+      receipt: buildFixturePublicReceipt(),
+    });
 
     // 7b. Kill switch immediately stops all reservations
     const { ledger: ledger2 } = createTestLedger();
@@ -644,7 +667,7 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(accounting.total_runs, 1);
     assert.equal(accounting.global_cap, 1);
 
-    // New live reservation fails
+    // New live reservation is admitted (cap is informational)
     const g2 = issueLiveGrant(ledger);
     const nextRes = ledger.reserveAdmission({
       grant_token: g2.grant_token,
@@ -654,8 +677,8 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       balance_timestamp: Date.now(),
       live_enabled: true,
     });
-    assert.equal(nextRes.admitted, false);
-    assert.equal(nextRes.status, "CAP_EXHAUSTED");
+    assert.equal(nextRes.admitted, true);
+    assert.equal(nextRes.status, "RESERVED");
 
     // But read-only inspection of authentic receipt remains accessible!
     const publicReceipt = ledger.getReceipt(reservation.run_id);
@@ -818,27 +841,38 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       was_ambiguous: false,
       provider_may_have_dispatched: true,
       observed_cost: null,
+      tokens_used: 9137,
     });
     assert.equal(failure.status, "FAILED_UNRECONCILED_COST");
+
+    // Tokens used is preserved on the failed run row
+    const failedRun = ledger.sql.query(
+      "SELECT tokens_used FROM runs WHERE run_id = ?",
+      reservation.run_id
+    )[0];
+    assert.equal(failedRun.tokens_used, 9137);
 
     const accounting = ledger.getAccounting();
     assert.equal(accounting.observed_cost, 0.0);
     assert.equal(accounting.unknown_cost, 0.05);
     assert.equal(accounting.reserved_cost, 0.0);
 
-    // Subsequent live admission is held while unreconciled unknown exposure remains.
-    const blockedGrant = issueLiveGrant(ledger);
-    const blocked = ledger.reserveAdmission({
-      grant_token: blockedGrant.grant_token,
+    // Subsequent live admission is NO LONGER held while unreconciled unknown exposure remains.
+    const unblockedGrant = issueLiveGrant(ledger);
+    const unblocked = ledger.reserveAdmission({
+      grant_token: unblockedGrant.grant_token,
       target: DEFAULT_TARGET,
       source_commit_id: DEFAULT_SOURCE,
       verified_balance: 20.0,
       balance_timestamp: Date.now(),
       live_enabled: true,
     });
-    assert.equal(blocked.admitted, false);
-    assert.equal(blocked.status, "BLOCKED_UNRECONCILED_UNKNOWN_COST");
-    assert.equal(blocked.code, 409);
+    assert.equal(unblocked.admitted, true);
+    assert.equal(unblocked.status, "RESERVED");
+    ledger.recordExecutionSuccess(unblocked.run_id, {
+      observed_cost: 0.0,
+      receipt: buildFixturePublicReceipt(),
+    });
 
     // An explicit, evidence-backed operator reconciliation clears the hold.
     const reconciled = ledger.reconcileUnknownCost(
@@ -1264,11 +1298,15 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       live_enabled: true,
     });
 
-    // An ordinary grant remains blocked while the hold is outstanding.
+    // An ordinary grant is admitted because financial holds are removed.
     const ordinary = issueLiveGrant(ledger, { estimatedCostCap: 0.5, verifiedBalance: 25.0 });
     const blocked = ledger.reserveAdmission(originArgs(ordinary.grant_token));
-    assert.equal(blocked.admitted, false);
-    assert.equal(blocked.status, "BLOCKED_UNRECONCILED_UNKNOWN_COST");
+    assert.equal(blocked.admitted, true);
+    assert.equal(blocked.status, "RESERVED");
+    ledger.recordExecutionSuccess(blocked.run_id, {
+      observed_cost: 0.01,
+      receipt: buildFixturePublicReceipt(),
+    });
 
     // Operator authorizes a single-use exception bound to one new single-use grant.
     const grant = issueLiveGrant(ledger, { estimatedCostCap: 0.5, verifiedBalance: 25.0 });
@@ -1289,6 +1327,10 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     // The authorized run is admitted exactly once.
     const admitted = ledger.reserveAdmission(originArgs(grant.grant_token));
     assert.equal(admitted.admitted, true);
+    ledger.recordExecutionSuccess(admitted.run_id, {
+      observed_cost: 0.01,
+      receipt: buildFixturePublicReceipt(),
+    });
 
     const excRow = ledger.sql.query(
       "SELECT status, consumed_run_id FROM cost_hold_exceptions WHERE exception_id = ?",
@@ -1302,10 +1344,10 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     assert.equal(replay.admitted, false);
     assert.equal(replay.status, "GRANT_ALREADY_USED");
 
-    // With the exception consumed, ordinary grants remain blocked by the hold.
+    // With the exception consumed, ordinary grants can be admitted without requiring an exception.
     const after = issueLiveGrant(ledger, { estimatedCostCap: 0.5, verifiedBalance: 25.0 });
-    const blockedAfter = ledger.reserveAdmission(originArgs(after.grant_token));
-    assert.equal(blockedAfter.status, "BLOCKED_UNRECONCILED_UNKNOWN_COST");
+    const admittedAfter = ledger.reserveAdmission(originArgs(after.grant_token));
+    assert.equal(admittedAfter.admitted, true);
     assert.equal(ledger.getAccounting().unknown_cost, 0.5);
 
     // A second exception cannot be issued for the same (now consumed) grant token.
@@ -1408,8 +1450,8 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       /already exists/
     );
 
-    // The general hold still blocks that other ordinary grant.
-    const blocked = ledger.reserveAdmission({
+    // An ordinary grant is admitted without requiring an exception.
+    const ordinaryRes = ledger.reserveAdmission({
       grant_token: other.grant_token,
       target: DEFAULT_TARGET,
       source_commit_id: DEFAULT_SOURCE,
@@ -1418,7 +1460,8 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       balance_timestamp: Date.now(),
       live_enabled: true,
     });
-    assert.equal(blocked.status, "BLOCKED_UNRECONCILED_UNKNOWN_COST");
+    assert.equal(ordinaryRes.admitted, true);
+    assert.equal(ordinaryRes.status, "RESERVED");
   });
 
   it("23. cost-hold exception budget calculation includes historical exposure and preserves the $5 reserve", () => {
@@ -1513,9 +1556,9 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       tokens_used: 100,
     });
 
-    // Run 3: BLOCKED by cap = 2
+    // Run 3: Admitted because cap does not block
     const g3 = issueLiveGrant(ledger);
-    const r3Blocked = ledger.reserveAdmission({
+    const r3 = ledger.reserveAdmission({
       grant_token: g3.grant_token,
       target: DEFAULT_TARGET,
       source_commit_id: DEFAULT_SOURCE,
@@ -1524,8 +1567,13 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       balance_timestamp: Date.now(),
       live_enabled: true,
     });
-    assert.equal(r3Blocked.admitted, false);
-    assert.equal(r3Blocked.status, "CAP_EXHAUSTED");
+    assert.equal(r3.admitted, true);
+    ledger.recordExecutionSuccess(r3.run_id, {
+      observed_cost: 0.1,
+      receipt: buildFixturePublicReceipt(),
+      cost_provenance: "PROVIDER_OBSERVED",
+      tokens_used: 100,
+    });
 
     // Invalid cap configurations fail validation
     assert.throws(() => ledger.configureInvocationCap(0, { configuredBy: "operator" }), /between 1 and 100/);
@@ -1544,15 +1592,16 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
     // Verify accounting retains prior runs and observed costs
     const acct = ledger.getAccounting();
     assert.equal(acct.global_cap, 10);
-    assert.equal(acct.total_runs, 2);
-    assert.equal(acct.completed_runs, 2);
-    assert.equal(acct.observed_cost, 0.2);
+    assert.equal(acct.total_runs, 3);
+    assert.equal(acct.completed_runs, 3);
+    assert.ok(Math.abs(acct.observed_cost - 0.3) < 1e-6);
     assert.ok(Array.isArray(acct.recent_runs));
-    assert.equal(acct.recent_runs.length, 2);
+    assert.equal(acct.recent_runs.length, 3);
 
-    // Now Run 3 can be admitted under the expanded cap
-    const r3Allowed = ledger.reserveAdmission({
-      grant_token: g3.grant_token,
+    // Additional run can be admitted under the expanded cap
+    const g4 = issueLiveGrant(ledger);
+    const r4Allowed = ledger.reserveAdmission({
+      grant_token: g4.grant_token,
       target: DEFAULT_TARGET,
       source_commit_id: DEFAULT_SOURCE,
       estimated_cost: 0.5,
@@ -1560,13 +1609,13 @@ describe("AdmissionLedgerDO Adversarial & Integration Verification Suite", () =>
       balance_timestamp: Date.now(),
       live_enabled: true,
     });
-    assert.equal(r3Allowed.admitted, true);
-    assert.equal(r3Allowed.run_id.startsWith("run_"), true);
+    assert.equal(r4Allowed.admitted, true);
+    assert.equal(r4Allowed.run_id.startsWith("run_"), true);
 
     // getAllRuns reports the runs accurately
     const allRuns = ledger.getAllRuns();
-    assert.equal(allRuns.total, 3);
-    assert.equal(allRuns.runs.length, 3);
+    assert.equal(allRuns.total, 4);
+    assert.equal(allRuns.runs.length, 4);
   });
 
   it("25. DEFECT B: expired-grant AUTHORIZED cost-hold exception transitions atomically/idempotently to EXPIRED and unblocks subsequent legitimate authorization while preserving historical state", () => {

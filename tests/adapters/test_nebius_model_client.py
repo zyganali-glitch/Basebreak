@@ -250,6 +250,31 @@ class TestNebiusModelClient:
         assert result.usage.total_tokens == 23
         assert result.duration_seconds >= 0.0
 
+    # 9b. chat_template_kwargs and reasoning_effort are passed into payload
+    def test_chat_template_kwargs_and_reasoning_effort(self) -> None:
+        captured_payload = {}
+
+        def mock_transport(req: Any, timeout: float) -> TransportResponse:
+            nonlocal captured_payload
+            captured_payload = json.loads(req.data.decode("utf-8"))
+            body = _make_success_body()
+            return TransportResponse(200, body, {})
+
+        client = NebiusModelClient(
+            config=ModelClientConfig(api_key="valid-key"),
+            transport=mock_transport,
+        )
+        result = client.complete(
+            [{"role": "user", "content": "hi"}],
+            chat_template_kwargs={"enable_thinking": False},
+            reasoning_effort="none",
+        )
+        assert result.content == "BASEBREAK_LIVE_OK"
+        assert captured_payload.get("chat_template_kwargs") == {"enable_thinking": False}
+        expected_extra = {"chat_template_kwargs": {"enable_thinking": False}}
+        assert captured_payload.get("extra_body") == expected_extra
+        assert captured_payload.get("reasoning_effort") == "none"
+
     # 10. response text is bounded
     def test_response_text_bounding(self) -> None:
         long_content = "X" * 1000

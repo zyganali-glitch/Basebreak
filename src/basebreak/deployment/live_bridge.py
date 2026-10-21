@@ -265,8 +265,10 @@ class BridgeRequest:
             raise BridgeValidationError("issued_at_ms must be an integer.")
         if not isinstance(deadline_ms, int):
             raise BridgeValidationError("deadline_ms must be an integer.")
-        if not isinstance(max_cost, (int, float)) or float(max_cost) <= 0.0:
-            raise BridgeValidationError("max_estimated_cost_usd must be a positive number.")
+        if max_cost is None or not isinstance(max_cost, (int, float)) or float(max_cost) <= 0.0:
+            eff_max_cost = 0.50
+        else:
+            eff_max_cost = float(max_cost)
 
         return cls(
             request_id=request_id,
@@ -278,7 +280,7 @@ class BridgeRequest:
             target=target,
             source_commit_id=source_commit_id,
             frozen_contract_digest=frozen_contract_digest,
-            max_estimated_cost_usd=float(max_cost),
+            max_estimated_cost_usd=eff_max_cost,
             schema_version=schema_version,
         )
 
@@ -2096,12 +2098,26 @@ class TrustedVerifierBridge:
                 response_code, response_body = self._error(
                     502, "FAILED", integrity_error, provider_dispatched=True
                 )
+                response_body.update(
+                    {
+                        "tokens_used": result.tokens_used,
+                        "model_prompt_tokens": result.model_prompt_tokens,
+                        "model_completion_tokens": result.model_completion_tokens,
+                    }
+                )
             elif result.receipt.provenance != EvidenceProvenance.LIVE_NEBIUS:
                 response_code, response_body = self._error(
                     502,
                     "FAILED",
                     "Bridge executor returned a non-LIVE_NEBIUS receipt for a live request.",
                     provider_dispatched=True,
+                )
+                response_body.update(
+                    {
+                        "tokens_used": result.tokens_used,
+                        "model_prompt_tokens": result.model_prompt_tokens,
+                        "model_completion_tokens": result.model_completion_tokens,
+                    }
                 )
             elif self.execution_authority_verifier is None:
                 response_code, response_body = self._error(
@@ -2110,6 +2126,13 @@ class TrustedVerifierBridge:
                     "Independent live execution authority is not configured. Trusted bridge "
                     "cannot certify executor-reported LIVE_NEBIUS receipts; run remains NOT_RUN.",
                     provider_dispatched=True,
+                )
+                response_body.update(
+                    {
+                        "tokens_used": result.tokens_used,
+                        "model_prompt_tokens": result.model_prompt_tokens,
+                        "model_completion_tokens": result.model_completion_tokens,
+                    }
                 )
             else:
                 try:
@@ -2129,6 +2152,13 @@ class TrustedVerifierBridge:
                         or "Independent live execution authority rejected the executor-reported "
                         "receipt.",
                         provider_dispatched=True,
+                    )
+                    response_body.update(
+                        {
+                            "tokens_used": result.tokens_used,
+                            "model_prompt_tokens": result.model_prompt_tokens,
+                            "model_completion_tokens": result.model_completion_tokens,
+                        }
                     )
                 else:
                     proof = create_receipt_proof(

@@ -385,6 +385,9 @@ class NebiusModelClient:
         temperature: float | None = None,
         response_format: Mapping[str, Any] | None = None,
         reject_length_truncation: bool = False,
+        chat_template_kwargs: Mapping[str, Any] | None = None,
+        reasoning_effort: str | None = None,
+        extra_body: Mapping[str, Any] | None = None,
     ) -> ModelClientResult:
         """Execute exactly ONE bounded chat completion request.
 
@@ -446,6 +449,26 @@ class NebiusModelClient:
             "max_tokens": eff_max_tokens,
             "temperature": eff_temperature,
         }
+
+        merged_extra: dict[str, Any] = {}
+        if extra_body is not None:
+            if not isinstance(extra_body, Mapping):
+                raise ModelConfigError("extra_body must be a mapping")
+            merged_extra.update(extra_body)
+
+        if chat_template_kwargs is not None:
+            if not isinstance(chat_template_kwargs, Mapping):
+                raise ModelConfigError("chat_template_kwargs must be a mapping")
+            payload["chat_template_kwargs"] = dict(chat_template_kwargs)
+            merged_extra["chat_template_kwargs"] = dict(chat_template_kwargs)
+
+        if merged_extra:
+            payload["extra_body"] = merged_extra
+
+        if reasoning_effort is not None:
+            if not isinstance(reasoning_effort, str) or not reasoning_effort.strip():
+                raise ModelConfigError("reasoning_effort must be a non-empty string")
+            payload["reasoning_effort"] = reasoning_effort.strip()
 
         if response_format is not None:
             if not isinstance(response_format, Mapping):

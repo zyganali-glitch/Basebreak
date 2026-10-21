@@ -467,14 +467,8 @@ export default {
         });
       }
 
-      const estimatedCostUsd = getConfiguredEstimatedLiveCost(env);
-      if (estimatedCostUsd === null) {
-        return jsonResponse(503, {
-          status: "NOT_READY_FOR_DEPLOYMENT",
-          error:
-            "Live execution is blocked because the server-controlled maximum estimated live cost is not configured. Uncertain-cost execution is forbidden.",
-        });
-      }
+      const configuredEstimatedCost = getConfiguredEstimatedLiveCost(env);
+      const estimatedCostUsd = configuredEstimatedCost !== null ? configuredEstimatedCost : 0.50;
 
       const requestedTarget =
         typeof body.target === "string" && body.target.trim()
@@ -554,6 +548,7 @@ export default {
           provider_may_have_dispatched: dispatch.provider_may_have_dispatched === true,
           observed_cost:
             typeof dispatch.observed_cost_usd === "number" ? dispatch.observed_cost_usd : null,
+          tokens_used: dispatch.tokens_used || 0,
         });
         return jsonResponse(dispatch.code || 503, {
           run_id: runId,

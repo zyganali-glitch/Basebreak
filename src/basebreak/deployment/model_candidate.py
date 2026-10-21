@@ -31,25 +31,25 @@ from basebreak.builder.loop import (
 
 MODEL_GENERATED_CANDIDATE_ORIGIN: str = "MODEL_GENERATED_NEBIUS"
 
-DEFAULT_CANDIDATE_MAX_TOKENS: int = 8192
+DEFAULT_CANDIDATE_MAX_TOKENS: int = 32768
 CANDIDATE_MAX_TOKENS_ENV_VAR: str = "BASEBREAK_CANDIDATE_MAX_TOKENS"
 
 
 def resolve_candidate_max_tokens(configured: int | None = None) -> int:
     """Resolve the candidate generation max token budget.
 
-    Supports operator configuration up to the model adapter ceiling (16,384 tokens),
-    falling back to DEFAULT_CANDIDATE_MAX_TOKENS (8,192).
+    Supports operator configuration up to the model context length (1,048,576 tokens),
+    falling back to DEFAULT_CANDIDATE_MAX_TOKENS (32,768).
     """
     if configured is not None and configured > 0:
-        return max(1, min(configured, 16384))
+        return max(1, min(configured, 1_048_576))
     import os
 
     env_val = os.environ.get(CANDIDATE_MAX_TOKENS_ENV_VAR, "").strip()
     if env_val:
         try:
             parsed = int(env_val)
-            if 1 <= parsed <= 16384:
+            if 1 <= parsed <= 1_048_576:
                 return parsed
         except ValueError:
             pass
@@ -326,14 +326,37 @@ def generate_model_candidate(
         target=target,
         base_files=base_files,
     )
+    import inspect
+    import os
+
+    enable_thinking = os.environ.get(
+        "BASEBREAK_CANDIDATE_ENABLE_THINKING", "false"
+    ).strip().lower() in ("true", "1")
+    chat_template_kwargs = {"enable_thinking": False} if not enable_thinking else None
+
     eff_max_tokens = resolve_candidate_max_tokens(max_tokens)
+    complete_kwargs: dict[str, Any] = {
+        "max_tokens": eff_max_tokens,
+        "temperature": temperature,
+        "response_format": CANDIDATE_RESPONSE_FORMAT,
+        "reject_length_truncation": True,
+    }
+    if chat_template_kwargs is not None:
+        try:
+            sig = inspect.signature(model_client.complete)
+            params = sig.parameters
+            accepts_var_keyword = any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+            )
+            if accepts_var_keyword or "chat_template_kwargs" in params:
+                complete_kwargs["chat_template_kwargs"] = chat_template_kwargs
+        except (ValueError, TypeError):
+            complete_kwargs["chat_template_kwargs"] = chat_template_kwargs
+
     try:
         result = model_client.complete(
             messages,
-            max_tokens=eff_max_tokens,
-            temperature=temperature,
-            response_format=CANDIDATE_RESPONSE_FORMAT,
-            reject_length_truncation=True,
+            **complete_kwargs,
         )
     except ModelConfigError as exc:
         # Pre-dispatch configuration/credential rejection: no provider work was dispatched.

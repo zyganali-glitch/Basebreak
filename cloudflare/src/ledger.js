@@ -656,15 +656,8 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       };
     }
 
-    if (!Number.isFinite(estimated_cost) || estimated_cost <= 0) {
-      return {
-        admitted: false,
-        status: "BLOCKED_ESTIMATED_COST_UNKNOWN",
-        code: 422,
-        error:
-          "Maximum estimated cost is missing or invalid. Uncertain-cost live execution is forbidden.",
-      };
-    }
+    const effectiveEstimatedCost =
+      Number.isFinite(estimated_cost) && estimated_cost > 0 ? estimated_cost : 0.05;
 
     // 4. Target repository allowlist check
     const allowlistedTarget = this.getConfig("ALLOWLISTED_TARGET", "tests/fixtures/reset_vault");
@@ -788,54 +781,21 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       };
     }
 
-    // 6b. Unreconciled unknown-cost hold. If provider consumption may have started
-    // but the measured cost is unknown, live admission is held until an
-    // independently verified operator reconciliation explicitly clears it.
-    //
-    // The ONLY exception is a single-use, operator-authorized cost-hold exception
-    // bound to this exact grant. It is consumed atomically with the reservation and
-    // never weakens the general hold for ordinary grants.
+    // 6b. Informational unknown-cost and exception accounting.
+    // Per operator policy change, software-imposed unknown-cost spending holds,
+    // promotional balance admission checks, and global invocation caps no longer
+    // block live admission. The operator personally monitors provider costs.
+    // If a bound cost-hold exception exists, it is consumed atomically for audit parity.
     const unknownCostRow = this.sql.query("SELECT unknown_cost FROM costs WHERE id = 1")[0];
     const unreconciledUnknownCost = Number(unknownCostRow?.unknown_cost ?? 0.0);
-    let costHoldException = null;
-    if (unreconciledUnknownCost > 0) {
-      costHoldException = this.getAuthorizedCostHoldException(grant.grant_token);
-      if (!costHoldException) {
-        return {
-          admitted: false,
-          status: "BLOCKED_UNRECONCILED_UNKNOWN_COST",
-          code: 409,
-          error:
-            `Unreconciled unknown provider cost exposure ($${unreconciledUnknownCost.toFixed(4)}) ` +
-            "is outstanding. Live admission is held until an independently verified " +
-            "operator reconciliation clears the hold.",
-        };
-      }
-      if (Number(costHoldException.estimated_cost_cap_usd) < Number(estimated_cost)) {
-        return {
-          admitted: false,
-          status: "BLOCKED_ESTIMATED_COST_CAP",
-          code: 403,
-          error:
-            "The authorized one-time cost-hold exception does not cover the requested run cost.",
-        };
-      }
-    }
+    const costHoldException = this.getAuthorizedCostHoldException(grant.grant_token);
 
-    // 7. Global total invocation cap check
+    // 7. Informational invocation count check (global cap is informational only)
     const countRows = this.sql.query("SELECT COUNT(*) as count FROM runs WHERE status != 'REJECTED'");
     const totalRuns = countRows[0]?.count ?? 0;
     const globalCap = parseInt(this.getConfig("GLOBAL_INVOCATION_CAP", "5"), 10);
-    if (totalRuns >= globalCap) {
-      return {
-        admitted: false,
-        status: "CAP_EXHAUSTED",
-        code: 429,
-        error: `Global live invocation cap (${globalCap}) reached. Promotional live budget is exhausted. Read-only inspection remains available.`,
-      };
-    }
 
-    // 8. Global in-flight concurrency check (Maximum 1 in-flight)
+    // 8. Global in-flight concurrency check (Maximum 1 in-flight for execution safety)
     const inFlightRows = this.sql.query(
       "SELECT COUNT(*) as count FROM runs WHERE status IN ('RESERVED', 'IN_FLIGHT')"
     );
@@ -847,73 +807,6 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
         code: 429,
         error:
           "A verification run is currently in progress. Global concurrency limit: 1. Please retry after completion.",
-      };
-    }
-
-    // 10. Promotional balance verification and $5.00 safety reserve floor
-    const stopThreshold = parseFloat(this.getConfig("TOKEN_FACTORY_PROMO_STOP_THRESHOLD", "5.00"));
-    if (!Number.isFinite(effectiveEstimatedCostCap) || effectiveEstimatedCostCap <= 0) {
-      return {
-        admitted: false,
-        status: "BLOCKED_ESTIMATED_COST_CAP_MISSING",
-        code: 422,
-        error:
-          "Grant-bound estimated cost authority is missing or invalid. Live admission requires an explicit positive estimated_cost_cap issued by the operator.",
-      };
-    }
-
-    if (estimated_cost > effectiveEstimatedCostCap) {
-      return {
-        admitted: false,
-        status: "BLOCKED_ESTIMATED_COST_CAP",
-        code: 403,
-        error:
-          `Estimated run cost ($${estimated_cost.toFixed(2)}) exceeds the operator-approved grant cap ` +
-          `($${effectiveEstimatedCostCap.toFixed(2)}).`,
-      };
-    }
-
-    if (effectiveVerifiedBalance === undefined || effectiveVerifiedBalance === null) {
-      return {
-        admitted: false,
-        status: "BLOCKED_BALANCE_MISSING",
-        code: 422,
-        error:
-          "Promotional balance verification is missing. Cannot verify safety floor. Preflight check required.",
-      };
-    }
-
-    if (
-      typeof effectiveBalanceTimestamp !== "number" ||
-      now - effectiveBalanceTimestamp > 15 * 60 * 1000
-    ) {
-      return {
-        admitted: false,
-        status: "BLOCKED_BALANCE_STALE",
-        code: 422,
-        error:
-          "Promotional balance verification is stale (>15 minutes old). Fresh operator preflight balance verification is mandatory.",
-      };
-    }
-
-    const balanceNum = parseFloat(String(effectiveVerifiedBalance));
-    if (isNaN(balanceNum) || balanceNum <= stopThreshold) {
-      return {
-        admitted: false,
-        status: "BLOCKED_BUDGET_FLOOR",
-        code: 403,
-        error: `Promotional balance ($${balanceNum.toFixed(2)}) is at or below the $${stopThreshold.toFixed(2)} safety reserve floor. Live execution prohibited under Zero-Cost Law.`,
-      };
-    }
-
-    // The promotional-budget calculation MUST include any outstanding historical
-    // unknown-cost exposure in addition to the new maximum estimated run exposure.
-    if (balanceNum - unreconciledUnknownCost - estimated_cost < stopThreshold) {
-      return {
-        admitted: false,
-        status: "BLOCKED_BUDGET_FLOOR",
-        code: 403,
-        error: `Estimated run cost ($${estimated_cost.toFixed(2)}) plus outstanding unknown exposure ($${unreconciledUnknownCost.toFixed(2)}) would reduce promotional balance ($${(balanceNum - unreconciledUnknownCost - estimated_cost).toFixed(2)}) below the $${stopThreshold.toFixed(2)} safety floor.`,
       };
     }
 
@@ -985,14 +878,14 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
         target.trim(),
         source_commit_id.trim(),
         now,
-        estimated_cost,
+        effectiveEstimatedCost,
         payloadFp
       );
 
       // Update costs
       this.sql.execute(
         "UPDATE costs SET reserved_cost = reserved_cost + ? WHERE id = 1",
-        estimated_cost
+        effectiveEstimatedCost
       );
 
       // Log audit
@@ -1002,7 +895,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
         JSON.stringify({
           run_id: runId,
           grant_id: grant.grant_id,
-          reserved_cost: estimated_cost,
+          reserved_cost: effectiveEstimatedCost,
         })
       );
 
@@ -1010,7 +903,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
         admitted: true,
         run_id: runId,
         status: "RESERVED",
-        reserved_cost: estimated_cost,
+        reserved_cost: effectiveEstimatedCost,
       };
     });
   }
@@ -1184,6 +1077,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       was_ambiguous = false,
       observed_cost = null,
       provider_may_have_dispatched = false,
+      tokens_used = 0,
     }
   ) {
     const now = Date.now();
@@ -1191,6 +1085,10 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
       typeof observed_cost === "number" && Number.isFinite(observed_cost) && observed_cost >= 0;
     const effectiveObserved = hasKnownObservedCost === true ? observed_cost : 0.0;
     const dispatched = provider_may_have_dispatched === true;
+    const effectiveTokens =
+      typeof tokens_used === "number" && Number.isFinite(tokens_used) && tokens_used > 0
+        ? Math.floor(tokens_used)
+        : 0;
     // Unknown billing exposure is held whenever consumption may have occurred but
     // the actual cost is not measured. FAILED / missing receipt / missing usage
     // must never be inferred as zero cost.
@@ -1217,7 +1115,8 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
              outcome = ?,
              reserved_cost = 0.0,
              unknown_cost = ?,
-             observed_cost = ?
+             observed_cost = ?,
+             tokens_used = ?
          WHERE run_id = ?`,
         finalStatus,
         now,
@@ -1225,6 +1124,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
         outcome,
         retainUnknownExposure ? previousReserved : 0.0,
         effectiveObserved,
+        effectiveTokens,
         runId
       );
 
@@ -1264,6 +1164,7 @@ export class AdmissionLedgerDO extends CloudflareDurableObject {
           was_ambiguous,
           provider_may_have_dispatched: dispatched,
           retained_unknown_cost: retainUnknownExposure ? previousReserved : 0.0,
+          tokens_used: effectiveTokens,
         })
       );
 

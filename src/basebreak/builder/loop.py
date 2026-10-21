@@ -60,7 +60,7 @@ from basebreak.security.secret_policy import (
 DEFAULT_PRIMARY_MODEL_ID: str = "nvidia/Nemotron-3_5-Lightning"
 DEFAULT_SANDBOX_IMAGE_TAG: str = "tag:astral/uv:python3.11-alpine"
 DEFAULT_MAX_MODEL_CALLS: int = 1
-DEFAULT_MODEL_MAX_TOKENS: int = 8192
+DEFAULT_MODEL_MAX_TOKENS: int = 32768
 DEFAULT_MODEL_TEMPERATURE: float = 0.0
 DEFAULT_SANDBOX_TIMEOUT_SECONDS: int = 300
 DEFAULT_SANDBOX_PROBE_COMMAND: tuple[str, ...] = ("echo", "BASEBREAK_BUILDER_SANDBOX_READY")
@@ -431,9 +431,9 @@ class BuilderLoopConfig:
             raise BuilderLoopConfigError(
                 f"max_model_calls must be between 1 and 5, got {self.max_model_calls}"
             )
-        if self.max_tokens < 1 or self.max_tokens > 16384:
+        if self.max_tokens < 1 or self.max_tokens > 1_048_576:
             raise BuilderLoopConfigError(
-                f"max_tokens must be between 1 and 16384, got {self.max_tokens}"
+                f"max_tokens must be between 1 and 1048576, got {self.max_tokens}"
             )
         if self.temperature < 0.0 or self.temperature > 2.0:
             raise BuilderLoopConfigError(

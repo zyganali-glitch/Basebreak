@@ -756,6 +756,7 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
             error: "Model returned a malformed response after inference completed.",
             ambiguous_outcome: false,
             provider_dispatched: true,
+            tokens_used: 9137,
           }),
           { status: 502, headers: { "Content-Type": "application/json" } }
         ),
@@ -784,13 +785,20 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     assert.equal(firstData.status, "FAILED");
     assert.equal(firstData.ambiguous_outcome, false);
 
+    // Tokens used is preserved on the failed run row
+    const failedRunRow = env.__ledgerInstance.sql.query(
+      "SELECT tokens_used FROM runs WHERE run_id = ?",
+      firstData.run_id
+    )[0];
+    assert.equal(failedRunRow.tokens_used, 9137);
+
     const accounting = env.__ledgerInstance.getAccounting();
     assert.equal(accounting.unknown_cost, estimatedCost);
     assert.equal(accounting.observed_cost, 0.0);
     assert.equal(accounting.reserved_cost, 0.0);
     assert.equal(accounting.in_flight_count, 0);
 
-    // A fresh grant must be held until an independently verified reconciliation.
+    // A fresh grant is admitted without being blocked by unknown cost.
     const heldGrant = env.__ledgerInstance.issueGrant({
       verifiedBalance: 10.0,
       balanceTimestamp: Date.now(),
@@ -798,9 +806,9 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
       clientInfo: "judge-2",
     });
     const held = await worker.fetch(makeRequest(heldGrant.grant_token), env, {});
-    assert.equal(held.status, 409);
+    assert.equal(held.status, 502);
     const heldData = await held.json();
-    assert.equal(heldData.status, "BLOCKED_UNRECONCILED_UNKNOWN_COST");
+    assert.equal(heldData.status, "FAILED");
 
     // Explicit, evidence-backed operator reconciliation clears the hold.
     const reconcileReq = new Request(
@@ -832,7 +840,8 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     assert.equal(reconcileData.provider_verification_claimed, false);
 
     const cleared = env.__ledgerInstance.getAccounting();
-    assert.equal(cleared.unknown_cost, 0.0);
+    // Reconciling run 1 clears its 0.25 exposure; run 2 (held) preserves its 0.25 exposure
+    assert.equal(cleared.unknown_cost, 0.25);
 
     const afterGrant = env.__ledgerInstance.issueGrant({
       verifiedBalance: 10.0,
