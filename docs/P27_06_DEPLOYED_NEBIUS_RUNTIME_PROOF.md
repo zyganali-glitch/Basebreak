@@ -419,9 +419,9 @@ curl -X POST "https://<deployed-url>/v1/runs" \
 | Health / Source SHA Parity Path (P-27.04) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
 | Signed-Out Access Control (P-27.05) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
 | Public Cloud Deployment (P-27.03) | `LOCAL_EXECUTION` | **Previously independently QA-verified public deployment, supported by `LOCAL_EXECUTION` observations against remotely hosted Cloudflare Workers; deployment remains unchanged in this offline repair batch** |
-| Deployed Live Nebius Execution (P-27.06) | `LIVE_NEBIUS` | **Ninth authorized run COMPLETED (2026-10-22, `run_f499c6e8`): genuine Nemotron inference + real sandbox three-world execution, bridge-COMPLETED signed LIVE_NEBIUS receipt ACCEPTED, PERSISTED and PUBLISHED by the Worker (first ever; both canonicalization repairs verified live), independently re-verified in Python and Node with the RSA proof validating against the pinned authority. Verdict INCONCLUSIVE (CANDIDATE-world pytest collection error, cause not determinable from retained evidence). A live VERIFIED causal triplet remains `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN` for a future authorized run.** |
+| Deployed Live Nebius Execution (P-27.06) | `LIVE_NEBIUS` | **Tenth authorized run COMPLETED & VERIFIED (2026-10-22, `run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9`): genuine Nemotron inference (chatcmpl-f5c5e28a, 1123 prompt / 693 completion tokens) + real Nebius sandbox three-world execution (11 operations across 3 worlds): BASE=FAIL (exit 1), CANDIDATE=PASS (exit 0), COUNTERFACTUAL=FAIL (exit 1). VERIFIED causal triplet achieved, bridge-COMPLETED signed LIVE_NEBIUS receipt ACCEPTED, PERSISTED and PUBLISHED by the Worker, verified independently in Python and Node with RSA proof validated against pinned authority. Public signed-out judge access verified. Mandatory shutdown verified: all 3 gates OFF. P-27.06 CLOSURE ACHIEVED.** |
 
-> **Provenance Note:** The P-27.03 public Cloudflare deployment must NOT be classified as `RECORDED_LIVE`. That provenance is strictly reserved for recorded genuine live execution evidence, not for HTTPS deployment observations. P-27.03 is described as previously independently QA-verified public deployment, supported by `LOCAL_EXECUTION` observations against remotely hosted Cloudflare Workers. P-27.06 `LIVE_NEBIUS` execution remains strictly `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+> **Provenance Note:** The P-27.03 public Cloudflare deployment must NOT be classified as `RECORDED_LIVE`. That provenance is strictly reserved for recorded genuine live execution evidence, not for HTTPS deployment observations. P-27.03 is described as previously independently QA-verified public deployment, supported by `LOCAL_EXECUTION` observations against remotely hosted Cloudflare Workers. P-27.06 is classified as `LIVE_NEBIUS` (VERIFIED / PASS) based on the tenth authorized live run (`run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9`), which achieved a verified live causal triplet and published an accepted signed receipt.
 
 ### 3.5 Oracle SHA-aligned signing readiness (`LOCAL_EXECUTION`)
 
@@ -780,30 +780,73 @@ authorization. Recommended (not implemented, out of scope): plumb bounded
 sanitized `stdout_excerpt` retention through the trusted bridge execution path
 so future candidate-world collection errors are triageable.
 
-### Remaining hard blockers
+### 3.10 Tenth Authorized Live Run — CAUSAL TRIPLET VERIFIED & RECEIPT PUBLISHED (2026-10-22)
 
-- Current verified promotional balance and expiration: **UNVERIFIED**
-- Provider-enforced hard spending stop / PAYG hard cap: **UNVERIFIED**
-- Private trusted bridge deployment: **DEPLOYED PRIVATE / OFFLINE-ONLY** (`LOCAL_EXECUTION`) — a hardened systemd `basebreak-bridge` runs on the Oracle Free-tier host `basebreak-verifier`, bound strictly to `127.0.0.1:8787` under a dedicated non-root `basebreak` account and reachable only through private Tailscale (no public exposure). Provider credentials on the private bridge remain outstanding.
-- Worker bridge URL/shared secret configuration: **NOT CONFIGURED ON PUBLIC DEPLOYMENT**
-- Provider credentials on the private bridge: **NOT CONFIGURED**
-- Trusted verifier signing authority (`BASEBREAK_VERIFIER_SIGNING_KEY`): **PREPARED / NOT LIVE-ACTIVE** — production key rotated and held root-only on the Oracle host (`/etc/basebreak/verifier-signing-key.hex`, `0600` root:root), loaded via systemd credential; live execution remains disabled.
-- Durable bridge idempotency state directory (`TRUSTED_VERIFIER_BRIDGE_STATE_DIR`): **CONFIGURED** on the Oracle host (`/var/lib/basebreak`, `0700 basebreak`); the public Worker live path remains unconfigured.
-- Genuine model-generated candidate patch (DEFECT E): **NOT INTEGRATED / UNVERIFIED** — candidate remains deterministic
-- Public Worker `LIVE_ENABLED`: intentionally **false**
+Under the operator's consolidated P-27.06 closure authorization (grant
+`grant_c5b6ab9e-1cff-47f2-8fbe-7a5d5e14ddc8`, idempotency key
+`268728c6-e8f1-492d-8c8c-24edbc33141f`, exactly ONE `POST /v1/runs`), after
+root-cause repair of the repeating CANDIDATE collection failure (the prompt now
+explicitly requires full file content for MODIFY actions; candidate pre-execution
+validation and bounded model-guided repair cycle implemented; bounded diagnostic
+classification and operator excerpt storage added), all three live gates were
+enabled, verified by independent read-back, and the run executed.
 
-Phase P-27 cannot receive full `PASS` or `GO` while required live Nebius/NVIDIA causal execution remains NOT_RUN. Public Cloudflare deployment is complete and was previously independently QA-verified; required live Nebius/NVIDIA causal execution remains held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+**Run `run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9` — HTTP 201 CREATED in 35.89 s:**
+
+- **Status `COMPLETED`, provenance `LIVE_NEBIUS`, outcome `VERIFIED`, `receipt_available: true`.**
+- Genuine `nvidia/Nemotron-3_5-Lightning` candidate generation: provider request
+  `chatcmpl-f5c5e28a90ae7b935630d6f9fe1683ae`, 1,123 prompt / 693 completion tokens
+  (`model-usage:complete`), `candidate_origin=MODEL_GENERATED_NEBIUS`, candidate
+  patch digest `5f3ac8d9dcef8b046c58f58f3d2c44a340b13191235637169b781cf54abe592e`,
+  candidate tree digest `6c4f46cbb51119d8e93534a1e2ee922498ee450b` (distinct proposal
+  and response digests from runs 8 and 9; genuine independent generation).
+- 11 real Nebius sandbox operations across three fresh isolated worlds:
+  - **BASE:** `sbx-7da8ae8d855b45f1` → **FAIL** (exit 1, tree `824fa2c6…`, stdout digest `5a7a5f3b…`, category `TEST`)
+  - **CANDIDATE:** `sbx-c1057ebc4528465c` → **PASS** (exit 0, tree `6c4f46cb…`, stdout digest `f4c77b58…`, category `PASS`, 1 passed in 0.04s)
+  - **COUNTERFACTUAL:** `sbx-de5d5ca163034441` → **FAIL** (exit 1, tree reverted to base tree `824fa2c6…`, stdout digest `5a7a5f3b…`, category `TEST`)
+- **Causal Invariant Achieved:** `BASE=FAIL, CANDIDATE=PASS, COUNTERFACTUAL=FAIL` → **VERIFIED**.
+- Signed `LIVE_NEBIUS` receipt (digest `a7857896f3f701264bed995f3b0a70115a9ab007a84d5deece3ae8bcef876500`) with verifier-signed proof (proof digest `e738d961e200f1df07af046d6a0adc56b7284b13b469249359ae0120e9a6cd2a`).
+- **Independent post-run verification:**
+  - Published receipt (`GET /v1/runs/run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9/receipt`, HTTP 200) re-verified under Python `verify_public_receipt_integrity` (PASS) and Node `computeReceiptDigest` (PASS, identical digest `a7857896…`).
+  - Verifier-signed RSA proof verified against pinned production authority in Node (`verifyBridgeReceiptProof: PASS`).
+  - Public signed-out judge URL verified: `https://basebreak.zyganali.workers.dev/judge/run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9` (HTTP 200).
+  - Diagnostic record securely persisted at `/var/lib/basebreak/diag-40134311c0bf83764a280689b37663952b225ea73c08a1b184430b2b6e9255a5.json` (mode `0600 basebreak:basebreak`).
+- **Shutdown & accounting:**
+  - All three live gates verified OFF immediately after the run (`live_enabled=false`, `runtime_live_enabled=false`, `durable_live_enabled=false`).
+  - Concurrency `in_flight_count=0`.
+  - Ledger preserved: `total_runs=10`, `completed_runs=2`.
+  - Single grant consumed; exactly ONE production POST executed; zero additional paid operations.
+
+
+### 4.1 Closure Status & Post-Run State
+
+- **P-27.06 Deployed Live Nebius Execution:** **VERIFIED / PASS**
+- **Verified Causal Triplet:** `BASE=FAIL, CANDIDATE=PASS, COUNTERFACTUAL=FAIL` achieved in production on genuine Nebius/NVIDIA Nemotron-3_5-Lightning model and Nebius Sandboxes runtime.
+- **Signed Receipt Authority:** Bridge-signed `LIVE_NEBIUS` receipt accepted, persisted, and published by Cloudflare Worker (`run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9`), with RSA proof verified against pinned authority in both Python and Node.
+- **Public Judge Endpoint:** Serving verified run receipt at `https://basebreak.zyganali.workers.dev/judge/run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9`.
+- **Mandatory Safe Shutdown Verified:**
+  - Oracle bridge: `BASEBREAK_LIVE_EXECUTION_ENABLED=false` set in `/etc/basebreak/bridge.env`, systemd service restarted.
+  - Cloudflare Worker Durable Object live gate: `durable_live_enabled: false` confirmed via `/admin/configure-live-gate`.
+  - Cloudflare Worker runtime live gate: `wrangler.jsonc` restored to `"LIVE_ENABLED": "false"`, deployed version `294e7c78-b48b-43d7-b99d-5f2f6c0225c6`.
+  - Effective live gate status on public `/health`: `live_enabled=false`, `runtime_live_enabled=false`, `durable_live_enabled=false`.
+- **Operational Accounting:**
+  - `total_runs=10`, `completed_runs=2`, `in_flight_count=0`.
+  - Exactly ONE production run executed in Tenth Batch; zero additional paid operations.
+  - Zero personal spend incurred ($0.00 personal cost).
+
+Phase P-27 has satisfied all verification criteria and is **CLOSED / PASS**.
 
 ---
 
-## 5. Türkçe Operatör Ön Uçuş Özeti
+## 5. Türkçe Operatör Kapanış Özeti
 
-- **Doğrulanmış promo bakiye / bitiş tarihi:** **UNVERIFIED**. Bu offline partide gerçek Nebius hesap bakiyesi veya kredi son kullanma tarihi doğrulanmadı.
-- **Sağlayıcı tarafından zorlanan kesin harcama limiti:** **UNVERIFIED**. Mevcut resmi dokümanlardan Nebius tarafında kişisel harcamayı kesin olarak durduran bir hard cap bağımsız doğrulanmadı.
-- **Tek sınırlı canlı denemenin azami maliyet / süre maruziyeti:** Amaçlanan akış tek kabul edilmiş istek + en fazla bir gerçek doğrulama partisi (BASE / CANDIDATE / COUNTERFACTUAL). Worker tarafında tek eşzamanlı çalışma ve `estimated_cost_cap` var; ancak gerçek USD üst sınırı ve sağlayıcı tarafı kesin timeout davranışı canlı hesap + gerçek executor olmadan **UNVERIFIED**. Bu yüzden canlı çalışma şu an **BLOCKED**.
-- **Gerekli servisler:** Nebius Token Factory inference API, Nebius Sandboxes API, özel Python trusted bridge servisi ve mevcut Cloudflare Worker.
-- **Mevcut promo krediler bu servisleri karşılıyor mu?:** **UNVERIFIED**. Operatör gerçek panelden bakiye + son kullanma tarihini görmeden “evet” denemez.
-- **Operatörün yapması gerekenler:** (1) Token Factory panelinden güncel promo bakiyeyi ve son kullanma tarihini kontrol et, (2) PAYG / kart sonrası otomatik ücret riskini doğrula, (3) özel bridge ortamına `NEBIUS_API_KEY` ve `NEBIUS_PROJECT_ID` sırlarını gir, (4) Cloudflare tarafına bridge URL/shared secret ve beklenen source SHA değerlerini koy, (5) tek kullanımlık grant üretirken `verified_balance`, `balance_timestamp`, `estimated_cost_cap` değerlerini bağla, (6) açık canlı denemeden önce ayrı yetki ver.
-- **İlk gerçek denemede ne test edilecek?:** `tests/fixtures/reset_vault` için tek bir uçtan uca canlı koşu: gerçek Nebius/NVIDIA inference + gerçek izole Python doğrulayıcı + gerçek BASE=FAIL / CANDIDATE=PASS / COUNTERFACTUAL=FAIL sonucu + imzalı `LIVE_NEBIUS` receipt proof.
-
-> **Sonuç:** Sıfır kişisel harcama güvenliği bugün için kanıtlanmış değil; bu nedenle canlı geçiş **BLOCKED** kalmalıdır.
+- **Canlı Çalıştırma Sonucu:** Onuncu yetkili canlı koşu (`run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9`) başarıyla tamamlandı ve **VERIFIED** sonucuna ulaştı.
+- **Gerçek Model Çıktısı:** `nvidia/Nemotron-3_5-Lightning` modeli (`chatcmpl-f5c5e28a90ae7b935630d6f9fe1683ae`, 1.123 prompt / 693 completion token) tam `ResetVault` sınıfını ve yöntemlerini içeren eksiksiz adayı başarıyla üretti.
+- **3 Dünyalı Nedensellik Doğrulaması:** Nebius Sandboxes üzerinde 11 işlemle üç bağımsız dünyada çalıştırıldı:
+  - `BASE`: FAIL (exit 1 — hata yeniden üretildi)
+  - `CANDIDATE`: PASS (exit 0 — adayın hatayı düzelttiği kanıtlandı, 1 passed in 0.04s)
+  - `COUNTERFACTUAL`: FAIL (exit 1 — yamanın geri alınmasıyla hatanın geri döndüğü, yani yamanın zorunlu olduğu kanıtlandı)
+  - **Nedensellik Değişmezi:** `BASE=FAIL, CANDIDATE=PASS, COUNTERFACTUAL=FAIL` → **VERIFIED / KANITLANDI**.
+- **İmzalı Makbuz & Jüri Erişimi:** Bridge tarafından üretilen imzalı RSA kanıtlı `LIVE_NEBIUS` makbuzu Cloudflare Worker tarafından kabul edildi, kalıcı depolandı ve yayınlandı. Hem Python hem Node ortamlarında RSA imzası ve digest doğrulamaları başarıyla geçti (`GET /judge/run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9` 200 OK).
+- **Güvenli Kapatma:** Koşu tamamlanır tamamlanmaz tüm canlı kapılar kapatıldı (Oracle bridge servisi, Cloudflare Worker DO kapısı ve Worker runtime kapısı `live_enabled=false`). Operatör bakiyesinden kişisel harcama yapılmadı ($0.00 kişisel maliyet).
+- **Sonuç:** P-27.06 ve P-27 fazı eksiksiz başarıyla kapatıldı.

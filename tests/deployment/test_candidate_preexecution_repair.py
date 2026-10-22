@@ -161,7 +161,8 @@ def test_model_guided_repair_cycle_recovers_from_invalid_first_response() -> Non
     last_user_message = repair_turn_messages[-1]["content"]
     assert "IndentationError" in last_user_message
     assert "MODIFY" in last_user_message
-    assert "COMPLETE, FULL file content" in last_user_message
+    assert "COMPLETE, FULL" in last_user_message
+    assert "file content from line 1 to EOF" in last_user_message
     assert "witness" not in last_user_message.lower()
     assert "sealed" not in last_user_message.lower()
 
