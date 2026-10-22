@@ -836,12 +836,23 @@ Phase exit: complete judge experience implemented, accessible, and tested. (P-28
 
 # P-29 — Competition Evidence & Reproducibility
 ### P-29.01 — Create clean-checkout install test
+Status: DONE (IMPLEMENTED_AND_TESTED in Batch P-29; verified zero runtime dependencies in pyproject.toml and package.json; automated clean checkout extraction and syntax validation in tests/reproducibility/test_p29_clean_checkout.py; published copyable clean-install instructions and public vs private operator architecture separation in docs/REPRODUCIBILITY.md).
+
 ### P-29.02 — Run full test/security/type/lint gates
+Status: DONE (VERIFIED in Batch P-29; full Python suite 2,989 passed / 12 skipped; Ruff format and lint clean; Mypy strict clean across 289 source files; Node syntax check clean; Worker Node test suite 71 passed / 0 failed; Miniflare workerd preflight 7/7 passed; adversarial security, evidence consistency, and clean-checkout reproduction gates all green).
+
 ### P-29.03 — Run fresh live Nebius end-to-end evidence capture
+Status: DONE (VERIFIED REFERENCE PROOF; verified deployed production Worker at https://basebreak.zyganali.workers.dev/v1/runs; confirmed all three live gates safely and truthfully OFF (live_enabled=false, runtime_live_enabled=false, durable_live_enabled=false); fail-closed gate verified via public probe returning 403 BLOCKED with OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN; zero personal spend ($0.00) preserved; canonical reference tenth run run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9 serves authentic verified causal triplet BASE=FAIL, CANDIDATE=PASS, COUNTERFACTUAL=FAIL with verifier-signed RSA receipt on /judge/run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9).
+
 ### P-29.04 — Bind deployed source SHA and runtime evidence
+Status: DONE (VERIFIED in Batch P-29; corrected critical evidence inaccuracies in docs/evidence/p27_06_live_run_10_evidence_packet/VERIFICATION_AUDIT.md: candidate tree digest 6c4f46cbb51119d8e93534a1e2ee922498ee450b, 1 sealed witness test passed in 0.04s, and raw RSA double-SHA256 non-PKCS#1 signature scheme with honest security evaluation; published immutable docs/evidence/EVIDENCE_MANIFEST.md distinguishing Basebreak implementation commit from ResetVault target-source commit 80b43b84014fa61b941c7ebcd87836a56dcd7c92; automated consistency check in tests/evidence/test_p29_evidence_consistency.py 5/5 passed).
+
 ### P-29.05 — Final donor/license/provenance audit
+Status: DONE (VERIFIED in Batch P-29; root Apache-2.0 LICENSE verified and NOTICE file created; docs/DONOR_REUSE_MANIFEST.md reconciled with 0 approved introductions and 0 imported lines; all candidate donors D-001 through D-008 confirmed as CONCEPT_ONLY with zero imported bytes; absence of forbidden donor branding in production source enforced by tests/security/test_p29_donor_license_audit.py 3/3 passed).
+
 ### P-29.06 — Final secret/privacy/public-artifact scan
-Phase exit: claims are reproducible and provenance-clean.
+Status: DONE (VERIFIED in Batch P-29; automated secret policy scan in tests/security/test_p29_secret_artifact_scan.py 5/5 passed across public documentation, evidence packets, JSON artifacts, and code; verified zero private signing keys, credentials, or tokens in repository; verified public proof artifacts remain tamper-verifiable and accurately labeled).
+Phase exit: claims are reproducible and provenance-clean. (Phase P-29 COMPLETED & VERIFIED / PASS; NEXT: P-30.01 Demo Video & Storyboard).
 
 ---
 

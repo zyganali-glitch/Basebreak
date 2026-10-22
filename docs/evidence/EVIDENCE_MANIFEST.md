@@ -1,0 +1,105 @@
+# Basebreak Canonical Evidence Manifest
+
+This immutable manifest binds all deployment identities, repository commits, cryptographic digests, provider telemetry, and runtime facts for the competition-defining verification proof.
+
+Competition: **Nebius x NVIDIA Global AI Hackathon**  
+Track: **Coding and Agentic Engineering**  
+Core Claim: **"Basebreak proves that an AI-written patch caused the behavior it claims to change — not merely that its tests are green."**
+
+---
+
+## 1. Source Commit & Deployment Architecture Binding
+
+> [!IMPORTANT]
+> **Source Commit Distinction**: The Basebreak application implementation commit and the target repository scenario commit (`ResetVault`) are distinct and must never be conflated. The cryptographic receipt and verifier proof bind the target scenario source commit (`80b43b84...`), which represents the base repository under test.
+
+| Boundary | Commit / Identity | Provenance / Role |
+|---|---|---|
+| **Basebreak Implementation (Head)** | Current canonical GitHub `main` SHA | Application codebase and verifier implementation |
+| **Basebreak Production Execution SHA** | `78207c28772e090fc1e36890d98052c0393f7bfe` | Exact commit under which the tenth live run was executed |
+| **Deployed Oracle Bridge Code** | `50772979d8e170b18c085f2374bee398f3eda869` | Isolated Oracle Free Tier host (`basebreak-verifier`) loopback bridge |
+| **Deployed Cloudflare Worker** | Version `294e7c78-b48b-43d7-b99d-5f2f6c0225c6` | Cloudflare Workers Free Tier (`https://basebreak.zyganali.workers.dev`) |
+| **Target Scenario Source Commit** | `80b43b84014fa61b941c7ebcd87836a56dcd7c92` | Immutable base tree of the `ResetVault` scenario being verified |
+| **Frozen Contract Digest** | `93eeeb2cc7eb02a988da3c8a8543ad40b4816608c1452d048ff62ee93702f812` | Pre-execution frozen contract specifying `REQ-RESET-001` |
+
+---
+
+## 2. Canonical Production Run Facts (`run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9`)
+
+- **Run Identifier**: `run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9`
+- **Execution Timestamp**: `2026-10-22T17:09:59.215580+00:00`
+- **Evidence Provenance**: `LIVE_NEBIUS`
+- **Overall Causal Verdict**: `VERIFIED` (Causal Triplet: BASE=FAIL, CANDIDATE=PASS, COUNTERFACTUAL=FAIL)
+- **Grant Token**: `grant_c5b6ab9e-1cff-47f2-8fbe-7a5d5e14ddc8` (Single-use operator grant)
+- **Idempotency Key**: `268728c6-e8f1-492d-8c8c-24edbc33141f`
+
+### AI Model Generation Telemetry
+- **Model Identifier**: `nvidia/Nemotron-3_5-Lightning`
+- **Provider Request ID**: `chatcmpl-f5c5e28a90ae7b935630d6f9fe1683ae`
+- **Model Call Count**: 1 call (no repair loops needed; passed AST syntax & class preservation checks)
+- **Token Accounting**:
+  - Prompt Tokens: 1,123
+  - Completion Tokens: 693
+  - Total Tokens: 1,816
+  - Accounting Status: `model-usage:complete`
+- **Candidate Origin**: `MODEL_GENERATED_NEBIUS`
+- **Candidate Response Digest (SHA-256)**: `3153602c93d3dcbfe1802532bcb8ca731af5790b43109b840a3380db1906af7c`
+- **Candidate Proposal Digest (SHA-256)**: `0d681d139cd5e71e82cb6d39a42223175fb3ee9556fdea5a30ab95633750da02`
+- **Candidate Patch Digest (SHA-256)**: `5f3ac8d9dcef8b046c58f58f3d2c44a340b13191235637169b781cf54abe592e`
+- **Candidate Tree Digest (Git Tree)**: `6c4f46cbb51119d8e93534a1e2ee922498ee450b`
+
+---
+
+## 3. Differential Three-World Execution Facts
+
+| World | Sandbox ID | Exit Code | Outcome | Execution Tree Digest | Diagnostic |
+|---|---|---|---|---|---|
+| **BASE** | `sbx-7da8ae8d855b45f1` | 1 | `FAIL` | `824fa2c69a222cc2204950bb6eb974abfd2abb7d` | `TEST` (Token replay assertion failed) |
+| **CANDIDATE** | `sbx-c1057ebc4528465c` | 0 | `PASS` | `6c4f46cbb51119d8e93534a1e2ee922498ee450b` | `PASS` (1 sealed witness test passed in 0.04s) |
+| **COUNTERFACTUAL** | `sbx-de5d5ca163034441` | 1 | `FAIL` | `824fa2c69a222cc2204950bb6eb974abfd2abb7d` | `TEST` (Delta reverted to base tree; replay failed) |
+
+### Sealed Witness Information
+- **Witness ID**: `wit-reset-vault-live-001`
+- **Requirement Bound**: `REQ-RESET-001`
+- **Execution Command**: `python -m pytest tests/fixtures/reset_vault/witness/test_single_use_witness.py -q`
+- **Witness Digest (SHA-256)**: `a060f395818ad9b698de914d60f7a83763da088eb1d5f3a57ddd29df2fe2ff4a`
+- **Witness Lock Digest (SHA-256)**: `3ed5aae3f757dd96ecca1c29eadc6ae04ba522359efee46d600ab1f06fff49a5`
+
+### Nebius Sandboxes Provider Operations (11 recorded)
+- `01a16496-d52c-7796-8782-d2e08b0958d2`
+- `01a16496-e98c-742f-bb93-2ee9edfdef01`
+- `01a16496-ed3c-71e5-90ee-17b347d1864b`
+- `01a16496-f7fc-749d-81bc-abde1bceb9f0`
+- `01a16497-0a30-7417-b9e1-e853439b9ac3`
+- `01a16497-1096-739b-b7b2-beede744c472`
+- `01a16497-1691-7068-9105-07e0bed83e40`
+- `01a16497-211d-7747-abb7-cb7bf1a695ea`
+- `01a16497-3532-75f0-a169-c052f60e7c52`
+- `01a16497-3b33-7393-a95b-4ac86f37a576`
+- `01a16497-40e0-70a6-9b6a-38103422d4d6`
+
+---
+
+## 4. Cryptographic Proof & Receipt Verification
+
+- **Receipt Digest (SHA-256)**:
+  `a7857896f3f701264bed995f3b0a70115a9ab007a84d5deece3ae8bcef876500`
+- **Proof Digest (SHA-256)**:
+  `e738d961e200f1df07af046d6a0adc56b7284b13b469249359ae0120e9a6cd2a`
+- **Verifier Pinned Authority**:
+  - Modulus SHA-256: `a13605cbf0b074300f56ee1cca01d53ef8bd9b7b998dca7c864502399a3917b2`
+  - Public Exponent: 65537
+  - Signature Scheme: Custom Raw RSA-2048 Modular Exponentiation over SHA-256 digest (`recovered_message == expected_message`).
+
+### Public URLs
+- **Live Receipt Endpoint**:
+  `https://basebreak.zyganali.workers.dev/v1/runs/run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9/receipt`
+- **Live Judge Route**:
+  `https://basebreak.zyganali.workers.dev/judge/run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9`
+
+---
+
+## 5. Security & Gate Status
+- **Current Live Gate Status**: All three live gates safely shut down (`live_enabled=false`, `runtime_live_enabled=false`, `durable_live_enabled=false`).
+- **Billing Safety**: Target personal spend remains `$0.00`; promotional balance safety floor `$5.00` strictly preserved.
+- **Fail-Closed Gate Verification**: Anonymous public `POST /v1/runs` returns `403 BLOCKED` with `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
