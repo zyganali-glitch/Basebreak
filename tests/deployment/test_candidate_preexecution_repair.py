@@ -196,8 +196,333 @@ def test_exhausted_repair_attempts_fails_closed_with_retained_accounting() -> No
     exc = exc_info.value
     assert client.calls == 3
     assert exc.generation_attempted is True
+    assert exc.model_call_count == 3
+    assert len(exc.provider_request_ids) == 3
     # Accounting reflects all 3 attempted calls
     assert exc.generation_prompt_tokens == 300
     assert exc.generation_completion_tokens == 150
     assert exc.generation_total_tokens == 450
     assert exc.provider_request_id == "chatcmpl-test-3"
+
+
+# ==============================================================================
+# DEFECT A ADVERSARIAL REGRESSION TESTS: Untrusted Code Isolation (Host Defense)
+# ==============================================================================
+
+
+def test_untrusted_candidate_code_top_level_side_effect_never_executes_on_host() -> None:
+    """PROVE DEFECT A FIX: Top-level code from model candidate NEVER runs on host."""
+    import sys
+
+    probe_attr = "_DEFECT_A_TEST_TOP_LEVEL_SIDE_EFFECT_PROBE"
+    if hasattr(sys, probe_attr):
+        delattr(sys, probe_attr)
+
+    malicious_code = (
+        "import sys\n"
+        f"setattr(sys, '{probe_attr}', True)\n"
+        "raise RuntimeError('MALICIOUS_TOP_LEVEL_EXECUTED')\n"
+    )
+
+    is_valid, failed_path, error = validate_candidate_preexecution(
+        candidate_files={_VAULT_REL: malicious_code},
+        base_files={_VAULT_REL: _BASE_VAULT},
+        target="tests/fixtures/reset_vault",
+    )
+
+    # 1. Host process was NOT affected: probe attribute was never set
+    assert not hasattr(sys, probe_attr)
+    # 2. No unhandled RuntimeError on host; detected statically as missing ResetVault class
+    assert is_valid is False
+    assert failed_path == _VAULT_REL
+    assert "missing required class(es)" in (error or "")
+
+
+def test_untrusted_candidate_code_class_body_side_effect_never_executes_on_host() -> None:
+    """PROVE DEFECT A FIX: Code in candidate class body NEVER executes on host."""
+    import sys
+
+    probe_attr = "_DEFECT_A_TEST_CLASS_BODY_SIDE_EFFECT_PROBE"
+    if hasattr(sys, probe_attr):
+        delattr(sys, probe_attr)
+
+    malicious_class = (
+        "import sys\n"
+        "class TokenError(Exception):\n"
+        "    pass\n"
+        "class ResetVault:\n"
+        f"    setattr(sys, '{probe_attr}', True)\n"
+        "    def __init__(self) -> None: pass\n"
+        "    def set_user_password(self, u: str, p: str) -> None: pass\n"
+        "    def get_user_password(self, u: str) -> str: return 'p'\n"
+        "    def create_reset_token(self, u: str) -> str: return 'tok'\n"
+        "    def redeem_reset_token(self, t: str, p: str) -> bool: return True\n"
+    )
+
+    is_valid, failed_path, error = validate_candidate_preexecution(
+        candidate_files={_VAULT_REL: malicious_class},
+        base_files={_VAULT_REL: _BASE_VAULT},
+        target="tests/fixtures/reset_vault",
+    )
+
+    # Host process was NOT affected: class body was never executed
+    assert not hasattr(sys, probe_attr)
+    # Syntactically and structurally valid AST
+    assert is_valid is True
+    assert failed_path is None
+    assert error is None
+
+
+def test_untrusted_candidate_malicious_import_never_imported_on_host() -> None:
+    """PROVE DEFECT A FIX: Untrusted imports are never imported into host Python."""
+    import sys
+
+    poison_module = "definitely_nonexistent_poison_module_xyz_12345"
+    assert poison_module not in sys.modules
+
+    code_with_bad_import = (
+        f"import {poison_module}\n"
+        "class TokenError(Exception):\n"
+        "    pass\n"
+        "class ResetVault:\n"
+        "    def __init__(self) -> None: pass\n"
+        "    def set_user_password(self, u: str, p: str) -> None: pass\n"
+        "    def get_user_password(self, u: str) -> str: return 'p'\n"
+        "    def create_reset_token(self, u: str) -> str: return 'tok'\n"
+        "    def redeem_reset_token(self, t: str, p: str) -> bool: return True\n"
+    )
+
+    is_valid, failed_path, error = validate_candidate_preexecution(
+        candidate_files={_VAULT_REL: code_with_bad_import},
+        base_files={_VAULT_REL: _BASE_VAULT},
+        target="tests/fixtures/reset_vault",
+    )
+
+    # Poison module was NEVER imported into sys.modules
+    assert poison_module not in sys.modules
+    assert is_valid is True
+    assert error is None
+
+
+def test_validate_candidate_preexecution_catches_missing_method_statically() -> None:
+    """Static AST check detects missing required methods on classes."""
+    # ResetVault class exists, but redeem_reset_token is omitted
+    code_missing_method = (
+        "class TokenError(Exception):\n"
+        "    pass\n"
+        "class ResetVault:\n"
+        "    def __init__(self) -> None: pass\n"
+        "    def set_user_password(self, u: str, p: str) -> None: pass\n"
+        "    def get_user_password(self, u: str) -> str: return 'p'\n"
+        "    def create_reset_token(self, u: str) -> str: return 'tok'\n"
+    )
+    is_valid, failed_path, error = validate_candidate_preexecution(
+        candidate_files={_VAULT_REL: code_missing_method},
+        base_files={_VAULT_REL: _BASE_VAULT},
+        target="tests/fixtures/reset_vault",
+    )
+    assert is_valid is False
+    assert failed_path == _VAULT_REL
+    assert "missing required method(s)" in (error or "")
+    assert "redeem_reset_token" in (error or "")
+
+
+def test_isolated_sandbox_runner_invoked_when_provided() -> None:
+    """Behavioral validation delegates to isolated sandbox runner when provided."""
+    valid_fix = _BASE_VAULT.replace(
+        "        # BUT MISSING in baseline!",
+        "        del self._tokens[token]",
+    )
+
+    runner_called = False
+
+    def mock_sandbox_runner(files: Any) -> tuple[bool, str | None]:
+        nonlocal runner_called
+        runner_called = True
+        return False, "mock isolated sandbox test failed"
+
+    is_valid, failed_path, error = validate_candidate_preexecution(
+        candidate_files={_VAULT_REL: valid_fix},
+        base_files={_VAULT_REL: _BASE_VAULT},
+        target="tests/fixtures/reset_vault",
+        isolated_sandbox_runner=mock_sandbox_runner,
+    )
+
+    assert runner_called is True
+    assert is_valid is False
+    assert "mock isolated sandbox test failed" in (error or "")
+
+
+# ==============================================================================
+# DEFECT B ADVERSARIAL REGRESSION TESTS: Multi-Call Accounting Parity
+# ==============================================================================
+
+
+def test_multi_call_accounting_and_request_ids_preserved_in_bridge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PROVE DEFECT B FIX: Bridge preserves model_call_count > 1 and all request IDs."""
+    import subprocess
+    import time
+
+    from basebreak.deployment import live_bridge
+    from basebreak.deployment.live_bridge import (
+        BridgeRequest,
+        TrustedBridgeConfig,
+        _load_canonical_live_bridge_scenario,
+        create_live_nebius_bridge_executor,
+    )
+
+    head = subprocess.run(
+        ["git", "-C", str(_REPO_ROOT), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    # Call 1: model returns broken snippet
+    broken_snippet = "    def redeem_reset_token(): pass\n"
+    resp_1 = _proposal_json(_VAULT_REL, broken_snippet)
+
+    # Call 2: model returns valid full file
+    valid_fix = _BASE_VAULT.replace(
+        "        # BUT MISSING in baseline!",
+        "        del self._tokens[token]",
+    )
+    resp_2 = _proposal_json(_VAULT_REL, valid_fix)
+
+    class MultiCallModel:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def complete(self, messages: Any, **_: Any) -> Any:
+            self.calls += 1
+            content = resp_1 if self.calls == 1 else resp_2
+            return SimpleNamespace(
+                content=content,
+                usage=SimpleNamespace(prompt_tokens=500, completion_tokens=250, total_tokens=750),
+                returned_model="nvidia/Nemotron-3_5-Lightning",
+                request_id=f"chatcmpl-multicall-{self.calls}",
+                duration_seconds=1.5,
+                finish_reason="stop",
+                has_reasoning_content=False,
+            )
+
+    scenario = _load_canonical_live_bridge_scenario()
+    now = int(time.time() * 1000)
+    payload = {
+        "schema_version": "1.0.0",
+        "request_id": "run-multicall-test",
+        "issued_at_ms": now,
+        "deadline_ms": now + 60_000,
+        "receipt_audience": "cloudflare-worker",
+        "task_id": scenario.task_id,
+        "change_class": scenario.change_class,
+        "target": scenario.target,
+        "source_commit_id": head,
+        "frozen_contract_digest": scenario.frozen_contract_digest,
+        "max_estimated_cost_usd": 0.25,
+    }
+    request = BridgeRequest.from_dict(payload)
+
+    monkeypatch.setattr(live_bridge, "_assess_production_grounding", lambda **_: (True, None))
+    monkeypatch.setattr(live_bridge, "_compute_candidate_tree_digest", lambda **_: "c" * 40)
+
+    class _FakeSandboxAdapter:
+        @property
+        def live_operation_ids(self) -> tuple[str, ...]:
+            return ()
+
+    class _Worker:
+        def execute_causal_triplet(self, **_: Any) -> Any:
+            return SimpleNamespace()
+
+    def _fake_build(**kwargs: Any) -> Any:
+        identities = tuple(
+            [f"model-calls:{kwargs.get('model_call_count', 0)}"]
+            + list(kwargs.get("candidate_generation_identities", ()))
+        )
+        accounting = SimpleNamespace(
+            model_call_count=kwargs.get("model_call_count", 0),
+            prompt_tokens=kwargs.get("model_prompt_tokens", 0),
+            completion_tokens=kwargs.get("model_completion_tokens", 0),
+        )
+        return SimpleNamespace(
+            accounting=accounting,
+            runtime_identities=identities,
+        )
+
+    monkeypatch.setattr(live_bridge, "_build_public_receipt_from_local_receipt", _fake_build)
+
+    executor = create_live_nebius_bridge_executor(
+        config=TrustedBridgeConfig(
+            expected_source_commit=head,
+            nebius_api_key="k",
+            nebius_project_id="p",
+        ),
+        model_client=MultiCallModel(),
+        sandbox_adapter=_FakeSandboxAdapter(),
+        verifier_worker=_Worker(),
+    )
+
+    result = executor(request)
+
+    # Verify bridge execution result preserved multi-call facts
+    assert result.status == "COMPLETED"
+    assert result.model_call_count == 2
+    assert result.model_prompt_tokens == 1000
+    assert result.model_completion_tokens == 500
+    assert result.tokens_used == 1500
+    assert result.model_usage_complete is True
+    assert result.provider_request_id == "chatcmpl-multicall-2"
+    assert result.provider_request_ids == ("chatcmpl-multicall-1", "chatcmpl-multicall-2")
+
+    # Verify public receipt reflects model_call_count == 2
+    assert result.receipt is not None
+    assert result.receipt.accounting is not None
+    assert result.receipt.accounting.model_call_count == 2
+    assert result.receipt.accounting.prompt_tokens == 1000
+    assert result.receipt.accounting.completion_tokens == 500
+    assert "model-calls:2" in result.receipt.runtime_identities
+    assert "candidate-generation:request:chatcmpl-multicall-1" in result.receipt.runtime_identities
+    assert "candidate-generation:request:chatcmpl-multicall-2" in result.receipt.runtime_identities
+
+
+def test_three_attempt_repair_cycle_accounting() -> None:
+    """PROVE DEFECT B FIX: 3 generation attempts aggregate accounting accurately."""
+    broken_1 = "    def bad_indent(): pass\n"
+    broken_2 = "class ResetVault:\n    def __init__(self) -> None: pass\n"
+    valid_3 = _BASE_VAULT.replace(
+        "        # BUT MISSING in baseline!",
+        "        del self._tokens[token]",
+    )
+
+    responses = [
+        _proposal_json(_VAULT_REL, broken_1),
+        _proposal_json(_VAULT_REL, broken_2),
+        _proposal_json(_VAULT_REL, valid_3),
+    ]
+
+    client = _ScriptedModel(responses)
+    candidate = generate_model_candidate(
+        model_client=client,
+        task_id="TASK-RESET-VAULT-001",
+        requirement_statement="single-use reset tokens",
+        frozen_contract_digest="0" * 64,
+        target="tests/fixtures/reset_vault",
+        allowed_paths=[_VAULT_REL],
+        base_files={_VAULT_REL: _BASE_VAULT},
+        max_candidate_attempts=3,
+    )
+
+    assert client.calls == 3
+    assert candidate.model_call_count == 3
+    assert candidate.provider_request_id == "chatcmpl-test-3"
+    assert candidate.provider_request_ids == (
+        "chatcmpl-test-1",
+        "chatcmpl-test-2",
+        "chatcmpl-test-3",
+    )
+    assert candidate.generation_prompt_tokens == 300
+    assert candidate.generation_completion_tokens == 150
+    assert candidate.generation_total_tokens == 450

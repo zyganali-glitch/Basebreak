@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -103,6 +103,9 @@ class ModelCandidateError(Exception):
         response_received: bool = False,
         finish_reason: str | None = None,
         has_reasoning_content: bool = False,
+        model_call_count: int = 0,
+        provider_request_ids: Sequence[str] = (),
+        **extra_kwargs: Any,
     ) -> None:
         super().__init__(message)
         self.generation_attempted = generation_attempted
@@ -115,6 +118,10 @@ class ModelCandidateError(Exception):
         self.response_received = response_received
         self.finish_reason = finish_reason
         self.has_reasoning_content = has_reasoning_content
+        self.model_call_count = model_call_count
+        self.provider_request_ids = tuple(provider_request_ids)
+        for k, v in extra_kwargs.items():
+            setattr(self, k, v)
 
 
 class ModelCandidateRejectedError(ModelCandidateError):
@@ -319,8 +326,15 @@ def validate_candidate_preexecution(
     candidate_files: Mapping[str, str],
     base_files: Mapping[str, str],
     target: str = "",
+    isolated_sandbox_runner: Callable[[Mapping[str, str]], tuple[bool, str | None]] | None = None,
 ) -> tuple[bool, str | None, str | None]:
     """Validate candidate files for syntax, class/interface preservation, and ordinary behavior.
+
+    CRITICAL SECURITY CONTRACT (DEFECT A):
+    This function performs strictly STATIC AST analysis inside the trusted bridge process.
+    Untrusted model-generated code is NEVER compiled, evaluated, imported, or executed on the host.
+    Behavioral validation is deferred to the isolated verifier sandbox execution path
+    unless an explicit isolated runner without host credentials/filesystem access is provided.
 
     Returns (is_valid, failed_path, error_message).
     """
@@ -332,13 +346,14 @@ def validate_candidate_preexecution(
             try:
                 ast.parse(content, filename=path)
             except (SyntaxError, IndentationError) as exc:
+                line = exc.lineno or 1
                 return (
                     False,
                     path,
-                    f"Python syntax error at line {exc.lineno}: {type(exc).__name__}: {exc.msg}",
+                    f"Python syntax error at line {line}: {type(exc).__name__}: {exc.msg}",
                 )
 
-    # 2. Public API class and function preservation
+    # 2. Public API class, method, and function preservation
     for path, base_content in sorted(base_files.items()):
         if not path.endswith(".py"):
             continue
@@ -351,9 +366,13 @@ def validate_candidate_preexecution(
         except Exception:
             continue
 
-        base_classes = {node.name for node in base_tree.body if isinstance(node, ast.ClassDef)}
-        cand_classes = {node.name for node in cand_tree.body if isinstance(node, ast.ClassDef)}
-        missing_classes = base_classes - cand_classes
+        base_classes: dict[str, ast.ClassDef] = {
+            node.name: node for node in base_tree.body if isinstance(node, ast.ClassDef)
+        }
+        cand_classes: dict[str, ast.ClassDef] = {
+            node.name: node for node in cand_tree.body if isinstance(node, ast.ClassDef)
+        }
+        missing_classes = set(base_classes.keys()) - set(cand_classes.keys())
         if missing_classes:
             return (
                 False,
@@ -361,6 +380,29 @@ def validate_candidate_preexecution(
                 f"Candidate file is missing required class(es): {sorted(missing_classes)}. "
                 "For 'MODIFY' actions, 'content' must be the complete file preserving all classes.",
             )
+
+        # Method preservation for each required class
+        for class_name, base_class_node in sorted(base_classes.items()):
+            cand_class_node = cand_classes[class_name]
+            base_methods = {
+                node.name
+                for node in base_class_node.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            cand_methods = {
+                node.name
+                for node in cand_class_node.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            missing_methods = base_methods - cand_methods
+            if missing_methods:
+                return (
+                    False,
+                    path,
+                    f"Candidate class '{class_name}' is missing required method(s): "
+                    f"{sorted(missing_methods)}. For 'MODIFY' actions, 'content' must preserve all "
+                    "existing class methods.",
+                )
 
         base_funcs = {
             node.name
@@ -381,47 +423,26 @@ def validate_candidate_preexecution(
                 f"Candidate file is missing required top-level function(s): {missing_names}.",
             )
 
-    # 3. ResetVault ordinary behavior check (if target involves ResetVault)
-    vault_rel = "tests/fixtures/reset_vault/src/reset_vault/vault.py"
-    if vault_rel in candidate_files:
-        vault_code = candidate_files[vault_rel]
-        globs: dict[str, Any] = {}
+    # 3. Behavioral check via isolated sandbox runner (if provided)
+    if isolated_sandbox_runner is not None:
         try:
-            compiled = compile(vault_code, "vault.py", "exec")
-            exec(compiled, globs)
+            ok, sandbox_err = isolated_sandbox_runner(candidate_files)
+            if not ok:
+                return (
+                    False,
+                    None,
+                    f"Candidate failed isolated sandbox behavioral precheck: {sandbox_err}",
+                )
         except Exception as exc:
             return (
                 False,
-                vault_rel,
-                f"Candidate vault.py failed execution: {type(exc).__name__}: {exc}",
+                None,
+                f"Candidate isolated sandbox precheck error: {type(exc).__name__}: {exc}",
             )
 
-        vault_cls = globs.get("ResetVault")
-        if not isinstance(vault_cls, type):
-            return (
-                False,
-                vault_rel,
-                "Candidate vault.py does not define class 'ResetVault'",
-            )
-
-        try:
-            inst = vault_cls()
-            inst.set_user_password("alice", "initial_pass")
-            token = inst.create_reset_token("alice")
-            if not isinstance(token, str) or not token:
-                return False, vault_rel, "create_reset_token did not return a valid token"
-            res = inst.redeem_reset_token(token, "new_pass")
-            if res is not True:
-                return False, vault_rel, "First valid token redemption failed"
-            if inst.get_user_password("alice") != "new_pass":
-                return False, vault_rel, "Password was not updated after first valid redemption"
-        except Exception as exc:
-            return (
-                False,
-                vault_rel,
-                f"Candidate failed ordinary ResetVault behavior: {type(exc).__name__}: {exc}",
-            )
-
+    # If no isolated sandbox runner is provided, behavioral validation is safely
+    # deferred to the verifier's existing three-world isolated sandbox execution path.
+    # The host bridge NEVER executes untrusted candidate code.
     return True, None, None
 
 
@@ -536,6 +557,8 @@ def generate_model_candidate(
                 all_request_ids.append(str(err_req_id).strip())
             common_error_kwargs: dict[str, Any] = {
                 "generation_attempted": True,
+                "model_call_count": call_count,
+                "provider_request_ids": tuple(all_request_ids),
                 "generation_prompt_tokens": cum_prompt_tokens or err_prompt,
                 "generation_completion_tokens": cum_completion_tokens or err_comp,
                 "generation_total_tokens": cum_total_tokens or err_total,
@@ -581,6 +604,8 @@ def generate_model_candidate(
 
         accounting: dict[str, Any] = {
             "generation_attempted": True,
+            "model_call_count": call_count,
+            "provider_request_ids": tuple(all_request_ids),
             "generation_prompt_tokens": cum_prompt_tokens if cum_prompt_tokens > 0 else None,
             "generation_completion_tokens": cum_completion_tokens
             if cum_completion_tokens > 0
@@ -691,6 +716,9 @@ def candidate_generation_identities(candidate: ModelCandidate) -> tuple[str, ...
     ]
     if candidate.provider_request_id:
         identities.append(f"candidate-generation:request:{candidate.provider_request_id}")
+    for req_id in getattr(candidate, "provider_request_ids", ()):
+        if req_id and req_id != candidate.provider_request_id:
+            identities.append(f"candidate-generation:request:{req_id}")
     return tuple(identities)
 
 

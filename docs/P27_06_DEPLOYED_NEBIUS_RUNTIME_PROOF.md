@@ -836,6 +836,24 @@ enabled, verified by independent read-back, and the run executed.
 
 Phase P-27 has satisfied all verification criteria and is **CLOSED / PASS**.
 
+
+### 4.2 Final Integrity & Security Closure (Defects A & B + Evidence Packet)
+
+- **DEFECT A — Untrusted Code Host Isolation:**
+  - Removed all `compile()` and `exec()` calls from `validate_candidate_preexecution()` in `src/basebreak/deployment/model_candidate.py`.
+  - Untrusted candidate code is NEVER evaluated or executed inside the privileged Python bridge process.
+  - Replaced with static AST inspection (`ast.parse`) checking syntax, class preservation (`ResetVault`), and required method preservation.
+  - Added adversarial regression tests proving top-level side effects, class-body side effects, and malicious imports never affect the host process.
+- **DEFECT B — Multi-Call Accounting Parity:**
+  - Propagated actual `model_call_count`, cumulative prompt/completion/total tokens, and all `provider_request_ids` across repair turns through `BridgeExecutionResult` and receipt runtime identities (`model-calls:<count>`, `candidate-generation:request:<req_id>`).
+- **Independent Cryptographic Read-Back & Evidence Packet:**
+  - Retrieved tenth-run published receipt (`a7857896f3f701264bed995f3b0a70115a9ab007a84d5deece3ae8bcef876500`) and bridge response proof (`e738d961e200f1df07af046d6a0adc56b7284b13b469249359ae0120e9a6cd2a`).
+  - Cryptographically re-verified in both production Python (`verify_public_receipt_integrity`, `verify_receipt_proof`: PASS) and Node (`computeReceiptDigest`, `verifyBridgeReceiptProof`: PASS).
+  - Sanitized evidence packet exported to `docs/evidence/p27_06_live_run_10_evidence_packet/` with exact independent reproduction instructions (`VERIFICATION_AUDIT.md`).
+- **Safe State Confirmed:**
+  - Zero additional provider calls or spend ($0.00 personal spend).
+  - All three live gates verified OFF.
+
 ---
 
 ## 5. Türkçe Operatör Kapanış Özeti

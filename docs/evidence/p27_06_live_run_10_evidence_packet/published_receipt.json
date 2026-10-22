@@ -1,0 +1,176 @@
+{
+  "accounting": {
+    "completion_tokens": 693,
+    "currency": "USD",
+    "estimated_cost_usd": 0.5,
+    "is_metered": false,
+    "model_call_count": 1,
+    "prompt_tokens": 1123,
+    "sandbox_runtime_seconds": 4.788
+  },
+  "candidate_patch_digest": "5f3ac8d9dcef8b046c58f58f3d2c44a340b13191235637169b781cf54abe592e",
+  "candidate_tree_digest": "6c4f46cbb51119d8e93534a1e2ee922498ee450b",
+  "counterfactual": {
+    "absence_rationale": null,
+    "candidate_tree_digest": "6c4f46cbb51119d8e93534a1e2ee922498ee450b",
+    "delta_digest": "5f3ac8d9dcef8b046c58f58f3d2c44a340b13191235637169b781cf54abe592e",
+    "execution_fact": {
+      "duration_seconds": 1.62,
+      "exit_code": 1,
+      "outcome": "FAIL",
+      "sandbox_id": "sbx-de5d5ca163034441",
+      "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      "stderr_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_excerpt": null,
+      "stdout_digest": "5a7a5f3b060138e468f2d6ba1ee064f2196ed55b23234fb2440aa071a17b30b3",
+      "stdout_excerpt": null,
+      "termination_status": "COMPLETED",
+      "tree_digest": "824fa2c69a222cc2204950bb6eb974abfd2abb7d",
+      "world": "COUNTERFACTUAL"
+    },
+    "is_required": true,
+    "outcome": "FAIL"
+  },
+  "coverage_summary": {
+    "blocked_count": 0,
+    "contract_digest": "93eeeb2cc7eb02a988da3c8a8543ad40b4816608c1452d048ff62ee93702f812",
+    "contradicted_count": 0,
+    "coverage_digest": "99c333a767855c99ed649205cb44dd286f3b915d41521e68d55fd25dc3c0052a",
+    "coverage_percentage": 100,
+    "coverage_ratio": 1,
+    "eligible_count": 1,
+    "excluded_count": 0,
+    "inconclusive_count": 0,
+    "is_fully_verified": true,
+    "not_run_count": 0,
+    "overall_verdict": "VERIFIED",
+    "per_requirement_facts": [
+      {
+        "causal_state": "VERIFIED",
+        "change_class": "BUG_FIX",
+        "eligibility": "ELIGIBLE",
+        "execution_obligation": "FAIL_TO_PASS_WITH_COUNTERFACTUAL",
+        "fact_digest": "6e20f0ed5b36a590b802117181ae927ee9283122e6a87f4403371c54a525c09b",
+        "preliminary_verdict": "VERIFIED",
+        "rationale": "Causal triplet verified: BASE=FAIL, CANDIDATE=PASS, COUNTERFACTUAL=FAIL under identical witness. Patch delta proved causally necessary.",
+        "requirement_id": "REQ-RESET-001",
+        "transition": "CAUSAL_TRIPLET_VERIFIED",
+        "witness_digest": "a060f395818ad9b698de914d60f7a83763da088eb1d5f3a57ddd29df2fe2ff4a",
+        "witness_id": "wit-reset-vault-live-001"
+      }
+    ],
+    "total_requirements": 1,
+    "verified_count": 1
+  },
+  "disclaimers": [
+    "Basebreak provides empirical causal verification under specified test witnesses; it does not constitute mathematical formal proof or universal equivalence.",
+    "If the patch matters, the base must break."
+  ],
+  "executions": [
+    {
+      "duration_seconds": 1.556,
+      "exit_code": 1,
+      "outcome": "FAIL",
+      "sandbox_id": "sbx-7da8ae8d855b45f1",
+      "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      "stderr_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_excerpt": null,
+      "stdout_digest": "5a7a5f3b060138e468f2d6ba1ee064f2196ed55b23234fb2440aa071a17b30b3",
+      "stdout_excerpt": null,
+      "termination_status": "COMPLETED",
+      "tree_digest": "824fa2c69a222cc2204950bb6eb974abfd2abb7d",
+      "world": "BASE"
+    },
+    {
+      "duration_seconds": 1.612,
+      "exit_code": 0,
+      "outcome": "PASS",
+      "sandbox_id": "sbx-c1057ebc4528465c",
+      "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      "stderr_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_excerpt": null,
+      "stdout_digest": "f4c77b58e2280613a49ba18da1c4a02d440e862c49a6c8fe5daaf277333ff99d",
+      "stdout_excerpt": null,
+      "termination_status": "COMPLETED",
+      "tree_digest": "6c4f46cbb51119d8e93534a1e2ee922498ee450b",
+      "world": "CANDIDATE"
+    },
+    {
+      "duration_seconds": 1.62,
+      "exit_code": 1,
+      "outcome": "FAIL",
+      "sandbox_id": "sbx-de5d5ca163034441",
+      "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      "stderr_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_excerpt": null,
+      "stdout_digest": "5a7a5f3b060138e468f2d6ba1ee064f2196ed55b23234fb2440aa071a17b30b3",
+      "stdout_excerpt": null,
+      "termination_status": "COMPLETED",
+      "tree_digest": "824fa2c69a222cc2204950bb6eb974abfd2abb7d",
+      "world": "COUNTERFACTUAL"
+    }
+  ],
+  "frozen_contract_digest": "93eeeb2cc7eb02a988da3c8a8543ad40b4816608c1452d048ff62ee93702f812",
+  "is_authoritative": false,
+  "not_run_obligations": [],
+  "overall_verdict": "VERIFIED",
+  "provenance": "LIVE_NEBIUS",
+  "receipt_digest": "a7857896f3f701264bed995f3b0a70115a9ab007a84d5deece3ae8bcef876500",
+  "repo_locator": "https://github.com/zyganali-glitch/Basebreak.git",
+  "runtime_identities": [
+    "bridge:trusted-python",
+    "candidate-generation:model:nvidia/Nemotron-3_5-Lightning",
+    "candidate-generation:patch-sha256:5f3ac8d9dcef8b046c58f58f3d2c44a340b13191235637169b781cf54abe592e",
+    "candidate-generation:proposal-sha256:0d681d139cd5e71e82cb6d39a42223175fb3ee9556fdea5a30ab95633750da02",
+    "candidate-generation:request:chatcmpl-f5c5e28a90ae7b935630d6f9fe1683ae",
+    "candidate-generation:response-sha256:3153602c93d3dcbfe1802532bcb8ca731af5790b43109b840a3380db1906af7c",
+    "candidate-origin:MODEL_GENERATED_NEBIUS",
+    "diag-base:TEST",
+    "diag-candidate:PASS",
+    "diag-counterfactual:TEST",
+    "model-calls:1",
+    "model-request:chatcmpl-f5c5e28a90ae7b935630d6f9fe1683ae",
+    "model-usage:complete",
+    "model:nvidia/Nemotron-3_5-Lightning",
+    "nebius-operation:01a16496-d52c-7796-8782-d2e08b0958d2",
+    "nebius-operation:01a16496-e98c-742f-bb93-2ee9edfdef01",
+    "nebius-operation:01a16496-ed3c-71e5-90ee-17b347d1864b",
+    "nebius-operation:01a16496-f7fc-749d-81bc-abde1bceb9f0",
+    "nebius-operation:01a16497-0a30-7417-b9e1-e853439b9ac3",
+    "nebius-operation:01a16497-1096-739b-b7b2-beede744c472",
+    "nebius-operation:01a16497-1691-7068-9105-07e0bed83e40",
+    "nebius-operation:01a16497-211d-7747-abb7-cb7bf1a695ea",
+    "nebius-operation:01a16497-3532-75f0-a169-c052f60e7c52",
+    "nebius-operation:01a16497-3b33-7393-a95b-4ac86f37a576",
+    "nebius-operation:01a16497-40e0-70a6-9b6a-38103422d4d6",
+    "sandbox:sbx-7da8ae8d855b45f1",
+    "sandbox:sbx-c1057ebc4528465c",
+    "sandbox:sbx-de5d5ca163034441",
+    "source:80b43b84014fa61b941c7ebcd87836a56dcd7c92"
+  ],
+  "schema_version": "1.0.0",
+  "signature": null,
+  "signature_strategy": "SHA256_DIGEST_ONLY",
+  "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+  "task_id": "TASK-RESET-VAULT-001",
+  "timing": {
+    "created_at_utc": "2026-10-22T17:09:59.215580+00:00",
+    "total_duration_seconds": 9.2679
+  },
+  "witnesses": [
+    {
+      "execution_command": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/fixtures/reset_vault/witness/test_single_use_witness.py",
+        "-q"
+      ],
+      "lock_digest": "3ed5aae3f757dd96ecca1c29eadc6ae04ba522359efee46d600ab1f06fff49a5",
+      "requirement_id": "REQ-RESET-001",
+      "timeout_seconds": 30,
+      "witness_digest": "a060f395818ad9b698de914d60f7a83763da088eb1d5f3a57ddd29df2fe2ff4a",
+      "witness_id": "wit-reset-vault-live-001"
+    }
+  ]
+}

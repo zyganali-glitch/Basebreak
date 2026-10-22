@@ -336,6 +336,7 @@ class BridgeExecutionResult:
     model_completion_tokens: int = 0
     model_usage_complete: bool = False
     provider_request_id: str | None = None
+    provider_request_ids: tuple[str, ...] = ()
     diagnostic_record: Any | None = None
 
 
@@ -1322,7 +1323,7 @@ def create_live_nebius_bridge_executor(
                     generation_attempted = bool(getattr(exc, "generation_attempted", False))
                     exc_provider_request_id = getattr(exc, "provider_request_id", None)
                     if generation_attempted:
-                        blocked_call_count = 1
+                        blocked_call_count = int(getattr(exc, "model_call_count", None) or 1)
                         blocked_prompt_tokens = int(
                             getattr(exc, "generation_prompt_tokens", None) or 0
                         )
@@ -1336,12 +1337,14 @@ def create_live_nebius_bridge_executor(
                         blocked_tokens_used = int(
                             getattr(exc, "generation_total_tokens", None) or 0
                         )
+                        blocked_request_ids = tuple(getattr(exc, "provider_request_ids", ()))
                     else:
                         blocked_call_count = 0
                         blocked_prompt_tokens = 0
                         blocked_completion_tokens = 0
                         blocked_usage_complete = True
                         blocked_tokens_used = 0
+                        blocked_request_ids = ()
                     return BridgeExecutionResult(
                         status="BLOCKED_CANDIDATE_GENERATION_FAILED",
                         error=str(exc),
@@ -1355,6 +1358,7 @@ def create_live_nebius_bridge_executor(
                         model_completion_tokens=blocked_completion_tokens,
                         model_usage_complete=blocked_usage_complete,
                         provider_request_id=exc_provider_request_id,
+                        provider_request_ids=blocked_request_ids,
                         provider_operation_ids=_normalize_provider_operation_ids(
                             getattr(active_sandbox_adapter, "live_operation_ids", ())
                         ),
@@ -1375,7 +1379,7 @@ def create_live_nebius_bridge_executor(
                 # Assign post-generation accounting immediately after genuine candidate
                 # generation succeeds so any subsequent tree calculation, materialization,
                 # or verifier setup failure retains already-observed inference facts.
-                model_call_count = 1
+                model_call_count = int(getattr(model_candidate, "model_call_count", 1) or 1)
                 model_prompt_tokens = int(model_candidate.generation_prompt_tokens or 0)
                 model_completion_tokens = int(model_candidate.generation_completion_tokens or 0)
                 model_usage_complete = (
@@ -1387,6 +1391,7 @@ def create_live_nebius_bridge_executor(
                 )
                 result_tokens_used = int(model_candidate.generation_total_tokens or 0)
                 provider_request_id = model_candidate.provider_request_id
+                provider_request_ids = tuple(getattr(model_candidate, "provider_request_ids", ()))
             else:
                 # Synthetic/fixture dependencies: deterministic fixture candidate, honestly
                 # labeled. This path can never claim a genuine AI-written candidate.
@@ -1408,6 +1413,7 @@ def create_live_nebius_bridge_executor(
                 model_total_duration_seconds = 0.0
                 result_tokens_used = 0
                 provider_request_id = None
+                provider_request_ids = ()
 
             candidate_tree_digest = _compute_candidate_tree_digest(
                 repo_root=repo_root,
@@ -1562,6 +1568,7 @@ def create_live_nebius_bridge_executor(
                 model_completion_tokens=model_completion_tokens,
                 model_usage_complete=model_usage_complete,
                 provider_request_id=provider_request_id,
+                provider_request_ids=provider_request_ids,
                 diagnostic_record=diag_record,
             )
         except (
@@ -1589,6 +1596,7 @@ def create_live_nebius_bridge_executor(
                 model_completion_tokens=model_completion_tokens,
                 model_usage_complete=model_usage_complete,
                 provider_request_id=provider_request_id,
+                provider_request_ids=provider_request_ids,
                 provider_operation_ids=_normalize_provider_operation_ids(
                     getattr(active_sandbox_adapter, "live_operation_ids", ())
                 ),
@@ -1612,6 +1620,7 @@ def create_live_nebius_bridge_executor(
                 model_completion_tokens=model_completion_tokens,
                 model_usage_complete=model_usage_complete,
                 provider_request_id=provider_request_id,
+                provider_request_ids=provider_request_ids,
                 provider_operation_ids=_normalize_provider_operation_ids(
                     getattr(active_sandbox_adapter, "live_operation_ids", ())
                 ),
@@ -1635,6 +1644,7 @@ def create_live_nebius_bridge_executor(
                 model_completion_tokens=model_completion_tokens,
                 model_usage_complete=model_usage_complete,
                 provider_request_id=provider_request_id,
+                provider_request_ids=provider_request_ids,
                 provider_operation_ids=_normalize_provider_operation_ids(
                     getattr(active_sandbox_adapter, "live_operation_ids", ())
                 ),
@@ -2121,6 +2131,7 @@ class TrustedVerifierBridge:
                     "model_completion_tokens": result.model_completion_tokens,
                     "model_usage_complete": result.model_usage_complete,
                     "provider_request_id": result.provider_request_id,
+                    "provider_request_ids": list(result.provider_request_ids),
                     "candidate_origin": result.candidate_origin,
                     "candidate_patch_digest": result.candidate_patch_digest,
                     "provider_operation_ids": list(result.provider_operation_ids),
@@ -2215,6 +2226,8 @@ class TrustedVerifierBridge:
                         "approved_estimate_usd": result.approved_estimate_usd,
                         "cost_provenance": result.cost_provenance,
                         "tokens_used": result.tokens_used,
+                        "provider_request_id": result.provider_request_id,
+                        "provider_request_ids": list(result.provider_request_ids),
                         "provider_operation_ids": list(result.provider_operation_ids),
                         "candidate_origin": result.candidate_origin,
                         "provider_dispatched": True,
