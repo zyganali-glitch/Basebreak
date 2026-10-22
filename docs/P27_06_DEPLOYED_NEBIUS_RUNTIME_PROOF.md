@@ -419,7 +419,7 @@ curl -X POST "https://<deployed-url>/v1/runs" \
 | Health / Source SHA Parity Path (P-27.04) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
 | Signed-Out Access Control (P-27.05) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
 | Public Cloud Deployment (P-27.03) | `LOCAL_EXECUTION` | **Previously independently QA-verified public deployment, supported by `LOCAL_EXECUTION` observations against remotely hosted Cloudflare Workers; deployment remains unchanged in this offline repair batch** |
-| Deployed Live Nebius Execution (P-27.06) | `LIVE_NEBIUS` | **Eighth authorized run executed (2026-10-22): genuine Nemotron inference + real sandbox three-world execution triggered and bridge-COMPLETED (LIVE_NEBIUS facts retained), but verdict INCONCLUSIVE (genuine model produced an invalid candidate) and Worker receipt import failed on a now-repaired cross-language digest defect (see §3.7). A live VERIFIED causal triplet published on the judge route remains `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.** |
+| Deployed Live Nebius Execution (P-27.06) | `LIVE_NEBIUS` | **Ninth authorized run COMPLETED (2026-10-22, `run_f499c6e8`): genuine Nemotron inference + real sandbox three-world execution, bridge-COMPLETED signed LIVE_NEBIUS receipt ACCEPTED, PERSISTED and PUBLISHED by the Worker (first ever; both canonicalization repairs verified live), independently re-verified in Python and Node with the RSA proof validating against the pinned authority. Verdict INCONCLUSIVE (CANDIDATE-world pytest collection error, cause not determinable from retained evidence). A live VERIFIED causal triplet remains `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN` for a future authorized run.** |
 
 > **Provenance Note:** The P-27.03 public Cloudflare deployment must NOT be classified as `RECORDED_LIVE`. That provenance is strictly reserved for recorded genuine live execution evidence, not for HTTPS deployment observations. P-27.03 is described as previously independently QA-verified public deployment, supported by `LOCAL_EXECUTION` observations against remotely hosted Cloudflare Workers. P-27.06 `LIVE_NEBIUS` execution remains strictly `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
 
@@ -700,6 +700,85 @@ A standalone fuzz tool is retained at `tools/cross_lang_number_fuzz.py`.
 binding, and the legacy run-8 receipt record are untouched; the run-8 receipt
 remains immutable legacy-canonicalization evidence. The repaired path is NOT
 verified by live execution (no ninth run is authorized).
+
+### 3.9 Ninth Authorized Live Run — COMPLETED, Receipt Accepted & Published (2026-10-22)
+
+Under the operator's ninth explicit single-run authorization (one grant
+`grant_d311c3f0-31b6-4282-8c80-d6a26088b76e`, idempotency key
+`27c62d35-cbfa-407b-a560-7b9c83522846`, exactly ONE `POST /v1/runs`), after a
+focused zero-spend preflight (offline causal-chain preflight 24/24 PASS at
+`dfc3656`, 199 focused Python tests, 71 Node tests, workerd preflight,
+operational state verification), all three live gates were enabled, verified by
+independent read-back, and the run executed.
+
+**Run `run_f499c6e8-c037-416d-b5cd-65f7b3a562f6` — HTTP 201 CREATED in 33.8 s
+(the first non-error HTTP response of any live run):**
+
+- **Status `COMPLETED`, provenance `LIVE_NEBIUS`, `receipt_available: true`.**
+  The Worker ACCEPTED the bridge-generated Python receipt and PERSISTED it —
+  the run-8 receipt-import defect (and both canonicalization repairs) is now
+  verified LIVE end-to-end.
+- Genuine `nvidia/Nemotron-3_5-Lightning` candidate generation: provider
+  request `chatcmpl-27b0b373312cb8e8f37e805fda2873ab`, 945/382/1327 tokens,
+  `MODEL_GENERATED_NEBIUS` candidate (patch digest
+  `3458bba091ad573599d78e9feb04e27e36a54cf18e2ed80bf86f135edeb2f3b2`, candidate
+  tree `f345525ab32fc42518f95a830e683cccb2e22571`), distinct response/proposal
+  digests from run 8 (genuine independent generation, no caching).
+- 11 real Nebius sandbox operations across three fresh worlds:
+  BASE `sbx-e87511a47ce0416b` **FAIL** (exit 1, tree `824fa2c6…`), CANDIDATE
+  `sbx-8cb84393f30e406c` **ERROR** (exit 2 — pytest collection error, tree
+  `f345525a…`), COUNTERFACTUAL `sbx-4b3566d1730a429b` **FAIL** (exit 1, tree
+  reverted exactly to the base tree `824fa2c6…`).
+- Signed `LIVE_NEBIUS` receipt (digest
+  `72118e27a15bb2a525e2f06ddff2e0b1016c20b65e2af227bf96692d99272ca5`) with
+  verifier-signed proof (proof digest
+  `5f0a187e67274a997ca33af9a6edf788be5274a1987c912a6488457d207a00d1`).
+- **Independent post-run verification:** the PUBLISHED receipt
+  (`GET /v1/runs/run_f499c6e8-…/receipt`, HTTP 200) is byte-identical to the
+  bridge receipt, re-verifies under the Python canonical serializer
+  (`PublicVerificationReceipt.from_dict` → PASS) AND the production Node
+  verifier (`verifyReceiptIntegrity` → true, same digest), and the proof's RSA
+  signature independently verifies against the pinned production authority
+  while binding the published receipt digest. The public judge route serves
+  the run (`/judge/run_f499c6e8-…`, HTTP 200).
+- Overall verdict: `INCONCLUSIVE` (`NON_VERIFIED_EXECUTION_ERROR` — BASE: FAIL,
+  CANDIDATE: ERROR, COUNTERFACTUAL: FAIL).
+
+**CANDIDATE-world error triage (honest limits):** the CANDIDATE stdout digest
+is byte-identical to run 8 (`68a583bd…`) despite a different candidate patch
+and tree, while BASE/CF stdout digests are also stable across runs
+(`5a7a5f3b…`). An identical collection-error signature for different candidate
+bytes is consistent with a content-independent import failure (most plausibly
+a vault.py that does not export `ResetVault`), but the exact cause is NOT
+determinable from retained evidence: the original candidate bytes, the raw
+pytest output, and stdout excerpts are not retained (only one-way digests),
+and the bridge path discards raw stdout after digesting (`stdout_excerpt` is
+populated by the CLI runner path but not plumbed through the trusted bridge).
+Per operator instruction the error is NOT classified as definitively
+model-caused or product-caused. The verified facts: the staged candidate tree
+matched the tree computed from the model's patch exactly, BASE/CF ran the
+identical witness normally in the same sandbox image, and the local offline
+chain preflight proves a valid candidate passes the same command — no product
+defect is provable, and none was fabricated.
+
+**Shutdown & accounting:** all three gates verified OFF immediately after the
+run (`live_enabled=false`, `runtime_live_enabled=false`,
+`durable_live_enabled=false`); `in_flight_count=0`; ledger preserved:
+`total_runs=9`, `completed_runs=1` (first ever), `unknown_cost=$4.50`
+(historical $4.00 + run-9 reserved $0.50 with UNKNOWN provenance),
+`observed_cost=0`; grant consumed; no second POST; zero additional paid
+operations during cleanup.
+
+**Task status:** the deployed app provably triggers the real required
+Nebius/NVIDIA runtime (genuine inference + genuine sandbox three-world
+execution) AND now publishes an independently verifiable signed `LIVE_NEBIUS`
+receipt through the public production path. A `VERIFIED` causal triplet
+(BASE=FAIL, CANDIDATE=PASS, COUNTERFACTUAL=FAIL) remains NOT achieved: the
+CANDIDATE world errored at pytest collection with an undetermined,
+non-retained cause. Any tenth run requires new explicit operator
+authorization. Recommended (not implemented, out of scope): plumb bounded
+sanitized `stdout_excerpt` retention through the trusted bridge execution path
+so future candidate-world collection errors are triageable.
 
 ### Remaining hard blockers
 
