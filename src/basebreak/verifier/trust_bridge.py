@@ -688,6 +688,7 @@ class TrustedVerifierWorker:
         signer: _PrivilegedVerifierSigner | None = None,
     ) -> None:
         self._signer = signer or _PrivilegedVerifierSigner.from_environment()
+        self.last_execution_diagnostics: tuple[Any, ...] = ()
 
     @property
     def authority_root(self) -> VerifierAuthorityRoot:
@@ -698,6 +699,92 @@ class TrustedVerifierWorker:
                 authorized_issuers=self._signer.authorized_issuers,
             )
         return get_default_verifier_authority_root()
+
+    def _record_diagnostics(
+        self,
+        *,
+        base_session: Any,
+        base_norm: Any,
+        base_exit: int | None,
+        base_term: Any,
+        base_out: str,
+        base_err: str,
+        cand_session: Any,
+        cand_norm: Any,
+        cand_exit: int | None,
+        cand_term: Any,
+        cand_out: str,
+        cand_err: str,
+        cf_session: Any | None = None,
+        cf_norm: Any | None = None,
+        cf_exit: int | None = None,
+        cf_term: Any = None,
+        cf_out: str = "",
+        cf_err: str = "",
+    ) -> None:
+        try:
+            from basebreak.deployment.diagnostics import (
+                WorldDiagnostic,
+                classify_execution_diagnostic,
+                sanitize_diagnostic_excerpt,
+            )
+
+            diag_worlds = [
+                WorldDiagnostic(
+                    world=ExecutionWorld.BASE.value,
+                    sandbox_id=base_session.sandbox_identity.sandbox_id,
+                    exit_code=base_exit,
+                    outcome=base_norm.outcome.value,
+                    diagnostic_category=classify_execution_diagnostic(
+                        exit_code=base_exit,
+                        termination_status=base_term,
+                        stdout=base_out,
+                        stderr=base_err,
+                    ),
+                    stdout_digest=base_norm.stdout_digest,
+                    stderr_digest=base_norm.stderr_digest,
+                    safe_stdout_excerpt=sanitize_diagnostic_excerpt(base_out),
+                    safe_stderr_excerpt=sanitize_diagnostic_excerpt(base_err),
+                ),
+                WorldDiagnostic(
+                    world=ExecutionWorld.CANDIDATE.value,
+                    sandbox_id=cand_session.sandbox_identity.sandbox_id,
+                    exit_code=cand_exit,
+                    outcome=cand_norm.outcome.value,
+                    diagnostic_category=classify_execution_diagnostic(
+                        exit_code=cand_exit,
+                        termination_status=cand_term,
+                        stdout=cand_out,
+                        stderr=cand_err,
+                    ),
+                    stdout_digest=cand_norm.stdout_digest,
+                    stderr_digest=cand_norm.stderr_digest,
+                    safe_stdout_excerpt=sanitize_diagnostic_excerpt(cand_out),
+                    safe_stderr_excerpt=sanitize_diagnostic_excerpt(cand_err),
+                ),
+            ]
+            if cf_session is not None and cf_norm is not None:
+                diag_worlds.append(
+                    WorldDiagnostic(
+                        world=ExecutionWorld.COUNTERFACTUAL.value,
+                        sandbox_id=cf_session.sandbox_identity.sandbox_id,
+                        exit_code=cf_exit,
+                        outcome=cf_norm.outcome.value,
+                        diagnostic_category=classify_execution_diagnostic(
+                            exit_code=cf_exit,
+                            termination_status=cf_term,
+                            stdout=cf_out,
+                            stderr=cf_err,
+                        ),
+                        stdout_digest=cf_norm.stdout_digest,
+                        stderr_digest=cf_norm.stderr_digest,
+                        safe_stdout_excerpt=sanitize_diagnostic_excerpt(cf_out),
+                        safe_stderr_excerpt=sanitize_diagnostic_excerpt(cf_err),
+                    )
+                )
+            self.last_execution_diagnostics = tuple(diag_worlds)
+        except Exception:
+            self.last_execution_diagnostics = ()
 
     def execute_causal_pair(
         self,
@@ -925,6 +1012,21 @@ class TrustedVerifierWorker:
             candidate_stdout_digest=cand_norm.stdout_digest,
             candidate_stderr_digest=cand_norm.stderr_digest,
             base_tree_digest=base_session.materialized_tree_digest,
+        )
+
+        self._record_diagnostics(
+            base_session=base_session,
+            base_norm=base_norm,
+            base_exit=base_exit,
+            base_term=base_term,
+            base_out=base_out,
+            base_err=base_err,
+            cand_session=cand_session,
+            cand_norm=cand_norm,
+            cand_exit=cand_exit,
+            cand_term=cand_term,
+            cand_out=cand_out,
+            cand_err=cand_err,
         )
 
         # 6. Emits verifiable LocalCausalReceipt
@@ -1277,6 +1379,27 @@ class TrustedVerifierWorker:
             counterfactual_tree_digest=(
                 cf_session.materialized_tree_digest if cf_session is not None else None
             ),
+        )
+
+        self._record_diagnostics(
+            base_session=base_session,
+            base_norm=base_norm,
+            base_exit=base_exit,
+            base_term=base_term,
+            base_out=base_out,
+            base_err=base_err,
+            cand_session=cand_session,
+            cand_norm=cand_norm,
+            cand_exit=cand_exit,
+            cand_term=cand_term,
+            cand_out=cand_out,
+            cand_err=cand_err,
+            cf_session=cf_session,
+            cf_norm=cf_norm,
+            cf_exit=cf_exit if cf_session is not None else None,
+            cf_term=cf_term if cf_session is not None else None,
+            cf_out=cf_out if cf_session is not None else "",
+            cf_err=cf_err if cf_session is not None else "",
         )
 
         # 6. Emits verifiable LocalCausalReceipt

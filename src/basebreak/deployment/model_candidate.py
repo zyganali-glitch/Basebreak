@@ -78,7 +78,7 @@ _FORBIDDEN_CONTEXT_MARKERS: tuple[str, ...] = (
 _CANDIDATE_RESPONSE_SCHEMA_HINT: str = (
     '{"plan":{"summary":str,"reasoning":str,"steps":[str]},'
     '"proposed_file_actions":[{"action":"MODIFY|CREATE|DELETE","path":str,'
-    '"content":str,"rationale":str}],"proposed_commands":[]}'
+    '"content":"<COMPLETE_FULL_FILE_CONTENT>","rationale":str}],"proposed_commands":[]}'
 )
 
 
@@ -148,6 +148,8 @@ class ModelCandidate:
     generation_completion_tokens: int | None = None
     generation_total_tokens: int | None = None
     generation_duration_seconds: float | None = None
+    model_call_count: int = 1
+    provider_request_ids: tuple[str, ...] = ()
 
     def files_mapping(self) -> dict[str, str]:
         return dict(self.candidate_files)
@@ -210,9 +212,18 @@ def build_candidate_generation_messages(
         f"Allowed files: {', '.join(sorted(base_files))}\n\n"
         "Base source (untrusted, read-only):\n"
         f"{UNTRUSTED_FILE_FENCE_START}\n{rendered_files}\n{UNTRUSTED_FILE_FENCE_END}\n\n"
-        "Propose the smallest change that satisfies the frozen requirement. "
-        "You have zero execution authority; propose file content only.\n"
-        "CRITICAL INSTRUCTION: Output MUST be a single raw JSON object "
+        "CRITICAL FILE-ACTION RULES:\n"
+        "1. For 'MODIFY' actions: the 'content' field MUST contain the COMPLETE, ENTIRE "
+        "replacement source code for the file from line 1 to the end of the file. "
+        "Never provide only a function, method, snippet, or diff. "
+        "The file must be fully self-contained and syntactically valid Python, "
+        "preserving all imports, existing classes (e.g. `class ResetVault:`), "
+        "exception definitions (e.g. `class TokenError:`), and existing methods.\n"
+        "2. For 'CREATE' actions: 'content' must be the complete file content.\n"
+        "3. For 'DELETE' actions: 'content' must be empty string.\n"
+        "4. Propose the smallest correct fix that satisfies the frozen requirement "
+        "while keeping all other code, interfaces, and ordinary behavior intact.\n\n"
+        "CRITICAL FORMAT INSTRUCTION: Output MUST be a single raw JSON object "
         "starting with '{' and ending with '}'. "
         "Do NOT wrap in markdown fences (no ```json or ```). "
         "Do NOT include any preamble, commentary, explanation, or "
@@ -238,6 +249,7 @@ def build_candidate_generation_messages(
                 "Produce ONLY a valid, raw JSON object matching the requested schema. "
                 "Do NOT wrap in markdown fences or backticks. Do NOT include any preamble, "
                 "explanation, or postscript outside the JSON object. "
+                "For MODIFY actions, always provide the complete file content from line 1 to EOF. "
                 "Be concise: keep plan reasoning and summaries brief so the entire JSON "
                 "object completes within budget.\n"
                 "Never invent execution authority. Propose file content only."
@@ -302,6 +314,117 @@ def _materialize_from_response(
     return proposal, candidate_files, patch_text
 
 
+def validate_candidate_preexecution(
+    *,
+    candidate_files: Mapping[str, str],
+    base_files: Mapping[str, str],
+    target: str = "",
+) -> tuple[bool, str | None, str | None]:
+    """Validate candidate files for syntax, class/interface preservation, and ordinary behavior.
+
+    Returns (is_valid, failed_path, error_message).
+    """
+    import ast
+
+    # 1. AST syntax check on all python files
+    for path, content in sorted(candidate_files.items()):
+        if path.endswith(".py"):
+            try:
+                ast.parse(content, filename=path)
+            except (SyntaxError, IndentationError) as exc:
+                return (
+                    False,
+                    path,
+                    f"Python syntax error at line {exc.lineno}: {type(exc).__name__}: {exc.msg}",
+                )
+
+    # 2. Public API class and function preservation
+    for path, base_content in sorted(base_files.items()):
+        if not path.endswith(".py"):
+            continue
+        cand_content = candidate_files.get(path)
+        if cand_content is None:
+            continue  # file was deleted
+        try:
+            base_tree = ast.parse(base_content, filename=path)
+            cand_tree = ast.parse(cand_content, filename=path)
+        except Exception:
+            continue
+
+        base_classes = {node.name for node in base_tree.body if isinstance(node, ast.ClassDef)}
+        cand_classes = {node.name for node in cand_tree.body if isinstance(node, ast.ClassDef)}
+        missing_classes = base_classes - cand_classes
+        if missing_classes:
+            return (
+                False,
+                path,
+                f"Candidate file is missing required class(es): {sorted(missing_classes)}. "
+                "For 'MODIFY' actions, 'content' must be the complete file preserving all classes.",
+            )
+
+        base_funcs = {
+            node.name
+            for node in base_tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        cand_funcs = {
+            node.name
+            for node in cand_tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        missing_funcs = base_funcs - cand_funcs
+        if missing_funcs:
+            missing_names = sorted(missing_funcs)
+            return (
+                False,
+                path,
+                f"Candidate file is missing required top-level function(s): {missing_names}.",
+            )
+
+    # 3. ResetVault ordinary behavior check (if target involves ResetVault)
+    vault_rel = "tests/fixtures/reset_vault/src/reset_vault/vault.py"
+    if vault_rel in candidate_files:
+        vault_code = candidate_files[vault_rel]
+        globs: dict[str, Any] = {}
+        try:
+            compiled = compile(vault_code, "vault.py", "exec")
+            exec(compiled, globs)
+        except Exception as exc:
+            return (
+                False,
+                vault_rel,
+                f"Candidate vault.py failed execution: {type(exc).__name__}: {exc}",
+            )
+
+        vault_cls = globs.get("ResetVault")
+        if not isinstance(vault_cls, type):
+            return (
+                False,
+                vault_rel,
+                "Candidate vault.py does not define class 'ResetVault'",
+            )
+
+        try:
+            inst = vault_cls()
+            inst.set_user_password("alice", "initial_pass")
+            token = inst.create_reset_token("alice")
+            if not isinstance(token, str) or not token:
+                return False, vault_rel, "create_reset_token did not return a valid token"
+            res = inst.redeem_reset_token(token, "new_pass")
+            if res is not True:
+                return False, vault_rel, "First valid token redemption failed"
+            if inst.get_user_password("alice") != "new_pass":
+                return False, vault_rel, "Password was not updated after first valid redemption"
+        except Exception as exc:
+            return (
+                False,
+                vault_rel,
+                f"Candidate failed ordinary ResetVault behavior: {type(exc).__name__}: {exc}",
+            )
+
+    return True, None, None
+
+
 def generate_model_candidate(
     *,
     model_client: Any,
@@ -313,9 +436,15 @@ def generate_model_candidate(
     base_files: Mapping[str, str],
     max_tokens: int | None = None,
     temperature: float = 0.0,
+    max_candidate_attempts: int = 3,
 ) -> ModelCandidate:
     """Obtain and bind a genuine candidate from the configured model. Fails closed."""
-    from basebreak.adapters.nebius import ModelAdapterError, ModelConfigError
+    from basebreak.adapters.nebius import (
+        ModelAdapterError,
+        ModelConfigError,
+        ModelResponseFormatError,
+        ModelTruncatedResponseError,
+    )
 
     if not allowed_paths:
         raise ModelCandidateRejectedError("allowed_paths must not be empty")
@@ -357,120 +486,198 @@ def generate_model_candidate(
         except (ValueError, TypeError):
             complete_kwargs["chat_template_kwargs"] = chat_template_kwargs
 
-    try:
-        result = model_client.complete(
-            messages,
-            **complete_kwargs,
-        )
-    except ModelConfigError as exc:
-        # Pre-dispatch configuration/credential rejection: no provider work was dispatched.
-        raise ModelCandidateRejectedError(
-            f"candidate-generation request rejected before dispatch: {exc}",
-            generation_attempted=False,
-        ) from exc
-    except ModelAdapterError as exc:
-        # The provider call was dispatched but failed (timeout, network, non-2xx provider
-        # error, malformed response, or model identity mismatch). The attempt is counted;
-        # actual token usage and response facts are retained when reported by the provider.
-        from basebreak.adapters.nebius import (
-            ModelResponseFormatError,
-            ModelTruncatedResponseError,
-        )
+    current_messages = list(messages)
+    call_count = 0
+    cum_prompt_tokens = 0
+    cum_completion_tokens = 0
+    cum_total_tokens = 0
+    cum_duration = 0.0
+    all_request_ids: list[str] = []
 
-        usage = getattr(exc, "usage", None)
-        err_prompt_tokens = int(usage.prompt_tokens) if usage is not None else None
-        err_completion_tokens = int(usage.completion_tokens) if usage is not None else None
-        err_total_tokens = int(usage.total_tokens) if usage is not None else None
-        err_req_id = getattr(exc, "request_id", None)
-        err_ret_model = getattr(exc, "returned_model", None) or ""
-        err_finish_reason = getattr(exc, "finish_reason", None)
-        err_has_reasoning = bool(getattr(exc, "has_reasoning_content", False))
-        common_error_kwargs: dict[str, Any] = {
-            "generation_attempted": True,
-            "generation_prompt_tokens": err_prompt_tokens,
-            "generation_completion_tokens": err_completion_tokens,
-            "generation_total_tokens": err_total_tokens,
-            "provider_request_id": str(err_req_id).strip() or None if err_req_id else None,
-            "returned_model": str(err_ret_model),
-            "response_received": False,
-            "finish_reason": err_finish_reason,
-            "has_reasoning_content": err_has_reasoning,
-        }
-        if isinstance(exc, (ModelResponseFormatError, ModelTruncatedResponseError)):
+    last_response_text = ""
+    last_returned_model = ""
+    last_request_id: str | None = None
+    last_finish_reason: str | None = None
+    last_has_reasoning = False
+
+    proposal: BuilderProposal | None = None
+    candidate_files: dict[str, str] = {}
+    patch_text: str = ""
+
+    for attempt in range(max(1, max_candidate_attempts)):
+        call_count += 1
+        try:
+            result = model_client.complete(
+                current_messages,
+                **complete_kwargs,
+            )
+        except ModelConfigError as exc:
+            # Pre-dispatch configuration/credential rejection: no provider work was dispatched.
             raise ModelCandidateRejectedError(
-                f"candidate-generation response rejected: {exc}",
+                f"candidate-generation request rejected before dispatch: {exc}",
+                generation_attempted=False,
+            ) from exc
+        except ModelAdapterError as exc:
+            # The provider call was dispatched but failed (timeout, network, non-2xx provider
+            # error, malformed response, or model identity mismatch). The attempt is counted;
+            # actual token usage and response facts are retained when reported by the provider.
+            usage = getattr(exc, "usage", None)
+            err_prompt = int(usage.prompt_tokens) if usage is not None else None
+            err_comp = int(usage.completion_tokens) if usage is not None else None
+            err_total = int(usage.total_tokens) if usage is not None else None
+            if err_prompt is not None:
+                cum_prompt_tokens += err_prompt
+            if err_comp is not None:
+                cum_completion_tokens += err_comp
+            if err_total is not None:
+                cum_total_tokens += err_total
+            err_req_id = getattr(exc, "request_id", None)
+            if err_req_id:
+                all_request_ids.append(str(err_req_id).strip())
+            common_error_kwargs: dict[str, Any] = {
+                "generation_attempted": True,
+                "generation_prompt_tokens": cum_prompt_tokens or err_prompt,
+                "generation_completion_tokens": cum_completion_tokens or err_comp,
+                "generation_total_tokens": cum_total_tokens or err_total,
+                "provider_request_id": str(err_req_id).strip() or None if err_req_id else None,
+                "returned_model": str(getattr(exc, "returned_model", None) or ""),
+                "response_received": False,
+                "finish_reason": getattr(exc, "finish_reason", None),
+                "has_reasoning_content": bool(getattr(exc, "has_reasoning_content", False)),
+            }
+            if isinstance(exc, (ModelResponseFormatError, ModelTruncatedResponseError)):
+                raise ModelCandidateRejectedError(
+                    f"candidate-generation response rejected: {exc}",
+                    **common_error_kwargs,
+                ) from exc
+            raise ModelCandidateTransportError(
+                f"candidate-generation provider failure after dispatch: {exc}",
                 **common_error_kwargs,
             ) from exc
-        raise ModelCandidateTransportError(
-            f"candidate-generation provider failure after dispatch: {exc}",
-            **common_error_kwargs,
-        ) from exc
 
-    usage = getattr(result, "usage", None)
-    duration = getattr(result, "duration_seconds", None)
-    response_text = getattr(result, "content", None)
-    finish_reason = getattr(result, "finish_reason", None)
-    has_reasoning = bool(getattr(result, "has_reasoning_content", False))
-    accounting: dict[str, Any] = {
-        "generation_attempted": True,
-        "generation_prompt_tokens": (
-            int(getattr(usage, "prompt_tokens", 0)) if usage is not None else None
-        ),
-        "generation_completion_tokens": (
-            int(getattr(usage, "completion_tokens", 0)) if usage is not None else None
-        ),
-        "generation_total_tokens": (
-            int(getattr(usage, "total_tokens", 0)) if usage is not None else None
-        ),
-        "generation_duration_seconds": (float(duration) if duration is not None else None),
-        "provider_request_id": (str(getattr(result, "request_id", "") or "").strip() or None),
-        "returned_model": str(getattr(result, "returned_model", "") or ""),
-        "response_received": isinstance(response_text, str) and bool(response_text.strip()),
-        "finish_reason": finish_reason,
-        "has_reasoning_content": has_reasoning,
-    }
+        usage = getattr(result, "usage", None)
+        duration = getattr(result, "duration_seconds", None)
+        response_text = getattr(result, "content", None)
+        finish_reason = getattr(result, "finish_reason", None)
+        has_reasoning = bool(getattr(result, "has_reasoning_content", False))
 
-    # Explicitly reject a truncated generation response before any parsing. A provider
-    # ``finish_reason == "length"`` (or a client-bound truncation, surfaced as a raised
-    # ModelTruncatedResponseError) must never be accepted as a complete proposal, and
-    # truncation must never be "repaired" by inventing missing fields.
-    if isinstance(finish_reason, str) and finish_reason.strip().lower() == "length":
-        truncated = ModelCandidateRejectedError(
-            "candidate-generation response was truncated (finish_reason='length')",
-            **accounting,
+        p_tok = int(getattr(usage, "prompt_tokens", 0) or 0) if usage is not None else 0
+        c_tok = int(getattr(usage, "completion_tokens", 0) or 0) if usage is not None else 0
+        t_tok = int(getattr(usage, "total_tokens", 0) or 0) if usage is not None else 0
+        cum_prompt_tokens += p_tok
+        cum_completion_tokens += c_tok
+        cum_total_tokens += t_tok
+        if duration is not None:
+            cum_duration += float(duration)
+
+        req_id = str(getattr(result, "request_id", "") or "").strip() or None
+        if req_id:
+            all_request_ids.append(req_id)
+        last_request_id = req_id
+        last_returned_model = str(getattr(result, "returned_model", "") or "")
+        last_finish_reason = finish_reason
+        last_has_reasoning = has_reasoning
+        last_response_text = response_text if isinstance(response_text, str) else ""
+
+        accounting: dict[str, Any] = {
+            "generation_attempted": True,
+            "generation_prompt_tokens": cum_prompt_tokens if cum_prompt_tokens > 0 else None,
+            "generation_completion_tokens": cum_completion_tokens
+            if cum_completion_tokens > 0
+            else None,
+            "generation_total_tokens": cum_total_tokens if cum_total_tokens > 0 else None,
+            "generation_duration_seconds": cum_duration if cum_duration > 0.0 else None,
+            "provider_request_id": last_request_id,
+            "returned_model": last_returned_model,
+            "response_received": isinstance(response_text, str) and bool(response_text.strip()),
+            "finish_reason": last_finish_reason,
+            "has_reasoning_content": last_has_reasoning,
+        }
+
+        # Explicitly reject a truncated generation response before any parsing.
+        if isinstance(finish_reason, str) and finish_reason.strip().lower() == "length":
+            truncated = ModelCandidateRejectedError(
+                "candidate-generation response was truncated (finish_reason='length')",
+                **accounting,
+            )
+            raise truncated
+
+        if not isinstance(response_text, str) or not response_text.strip():
+            if attempt + 1 < max_candidate_attempts:
+                continue
+            raise ModelCandidateRejectedError(
+                "model returned an empty candidate response", **accounting
+            )
+
+        try:
+            proposal, candidate_files, patch_text = _materialize_from_response(
+                response_text=response_text,
+                allowed_paths=allowed_paths,
+                base_files=base_files,
+            )
+        except ModelCandidateRejectedError as exc:
+            for key, value in accounting.items():
+                setattr(exc, key, value)
+            raise
+
+        is_valid, failed_path, val_error = validate_candidate_preexecution(
+            candidate_files=candidate_files,
+            base_files=base_files,
+            target=target,
         )
-        raise truncated
+        if is_valid:
+            break
 
-    if not isinstance(response_text, str) or not response_text.strip():
-        raise ModelCandidateRejectedError(
-            "model returned an empty candidate response", **accounting
-        )
-    try:
-        proposal, candidate_files, patch_text = _materialize_from_response(
-            response_text=response_text, allowed_paths=allowed_paths, base_files=base_files
-        )
-    except ModelCandidateRejectedError as exc:
-        for key, value in accounting.items():
-            setattr(exc, key, value)
-        raise
+        if attempt + 1 < max_candidate_attempts:
+            target_path = failed_path or allowed_paths[0]
+            repair_feedback = (
+                f"Your proposed file action for '{target_path}' failed pre-execution validation:\n"
+                f"{val_error}\n\n"
+                "CRITICAL INSTRUCTIONS:\n"
+                "- For 'MODIFY' actions, the 'content' field MUST contain the COMPLETE, FULL\n"
+                "  file content from line 1 to EOF.\n"
+                "- Do NOT provide just the modified method, diff, or partial snippet.\n"
+                "- Preserve all imports, classes (including 'class ResetVault:'),\n"
+                "  and existing methods.\n"
+                "- The code must be syntactically valid Python.\n\n"
+                "Please provide a corrected proposal as a single raw JSON object\n"
+                "matching the schema."
+            )
+            current_messages = [
+                messages[0],
+                messages[1],
+                {"role": "assistant", "content": response_text},
+                {"role": "user", "content": repair_feedback},
+            ]
+            continue
+        else:
+            rej = ModelCandidateRejectedError(
+                f"candidate pre-execution validation failed after "
+                f"{call_count} attempts: {val_error}",
+                **accounting,
+            )
+            raise rej
 
+    assert proposal is not None
     patch_digest = _sha256_hex(patch_text)
     return ModelCandidate(
         origin=MODEL_GENERATED_CANDIDATE_ORIGIN,
-        response_text=response_text,
-        response_digest=_sha256_hex(response_text),
-        returned_model=accounting["returned_model"],
-        provider_request_id=accounting["provider_request_id"],
+        response_text=last_response_text,
+        response_digest=_sha256_hex(last_response_text),
+        returned_model=last_returned_model,
+        provider_request_id=last_request_id,
         proposal=proposal,
         proposal_digest=_proposal_digest(proposal),
         candidate_files=tuple(sorted(candidate_files.items())),
         patch_text=patch_text,
         patch_digest=patch_digest,
         candidate_id=f"cand-model-{patch_digest[:16]}",
-        generation_prompt_tokens=accounting["generation_prompt_tokens"],
-        generation_completion_tokens=accounting["generation_completion_tokens"],
-        generation_total_tokens=accounting["generation_total_tokens"],
-        generation_duration_seconds=accounting["generation_duration_seconds"],
+        generation_prompt_tokens=cum_prompt_tokens if cum_prompt_tokens > 0 else None,
+        generation_completion_tokens=cum_completion_tokens if cum_completion_tokens > 0 else None,
+        generation_total_tokens=cum_total_tokens if cum_total_tokens > 0 else None,
+        generation_duration_seconds=cum_duration if cum_duration > 0.0 else None,
+        model_call_count=call_count,
+        provider_request_ids=tuple(all_request_ids),
     )
 
 

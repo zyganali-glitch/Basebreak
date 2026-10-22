@@ -336,6 +336,7 @@ class BridgeExecutionResult:
     model_completion_tokens: int = 0
     model_usage_complete: bool = False
     provider_request_id: str | None = None
+    diagnostic_record: Any | None = None
 
 
 BridgeExecutor = Callable[[BridgeRequest], BridgeExecutionResult]
@@ -1474,6 +1475,42 @@ def create_live_nebius_bridge_executor(
                 else after_ops
             )
 
+            world_diagnostics = tuple(
+                getattr(active_worker, "last_execution_diagnostics", ()) or ()
+            )
+            diag_record = None
+            if world_diagnostics:
+                try:
+                    import datetime
+
+                    from basebreak.deployment.diagnostics import (
+                        ExecutionDiagnosticRecord,
+                        record_execution_diagnostics,
+                    )
+
+                    now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                    diag_record = ExecutionDiagnosticRecord(
+                        request_id=request.request_id,
+                        source_commit_id=request.source_commit_id,
+                        candidate_patch_digest=candidate_patch_digest,
+                        candidate_tree_digest=candidate_tree_digest,
+                        world_diagnostics=world_diagnostics,
+                        overall_verdict=local_receipt.verdict.value,
+                        created_at_utc=now_utc,
+                    )
+                    if config.bridge_state_dir:
+                        record_execution_diagnostics(config.bridge_state_dir, diag_record)
+                except Exception:
+                    pass
+
+            candidate_generation_identity_values_with_diags = list(
+                candidate_generation_identity_values
+            )
+            for wd in world_diagnostics:
+                candidate_generation_identity_values_with_diags.append(
+                    f"diag-{wd.world.lower()}:{wd.diagnostic_category.value}"
+                )
+
             if production_grounded:
                 model_result = SimpleNamespace(
                     returned_model=model_candidate.returned_model,
@@ -1500,7 +1537,7 @@ def create_live_nebius_bridge_executor(
                 model_completion_tokens=model_completion_tokens,
                 model_usage_complete=model_usage_complete,
                 model_total_duration_seconds=model_total_duration_seconds,
-                candidate_generation_identities=candidate_generation_identity_values,
+                candidate_generation_identities=candidate_generation_identity_values_with_diags,
             )
 
             return BridgeExecutionResult(
@@ -1525,6 +1562,7 @@ def create_live_nebius_bridge_executor(
                 model_completion_tokens=model_completion_tokens,
                 model_usage_complete=model_usage_complete,
                 provider_request_id=provider_request_id,
+                diagnostic_record=diag_record,
             )
         except (
             ModelTimeoutError,
@@ -2181,6 +2219,11 @@ class TrustedVerifierBridge:
                         "candidate_origin": result.candidate_origin,
                         "provider_dispatched": True,
                     }
+                    if result.diagnostic_record is not None:
+                        response_body["diagnostic_categories"] = {
+                            wd.world: wd.diagnostic_category.value
+                            for wd in result.diagnostic_record.world_diagnostics
+                        }
 
         # Persist the terminal outcome so replaying this request_id never triggers
         # a second chargeable execution.

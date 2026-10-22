@@ -99,6 +99,8 @@ def test_production_factory_preserves_canonical_contract_digest() -> None:
 
 
 def test_p23_test_consumes_single_production_authority() -> None:
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
     p23 = importlib.import_module("tests.demo.test_p23_killer_demo")
     assert (
         getattr(p23, "create_reset_vault_frozen_contract", None)
