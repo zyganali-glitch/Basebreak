@@ -1,0 +1,129 @@
+{
+  "accounting": null,
+  "candidate_patch_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "candidate_tree_digest": "7777777777777777777777777777777777777777",
+  "counterfactual": {
+    "absence_rationale": null,
+    "candidate_tree_digest": "7777777777777777777777777777777777777777",
+    "delta_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "execution_fact": {
+      "duration_seconds": 1.75,
+      "exit_code": 1,
+      "outcome": "FAIL",
+      "sandbox_id": "sbx-fixture-cf",
+      "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      "stderr_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+      "stderr_excerpt": null,
+      "stdout_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+      "stdout_excerpt": null,
+      "termination_status": "COMPLETED",
+      "tree_digest": "8888888888888888888888888888888888888888",
+      "world": "COUNTERFACTUAL"
+    },
+    "is_required": true,
+    "outcome": "FAIL"
+  },
+  "coverage_summary": {
+    "blocked_count": 0,
+    "contract_digest": "93eeeb2cc7eb02a988da3c8a8543ad40b4816608c1452d048ff62ee93702f812",
+    "contradicted_count": 0,
+    "coverage_digest": "38f4742c781b4503dbf1dd3999d280d207f0c47e3b81aa5c0fdb338062a18f0f",
+    "coverage_percentage": 100,
+    "coverage_ratio": 1,
+    "eligible_count": 1,
+    "excluded_count": 0,
+    "inconclusive_count": 0,
+    "is_fully_verified": true,
+    "not_run_count": 0,
+    "overall_verdict": "VERIFIED",
+    "per_requirement_facts": [
+      {
+        "causal_state": "VERIFIED",
+        "change_class": "BUG_FIX",
+        "eligibility": "ELIGIBLE",
+        "execution_obligation": "FAIL_TO_PASS_WITH_COUNTERFACTUAL",
+        "fact_digest": "dc208f4c85bf4f217150de8c80c8e3243bc6454d19efda22012e450633471893",
+        "preliminary_verdict": "VERIFIED",
+        "rationale": "BASE failed, CANDIDATE passed, COUNTERFACTUAL failed \u2014 \u00e7\u011f\u0131\u00f6\u015f\u00fc.",
+        "requirement_id": "REQ-RESET-001",
+        "transition": "CAUSAL_TRIPLET_VERIFIED",
+        "witness_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "witness_id": "wit-fixture-001"
+      }
+    ],
+    "total_requirements": 1,
+    "verified_count": 1
+  },
+  "disclaimers": [
+    "Aaa comes first alphabetically.",
+    "Non-ASCII: \u00e7\u011f\u0131\u00f6\u015f\u00fc \u2014 must round-trip via \\u escapes.",
+    "Zzz comes last alphabetically."
+  ],
+  "executions": [
+    {
+      "duration_seconds": 1.5,
+      "exit_code": 1,
+      "outcome": "FAIL",
+      "sandbox_id": "sbx-fixture-base",
+      "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      "stderr_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+      "stderr_excerpt": null,
+      "stdout_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+      "stdout_excerpt": null,
+      "termination_status": "COMPLETED",
+      "tree_digest": "8888888888888888888888888888888888888888",
+      "world": "BASE"
+    },
+    {
+      "duration_seconds": 2.25,
+      "exit_code": 0,
+      "outcome": "PASS",
+      "sandbox_id": "sbx-fixture-candidate",
+      "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      "stderr_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+      "stderr_excerpt": null,
+      "stdout_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+      "stdout_excerpt": null,
+      "termination_status": "COMPLETED",
+      "tree_digest": "7777777777777777777777777777777777777777",
+      "world": "CANDIDATE"
+    }
+  ],
+  "frozen_contract_digest": "93eeeb2cc7eb02a988da3c8a8543ad40b4816608c1452d048ff62ee93702f812",
+  "is_authoritative": false,
+  "not_run_obligations": [],
+  "overall_verdict": "VERIFIED",
+  "provenance": "LOCAL_EXECUTION",
+  "receipt_digest": "458d1fd5d79ef08836b15237c55f95b9ba51f6aa645189da30ccabbb09e0de60",
+  "repo_locator": "https://github.com/zyganali-glitch/Basebreak.git",
+  "runtime_identities": [
+    "aaa-identity-first",
+    "mmm-identity-middle",
+    "zzz-identity-last"
+  ],
+  "schema_version": "1.0.0",
+  "signature": null,
+  "signature_strategy": "SHA256_DIGEST_ONLY",
+  "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+  "task_id": "TASK-RESET-VAULT-001",
+  "timing": {
+    "created_at_utc": "2026-10-22T00:00:00+00:00",
+    "total_duration_seconds": 5.5
+  },
+  "witnesses": [
+    {
+      "execution_command": [
+        "python",
+        "-m",
+        "pytest",
+        "witness.py",
+        "-q"
+      ],
+      "lock_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "requirement_id": "REQ-RESET-001",
+      "timeout_seconds": 30,
+      "witness_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "witness_id": "wit-fixture-001"
+    }
+  ]
+}

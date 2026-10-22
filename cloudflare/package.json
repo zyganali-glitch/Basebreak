@@ -6,10 +6,10 @@
   "type": "module",
   "scripts": {
     "test": "npm run test:node && npm run test:workers",
-    "test:node": "node --test test/ledger.test.js test/worker.test.js",
+    "test:node": "node --test test/ledger.test.js test/worker.test.js test/receipt.crosslanguage.test.js",
     "test:workerd-preflight": "node --test test/worker.miniflare.preflight.test.js",
     "test:workers": "vitest run --config vitest.config.mjs test/worker.runtime.test.js",
-    "typecheck": "node --check src/index.js src/ledger.js src/crypto_utils.js src/sql_adapter.js src/provider_dispatcher.js test/ledger.test.js test/worker.test.js test/worker.runtime.test.js test/worker.miniflare.preflight.test.js vitest.config.mjs"
+    "typecheck": "node --check src/index.js src/ledger.js src/crypto_utils.js src/sql_adapter.js src/provider_dispatcher.js test/ledger.test.js test/worker.test.js test/receipt.crosslanguage.test.js test/worker.runtime.test.js test/worker.miniflare.preflight.test.js vitest.config.mjs"
   },
   "keywords": [
     "basebreak",

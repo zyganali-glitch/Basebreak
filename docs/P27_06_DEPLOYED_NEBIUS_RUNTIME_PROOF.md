@@ -419,7 +419,7 @@ curl -X POST "https://<deployed-url>/v1/runs" \
 | Health / Source SHA Parity Path (P-27.04) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
 | Signed-Out Access Control (P-27.05) | `LOCAL_EXECUTION` | **VERIFIED / PASS** |
 | Public Cloud Deployment (P-27.03) | `LOCAL_EXECUTION` | **Previously independently QA-verified public deployment, supported by `LOCAL_EXECUTION` observations against remotely hosted Cloudflare Workers; deployment remains unchanged in this offline repair batch** |
-| Deployed Live Nebius Execution (P-27.06) | `LIVE_NEBIUS` | `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN` |
+| Deployed Live Nebius Execution (P-27.06) | `LIVE_NEBIUS` | **Eighth authorized run executed (2026-10-22): genuine Nemotron inference + real sandbox three-world execution triggered and bridge-COMPLETED (LIVE_NEBIUS facts retained), but verdict INCONCLUSIVE (genuine model produced an invalid candidate) and Worker receipt import failed on a now-repaired cross-language digest defect (see §3.7). A live VERIFIED causal triplet published on the judge route remains `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.** |
 
 > **Provenance Note:** The P-27.03 public Cloudflare deployment must NOT be classified as `RECORDED_LIVE`. That provenance is strictly reserved for recorded genuine live execution evidence, not for HTTPS deployment observations. P-27.03 is described as previously independently QA-verified public deployment, supported by `LOCAL_EXECUTION` observations against remotely hosted Cloudflare Workers. P-27.06 `LIVE_NEBIUS` execution remains strictly `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
 
@@ -525,6 +525,107 @@ remains `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. Rollback: `wrangler vpc ser
 01a14dbe-e68f-7b31-b207-4d71aff2987e`, `wrangler tunnel delete
 c4977eda-47ab-412b-9f93-970972867465`, stop/remove the `cloudflared` unit, and unset the
 Worker secret; the bridge stays bound to `127.0.0.1:8787` and fail-closed.
+
+### 3.7 Eighth Authorized Live Run & Cross-Language Receipt Digest Repair (2026-10-22)
+
+Under the operator's eighth explicit single-run authorization, after a complete
+offline causal-chain preflight (24/24 checks, `LOCAL_EXECUTION`/`FIXTURE`:
+generation → binding → real-git tree digest → secret/protected-surface
+validation → sealed witness → subtraction → real local three-world execution
+BASE=FAIL/CANDIDATE=PASS/COUNTERFACTUAL=FAIL → signed receipt + proof round
+trip), all three live gates were enabled, one single-use grant
+(`grant_78a8843e-6f4f-4200-bac1-2e0d54b19ded`) was issued, and exactly ONE
+production request was submitted (idempotency key
+`a544fda6-dd41-4e75-bf9c-2b12595db3f9`).
+
+**Eighth run `run_d82ee30a-481f-4e83-b187-03a189d4eae4` (LIVE_NEBIUS facts,
+executor- and bridge-record-verified):**
+
+- Genuine `nvidia/Nemotron-3_5-Lightning` candidate generation: provider request
+  `chatcmpl-14a0928e66d69c756366d08cbb078e27`, 945/375/1320 tokens
+  (`model-usage:complete`), `candidate_origin=MODEL_GENERATED_NEBIUS`, candidate
+  patch digest `ec5cd82499b9f25f2f240f234ae0afb28cdfb2f101196186ed3211ee28338033`,
+  candidate tree digest `0700291800f836ef529046b77ffadfbd7b49fb20` (the run-7
+  secret false-positive did NOT recur — the repair held).
+- Real Nebius Sandbox three-world execution: 11 operation IDs
+  (`01a16202-…`), BASE `sbx-18822309cd8c49c7` FAIL (exit 1, tree
+  `824fa2c69a222cc2204950bb6eb974abfd2abb7d`), CANDIDATE
+  `sbx-fe3eb51d64b2437b` **ERROR (exit 2 — pytest collection error)**, and
+  COUNTERFACTUAL `sbx-7a183a86b0944e6a` FAIL (exit 1, tree identical to the
+  base tree — the reverse delta reverted the candidate exactly).
+- The bridge returned `status=COMPLETED` with a genuine signed
+  `LIVE_NEBIUS` receipt (receipt digest
+  `5c8c8554c8ed7f9c0a4fac4ffec4e009a3bc88e3c7a49668a350bf90ce1a606b`) and
+  verifier-signed receipt proof (proof digest
+  `8c8cd88b921f9718ff10d582128ad7f815cd728d404e08fe0acd575831f62f22`; the RSA
+  signature independently verified against the pinned production authority).
+- Overall verdict: `INCONCLUSIVE` (`NON_VERIFIED_EXECUTION_ERROR`, rationale
+  "Execution error encountered (BASE: FAIL, CANDIDATE: ERROR, COUNTERFACTUAL:
+  FAIL)"). The genuine model independently produced a candidate patch that
+  fails at import/collection time in the CANDIDATE world (exit 2) while BASE
+  and COUNTERFACTUAL ran the identical witness normally in the same sandbox
+  image; the seventh-run candidate bytes were not retained, and the eighth-run
+  candidate bytes are likewise not persisted, so this is classified as genuine
+  model behavior (invalid candidate), NOT a product defect. The system
+  correctly refused to certify it.
+- The Worker nevertheless recorded the run as `FAILED_UNRECONCILED_COST` with
+  error "Bridge receipt proof verification failed: Receipt digest verification
+  failed." — a **genuine product defect** at the receipt-import boundary
+  (unknown-cost exposure 0.50 USD retained; ledger: total_runs=8,
+  unknown_cost=4.00).
+
+**Root cause (independently reproduced offline with the actual run-8 receipt
+bytes, `LOCAL_EXECUTION`):** the trusted bridge computed the receipt digest over
+`build_canonical_public_receipt_payload`, which SORTS the `disclaimers`,
+`not_run_obligations`, and `runtime_identities` list fields and distinguishes
+Python ints from floats, while the wire receipt (`to_dict()`) preserved insertion
+order and integral-valued floats (`0.0`, `30.0`). ECMAScript `JSON.parse`
+collapses `0.0` and `0` into the same number, so the Worker could never
+recompute a genuine Python bridge receipt digest (JS recomputed
+`f8b46939…`/wire-unsorted vs declared `5c8c8554…`). The retained Node test
+fixtures were built in JS (already-sorted lists, integer-typed numbers), which
+kept the defect invisible to the Node suite; the Python-side proof round trip
+never exercised the JS verifier with Python-produced bytes.
+
+**Surgical repair (same batch, verified BASE=FAIL → CANDIDATE=PASS):**
+
+1. `src/basebreak/causal/public_receipt.py`: canonical digest payloads are now
+   normalized to JSON-portable values (integral-valued floats become ints,
+   recursively), and `PublicVerificationReceipt.to_dict()` emits EXACTLY the
+   canonical payload plus `receipt_digest` — the wire form IS the digest
+   payload, so external verifiers can recompute it byte-for-byte.
+2. `cloudflare/src/crypto_utils.js`: the ECMAScript canonicalization now mirrors
+   the Python canonical builder (sorted `disclaimers`/`not_run_obligations`/
+   `runtime_identities`, lowercased digest-like fields, trimmed string fields)
+   and escapes non-ASCII exactly like Python `ensure_ascii=True`, so genuine
+   Python receipts verify cross-language while tampering is still rejected.
+3. Regression tests: `tests/causal/test_p27_06_receipt_wire_canonicalization.py`
+   (6 tests: wire==canonical invariant, portable numbers, sorted lists,
+   JSON round trip, pure-wire digest reproducibility, and a live
+   Python→Node cross-language verification that skips when `node` is
+   unavailable) and `cloudflare/test/receipt.crosslanguage.test.js` (4 tests
+   against the committed Python-generated fixture
+   `cloudflare/test/fixtures/python_public_receipt_fixture.json`, regenerated
+   deterministically by
+   `cloudflare/test/fixtures/generate_python_receipt_fixture.py` with
+   deliberately unsorted lists, integral floats, and non-ASCII content).
+   Causal evidence: the Python-built fixture FAILS verification under the
+   pre-repair JS (digest `575c5fff…`) and PASSES under the repaired JS
+   (`458d1fd5…`); five tamper shapes remain rejected.
+4. Validation (`LOCAL_EXECUTION`): full Python suite 2942 passed / 12 skipped
+   (live-marked tests correctly skipped), Node suite 68 passed (64 prior + 4
+   new), workerd preflight pass, `ruff format --check`, `ruff check`, and
+   `mypy src tests` (282 files) all pass.
+
+**Evidence limits:** the run-8 receipt was created under the legacy
+canonicalization; it does not (and cannot) verify under the repaired rules and
+is preserved as immutable historical evidence in the Oracle bridge durable
+record, authenticatable through its RSA-signed proof (which binds
+`receipt_digest=5c8c8554…` and the execution facts) and through the legacy
+Python canonicalization. The repaired receipt-import path remains UNVERIFIED by
+live execution (no ninth run is authorized); the deployed live
+`LIVE_NEBIUS` runtime proof remains `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`
+for a future authorized run.
 
 ### Remaining hard blockers
 

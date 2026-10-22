@@ -8,8 +8,27 @@
 import crypto from "node:crypto";
 
 /**
+ * Serialize a string exactly like Python's json.dumps with ensure_ascii=True:
+ * JSON.stringify already emits the short escapes (\n, \t, \r, \b, \f, \", \\)
+ * and lowercase \uXXXX for other control characters, but leaves non-ASCII
+ * characters raw. Python escapes every character >= U+007F as a lowercase
+ * \uXXXX escape (astral characters as surrogate pairs), so the canonical
+ * digest bytes remain identical across languages.
+ *
+ * @param {string} s
+ * @returns {string}
+ */
+function pyAsciiJsonString(s) {
+  return JSON.stringify(s).replace(/[\u007f-\uffff]/g, (ch) => {
+    const code = ch.charCodeAt(0);
+    return "\\u" + code.toString(16).padStart(4, "0");
+  });
+}
+
+/**
  * Serialize an object into canonical JSON (recursively sorted keys, no whitespace).
  * Exactly matches Python: json.dumps(payload, sort_keys=True, separators=(",", ":"))
+ * with default ensure_ascii=True semantics.
  *
  * @param {unknown} val
  * @returns {string}
@@ -22,7 +41,7 @@ export function canonicalJson(val) {
     return JSON.stringify(val);
   }
   if (typeof val === "string") {
-    return JSON.stringify(val);
+    return pyAsciiJsonString(val);
   }
   if (Array.isArray(val)) {
     const elements = val.map((item) => canonicalJson(item));
@@ -54,21 +73,65 @@ export function computeSha256(input) {
 
 /**
  * Compute the deterministic receipt digest from a receipt payload object.
- * Strips the 'receipt_digest' field if present before hashing.
+ * Strips the 'receipt_digest' field if present before hashing and mirrors the
+ * Python canonical payload normalization so genuine Python bridge receipts
+ * verify cross-language.
  *
  * @param {Record<string, unknown>} receiptObj
  * @returns {string} 64-character lowercase hex digest
  */
-export function computeReceiptDigest(receiptObj) {
-  if (!receiptObj || typeof receiptObj !== "object") {
-    throw new TypeError("Receipt payload must be a non-null object.");
-  }
+/**
+ * Mirror the Python-side canonical receipt payload normalization
+ * (basebreak.causal.public_receipt.build_canonical_public_receipt_payload):
+ * - the list fields `disclaimers`, `not_run_obligations`, and
+ *   `runtime_identities` are sorted (strings trimmed),
+ * - digest-like string fields are trimmed and lowercased,
+ * - the remaining trimmed string fields match Python's .strip() normalization.
+ * Python receipts serialize their wire form through the same canonical builder,
+ * so a genuine Python receipt and this normalization produce identical bytes.
+ *
+ * @param {Record<string, unknown>} receiptObj
+ * @returns {Record<string, unknown>}
+ */
+function normalizeReceiptDigestPayload(receiptObj) {
   const payloadCopy = {};
   for (const [k, v] of Object.entries(receiptObj)) {
     if (k !== "receipt_digest") {
       payloadCopy[k] = v;
     }
   }
+  const sortedStringList = (v) =>
+    Array.isArray(v) ? v.map((item) => String(item).trim()).sort() : v;
+  for (const key of ["disclaimers", "not_run_obligations", "runtime_identities"]) {
+    if (Array.isArray(payloadCopy[key])) {
+      payloadCopy[key] = sortedStringList(payloadCopy[key]);
+    }
+  }
+  const lowerTrim = (v) => (typeof v === "string" ? v.trim().toLowerCase() : v);
+  for (const key of [
+    "candidate_patch_digest",
+    "candidate_tree_digest",
+    "frozen_contract_digest",
+    "source_commit_id",
+  ]) {
+    if (key in payloadCopy) {
+      payloadCopy[key] = lowerTrim(payloadCopy[key]);
+    }
+  }
+  const trim = (v) => (typeof v === "string" ? v.trim() : v);
+  for (const key of ["task_id", "repo_locator", "schema_version", "signature_strategy"]) {
+    if (key in payloadCopy) {
+      payloadCopy[key] = trim(payloadCopy[key]);
+    }
+  }
+  return payloadCopy;
+}
+
+export function computeReceiptDigest(receiptObj) {
+  if (!receiptObj || typeof receiptObj !== "object") {
+    throw new TypeError("Receipt payload must be a non-null object.");
+  }
+  const payloadCopy = normalizeReceiptDigestPayload(receiptObj);
   const canonicalBytes = canonicalJson(payloadCopy);
   return computeSha256(canonicalBytes);
 }

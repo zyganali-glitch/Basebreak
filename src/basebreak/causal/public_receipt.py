@@ -35,7 +35,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 from basebreak.causal.coverage import CausalCoverageSummary, verify_coverage_integrity
 from basebreak.domain.causal import ExecutionWorld
@@ -296,33 +296,38 @@ class PublicVerificationReceipt:
             raise TypeError("provenance must be EvidenceProvenance")
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to canonical dictionary."""
-        return {
-            "accounting": self.accounting.to_dict() if self.accounting is not None else None,
-            "candidate_patch_digest": self.candidate_patch_digest,
-            "candidate_tree_digest": self.candidate_tree_digest,
-            "counterfactual": (
-                self.counterfactual.to_dict() if self.counterfactual is not None else None
-            ),
-            "coverage_summary": self.coverage_summary.to_dict(),
-            "disclaimers": list(self.disclaimers),
-            "executions": [e.to_dict() for e in self.executions],
-            "frozen_contract_digest": self.frozen_contract_digest,
-            "is_authoritative": self.is_authoritative,
-            "not_run_obligations": list(self.not_run_obligations),
-            "overall_verdict": self.overall_verdict.value,
-            "provenance": self.provenance.value,
-            "receipt_digest": self.receipt_digest,
-            "repo_locator": self.repo_locator,
-            "runtime_identities": list(self.runtime_identities),
-            "schema_version": self.schema_version,
-            "signature": self.signature,
-            "signature_strategy": self.signature_strategy,
-            "source_commit_id": self.source_commit_id,
-            "task_id": self.task_id,
-            "timing": self.timing,
-            "witnesses": [w.to_dict() for w in self.witnesses],
-        }
+        """Convert to the canonical wire dictionary.
+
+        The wire representation MUST be byte-identical (modulo key ordering) to the
+        canonical digest payload: external verifiers (the Cloudflare Worker) recompute
+        the receipt digest directly from these serialized bytes, so list fields are
+        sorted and numeric values are portable exactly like in
+        ``build_canonical_public_receipt_payload``.
+        """
+        payload = build_canonical_public_receipt_payload(
+            schema_version=self.schema_version,
+            frozen_contract_digest=self.frozen_contract_digest,
+            task_id=self.task_id,
+            repo_locator=self.repo_locator,
+            source_commit_id=self.source_commit_id,
+            candidate_tree_digest=self.candidate_tree_digest,
+            candidate_patch_digest=self.candidate_patch_digest,
+            counterfactual=self.counterfactual,
+            coverage_summary=self.coverage_summary,
+            witnesses=self.witnesses,
+            executions=self.executions,
+            overall_verdict=self.overall_verdict,
+            provenance=self.provenance,
+            runtime_identities=self.runtime_identities,
+            timing=self.timing,
+            accounting=self.accounting,
+            not_run_obligations=self.not_run_obligations,
+            signature_strategy=self.signature_strategy,
+            signature=self.signature,
+            is_authoritative=self.is_authoritative,
+            disclaimers=self.disclaimers,
+        )
+        return {**payload, "receipt_digest": self.receipt_digest}
 
     def to_json(self, indent: int | None = None) -> str:
         """Serialize to JSON string."""
@@ -491,6 +496,27 @@ class PublicVerificationReceipt:
         return receipt
 
 
+def _to_portable_json_value(value: Any) -> Any:
+    """Normalize a value so Python and ECMAScript JSON serializations agree.
+
+    JSON parsers collapse ``0.0`` and ``0`` into the same number, but
+    ``json.dumps`` distinguishes them (``"0.0"`` vs ``"0.0"``/``"0"``). Receipt
+    digest payloads must be recomputable byte-for-byte by external verifiers
+    (the Cloudflare Worker canonicalizes with ECMAScript ``JSON.stringify``
+    semantics), so integral-valued floats are normalized to integers and
+    containers are normalized recursively.
+    """
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else value
+    if isinstance(value, dict):
+        return {str(k): _to_portable_json_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_portable_json_value(v) for v in value]
+    return value
+
+
 def build_canonical_public_receipt_payload(
     *,
     schema_version: str,
@@ -516,31 +542,36 @@ def build_canonical_public_receipt_payload(
     disclaimers: Sequence[str],
 ) -> dict[str, Any]:
     """Construct canonical identity dictionary for receipt digest computation."""
-    return {
-        "accounting": accounting.to_dict() if accounting is not None else None,
-        "candidate_patch_digest": (
-            candidate_patch_digest.strip().lower() if candidate_patch_digest else None
+    return cast(
+        "dict[str, Any]",
+        _to_portable_json_value(
+            {
+                "accounting": accounting.to_dict() if accounting is not None else None,
+                "candidate_patch_digest": (
+                    candidate_patch_digest.strip().lower() if candidate_patch_digest else None
+                ),
+                "candidate_tree_digest": candidate_tree_digest.strip().lower(),
+                "counterfactual": counterfactual.to_dict() if counterfactual is not None else None,
+                "coverage_summary": coverage_summary.to_dict(),
+                "disclaimers": sorted(str(d).strip() for d in disclaimers),
+                "executions": [e.to_dict() for e in executions],
+                "frozen_contract_digest": frozen_contract_digest.strip().lower(),
+                "is_authoritative": is_authoritative,
+                "not_run_obligations": sorted(str(o).strip() for o in not_run_obligations),
+                "overall_verdict": overall_verdict.value,
+                "provenance": provenance.value,
+                "repo_locator": repo_locator.strip(),
+                "runtime_identities": sorted(str(r).strip() for r in runtime_identities),
+                "schema_version": schema_version.strip(),
+                "signature": signature,
+                "signature_strategy": signature_strategy.strip(),
+                "source_commit_id": source_commit_id.strip().lower(),
+                "task_id": task_id.strip(),
+                "timing": dict(timing),
+                "witnesses": [w.to_dict() for w in witnesses],
+            }
         ),
-        "candidate_tree_digest": candidate_tree_digest.strip().lower(),
-        "counterfactual": counterfactual.to_dict() if counterfactual is not None else None,
-        "coverage_summary": coverage_summary.to_dict(),
-        "disclaimers": sorted(str(d).strip() for d in disclaimers),
-        "executions": [e.to_dict() for e in executions],
-        "frozen_contract_digest": frozen_contract_digest.strip().lower(),
-        "is_authoritative": is_authoritative,
-        "not_run_obligations": sorted(str(o).strip() for o in not_run_obligations),
-        "overall_verdict": overall_verdict.value,
-        "provenance": provenance.value,
-        "repo_locator": repo_locator.strip(),
-        "runtime_identities": sorted(str(r).strip() for r in runtime_identities),
-        "schema_version": schema_version.strip(),
-        "signature": signature,
-        "signature_strategy": signature_strategy.strip(),
-        "source_commit_id": source_commit_id.strip().lower(),
-        "task_id": task_id.strip(),
-        "timing": dict(timing),
-        "witnesses": [w.to_dict() for w in witnesses],
-    }
+    )
 
 
 def compute_public_receipt_digest(payload: Mapping[str, Any]) -> str:
