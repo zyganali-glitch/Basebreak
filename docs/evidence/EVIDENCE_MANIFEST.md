@@ -147,3 +147,31 @@ Core Claim: **"Basebreak proves that an AI-written patch caused the behavior it 
 - **In-Flight Concurrency**: Confirmed `0`.
 - **Billing Safety**: Target personal spend remains `$0.00`; promotional balance safety floor `$5.00` strictly preserved.
 - **Fail-Closed Gate Verification**: Anonymous public `POST /v1/runs` returns `403 BLOCKED` with `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+
+---
+
+## 6. External Grounding & Tavily Evidence Binding (P-16.05)
+
+- **Target Scenario**: `CVE-2024-21626` (Container escape file descriptor leak in runc)
+- **Materiality Evaluation**: `GroundingMateriality.REQUIRED` (`GroundingCategory.CVE_SECURITY_ADVISORY`)
+- **Integration Proof Document**: `docs/evidence/P16_05_TAVILY_GROUNDING_INTEGRATION.md`
+- **Preflight & Quota Truth**:
+  - Researcher Free Plan: 1,000 monthly + 3,125 promotional credits; PAYG disabled; Auto-upgrade disabled.
+  - Runtime environment observation: `TAVILY_API_KEY` absent (`MISSING_KEY_BLOCKED`), operator-authorized.
+  - Zero-cost boundary preserved; no fake live execution fabricated.
+- **Firewall Primacy**: Validated in `tests/grounding/test_p16_closure.py`; retrieved web claims **never override code execution failure** in the sandbox.
+
+---
+
+## 7. Submission Preparation Package (P-30)
+
+- **Timed Storyboard (< 180s)**: `docs/submission/P30_STORYBOARD.md` (2:40 / 160s total duration)
+- **Screen Recording Guide**: `docs/submission/P30_SCREEN_RECORDING_GUIDE.md` (Exact URLs, clicks, scroll actions)
+- **English Narration Script**: `docs/submission/P30_NARRATION_SCRIPT.md` (364 words, scene-by-scene)
+- **Accurate Subtitles (.srt)**: `docs/submission/basebreak_demo_subtitles.srt` (Full SubRip timecodes)
+- **Screenshot & Asset Manifest**: `docs/submission/P30_SCREENSHOT_MANIFEST.md` (8 assets, source URLs, provenance)
+- **Architecture Visual**: `docs/submission/P30_ARCHITECTURE_VISUAL.md` (Accurate verified components)
+- **Devpost Story & 4 Criteria Mapping**: `docs/submission/P30_DEVPOST_SUBMISSION.md` (25% each criteria)
+- **Video Safety Checklist**: `docs/submission/P30_VIDEO_SAFETY_CHECKLIST.md` (Credential, claim, evidence audits)
+- **Operator Recording Checklist (TR)**: `docs/submission/P30_OPERATOR_RECORDING_CHECKLIST_TR.md` (Turkish step-by-step guidance)
+

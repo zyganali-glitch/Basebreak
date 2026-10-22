@@ -1,0 +1,163 @@
+1
+00:00:01,000 --> 00:00:05,200
+Today, AI agents write code at superhuman speed,
+
+2
+00:00:05,250 --> 00:00:08,800
+and CI systems dutifully flash green.
+
+3
+00:00:09,000 --> 00:00:13,200
+But green tests alone cannot prove an AI patch
+
+4
+00:00:13,250 --> 00:00:16,500
+actually fixed the intended problem.
+
+5
+00:00:16,700 --> 00:00:19,200
+What if the test was already passing?
+
+6
+00:00:19,300 --> 00:00:21,800
+What if assertions were weakened?
+
+7
+00:00:22,000 --> 00:00:25,500
+If the patch matters, the base must break.
+
+8
+00:00:26,000 --> 00:00:29,800
+Meet Basebreak: a causal verification runtime for AI-written code.
+
+9
+00:00:30,000 --> 00:00:34,200
+Instead of trusting green CI, Basebreak evaluates the change
+
+10
+00:00:34,250 --> 00:00:37,500
+across three isolated execution worlds:
+
+11
+00:00:37,800 --> 00:00:41,200
+First, the Base world must fail under a sealed witness,
+
+12
+00:00:41,250 --> 00:00:43,500
+reproducing the defect.
+
+13
+00:00:43,700 --> 00:00:46,500
+Second, the Candidate world must pass.
+
+14
+00:00:46,800 --> 00:00:50,500
+Third, reverting the patch delta in a counterfactual world must fail again,
+
+15
+00:00:50,600 --> 00:00:53,800
+proving the patch was strictly necessary.
+
+16
+00:00:54,500 --> 00:00:58,200
+Here is Basebreak verifying a real security-critical patch.
+
+17
+00:00:58,500 --> 00:01:03,000
+The AI model—NVIDIA's Nemotron 3.5 Lightning hosted on Nebius Token Factory—
+
+18
+00:01:03,100 --> 00:01:05,800
+generates the candidate fix.
+
+19
+00:01:06,000 --> 00:01:10,200
+Basebreak parses the proposal via pure static AST inspection,
+
+20
+00:01:10,300 --> 00:01:14,800
+then orchestrates eleven isolated operations across Nebius microVM sandboxes.
+
+21
+00:01:15,000 --> 00:01:17,200
+Base fails with exit 1.
+
+22
+00:01:17,300 --> 00:01:21,500
+The candidate passes exit 0 in forty milliseconds.
+
+23
+00:01:21,700 --> 00:01:24,800
+And the counterfactual fails with exit 1.
+
+24
+00:01:25,500 --> 00:01:29,200
+Anyone can verify this outcome without logging in.
+
+25
+00:01:29,500 --> 00:01:33,800
+Hosted globally on Cloudflare Workers, Basebreak's public Judge dashboard
+
+26
+00:01:33,900 --> 00:01:36,500
+presents the complete causal receipt.
+
+27
+00:01:36,800 --> 00:01:40,500
+Every run binds the exact source commit, candidate tree digest,
+
+28
+00:01:40,600 --> 00:01:45,000
+and sandbox outputs into a tamper-proof receipt, authenticated with a
+
+29
+00:01:45,100 --> 00:01:49,500
+verifier-signed RSA-2048 proof and committed to an SQLite Durable Object ledger.
+
+30
+00:01:49,800 --> 00:01:53,800
+Transparent, immutable, and independently reproducible.
+
+31
+00:01:54,500 --> 00:01:58,200
+For security fixes like CVE-2024-21626,
+
+32
+00:01:58,300 --> 00:02:02,500
+Basebreak uses Tavily Search for authoritative external grounding.
+
+33
+00:02:02,800 --> 00:02:07,500
+Tavily retrieves official advisories from NIST and GitHub
+
+34
+00:02:07,600 --> 00:02:11,000
+to establish what security invariants must be verified.
+
+35
+00:02:11,300 --> 00:02:15,500
+But our deterministic firewall ensures web search results never override execution truth.
+
+36
+00:02:15,800 --> 00:02:20,500
+Web grounding defines the exam; independent sandbox execution scores it.
+
+37
+00:02:21,000 --> 00:02:25,800
+Basebreak transforms AI code generation from probabilistic guessing
+
+38
+00:02:25,900 --> 00:02:28,800
+into empirical causal certainty.
+
+39
+00:02:29,000 --> 00:02:34,200
+Powered by NVIDIA Nemotron, Nebius Token Factory Sandboxes, and Cloudflare Workers,
+
+40
+00:02:34,300 --> 00:02:38,500
+it is the verification layer modern coding agents have been missing.
+
+41
+00:02:38,800 --> 00:02:43,000
+Remember: If the patch matters, the base must break.

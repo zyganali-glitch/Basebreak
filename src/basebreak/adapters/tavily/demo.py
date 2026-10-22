@@ -81,7 +81,7 @@ class TavilyPreflightStatus:
     is_fixture: bool = False
 
 
-def check_live_tavily_preflight() -> TavilyPreflightStatus:
+def check_live_tavily_preflight(operator_authorized: bool = False) -> TavilyPreflightStatus:
     """Inspect local environment without fabricating balances or confirmations."""
     key = os.environ.get("TAVILY_API_KEY", "")
     has_key = bool(key and len(key) >= 10)
@@ -89,6 +89,9 @@ def check_live_tavily_preflight() -> TavilyPreflightStatus:
     # Never hardcode current balance or billing-safety confirmation.
     # Without a fresh authenticated account balance check, current quota is UNVERIFIED.
     readiness_state = "UNVERIFIED_QUOTA_BLOCKED" if has_key else "MISSING_KEY_BLOCKED"
+    auth_status = (
+        "OPERATOR_AUTHORIZED" if operator_authorized else "OPERATOR_AUTHORIZATION_REQUIRED"
+    )
 
     return TavilyPreflightStatus(
         api_key_configured=has_key,
@@ -97,7 +100,7 @@ def check_live_tavily_preflight() -> TavilyPreflightStatus:
         current_quota_verified=False,
         zero_cost_safeguard_verified=False,
         readiness_state=readiness_state,
-        authorization_status="OPERATOR_AUTHORIZATION_REQUIRED",
+        authorization_status=auth_status,
         expected_consumption=CREDIT_COST_BASIC,
         is_fixture=False,
     )

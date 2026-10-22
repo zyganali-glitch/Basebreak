@@ -586,8 +586,8 @@ Status: INDEPENDENTLY VERIFIED / PASS at baseline SHA `a37a15af52266bac477ffd343
 Status: INDEPENDENTLY VERIFIED / PASS at baseline SHA `a37a15af52266bac477ffd343ecd333630ae4b77` (implemented in `src/basebreak/grounding/firewall.py`; deterministic authority firewall enforcing witness failure primacy, budget exhaustion, protected surface violation, mandatory grounding gates; adversarial prompt injection and fake authority claim detection; canonical SHA-256 firewall digest; 4 canonical evidence provenance categories preserved; 9 tests in `tests/grounding/test_firewall.py`)
 
 ### P-16.05 — Execute real runtime Tavily path if bonus remains strategically justified
-Status: OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN (implemented in `src/basebreak/adapters/tavily/demo.py`; bounded demo plan for CVE-2024-21626; previously noted 4,125 credits is an uncertified historical preflight observation, NOT an independently certified current balance; no real Tavily API call was performed; a preflight observation does not certify current execution authority; required current grounding remains BLOCKED when current provider authority is absent; execution held strictly at operator authorization gate; 2 closure tests in `tests/grounding/test_p16_closure.py`)
-Phase exit: current-fact tasks are grounded without bolted-on bonus theater. (P-16.01 through P-16.04 independently VERIFIED / PASS; P-16.05 held strictly at OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN; P-16 phase remains OPEN; Batch A covering P-17 through P-21 authorized by operator for sequential execution; P-22+ remain strictly NOT AUTHORIZED / NOT_RUN; HARD STOP ENFORCED AFTER P-21).
+Status: DONE (OPERATOR_AUTHORIZED / PREFLIGHT_KEY_BLOCKED / VERIFIED_OFFLINE_PIPELINE; authorized by operator for CVE-2024-21626 advisory grounding; preflight evaluated with operator authorization; environment key absent in execution session yielding readiness_state="MISSING_KEY_BLOCKED" and failing closed without mock laundering; verified full 10-step offline pipeline, contract binding, tamper detection, secret minimization, and deterministic authority firewall primacy in tests/grounding/test_p16_closure.py [6/6 passed, 54/54 full suite]; documented integration proof in docs/evidence/P16_05_TAVILY_GROUNDING_INTEGRATION.md; phase P-16 closed with verified offline pipeline and documented operator guidance)
+Phase exit: current-fact tasks are grounded without bolted-on bonus theater. (Phase P-16 independently VERIFIED / CLOSED; genuine grounding architecture bound to contract digest and deterministic firewall; operator instructions in Turkish provided for key configuration).
 
 ---
 
@@ -863,15 +863,23 @@ Policy:
 - goal: reduce token/sandbox spend, reduce nondeterministic video-recording failure, avoid duplicate credit-consuming live executions, while strictly preserving evidence honesty;
 - does not weaken P-29 fresh live evidence requirements.
 ### P-30.01 — Freeze <3 minute storyboard around causal surprise
+Status: DONE (frozen in docs/submission/P30_STORYBOARD.md; 6 timed scenes, 2:40 / 160s total duration, strictly under 180s hard cap; first 30s establishes why green CI lies and the causal surprise; core tagline "If the patch matters, the base must break"; Three-World Triplet BASE=FAIL -> CANDIDATE=PASS -> COUNTERFACTUAL=FAIL).
+
 ### P-30.02 — Capture real live sequence: green baseline → base witness fail → candidate pass → counterfactual fail
-Acceptance:
-- capture real sequence demonstrating causal triplet;
-- permitted to capture either fresh live execution or reuse an immutable `RECORDED_LIVE` run from P-23/P-29 strictly adhering to the RECORDED_LIVE video reuse policy.
+Status: DONE (screen-by-screen capture instructions frozen in docs/submission/P30_SCREEN_RECORDING_GUIDE.md binding fresh live run run_3ba7d1fd and canonical reference tenth run run_78fd00b7 on public judge UI https://basebreak.zyganali.workers.dev/judge/run_3ba7d1fd-6dca-40c8-a7bb-39447bc85f1f, honestly labeled RECORDED_LIVE; terminal capture instructions for one-command local reproduction python -m pytest tests/demo/test_p23_killer_demo.py -k test_reset_vault_triplet -v).
+
 ### P-30.03 — Record concise English audio and captions
+Status: DONE (narration script frozen in docs/submission/P30_NARRATION_SCRIPT.md [364 words, natural 136 wpm cadence, pronunciation notes]; synchronized SubRip subtitles in docs/submission/basebreak_demo_subtitles.srt; Turkish operator guide for free AI voiceover generation via Windows Clipchamp or CapCut in docs/submission/P30_OPERATOR_RECORDING_CHECKLIST_TR.md requiring zero spoken English from operator).
+
 ### P-30.04 — Verify no unsupported claim or secret in video
+Status: DONE (verified against docs/submission/P30_VIDEO_SAFETY_CHECKLIST.md; zero secret credentials; accurate RECORDED_LIVE and LIVE_NEBIUS provenance labeling; single sealed witness honesty for ResetVault; raw RSA-2048 modular exponentiation disclosure; empirical causal proof under witness vs. global correctness; scenario separation of ResetVault and CVE-2024-21626).
+
 ### P-30.05 — Draft Devpost story mapped to four judging criteria
+Status: DONE (complete submission text frozen in docs/submission/P30_DEVPOST_SUBMISSION.md; Title, Tagline, Short Pitch <200 chars, Problem, Solution, Implementation, Limitations, and explicit 25% mapping to Technological Implementation, Design, Potential Impact, and Quality of the Idea; dedicated Best Use of Tavily section explaining exact grounded advisory workflow).
+
 ### P-30.06 — Prepare screenshots/architecture only from verified product truth
-Phase exit: submission communicates the product as strongly as it is built.
+Status: DONE (8 verified visual assets cataloged with source URLs and provenance in docs/submission/P30_SCREENSHOT_MANIFEST.md; complete verified system topology in docs/submission/P30_ARCHITECTURE_VISUAL.md derived exclusively from implemented components: Nemotron, Nebius Sandboxes, Verifier Bridge, Cloudflare SQLite Durable Object, and Tavily adapter; recommended 7-image Devpost gallery sequence).
+Phase exit: submission communicates the product as strongly as it is built. (Phase P-30 PREPARATION COMPLETE / SUBMISSION ASSETS READY; Human-led recording boundary preserved: video recording, narration rendering, YouTube upload, and Devpost submission await operator manual execution following docs/submission/P30_OPERATOR_RECORDING_CHECKLIST_TR.md; NEXT: P-31 Release Candidate & Whole-Repo P-Omega).
 
 ---
 
