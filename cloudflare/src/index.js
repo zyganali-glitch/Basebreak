@@ -16,7 +16,6 @@ import {
   DEFAULT_BRIDGE_TIMEOUT_MS,
   dispatchVerificationRun,
   resolveBridgeTransport,
-  verifyBridgeReceiptProof,
 } from "./provider_dispatcher.js";
 
 // Re-export Durable Object class for Cloudflare Workers runtime
@@ -682,49 +681,6 @@ export default {
       }
     }
 
-    // 9b. Admin API: Reconcile an executed run with an authentic verifier-signed receipt proof.
-    if (method === "POST" && path === "/admin/reconcile-run-receipt") {
-      if (!isAdminAuthorized(request, env)) {
-        return jsonResponse(401, { error: "Unauthorized: Invalid operator admin key." });
-      }
-
-      let body;
-      try {
-        body = await request.json();
-      } catch {
-        return jsonResponse(400, { error: "Malformed JSON body." });
-      }
-
-      if (!body || typeof body !== "object" || !body.run_id || !body.receipt || !body.receipt_proof) {
-        return jsonResponse(400, { error: "run_id, receipt, and receipt_proof are required." });
-      }
-
-      const expectedCommit = getDeclaredSourceCommit(env);
-      try {
-        verifyBridgeReceiptProof({
-          receipt: body.receipt,
-          proof: body.receipt_proof,
-          expectedSourceCommitId: expectedCommit,
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return jsonResponse(422, { error: "Receipt proof verification failed: " + msg });
-      }
-
-      try {
-        const result = await ledger.recordExecutionSuccess(String(body.run_id).trim(), {
-          observed_cost: typeof body.observed_cost_usd === "number" ? body.observed_cost_usd : null,
-          cost_provenance: body.cost_provenance || "UNKNOWN",
-          tokens_used: body.tokens_used || 0,
-          receipt: body.receipt,
-          allowAuthoritativeProvenance: true,
-        });
-        return jsonResponse(200, result);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return jsonResponse(400, { error: msg });
-      }
-    }
 
     // 10. Admin API: Explicit operator alignment of the durable expected source commit.
     if (method === "POST" && path === "/admin/configure-source-commit") {

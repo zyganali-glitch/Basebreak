@@ -1223,6 +1223,125 @@ describe("Basebreak Cloudflare Worker HTTP Interface Suite", () => {
     assert.ok(Array.isArray(data.runs));
   });
 
+  it("P-29.03 authority repair: /admin/reconcile-run-receipt is removed, fails closed with 404, and prevents receipt replay or accounting manipulation", async () => {
+    const authority = createTestVerifierAuthority();
+    const liveReceipt = buildVerifiedLiveReceiptFixture();
+    const successPayload = buildSignedBridgeSuccess(liveReceipt, authority);
+
+    const { env } = createWorkerEnv({
+      BASEBREAK_ADMIN_KEY: "admin-secret-test-key",
+      EXPECTED_SOURCE_COMMIT: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+    });
+    const ledger = env.__ledgerInstance;
+
+    // Snapshot baseline accounting and runs
+    const baselineAccounting = structuredClone(ledger.getAccounting());
+    const baselineRuns = structuredClone(ledger.getAllRuns());
+
+    // 1. Unauthenticated request to /admin/reconcile-run-receipt -> 404 (route does not exist)
+    const unauthedRes = await worker.fetch(
+      new Request("https://basebreak.workers.dev/admin/reconcile-run-receipt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          run_id: "run_unauthed_attempt",
+          receipt: liveReceipt,
+          receipt_proof: successPayload.receipt_proof,
+        }),
+      }),
+      env,
+      {}
+    );
+    assert.equal(unauthedRes.status, 404);
+    const unauthedData = await unauthedRes.json();
+    assert.equal(unauthedData.error, "Not Found");
+
+    // 2. Authenticated operator request with valid signed receipt and proof -> 404 (route removed)
+    const authedRes = await worker.fetch(
+      new Request("https://basebreak.workers.dev/admin/reconcile-run-receipt", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer admin-secret-test-key",
+        },
+        body: JSON.stringify({
+          run_id: "run_reconcile_attempt",
+          receipt: liveReceipt,
+          receipt_proof: successPayload.receipt_proof,
+          observed_cost_usd: 0.15,
+        }),
+      }),
+      env,
+      {}
+    );
+    assert.equal(authedRes.status, 404);
+    const authedData = await authedRes.json();
+    assert.equal(authedData.error, "Not Found");
+
+    // 3. Attempting to replay an old signed receipt to an arbitrary/new run ID through that endpoint has NO effect
+    const replayRes = await worker.fetch(
+      new Request("https://basebreak.workers.dev/admin/reconcile-run-receipt", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer admin-secret-test-key",
+        },
+        body: JSON.stringify({
+          run_id: "run_arbitrary_replayed_target",
+          receipt: liveReceipt,
+          receipt_proof: successPayload.receipt_proof,
+        }),
+      }),
+      env,
+      {}
+    );
+    assert.equal(replayRes.status, 404);
+
+    // 4. Verify no extra cost accounting, hold modification, or run creation/completion occurred
+    const postAccounting = ledger.getAccounting();
+    assert.deepEqual(postAccounting, baselineAccounting);
+    const postRuns = ledger.getAllRuns();
+    assert.deepEqual(postRuns, baselineRuns);
+
+    // 5. Normal bridge proof verification is unchanged and remains functional
+    const normalDispatchSuccess = await dispatchVerificationRun({
+      runId: "run_normal_bridge_verify",
+      target: "tests/fixtures/reset_vault",
+      sourceCommitId: "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      allowLive: true,
+      estimatedCostUsd: 0.25,
+      bridgeUrl: "https://bridge.example/internal/live-verifications",
+      bridgeSharedSecret: "bridge-secret",
+      verifierAuthorityOverride: {
+        modulusHex: authority.modulusHex,
+        exponent: authority.exponent,
+      },
+      fetchImpl: async () =>
+        new Response(JSON.stringify(successPayload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    });
+    assert.equal(normalDispatchSuccess.success, true);
+    assert.equal(normalDispatchSuccess.status, "COMPLETED");
+    assert.ok(normalDispatchSuccess.receipt);
+
+    // 6. Public read-only receipt and judge routes remain functional and unaffected
+    const publicJudge = await worker.fetch(
+      new Request("https://basebreak.workers.dev/judge/run_test_public"),
+      env,
+      {}
+    );
+    assert.equal(publicJudge.status, 200);
+
+    const publicReceiptNotFound = await worker.fetch(
+      new Request("https://basebreak.workers.dev/v1/runs/run_nonexistent/receipt"),
+      env,
+      {}
+    );
+    assert.equal(publicReceiptNotFound.status, 404);
+  });
+
   it("DEFECT A: boolean true and exact string 'true' both permit admission when all other trusted gates and constraints are valid", async () => {
     for (const liveFlag of [true, "true"]) {
       const authority = createTestVerifierAuthority();
