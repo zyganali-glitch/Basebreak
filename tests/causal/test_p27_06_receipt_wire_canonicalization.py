@@ -39,8 +39,11 @@ from basebreak.causal.coverage import (
 from basebreak.causal.public_receipt import (
     PublicCounterfactualFact,
     PublicExecutionFact,
+    PublicReceiptIntegrityError,
     PublicVerificationReceipt,
     PublicWitnessFact,
+    _canonical_receipt_json_bytes,
+    _ecmascript_number_bytes,
     build_canonical_public_receipt_payload,
     compute_public_receipt_digest,
     create_public_verification_receipt,
@@ -319,3 +322,214 @@ def test_ecmascript_canonicalization_reproduces_python_digest(
     assert payload["declared"] == receipt.receipt_digest
     assert payload["recomputed"] == receipt.receipt_digest
     assert payload["verified"] is True
+
+
+# --- P-27.06 residual-defect repair: cross-language NUMBER canonicalization ------------
+#
+# Python json.dumps and ECMAScript JSON.stringify serialize the same non-integral
+# double differently whenever the shortest round-trip form crosses an exponent
+# threshold (Python: adjusted exponent < -4 or >= 16, two-digit exponents like
+# "1e-05"; ECMAScript: < -6 or > 21, unpadded exponents like "1e-7"). Receipts
+# with small fractional timings (e.g. duration_seconds=0.00001) therefore failed
+# Worker verification even after the first canonicalization repair.
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (0.00001, "0.00001"),
+        (0.000001, "0.000001"),
+        (1e-07, "1e-7"),
+        (1e-08, "1e-8"),
+        (5e-324, "5e-324"),
+        (2.2250738585072014e-308, "2.2250738585072014e-308"),
+        (1.7976931348623157e308, "1.7976931348623157e+308"),
+        (0.0001, "0.0001"),
+        (0.5, "0.5"),
+        (-2.5, "-2.5"),
+        (123.456, "123.456"),
+        (0.30000000000000004, "0.30000000000000004"),
+        (100.0, "100"),
+        (0.0, "0"),
+        (-0.0, "0"),
+        (1e16, "10000000000000000"),
+        (1.5e16, "15000000000000000"),
+        (1e20, "100000000000000000000"),
+        (1e21, "1e+21"),
+        (1e22, "1e+22"),
+        (-1e-05, "-0.00001"),
+        (-1e21, "-1e+21"),
+    ],
+)
+def test_ecmascript_number_bytes_boundaries(value: float, expected: str) -> None:
+    assert _ecmascript_number_bytes(value) == expected
+
+
+def test_canonical_serializer_rejects_unsupported_numbers_fail_closed() -> None:
+    for bad_float in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(PublicReceiptIntegrityError):
+            _canonical_receipt_json_bytes(bad_float)
+    for bad_int in (2**53, -(2**53), 10**30, -(10**30)):
+        with pytest.raises(PublicReceiptIntegrityError):
+            _canonical_receipt_json_bytes(bad_int)
+    # Safe integers are accepted and serialize as plain decimals.
+    assert _canonical_receipt_json_bytes(2**53 - 1) == str(2**53 - 1)
+    assert _canonical_receipt_json_bytes(0) == "0"
+
+
+def test_canonical_serializer_rejects_unsupported_keys_and_types_fail_closed() -> None:
+    with pytest.raises(PublicReceiptIntegrityError):
+        _canonical_receipt_json_bytes({"ç": 1})
+    with pytest.raises(PublicReceiptIntegrityError):
+        _canonical_receipt_json_bytes({42: 1})
+    with pytest.raises(PublicReceiptIntegrityError):
+        _canonical_receipt_json_bytes(b"bytes")
+    # ASCII keys serialize exactly like json.dumps (ensure_ascii parity).
+    assert _canonical_receipt_json_bytes({"a": 1, "b": "x"}) == '{"a":1,"b":"x"}'
+    assert _canonical_receipt_json_bytes({"s": "ç"}) == '{"s":"\\u00e7"}'
+
+
+def test_wire_digest_uses_ecmascript_bytes_for_small_fractional_floats() -> None:
+    fixtures = REPO_ROOT / "cloudflare" / "test" / "fixtures"
+    receipt_dict = json.loads(
+        (fixtures / "python_public_receipt_fixture_small_floats.json").read_text(encoding="utf-8")
+    )
+    payload = {k: v for k, v in receipt_dict.items() if k != "receipt_digest"}
+    # The wire text itself carries Python-style exponent notation...
+    assert "e-05" in json.dumps(payload)
+    # ...but the DIGEST bytes must use the ECMAScript form.
+    digest_text = _canonical_receipt_json_bytes(payload)
+    assert '"coverage_percentage":33.333333333333336' in digest_text
+    assert '"coverage_ratio":0.3333333333333333' in digest_text
+    assert '"duration_seconds":0.00001' in digest_text
+    assert '"total_duration_seconds":0.0000425' in digest_text
+    assert compute_public_receipt_digest(payload) == receipt_dict["receipt_digest"]
+
+
+def test_committed_fixture_digests_are_stable() -> None:
+    """Backward compatibility: the first canonicalization repair's committed
+    fixture digest is unchanged by the number-canonicalization repair, and the
+    small-floats fixture (the residual-defect evidence) verifies."""
+    fixtures = REPO_ROOT / "cloudflare" / "test" / "fixtures"
+    original = json.loads(
+        (fixtures / "python_public_receipt_fixture.json").read_text(encoding="utf-8")
+    )
+    assert original["receipt_digest"] == (
+        "458d1fd5d79ef08836b15237c55f95b9ba51f6aa645189da30ccabbb09e0de60"
+    )
+    small = json.loads(
+        (fixtures / "python_public_receipt_fixture_small_floats.json").read_text(encoding="utf-8")
+    )
+    assert small["receipt_digest"] == (
+        "f0d751974b2a197774ac28f5f166b037aba7c2b112438618637bfb6b0452629b"
+    )
+    # Both committed fixtures re-verify under the current Python rules.
+    PublicVerificationReceipt.from_dict(original)
+    PublicVerificationReceipt.from_dict(small)
+    # The small-floats fixture genuinely contains sub-1e-4 fractional values
+    # whose Python json.dumps form uses exponent notation.
+    durations = [e["duration_seconds"] for e in small["executions"]]
+    assert any(d < 1e-4 for d in durations)
+    assert "e-05" in json.dumps(small["timing"])
+
+
+_NODE_FUZZ_SCRIPT = """
+import fs from "node:fs";
+const values = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const out = [];
+for (const v of values) {
+  out.push(JSON.stringify(JSON.parse(v)));
+}
+process.stdout.write(JSON.stringify(out));
+"""
+
+
+def test_cross_language_number_fuzz_agreement(tmp_path: Path) -> None:
+    """Random doubles (fixed seed) + boundaries: Python's ECMAScript formatter
+    must agree with a real Node process on every serialized number."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not available in this environment")
+    import math
+    import random
+    import struct
+
+    rng = random.Random(20261022)
+
+    def _random_finite_double() -> float:
+        while True:
+            bits = rng.getrandbits(64)
+            value = float(struct.unpack("<d", struct.pack("<Q", bits))[0])
+            if math.isfinite(value):
+                return value
+
+    values = [
+        0.00001,
+        0.0000125,
+        0.00002,
+        0.0000425,
+        1e-07,
+        5e-324,
+        1e16,
+        1.5e16,
+        1e21,
+        1e22,
+        1.7976931348623157e308,
+        0.5,
+        -2.5,
+        123.456,
+        1 / 3,
+        100 / 3,
+        0.30000000000000004,
+    ] + [_random_finite_double() for _ in range(300)]
+    literals = [repr(v) for v in values]
+    values_file = tmp_path / "values.json"
+    values_file.write_text(json.dumps(literals), encoding="utf-8")
+    script_file = tmp_path / "fuzz.mjs"
+    script_file.write_text(_NODE_FUZZ_SCRIPT, encoding="utf-8")
+    result = subprocess.run(
+        [node, str(script_file), str(values_file)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        cwd=str(REPO_ROOT),
+    )
+    assert result.returncode == 0, result.stderr
+    js_bytes = json.loads(result.stdout)
+    mismatches = [
+        (lit, _ecmascript_number_bytes(val), js)
+        for lit, val, js in zip(literals, values, js_bytes)
+        if _ecmascript_number_bytes(val) != js
+    ]
+    assert not mismatches, mismatches[:10]
+
+
+def test_small_fractional_receipt_verifies_cross_language(tmp_path: Path) -> None:
+    """A genuine Python receipt with sub-1e-4 fractional timings verifies under
+    the production Node verifier (the residual defect's CANDIDATE=PASS proof)."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not available in this environment")
+    fixtures = REPO_ROOT / "cloudflare" / "test" / "fixtures"
+    receipt = json.loads(
+        (fixtures / "python_public_receipt_fixture_small_floats.json").read_text(encoding="utf-8")
+    )
+    wire_file = tmp_path / "receipt.json"
+    wire_file.write_text(json.dumps(receipt), encoding="utf-8")
+    script_file = tmp_path / "check.mjs"
+    crypto_utils_uri = (REPO_ROOT / "cloudflare" / "src" / "crypto_utils.js").as_uri()
+    script_file.write_text(
+        _NODE_SCRIPT.replace("__CRYPTO_UTILS_URL__", crypto_utils_uri),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [node, str(script_file), str(wire_file)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=str(REPO_ROOT),
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["verified"] is True
+    assert payload["recomputed"] == receipt["receipt_digest"]

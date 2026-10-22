@@ -1,0 +1,125 @@
+{
+  "accounting": null,
+  "candidate_patch_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "candidate_tree_digest": "7777777777777777777777777777777777777777",
+  "counterfactual": {
+    "absence_rationale": null,
+    "candidate_tree_digest": "7777777777777777777777777777777777777777",
+    "delta_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "execution_fact": {
+      "duration_seconds": 2e-05,
+      "exit_code": 1,
+      "outcome": "FAIL",
+      "sandbox_id": "sbx-fixture-cf",
+      "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      "stderr_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+      "stderr_excerpt": null,
+      "stdout_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+      "stdout_excerpt": null,
+      "termination_status": "COMPLETED",
+      "tree_digest": "8888888888888888888888888888888888888888",
+      "world": "COUNTERFACTUAL"
+    },
+    "is_required": true,
+    "outcome": "FAIL"
+  },
+  "coverage_summary": {
+    "blocked_count": 0,
+    "contract_digest": "93eeeb2cc7eb02a988da3c8a8543ad40b4816608c1452d048ff62ee93702f812",
+    "contradicted_count": 0,
+    "coverage_digest": "720fff5287827af64af22fc72ff6a339cd13aa68ea79a64fb9dc83ee7915c08c",
+    "coverage_percentage": 33.333333333333336,
+    "coverage_ratio": 0.3333333333333333,
+    "eligible_count": 1,
+    "excluded_count": 0,
+    "inconclusive_count": 0,
+    "is_fully_verified": true,
+    "not_run_count": 0,
+    "overall_verdict": "VERIFIED",
+    "per_requirement_facts": [
+      {
+        "causal_state": "VERIFIED",
+        "change_class": "BUG_FIX",
+        "eligibility": "ELIGIBLE",
+        "execution_obligation": "FAIL_TO_PASS_WITH_COUNTERFACTUAL",
+        "fact_digest": "dc208f4c85bf4f217150de8c80c8e3243bc6454d19efda22012e450633471893",
+        "preliminary_verdict": "VERIFIED",
+        "rationale": "BASE failed, CANDIDATE passed, COUNTERFACTUAL failed \u2014 \u00e7\u011f\u0131\u00f6\u015f\u00fc.",
+        "requirement_id": "REQ-RESET-001",
+        "transition": "CAUSAL_TRIPLET_VERIFIED",
+        "witness_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "witness_id": "wit-fixture-001"
+      }
+    ],
+    "total_requirements": 1,
+    "verified_count": 1
+  },
+  "disclaimers": [
+    "If the patch matters, the base must break."
+  ],
+  "executions": [
+    {
+      "duration_seconds": 1e-05,
+      "exit_code": 1,
+      "outcome": "FAIL",
+      "sandbox_id": "sbx-fixture-base",
+      "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      "stderr_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+      "stderr_excerpt": null,
+      "stdout_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+      "stdout_excerpt": null,
+      "termination_status": "COMPLETED",
+      "tree_digest": "8888888888888888888888888888888888888888",
+      "world": "BASE"
+    },
+    {
+      "duration_seconds": 1.25e-05,
+      "exit_code": 0,
+      "outcome": "PASS",
+      "sandbox_id": "sbx-fixture-candidate",
+      "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+      "stderr_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+      "stderr_excerpt": null,
+      "stdout_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+      "stdout_excerpt": null,
+      "termination_status": "COMPLETED",
+      "tree_digest": "7777777777777777777777777777777777777777",
+      "world": "CANDIDATE"
+    }
+  ],
+  "frozen_contract_digest": "93eeeb2cc7eb02a988da3c8a8543ad40b4816608c1452d048ff62ee93702f812",
+  "is_authoritative": false,
+  "not_run_obligations": [],
+  "overall_verdict": "VERIFIED",
+  "provenance": "LOCAL_EXECUTION",
+  "receipt_digest": "f0d751974b2a197774ac28f5f166b037aba7c2b112438618637bfb6b0452629b",
+  "repo_locator": "https://github.com/zyganali-glitch/Basebreak.git",
+  "runtime_identities": [
+    "bridge:trusted-python"
+  ],
+  "schema_version": "1.0.0",
+  "signature": null,
+  "signature_strategy": "SHA256_DIGEST_ONLY",
+  "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+  "task_id": "TASK-RESET-VAULT-001",
+  "timing": {
+    "created_at_utc": "2026-10-22T00:00:00+00:00",
+    "total_duration_seconds": 4.25e-05
+  },
+  "witnesses": [
+    {
+      "execution_command": [
+        "python",
+        "-m",
+        "pytest",
+        "witness.py",
+        "-q"
+      ],
+      "lock_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "requirement_id": "REQ-RESET-001",
+      "timeout_seconds": 30,
+      "witness_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "witness_id": "wit-fixture-001"
+    }
+  ]
+}

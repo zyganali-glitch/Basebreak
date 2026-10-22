@@ -27,8 +27,13 @@ function pyAsciiJsonString(s) {
 
 /**
  * Serialize an object into canonical JSON (recursively sorted keys, no whitespace).
- * Exactly matches Python: json.dumps(payload, sort_keys=True, separators=(",", ":"))
- * with default ensure_ascii=True semantics.
+ * Exactly matches Python's receipt canonical serializer
+ * (basebreak.causal.public_receipt._canonical_receipt_json_bytes):
+ * json.dumps(payload, sort_keys=True, separators=(",", ":")) with default
+ * ensure_ascii=True semantics for BOTH strings and object keys, and ECMAScript
+ * Number::toString for numbers (which Python mirrors via
+ * _ecmascript_number_bytes). ASCII-only keys sort identically under Python
+ * code-point ordering and ECMAScript UTF-16 code-unit ordering.
  *
  * @param {unknown} val
  * @returns {string}
@@ -53,7 +58,10 @@ export function canonicalJson(val) {
     for (const k of keys) {
       const v = val[k];
       if (v !== undefined && typeof v !== "function" && typeof v !== "symbol") {
-        entries.push(JSON.stringify(k) + ":" + canonicalJson(v));
+        // Keys are escaped with the same ensure_ascii semantics as values so
+        // Python (json.dumps ensure_ascii=True) and this canonicalization
+        // never hash different bytes for the same supported object.
+        entries.push(pyAsciiJsonString(k) + ":" + canonicalJson(v));
       }
     }
     return "{" + entries.join(",") + "}";

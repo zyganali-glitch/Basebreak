@@ -40,3 +40,17 @@ jobs:
 
       - name: Run pytest
         run: python -m pytest
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Cloudflare Worker dependencies
+        run: npm --prefix cloudflare ci
+
+      - name: Worker syntax typecheck
+        run: npm --prefix cloudflare run typecheck
+
+      - name: Worker Node test suite (ledger, worker, cross-language receipt integrity)
+        run: npm --prefix cloudflare run test:node

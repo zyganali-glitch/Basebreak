@@ -1,10 +1,16 @@
-"""Generate a Python-built public receipt fixture for cross-language digest tests.
+"""Generate Python-built public receipt fixtures for cross-language digest tests.
 
 P-27.06 eighth-run repair evidence generator (LOCAL_EXECUTION / FIXTURE):
 builds a receipt exactly like the trusted bridge does — including integral-valued
 floats, deliberately UNSORTED list fields, and a non-ASCII rationale character —
 serializes it to JSON, and writes the wire JSON for the Node regression test that
 verifies the ECMAScript canonicalization reproduces the identical digest.
+
+``--small-floats`` mode additionally exercises NON-INTEGRAL floats below 1e-4
+(0.00001, 0.0000125, 0.0000425, 1/3) whose Python ``json.dumps`` form uses
+exponent notation (``1e-05``) while ECMAScript uses plain decimals
+(``0.00001``) — the residual defect repaired after the first canonicalization
+fix.
 """
 
 from __future__ import annotations
@@ -66,16 +72,49 @@ def _execution(
     )
 
 
-def main() -> None:
+def main(small_floats: bool = False) -> None:
+    if small_floats:
+        base_duration: float = 0.00001
+        candidate_duration: float = 0.0000125
+        cf_duration: float = 0.00002
+        timing = {
+            "total_duration_seconds": 0.0000425,
+            "created_at_utc": "2026-10-22T00:00:00+00:00",
+        }
+        coverage_ratio: float = 1 / 3
+        coverage_percentage: float = 100 / 3
+        out_name = "python_public_receipt_fixture_small_floats.json"
+        runtime_identities = ("bridge:trusted-python",)
+        disclaimers = ("If the patch matters, the base must break.",)
+    else:
+        base_duration = 1.5
+        candidate_duration = 2.25
+        cf_duration = 1.75
+        timing = {"total_duration_seconds": 5.5, "created_at_utc": "2026-10-22T00:00:00+00:00"}
+        coverage_ratio = 1.0
+        coverage_percentage = 100.0
+        out_name = "python_public_receipt_fixture.json"
+        runtime_identities = (
+            "zzz-identity-last",
+            "aaa-identity-first",
+            "mmm-identity-middle",
+        )
+        disclaimers = (
+            "Zzz comes last alphabetically.",
+            "Aaa comes first alphabetically.",
+            NON_ASCII_NOTE,
+        )
     executions = [
-        _execution(ExecutionWorld.BASE, "sbx-fixture-base", "8" * 40, WitnessOutcome.FAIL, 1, 1.5),
+        _execution(
+            ExecutionWorld.BASE, "sbx-fixture-base", "8" * 40, WitnessOutcome.FAIL, 1, base_duration
+        ),
         _execution(
             ExecutionWorld.CANDIDATE,
             "sbx-fixture-candidate",
             "7" * 40,
             WitnessOutcome.PASS,
             0,
-            2.25,
+            candidate_duration,
         ),
     ]
     counterfactual = PublicCounterfactualFact(
@@ -84,7 +123,12 @@ def main() -> None:
         is_required=True,
         outcome=WitnessOutcome.FAIL,
         execution_fact=_execution(
-            ExecutionWorld.COUNTERFACTUAL, "sbx-fixture-cf", "8" * 40, WitnessOutcome.FAIL, 1, 1.75
+            ExecutionWorld.COUNTERFACTUAL,
+            "sbx-fixture-cf",
+            "8" * 40,
+            WitnessOutcome.FAIL,
+            1,
+            cf_duration,
         ),
         absence_rationale=None,
     )
@@ -126,8 +170,8 @@ def main() -> None:
         inconclusive_count=0,
         contradicted_count=0,
         blocked_count=0,
-        coverage_ratio=1.0,
-        coverage_percentage=100.0,
+        coverage_ratio=coverage_ratio,
+        coverage_percentage=coverage_percentage,
         is_fully_verified=True,
         overall_verdict=PreliminaryVerdict.VERIFIED,
         per_requirement_facts=(fact,),
@@ -145,8 +189,8 @@ def main() -> None:
             inconclusive_count=0,
             contradicted_count=0,
             blocked_count=0,
-            coverage_ratio=1.0,
-            coverage_percentage=100.0,
+            coverage_ratio=coverage_ratio,
+            coverage_percentage=coverage_percentage,
             is_fully_verified=True,
             overall_verdict=PreliminaryVerdict.VERIFIED,
             per_requirement_facts=(fact,),
@@ -175,28 +219,20 @@ def main() -> None:
         provenance=EvidenceProvenance.LOCAL_EXECUTION,
         candidate_patch_digest="0" * 64,
         counterfactual=counterfactual,
-        runtime_identities=(
-            "zzz-identity-last",
-            "aaa-identity-first",
-            "mmm-identity-middle",
-        ),
-        timing={"total_duration_seconds": 5.5, "created_at_utc": "2026-10-22T00:00:00+00:00"},
+        runtime_identities=runtime_identities,
+        timing=timing,
         not_run_obligations=(),
-        disclaimers=(
-            "Zzz comes last alphabetically.",
-            "Aaa comes first alphabetically.",
-            NON_ASCII_NOTE,
-        ),
+        disclaimers=disclaimers,
     )
     wire = receipt.to_dict()
     # Round-trip through JSON exactly like the HTTP wire transport.
     parsed = json.loads(json.dumps(wire))
     PublicVerificationReceipt.from_dict(parsed)  # must verify under Python too
-    out = Path(__file__).with_name("python_public_receipt_fixture.json")
+    out = Path(__file__).with_name(out_name)
     out.write_text(json.dumps(parsed, indent=2, sort_keys=True), encoding="utf-8")
     print("fixture written:", out)
     print("receipt_digest:", parsed["receipt_digest"])
 
 
 if __name__ == "__main__":
-    main()
+    main(small_floats="--small-floats" in sys.argv)

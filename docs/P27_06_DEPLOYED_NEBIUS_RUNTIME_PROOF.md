@@ -561,13 +561,19 @@ executor- and bridge-record-verified):**
   signature independently verified against the pinned production authority).
 - Overall verdict: `INCONCLUSIVE` (`NON_VERIFIED_EXECUTION_ERROR`, rationale
   "Execution error encountered (BASE: FAIL, CANDIDATE: ERROR, COUNTERFACTUAL:
-  FAIL)"). The genuine model independently produced a candidate patch that
-  fails at import/collection time in the CANDIDATE world (exit 2) while BASE
+  FAIL)"). The CANDIDATE world failed at pytest collection (exit 2) while BASE
   and COUNTERFACTUAL ran the identical witness normally in the same sandbox
-  image; the seventh-run candidate bytes were not retained, and the eighth-run
-  candidate bytes are likewise not persisted, so this is classified as genuine
-  model behavior (invalid candidate), NOT a product defect. The system
-  correctly refused to certify it.
+  image. **Evidence-honest classification (re-examined 2026-10-22):** all three
+  worlds' stderr is empty (stderr digests equal the SHA-256 of the empty
+  string), no stdout excerpts were retained (only one-way stdout digests; the
+  CANDIDATE stdout digest `68a583bd…` differs from BASE/CF `5a7a5f3b…`), the
+  bridge journal records no errors, and the original candidate bytes are not
+  persisted — therefore the exact import/collection failure cause CANNOT be
+  determined from retained evidence. The only controlled variable that differed
+  in the CANDIDATE world was the model-proposed candidate content; this is
+  classified as a candidate-world collection failure of undetermined exact
+  cause, NOT asserted as a verified invalid-model-patch defect and NOT a
+  verified product defect. The system correctly refused to certify it.
 - The Worker nevertheless recorded the run as `FAILED_UNRECONCILED_COST` with
   error "Bridge receipt proof verification failed: Receipt digest verification
   failed." — a **genuine product defect** at the receipt-import boundary
@@ -626,6 +632,74 @@ Python canonicalization. The repaired receipt-import path remains UNVERIFIED by
 live execution (no ninth run is authorized); the deployed live
 `LIVE_NEBIUS` runtime proof remains `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`
 for a future authorized run.
+
+### 3.8 Residual Cross-Language Number Canonicalization Repair (2026-10-22, offline)
+
+Independent re-examination after the first canonicalization repair identified a
+residual defect: Python `json.dumps` and ECMAScript `JSON.stringify` serialize
+the same non-integral double differently whenever its shortest round-trip form
+crosses an exponent threshold — Python uses exponent notation below `1e-4` and
+at/above `1e16` with two-digit exponents (`1e-05`, `1e+16`), ECMAScript below
+`1e-7`... precisely: below `1e-6` and above `1e21`, unpadded (`0.00001`,
+`10000000000000000`, `1e-7`). A genuine receipt containing small fractional
+timings (e.g. `duration_seconds=0.00001`) therefore still failed Worker
+verification.
+
+**Reproduction (BASE=FAIL, `LOCAL_EXECUTION`, actual production code paths):** a
+production-factory Python receipt with sub-1e-4 fractional values
+(duration 0.00001/0.0000125/0.00002, total 0.0000425) declared digest
+`81ffdb0b…` (old `json.dumps` canonical bytes) while the production Node
+verifier recomputed `b24f4914…` (`verifyReceiptIntegrity: false`).
+
+**Deterministic numeric canonicalization contract (repair):**
+
+1. `src/basebreak/causal/public_receipt.py` computes receipt digest bytes with a
+   dedicated canonical serializer (`_canonical_receipt_json_bytes`) whose number
+   formatting mirrors ECMAScript `Number::toString` exactly
+   (`_ecmascript_number_bytes`: Python's shortest round-trip digits re-formatted
+   per ECMA-262 §6.1.6.1.20 — plain decimals between the ECMAScript thresholds,
+   unpadded exponents outside, `-0` → `0`). No rounding is performed and no
+   measurement precision is lost: the shortest round-trip representation is
+   preserved verbatim, only its NOTATION is normalized.
+2. Fail-closed domain (rejected BEFORE receipt signing): non-finite floats
+   (NaN/±Infinity), integers beyond the ECMAScript safe-integer range
+   `[-(2^53-1), 2^53-1]` (which ECMAScript cannot round-trip), non-string and
+   non-ASCII object keys (ASCII keys sort identically under Python code-point
+   and ECMAScript UTF-16 code-unit ordering).
+3. `cloudflare/src/crypto_utils.js` `canonicalJson` additionally escapes object
+   KEYS with the same `ensure_ascii` semantics as values, so Python
+   `json.dumps(ensure_ascii=True)` and the Worker never hash different bytes
+   for the same supported object.
+4. Wire format unchanged: the wire remains valid JSON produced by
+   `json.dumps`; both verifiers canonicalize the PARSED VALUES, so Python-style
+   exponent literals on the wire (e.g. `1e-05`) parse to the same double in
+   both languages.
+
+**Cross-language verification:** a 4,044-value boundary+random fuzz (fixed
+seed; subnormals like `5e-324`, `1.7976931348623157e308`, exponent thresholds
+`1e-6`/`1e21`, `2^53` boundaries, random bit-pattern doubles) confirmed the
+Python formatter and a real Node process produce byte-identical number
+serialization for every value; all fail-closed rejections verified. Causal
+proof: the small-float receipt fails under the pre-repair code and passes after
+(CANDIDATE=PASS, digest `b24f4914…`); tampering with durations, timing, or
+coverage values is still rejected. Backward compatibility: the first repair's
+committed fixture digest is UNCHANGED (`458d1fd5…`) because all its values lie
+in the pre-existing agreement zone — receipts created under the first repair
+still verify.
+
+**Regression tests:** `tests/causal/test_p27_06_receipt_wire_canonicalization.py`
+(now 34 tests: boundary parametrization, fail-closed domain, committed-fixture
+digest stability, small-float cross-language verification, 300-value seeded
+cross-language fuzz) and `cloudflare/test/receipt.crosslanguage.test.js`
+(now 7 tests: original + small-float fixtures, key-escaping parity, tamper
+rejection). The Node suite is now executed deterministically by GitHub CI
+(`actions/setup-node` + `npm --prefix cloudflare ci` + typecheck + test:node).
+A standalone fuzz tool is retained at `tools/cross_lang_number_fuzz.py`.
+
+**Evidence limits:** production RSA-signed proof verification, source/candidate
+binding, and the legacy run-8 receipt record are untouched; the run-8 receipt
+remains immutable legacy-canonicalization evidence. The repaired path is NOT
+verified by live execution (no ninth run is authorized).
 
 ### Remaining hard blockers
 

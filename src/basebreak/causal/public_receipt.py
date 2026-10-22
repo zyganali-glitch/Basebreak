@@ -496,15 +496,131 @@ class PublicVerificationReceipt:
         return receipt
 
 
+_MAX_SAFE_INTEGER = (1 << 53) - 1
+"""ECMAScript Number.MAX_SAFE_INTEGER: the inclusive bound of integers that
+round-trip losslessly through ECMAScript number parsing and re-serialization."""
+
+
+def _ecmascript_number_bytes(value: float) -> str:
+    """Serialize a finite float exactly like ECMAScript ``Number::toString``.
+
+    Both CPython's ``repr`` and ECMAScript engines produce the SAME shortest
+    round-trip decimal digits for a double, but they disagree on notation:
+    Python switches to exponent form for adjusted exponents below ``-4`` and
+    at/above ``16`` (``1e-05``, ``1e+16``) and pads exponents to two digits,
+    while ECMAScript switches below ``-6`` and above ``21`` (``0.00001``,
+    ``10000000000000000``) and never pads (``1e-7``). This function re-formats
+    Python's shortest digits according to the ECMAScript algorithm
+    (ECMA-262 §6.1.6.1.20) so receipt digest bytes are identical across
+    languages. Raises for non-finite values.
+    """
+    if value != value or value in (float("inf"), float("-inf")):
+        raise PublicReceiptIntegrityError(
+            f"Receipt canonical payloads cannot contain non-finite numbers: {value!r}"
+        )
+    if value == 0.0:
+        return "0"  # covers -0.0: ECMAScript String(-0) === "0"
+    sign = "-" if value < 0 else ""
+    text = repr(value)
+    if text.startswith("-"):
+        text = text[1:]
+    mantissa, _, exponent_text = text.partition("e")
+    exponent = int(exponent_text) if exponent_text else 0
+    int_part, _, frac_part = mantissa.partition(".")
+    digits = (int_part + frac_part).lstrip("0")
+    exponent -= len(frac_part)
+    stripped = digits.rstrip("0")
+    exponent += len(digits) - len(stripped)
+    digits = stripped
+    if not digits:  # pragma: no cover - repr of a nonzero float always has a digit
+        return sign + "0"
+    digit_count = len(digits)
+    point_position = exponent + digit_count
+    if digit_count <= point_position <= 21:
+        body = digits + "0" * (point_position - digit_count)
+    elif 0 < point_position <= 21:
+        body = digits[:point_position] + "." + digits[point_position:]
+    elif -6 < point_position <= 0:
+        body = "0." + "0" * (-point_position) + digits
+    elif digit_count == 1:
+        body = digits + "e" + _ecmascript_exponent(point_position - 1)
+    else:
+        body = digits[0] + "." + digits[1:] + "e" + _ecmascript_exponent(point_position - 1)
+    return sign + body
+
+
+def _ecmascript_exponent(exponent: int) -> str:
+    """Format a decimal exponent exactly like ECMAScript (no zero padding)."""
+    return ("+" if exponent >= 0 else "-") + str(abs(exponent))
+
+
+def _canonical_receipt_json_bytes(value: Any) -> str:
+    """Serialize a receipt digest payload with cross-language-stable bytes.
+
+    Contract (mirrored by ``cloudflare/src/crypto_utils.js`` ``canonicalJson``):
+
+    - ``null`` / booleans serialize as in JSON;
+    - integers serialize as plain decimals and MUST be within the ECMAScript
+      safe-integer range ``[-(2^53-1), 2^53-1]`` (larger integers cannot be
+      verified by an ECMAScript verifier and fail closed here, BEFORE any
+      receipt is signed);
+    - floats serialize exactly like ECMAScript ``Number::toString`` (see
+      :func:`_ecmascript_number_bytes`) and must be finite;
+    - strings serialize like ``json.dumps`` with ``ensure_ascii=True``;
+    - object keys must be ASCII strings (sorted by code point, which equals
+      ECMAScript UTF-16 code-unit order for ASCII) — non-ASCII or non-string
+      keys fail closed;
+    - arrays preserve order.
+    """
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        if abs(value) > _MAX_SAFE_INTEGER:
+            raise PublicReceiptIntegrityError(
+                "Receipt canonical payloads cannot contain integers beyond the "
+                f"ECMAScript safe-integer range: {value}"
+            )
+        return str(value)
+    if isinstance(value, float):
+        return _ecmascript_number_bytes(value)
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, (list, tuple)):
+        return "[" + ",".join(_canonical_receipt_json_bytes(v) for v in value) + "]"
+    if isinstance(value, dict):
+        for key in value:
+            if not isinstance(key, str):
+                raise PublicReceiptIntegrityError(
+                    f"Receipt canonical payload keys must be strings, got {type(key).__name__}"
+                )
+            if not key.isascii():
+                raise PublicReceiptIntegrityError(
+                    f"Receipt canonical payload keys must be ASCII, got {key!r}"
+                )
+        return (
+            "{"
+            + ",".join(
+                json.dumps(k) + ":" + _canonical_receipt_json_bytes(value[k]) for k in sorted(value)
+            )
+            + "}"
+        )
+    raise PublicReceiptIntegrityError(
+        f"Receipt canonical payloads cannot contain {type(value).__name__} values"
+    )
+
+
 def _to_portable_json_value(value: Any) -> Any:
     """Normalize a value so Python and ECMAScript JSON serializations agree.
 
     JSON parsers collapse ``0.0`` and ``0`` into the same number, but
-    ``json.dumps`` distinguishes them (``"0.0"`` vs ``"0.0"``/``"0"``). Receipt
-    digest payloads must be recomputable byte-for-byte by external verifiers
-    (the Cloudflare Worker canonicalizes with ECMAScript ``JSON.stringify``
+    ``json.dumps`` distinguishes them (``"0.0"`` vs ``"0"``). Receipt digest
+    payloads must be recomputable byte-for-byte by external verifiers (the
+    Cloudflare Worker canonicalizes with ECMAScript ``JSON.stringify``
     semantics), so integral-valued floats are normalized to integers and
-    containers are normalized recursively.
+    containers are normalized recursively. Non-integral floats are preserved
+    exactly and serialized by :func:`_ecmascript_number_bytes`.
     """
     if isinstance(value, bool) or value is None:
         return value
@@ -575,8 +691,16 @@ def build_canonical_public_receipt_payload(
 
 
 def compute_public_receipt_digest(payload: Mapping[str, Any]) -> str:
-    """Compute deterministic SHA-256 digest over canonical JSON bytes."""
-    canonical_bytes = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    """Compute deterministic SHA-256 digest over canonical JSON bytes.
+
+    The canonical bytes are produced by :func:`_canonical_receipt_json_bytes`,
+    which serializes numbers exactly like ECMAScript ``Number::toString`` so
+    the Cloudflare Worker reproduces identical bytes from the parsed wire
+    receipt. Unsupported numeric values (non-finite floats, integers beyond
+    the ECMAScript safe-integer range) and non-ASCII object keys fail closed
+    here — before any receipt is signed.
+    """
+    canonical_bytes = _canonical_receipt_json_bytes(dict(payload)).encode("utf-8")
     return hashlib.sha256(canonical_bytes).hexdigest()
 
 
