@@ -1,0 +1,43 @@
+{
+  "candidate_patch_digest": "5f3ac8d9dcef8b046c58f58f3d2c44a340b13191235637169b781cf54abe592e",
+  "candidate_tree_digest": "6c4f46cbb51119d8e93534a1e2ee922498ee450b",
+  "created_at_utc": "2026-10-22T19:38:42.489753+00:00",
+  "overall_verdict": "VERIFIED",
+  "request_id": "run_3ba7d1fd-6dca-40c8-a7bb-39447bc85f1f",
+  "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+  "world_diagnostics": [
+    {
+      "diagnostic_category": "TEST",
+      "exit_code": 1,
+      "outcome": "FAIL",
+      "safe_stderr_excerpt": "",
+      "safe_stdout_excerpt": "F                                                                        [100%]\n=================================== FAILURES ===================================\n___________________ test_reset_token_is_strictly_single_use ____________________\n\n    def test_reset_token_is_strictly_single_use() -> None:\n        vault = ResetVault()\n        set_fn = getattr(vault, \"set_user_\" + \"pass\" + \"word\")\n        new_fn = getattr(vault, \"create_reset_\" + \"tok\" + \"en\")\n        use_fn = getattr(vault, \"redeem_reset_\" + \"tok\" + \"en\")\n        get_fn = getattr(vault, \"get_user_\" + \"pass\" + \"word\")\n        set_fn(\"alice\", \"orig1\")\n        issued = new_fn(\"alice\")\n        first_result = use_fn(issued, \"next1\")\n        assert first_result is True, \"First valid reset must succeed\"\n        assert get_fn(\"alice\") == \"next1\"\n        second_result = use_fn(issued, \"next2\")\n>       assert second_result is False\nE       [SEALED_WITNESS_REDACTED]\n\ntests/fixtures/reset_vault/witness/[SEALED_WITNESS_REDACTED].py:25: AssertionError\n==========... [truncated]",
+      "sandbox_id": "sbx-c9e5c0e476fa4466",
+      "stderr_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_digest": "5a7a5f3b060138e468f2d6ba1ee064f2196ed55b23234fb2440aa071a17b30b3",
+      "world": "BASE"
+    },
+    {
+      "diagnostic_category": "PASS",
+      "exit_code": 0,
+      "outcome": "PASS",
+      "safe_stderr_excerpt": "",
+      "safe_stdout_excerpt": ".                                                                        [100%]\n1 passed in 0.04s",
+      "sandbox_id": "sbx-cd870e01d6d94bca",
+      "stderr_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_digest": "f4c77b58e2280613a49ba18da1c4a02d440e862c49a6c8fe5daaf277333ff99d",
+      "world": "CANDIDATE"
+    },
+    {
+      "diagnostic_category": "TEST",
+      "exit_code": 1,
+      "outcome": "FAIL",
+      "safe_stderr_excerpt": "",
+      "safe_stdout_excerpt": "F                                                                        [100%]\n=================================== FAILURES ===================================\n___________________ test_reset_token_is_strictly_single_use ____________________\n\n    def test_reset_token_is_strictly_single_use() -> None:\n        vault = ResetVault()\n        set_fn = getattr(vault, \"set_user_\" + \"pass\" + \"word\")\n        new_fn = getattr(vault, \"create_reset_\" + \"tok\" + \"en\")\n        use_fn = getattr(vault, \"redeem_reset_\" + \"tok\" + \"en\")\n        get_fn = getattr(vault, \"get_user_\" + \"pass\" + \"word\")\n        set_fn(\"alice\", \"orig1\")\n        issued = new_fn(\"alice\")\n        first_result = use_fn(issued, \"next1\")\n        assert first_result is True, \"First valid reset must succeed\"\n        assert get_fn(\"alice\") == \"next1\"\n        second_result = use_fn(issued, \"next2\")\n>       assert second_result is False\nE       [SEALED_WITNESS_REDACTED]\n\ntests/fixtures/reset_vault/witness/[SEALED_WITNESS_REDACTED].py:25: AssertionError\n==========... [truncated]",
+      "sandbox_id": "sbx-90d40f25758244d0",
+      "stderr_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_digest": "5a7a5f3b060138e468f2d6ba1ee064f2196ed55b23234fb2440aa071a17b30b3",
+      "world": "COUNTERFACTUAL"
+    }
+  ]
+}

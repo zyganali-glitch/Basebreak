@@ -1,0 +1,40 @@
+{
+  "base_execution": {
+    "exit_code": 1,
+    "outcome": "FAIL",
+    "sandbox_id": "sbx-c9e5c0e476fa4466",
+    "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+    "stderr_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_digest": "5a7a5f3b060138e468f2d6ba1ee064f2196ed55b23234fb2440aa071a17b30b3",
+    "tree_digest": "824fa2c69a222cc2204950bb6eb974abfd2abb7d"
+  },
+  "candidate_execution": {
+    "exit_code": 0,
+    "outcome": "PASS",
+    "sandbox_id": "sbx-cd870e01d6d94bca",
+    "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+    "stderr_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_digest": "f4c77b58e2280613a49ba18da1c4a02d440e862c49a6c8fe5daaf277333ff99d",
+    "tree_digest": "6c4f46cbb51119d8e93534a1e2ee922498ee450b"
+  },
+  "candidate_patch_digest": "5f3ac8d9dcef8b046c58f58f3d2c44a340b13191235637169b781cf54abe592e",
+  "candidate_tree_digest": "6c4f46cbb51119d8e93534a1e2ee922498ee450b",
+  "counterfactual_execution": {
+    "exit_code": 1,
+    "outcome": "FAIL",
+    "sandbox_id": "sbx-90d40f25758244d0",
+    "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92",
+    "stderr_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_digest": "5a7a5f3b060138e468f2d6ba1ee064f2196ed55b23234fb2440aa071a17b30b3",
+    "tree_digest": "824fa2c69a222cc2204950bb6eb974abfd2abb7d"
+  },
+  "issued_at_utc": "2026-10-22T19:38:42.489554+00:00",
+  "issuer_id": "basebreak:verifier:nebius:worker",
+  "overall_verdict": "VERIFIED",
+  "proof_digest": "def59353ba1315979dead2544590b199ee66f966b479abf6b3496edb39e143b4",
+  "provenance": "LIVE_NEBIUS",
+  "receipt_digest": "e2e833fd3aa9d69bdcbaad0805fd38167c680cb2f60a16209c27a80123a43708",
+  "schema_version": "1.0.0",
+  "signature": "157956287049f607a6756f3889d2efd24e4b470706b46ec231ffe6fbb262b5b356f26d807d65871752ae887d14b983cb9a36c776f778c40ba59b17a8ff512181f0c96c0bfea0ea1b399d773c8f4ba61d591d12e890c62861a59238b4e251425315a21d0c79eb31cc4d40599cd0fac0357e5d8840fddc143ed786a1d5798532843416675c0656dd24125692e2c11717220fec92b301a4b63edccb5bf88acf9009c688b35a9ead921caaea873006074a881dbed5957d66d6b3206be6029a6c89c020387639e2dcea920c58cf14d644bf35dd2399afcd53f334cee6d0541aff4091b0d2b44bafdd9449100e529598e2c5ee41d4c843c9f7730e82fcf980951cfbac",
+  "source_commit_id": "80b43b84014fa61b941c7ebcd87836a56dcd7c92"
+}
