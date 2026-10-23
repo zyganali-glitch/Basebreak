@@ -155,12 +155,25 @@ Core Claim: **"Basebreak proves that an AI-written patch caused the behavior it 
 - **Target Scenario**: `CVE-2024-21626` (Container escape file descriptor leak in runc)
 - **Materiality Evaluation**: `GroundingMateriality.REQUIRED` (`GroundingCategory.CVE_SECURITY_ADVISORY`)
 - **Integration Proof Document**: `docs/evidence/P16_05_TAVILY_GROUNDING_INTEGRATION.md`
-- **Status & Preflight Truth**:
-  - `Status`: `BLOCKED / NOT_RUN (OPERATOR_AUTHORIZED / PREFLIGHT_KEY_BLOCKED)`
-  - Researcher Free Plan: 1,000 monthly + 3,125 promotional credits; PAYG disabled; Auto-upgrade disabled.
-  - Runtime environment observation on work PC: `TAVILY_API_KEY` absent (`MISSING_KEY_BLOCKED`).
-  - Zero-cost boundary preserved; no fake live execution fabricated.
-- **Firewall Primacy**: Validated in `tests/grounding/test_p16_closure.py` (56 automated tests); retrieved web claims **never override code execution failure** in the sandbox.
+- **Committed Evidence Packet**: `docs/evidence/p16_05_live_tavily_evidence_packet/tavily_cve_grounding_packet.json`
+- **Executed Live Provider Event**:
+  - Exactly one authorized real Tavily request executed under operator authorization and zero-cost confirmation (`search_depth='basic'`, `max_results=3`).
+  - **Provider Request ID**: `cbb8a550-d334-4727-a715-1086799a73f9`
+  - **Observation Timestamp (UTC)**: `2026-10-23T08:03:20.461092+00:00`
+  - **Contract Digest**: `b882f0eac1e2bfcb3790fe5c80cf824bc6b1a8d7f6d97b0030d08d802ee1c8d9`
+  - **Response Digest**: `e7727082b8735a7adc806398037b2fd3e281c0b04f8c37e11081bd0cdb66067d`
+  - **Binding Digest**: `dff4c8589a24216329f6a7902d8dd3a0ac5c5ea22ddaeb5eb2b549807aef03cf`
+  - **Returned Source URLs**:
+    1. `https://github.com/yandex-cloud/docs/blob/master/en/_includes/security/security-bulletins/cve-2024-21626.md`
+    2. `https://github.com/advisories/GHSA-xr7r-f8xq-vfvv`
+    3. `https://security.snyk.io/vuln/SNYK-ALPINE324-RUNC-17303732`
+  - **Provider-Observation Provenance**: `LOCAL_EXECUTION`
+  - **Candidate Behavior**: `NOT_RUN` (no candidate witness executed)
+  - **Grounding Firewall Decision**: `INSUFFICIENT_GROUNDING` / `BLOCKED` (fails closed on unverified temporal freshness and unsupported live observation boundary; external claims never certify code behavior)
+  - **Credits Consumed**: `UNKNOWN` (omitted from provider API response payload; not fabricated)
+  - **Zero Secrets**: verified clean of credentials or tokens.
+- **Historical Preflight**: Previously observed missing-key status (`MISSING_KEY_BLOCKED`) retained as preflight history prior to operator key configuration.
+- **Task Status Truth**: `LIVE_EXECUTED / INDEPENDENT_QA_PENDING` (held pending independent auditor QA).
 
 ---
 

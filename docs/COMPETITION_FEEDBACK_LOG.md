@@ -167,7 +167,7 @@ This log may also be used as source material for the "Most Valuable Feedback" pr
 - **Workaround:** Strictly enforce official core schema parameters (`query`, `search_depth='basic'`, `max_results`, `include_domains`) and treat missing credit usage as `UNKNOWN`.
 - **Concrete Product Suggestion:** Include an explicit `usage: {"credits": 1}` object in the JSON search response to facilitate automated runtime budget tracking.
 - **Severity/Value:** LOW / INFORMATIVE
-- **Provenance:** LIVE_OBSERVATION
+- **Provenance:** LOCAL_EXECUTION
 - **Status:** RESOLVED
 
 

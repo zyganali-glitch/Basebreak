@@ -42,12 +42,17 @@ When Basebreak executed the preflight check `python -m basebreak.adapters.tavily
 
 Upon operator confirmation of zero-cost Researcher Free tier and explicit authorization, exactly **ONE bounded live Tavily request** was executed by the operator into `docs/evidence/p16_05_live_tavily_evidence_packet/tavily_cve_grounding_packet.json`:
 - **Provider Request ID**: `cbb8a550-d334-4727-a715-1086799a73f9`
-- **Observation Timestamp**: `2026-10-23T08:03:20.461092+00:00`
+- **Observation Timestamp (UTC)**: `2026-10-23T08:03:20.461092+00:00`
 - **Query**: `"CVE-2024-21626 runc security advisory container escape"`
 - **Contract Digest**: `b882f0eac1e2bfcb3790fe5c80cf824bc6b1a8d7f6d97b0030d08d802ee1c8d9`
 - **Binding Digest**: `dff4c8589a24216329f6a7902d8dd3a0ac5c5ea22ddaeb5eb2b549807aef03cf`
 - **Response Digest**: `e7727082b8735a7adc806398037b2fd3e281c0b04f8c37e11081bd0cdb66067d`
-- **Source Count**: 3 authoritative sources (`github.com`, `security.snyk.io`)
+- **Returned Sources and Authority Roles**:
+  1. `https://github.com/yandex-cloud/docs/blob/master/en/_includes/security/security-bulletins/cve-2024-21626.md`: Secondary documentation mirror mentioning the security bulletin.
+  2. `https://github.com/advisories/GHSA-xr7r-f8xq-vfvv`: GitHub Advisory Database vulnerability entry for runc.
+  3. `https://security.snyk.io/vuln/SNYK-ALPINE324-RUNC-17303732`: Snyk vulnerability database package-specific entry.
+  *(These sources possess distinct publisher roles and are not treated uniformly as primary upstream CVE authorities; the Yandex Cloud documentation repo is a secondary publisher).*
+- **Digest Reproducibility Scope**: The committed evidence packet records cryptographic digests (`response_digest`, `item_digest`, `grounded_fact_digests`, `binding_digest`) minted during execution. However, as a minimized, portable evidence packet, it omits raw HTTP payloads, scores, and unparsed response structures required for standalone recomputation of every intermediate digest from scratch.
 - **Firewall Status**: `INSUFFICIENT_GROUNDING`
 - **Firewall Verdict**: `BLOCKED` (honest fail-closed authority preservation: temporal freshness metadata was unverified, and external search cannot certify candidate execution)
 - **Credit Usage**: `UNKNOWN` (provider API response omitted credit counter; recorded honestly as UNKNOWN)
@@ -93,11 +98,11 @@ flowchart TD
 - Secret-safe `__repr__` redacting credentials (`***`).
 - Single-call guarantee: automatic retries disabled (`allow_retries=False`, `single_call_only=True`).
 
-### Step 4: Authoritative Provider Response Binding
-Search result items from authoritative advisory endpoints:
+### Step 4: Provider Response Binding & Illustrative Offline Fixtures vs. Live Sources
+During offline development and unit testing (`tests/grounding/test_p16_closure.py`), an illustrative NIST NVD fixture was used to verify the 10-step cryptographic binding pipeline:
 ```json
 {
-  "title": "CVE-2024-21626 Advisory — NIST NVD",
+  "title": "CVE-2024-21626 Advisory — NIST NVD (Illustrative Offline Fixture)",
   "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-21626",
   "publisher": "nvd.nist.gov",
   "content": "CVE-2024-21626: runc <= 1.1.11 leaks internal file descriptors. Fixed in runc 1.1.12.",
@@ -107,6 +112,13 @@ Search result items from authoritative advisory endpoints:
   "item_digest": "439121a8dcf8c1faee0cf1db9ba237303f9050d53cbf2b12368c34f186001a1c"
 }
 ```
+
+In the actual live Tavily execution (`cbb8a550-d334-4727-a715-1086799a73f9`), the three sources returned by the live API were:
+1. `https://github.com/yandex-cloud/docs/blob/master/en/_includes/security/security-bulletins/cve-2024-21626.md` (Secondary publisher documentation mirror mentioning security bulletin)
+2. `https://github.com/advisories/GHSA-xr7r-f8xq-vfvv` (GitHub Advisory Database entry)
+3. `https://security.snyk.io/vuln/SNYK-ALPINE324-RUNC-17303732` (Snyk vulnerability database entry)
+
+The illustrative NVD offline test fixture and the live runtime Tavily search results are strictly distinct. Not all three live sources are primary authorities; secondary mirrors are recognized as such. Furthermore, while the portable JSON evidence packet records cryptographic digests, complete independent recomputation of intermediate item and response digests requires access to raw HTTP payloads that are omitted from the minimal packet.
 
 ### Step 5: Substantive Advisory Relevance Screening
 Implemented via `screen_advisory_claim()`:
