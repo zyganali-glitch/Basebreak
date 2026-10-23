@@ -7,7 +7,7 @@
 - **Project Title**: Basebreak — Causal Verification Runtime for AI-Written Code
 - **Tagline**: If the patch matters, the base must break. Proving AI patches actually caused the fix — beyond green CI.
 - **Track**: Coding and Agentic Engineering Track
-- **Additional Target**: Tavily Advisory Grounding Integration (Genuine live provider observation executed under request ID `cbb8a550-d334-4727-a715-1086799a73f9`; contract binding and deterministic authority firewall verified with honest fail-closed `INSUFFICIENT_GROUNDING / BLOCKED` verdict; candidate execution strictly `NOT_RUN`)
+- **Additional Target**: Tavily Advisory Grounding Integration (Genuine live provider observation executed under request ID `cbb8a550-d334-4727-a715-1086799a73f9`, recording three sources bound to frozen contract; deterministic authority firewall verified with honest fail-closed `INSUFFICIENT_GROUNDING / BLOCKED` verdict due to insufficient temporal freshness/live-observation authority; candidate execution strictly `NOT_RUN`; web evidence has zero authority to override deterministic execution)
 - **Primary Public Judge URL**: `https://basebreak.zyganali.workers.dev/judge/run_3ba7d1fd-6dca-40c8-a7bb-39447bc85f1f`
 - **Canonical Reference Run URL**: `https://basebreak.zyganali.workers.dev/judge/run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9`
 - **Public GitHub Repository**: `https://github.com/zyganali-glitch/Basebreak` (Apache-2.0 Open Source)
@@ -78,18 +78,18 @@ Basebreak is engineered from the ground up to guarantee strict isolation, determ
 Basebreak does not use search as decorative bonus theater. For tasks where code correctness materially depends on current external reality (e.g. `CVE-2024-21626` container escape security advisories or library API migrations), Basebreak integrates a bounded, deterministic Tavily Search adapter (`src/basebreak/adapters/tavily/`):
 
 - **Tavily Grounds and Binds Advisory Information to an Already Frozen Contract**:
-  Tavily queries official advisory registries (NIST NVD, GitHub Security Advisories) to retrieve authoritative vulnerability mechanisms and affected/fixed version numbers (`<=1.1.11` vs `1.1.12`), binding these facts cryptographically to an already frozen engineering contract.
+  Tavily queries official advisory registries and vulnerability databases (such as GitHub Advisory Database and security sources) to retrieve vulnerability mechanisms and affected/fixed version numbers (`<=1.1.11` vs `1.1.12`), binding these facts cryptographically to an already frozen engineering contract.
 - **Sandboxes Verify WHETHER Code Satisfies It**:
   Nebius sandboxes execute the candidate against the sealed witness.
 - **Deterministic Authority Firewall (`firewall.py`)**:
-  External web search results **NEVER override code execution**. Even if Tavily returns an authoritative advisory stating that a vulnerability is patched, if the sandbox candidate fails, the firewall strictly outputs `PreliminaryVerdict.CONTRADICTED`.
+  External web search results **NEVER override code execution**. Web evidence has no authority to override deterministic execution, regardless of cryptographic digests. Even if Tavily returns an authoritative advisory stating that a vulnerability is patched, if the sandbox candidate fails, the firewall strictly outputs `PreliminaryVerdict.CONTRADICTED`.
 - **Security & Integrity**:
   The Tavily client enforces bounded query validation, blocks credential and sealed witness token leakage, strips HTML/LLM answers, and strictly fails closed on adversarial prompt injection payloads (`INJECTION_BLOCKED`).
 - **Scenario Separation & Live Evidence Boundary**:
   - The primary competition demonstration scenario (`ResetVault`, verified in live runs `run_3ba7d1fd` and `run_78fd00b7`) is an internal invariant test (`GroundingMateriality.NOT_APPLICABLE`) and did NOT use Tavily.
   - The Tavily integration is demonstrated under `CVE-2024-21626`.
   - The full offline pipeline, contract binding, adversarial defenses, and deterministic authority firewall are verified by automated tests.
-  - Exactly ONE genuine live Tavily network provider execution was performed (`cbb8a550-d334-4727-a715-1086799a73f9`), recorded in `docs/evidence/p16_05_live_tavily_evidence_packet/tavily_cve_grounding_packet.json`. It resulted in an honest fail-closed `INSUFFICIENT_GROUNDING / BLOCKED` firewall verdict because the retrieved external summaries lacked conclusive cryptographic evidence to override the baseline invariant, preserving authority firewall integrity with candidate behavior strictly `NOT_RUN`.
+  - Exactly ONE genuine live Tavily network provider execution was performed (`cbb8a550-d334-4727-a715-1086799a73f9`), recorded in `docs/evidence/p16_05_live_tavily_evidence_packet/tavily_cve_grounding_packet.json`. It recorded three external sources (`github.com/yandex-cloud/docs`, `github.com/advisories`, `security.snyk.io`), binding the external observation to the frozen contract. The deterministic authority firewall evaluated the evidence and strictly returned an honest fail-closed `INSUFFICIENT_GROUNDING / BLOCKED` verdict because temporal freshness and independent live-observation authority were insufficient (`unverified_freshness:fact-b882f0ea-03000bbf`), with candidate code execution strictly `NOT_RUN`. Web evidence possesses no authority to override deterministic execution, regardless of cryptographic digests.
 
 ---
 
@@ -121,7 +121,7 @@ Basebreak does not use search as decorative bonus theater. For tasks where code 
 - **Synthetic Demo Scenario**: `ResetVault` is a synthetic security-sensitive scenario designed to clearly demonstrate differential 3-world causal mechanics and token replay protection; it is not a reproduced real-world CVE patch.
 - **Witness Scope**: The live demonstration verifies one sealed behavioral witness (`wit-reset-vault-live-001`) under the canonical `ResetVault` scenario.
 - **Signature Scheme**: The verifier signature uses custom 2048-bit raw modular exponentiation RSA over SHA-256 digests. It is independently verifiable across Python and Node.js, but is not standard PKCS#1 v1.5 or RSA-PSS.
-- **Tavily Live Integration Boundary**: Exactly ONE genuine live Tavily request was executed (`cbb8a550-d334-4727-a715-1086799a73f9`), committed in `docs/evidence/p16_05_live_tavily_evidence_packet/`. The deterministic authority firewall correctly returned `INSUFFICIENT_GROUNDING / BLOCKED` without manufacturing candidate verification; candidate code execution remained strictly `NOT_RUN`.
+- **Tavily Live Integration Boundary**: Exactly ONE genuine live Tavily request was executed (`cbb8a550-d334-4727-a715-1086799a73f9`, recording three sources bound to frozen contract), committed in `docs/evidence/p16_05_live_tavily_evidence_packet/`. The deterministic authority firewall correctly returned `INSUFFICIENT_GROUNDING / BLOCKED` due to insufficient temporal freshness/live-observation authority; candidate execution remained strictly `NOT_RUN`. Web evidence has no authority to override deterministic execution, regardless of cryptographic digests.
 - **Human-Led Submission Boundary**: Submission text, storyboard, scripts, and guides are prepared in repository assets; physical video recording, voiceover audio generation, YouTube upload, and Devpost submission remain human-led operator tasks.
 
 ---

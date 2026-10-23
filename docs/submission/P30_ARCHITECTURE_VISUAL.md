@@ -41,7 +41,7 @@ flowchart TD
     end
 
     subgraph ExternalGrounding["External Advisory Grounding Tier"]
-        Tavily["Tavily Search API<br/>• Bounded Search (depth='basic', max 3)<br/>• NIST NVD & GitHub Security Advisories<br/>• Authoritative CVE-2024-21626 Grounding"]
+        Tavily["Tavily Search API<br/>• Bounded Search (depth='basic', max 3)<br/>• GitHub Advisory & Security Sources<br/>• Authoritative CVE-2024-21626 Grounding"]
         Firewall["Deterministic Authority Firewall<br/>• Tamper Detection & Injection Shield<br/>• Primacy Invariant: Web Claims NEVER<br/>  Override Sandbox Failure"]
         PythonBridge -->|Materiality: REQUIRED| Tavily
         Tavily --> Firewall

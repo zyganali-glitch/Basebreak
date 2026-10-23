@@ -103,9 +103,9 @@
 - **Visual Display**:
   - Transition to the External Grounding architecture for security fixes (`CVE-2024-21626`).
   - Visual separation of responsibilities:
-    - **Tavily Search API**: grounds and binds authoritative advisory information from NIST NVD and GitHub Security Advisories to an already frozen contract (`GroundingMateriality.REQUIRED`).
+    - **Tavily Search API**: grounds and binds authoritative advisory information from sources like GitHub Advisory Database to an already frozen contract (`GroundingMateriality.REQUIRED`).
     - **Grounding Authority Firewall**: binds facts to the frozen contract digest while guaranteeing that retrieved web claims **NEVER override code execution**.
-    - **Evidence Honesty Disclosure**: offline pipeline and deterministic firewall verified; live provider search held fail-closed without credentials (`MISSING_KEY_BLOCKED`).
+    - **Evidence Honesty Disclosure**: genuine live provider observation executed (request ID `cbb8a550-d334-4727-a715-1086799a73f9`, 3 sources bound to frozen contract); deterministic firewall returned honest fail-closed `INSUFFICIENT_GROUNDING / BLOCKED` verdict; candidate execution strictly `NOT_RUN`; web evidence cannot override execution.
   - On-screen comparison: *"Tavily provides advisory context; Sandboxes score code behavior."*
 - **On-Screen Text**:
   - `Tavily Search: Advisory Grounding for Frozen Contracts (CVE-2024-21626)`
@@ -113,7 +113,7 @@
   - `Firewall Primacy: Web Claims Never Override Sandbox Failure`
   - `Evidence Truth: Offline Pipeline Verified; Live Search Pending Key`
 - **Voiceover Narration**:
-  *"For advisory grounding on security fixes like CVE-2024-21626, Basebreak integrates Tavily Search. Tavily grounds and binds authoritative advisory information from NIST and GitHub to an already frozen contract. Our deterministic firewall guarantees external web claims never override code execution. Web grounding provides advisory context; independent sandbox execution governs the verdict."*
+  *"For advisory grounding on security fixes like CVE-2024-21626, Basebreak integrates Tavily Search. Tavily grounds and binds authoritative advisory information from sources like GitHub to an already frozen contract. Our deterministic firewall guarantees external web claims never override code execution. Web grounding provides advisory context; independent sandbox execution governs the verdict."*
 
 ---
 

@@ -91,7 +91,7 @@ This guide provides concrete, click-by-click instructions for capturing the scre
 - **Source**: Browser or editor showing the Grounding Firewall architecture (`docs/evidence/P16_05_TAVILY_GROUNDING_INTEGRATION.md`) and preflight tooling.
 - **Visible Elements**:
   - The deterministic advisory grounding flow for `CVE-2024-21626`:
-    1. Tavily retrieves authoritative NIST NVD & GitHub Security Advisories (`GroundingMateriality.REQUIRED`).
+    1. Tavily retrieves authoritative security advisories (e.g. GitHub Advisory Database) (`GroundingMateriality.REQUIRED`).
     2. Grounded facts bind into `GroundedContractBinding` bound to frozen contract digest.
     3. Grounding Authority Firewall enforces that retrieved web claims **NEVER override code execution**.
   - Show the passing test suite in terminal:

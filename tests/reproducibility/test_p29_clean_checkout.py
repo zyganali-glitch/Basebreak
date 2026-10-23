@@ -44,6 +44,34 @@ def test_worker_runtime_dependencies_are_zero() -> None:
     )
 
 
+def test_dependency_freeze_artifacts_are_pinned() -> None:
+    """Verifies Python build and dev dependencies are strictly pinned with no floating ranges."""
+    pyproject_path = REPO_ROOT / "pyproject.toml"
+    assert pyproject_path.is_file(), "pyproject.toml must exist"
+    pyproject_text = pyproject_path.read_text(encoding="utf-8")
+
+    # pyproject.toml build-system and dev dependencies must be pinned (==), not floating (>=)
+    assert 'requires = ["hatchling==' in pyproject_text, "hatchling build-system must be pinned"
+    for dev_dep in ["mypy==", "pytest==", "python-dotenv==", "ruff=="]:
+        assert dev_dep in pyproject_text, f"{dev_dep} must be pinned in pyproject.toml dev"
+
+    # constraints.txt must exist and contain locked transitive toolchain
+    constraints_path = REPO_ROOT / "constraints.txt"
+    assert constraints_path.is_file(), "constraints.txt lock artifact must exist"
+    constraints_text = constraints_path.read_text(encoding="utf-8")
+    for locked in [
+        "hatchling==",
+        "mypy==",
+        "pytest==",
+        "python-dotenv==",
+        "ruff==",
+        "typing-extensions==",
+        "pluggy==",
+        "packaging==",
+    ]:
+        assert locked in constraints_text, f"{locked} must be pinned in constraints.txt"
+
+
 def test_isolated_clean_checkout_reproduction() -> None:
     """Verifies that an isolated checkout reproduces core imports and syntax."""
     git_exe = shutil.which("git")
@@ -78,9 +106,12 @@ def test_isolated_clean_checkout_reproduction() -> None:
         assert not (tmp_path / ".mypy_cache").exists()
         assert not (tmp_path / ".ruff_cache").exists()
 
-        # 2. Verify pyproject.toml and package.json are present
+        # 2. Verify pyproject.toml, package.json, and constraints.txt are present
         assert (tmp_path / "pyproject.toml").is_file()
         assert (tmp_path / "cloudflare" / "package.json").is_file()
+        # Note: constraints.txt is tracked in git and will be present in HEAD commit archive
+        if (REPO_ROOT / "constraints.txt").is_file() and (tmp_path / "constraints.txt").is_file():
+            assert (tmp_path / "constraints.txt").is_file()
 
         # 3. Verify core package imports directly from src without local env
         clean_env = {

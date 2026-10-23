@@ -128,7 +128,7 @@ Basebreak integrates Tavily Search.
 
 33
 00:01:59,800 --> 00:02:04,500
-Tavily grounds and binds authoritative advisory information from NIST and GitHub
+Tavily grounds and binds authoritative advisory information from sources like GitHub
 
 34
 00:02:04,600 --> 00:02:07,800

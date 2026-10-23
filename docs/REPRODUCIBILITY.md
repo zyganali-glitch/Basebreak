@@ -51,7 +51,7 @@ source .venv/bin/activate
 
 # Upgrade pip and install package in editable mode with development tools
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev]" -c constraints.txt
 ```
 
 ### Step 3: Cloudflare Worker Testing Dependencies
