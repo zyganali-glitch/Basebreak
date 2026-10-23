@@ -714,3 +714,78 @@ def test_p16_cli_runner_and_preflight_tooling() -> None:
     finally:
         if old_key is not None:
             os.environ["TAVILY_API_KEY"] = old_key
+
+    # 5. CLI rejects --candidate-verdict VERIFIED to prevent manufacturing verified causal outcome
+    with pytest.raises(SystemExit) as exc_info:
+        demo_main(["--check-preflight", "--candidate-verdict", "VERIFIED"])
+    assert exc_info.value.code == 2
+
+
+def test_tavily_only_invocation_cannot_produce_verified_candidate_verdict(tmp_path: Any) -> None:
+    """Requirement 7: A Tavily-only invocation cannot produce a VERIFIED candidate verdict.
+
+    Enforces:
+    1. candidate_execution_verdict defaults to PreliminaryVerdict.NOT_RUN when no independent witness ran.
+    2. Grounding observation and behavioral verification remain strictly separate.
+    3. Neither genuine provider response nor contract binding implies candidate verification.
+    4. Observation details and contract binding are faithfully preserved.
+    """
+    from basebreak.adapters.tavily.demo import run_tavily_cve_grounding_pipeline
+
+    def mock_opener(req: Any, timeout: float = 10.0) -> MockHttpResponse:
+        resp_data = {
+            "query": "CVE-2024-21626",
+            "results": [
+                {
+                    "title": "NVD CVE-2024-21626 Detail",
+                    "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-21626",
+                    "content": (
+                        "A flaw was found in runc <= 1.1.11 where file descriptors leak. "
+                        "Fixed in runc 1.1.12 patch release."
+                    ),
+                    "score": 0.99,
+                    "published_date": "2024-01-31",
+                }
+            ],
+            "response_time": 0.18,
+            "usage": {"credits": 1},
+            "request_id": "req-tavily-only-001",
+        }
+        return MockHttpResponse(json.dumps(resp_data).encode("utf-8"))
+
+    mock_client = TavilyClient(api_key="tvly-mock-test-key", opener=mock_opener)
+    packet_path = str(tmp_path / "tavily_only_packet.json")
+
+    # Run pipeline with DEFAULT candidate_execution_verdict (which must be NOT_RUN)
+    packet, fw_res = run_tavily_cve_grounding_pipeline(
+        operator_authorized=True,
+        verified_capacity=True,
+        client=mock_client,
+        persist_packet_path=packet_path,
+        observation_timestamp="2026-10-23T10:00:00Z",
+    )
+
+    # 1. Invariant: firewall verdict must NEVER be VERIFIED from Tavily observation alone
+    assert fw_res.final_verdict != PreliminaryVerdict.VERIFIED
+    assert fw_res.original_execution_verdict == PreliminaryVerdict.NOT_RUN
+    assert packet.firewall_verdict != PreliminaryVerdict.VERIFIED.value
+    assert packet.firewall_verdict == PreliminaryVerdict.BLOCKED.value
+
+    # 2. Genuine external observation details and contract binding are strictly preserved
+    assert len(packet.source_items) == 1
+    src = packet.source_items[0]
+    assert src["url"] == "https://nvd.nist.gov/vuln/detail/CVE-2024-21626"
+    assert src["publisher"] == "nvd.nist.gov"
+    assert len(src["item_digest"]) == 64
+    assert len(packet.contract_digest) == 64
+    assert len(packet.binding_digest) == 64
+    assert len(packet.grounded_fact_digests) == 1
+    assert packet.search_parameters["search_depth"] == "basic"
+    assert packet.search_parameters["max_results"] == 3
+    assert packet.search_parameters["include_raw_content"] is False
+    assert packet.search_parameters["include_answer"] is False
+    assert "chunks_per_source" not in packet.search_parameters
+    assert "include_published_date" not in packet.search_parameters
+    assert packet.credit_usage == 1
+    assert os.path.exists(packet_path)
+

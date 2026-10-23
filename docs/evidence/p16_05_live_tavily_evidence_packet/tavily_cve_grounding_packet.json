@@ -1,0 +1,64 @@
+{
+  "binding_digest": "dff4c8589a24216329f6a7902d8dd3a0ac5c5ea22ddaeb5eb2b549807aef03cf",
+  "contract_digest": "b882f0eac1e2bfcb3790fe5c80cf824bc6b1a8d7f6d97b0030d08d802ee1c8d9",
+  "credit_usage": "UNKNOWN",
+  "diagnostics": [
+    "unverified_freshness:fact-b882f0ea-03000bbf"
+  ],
+  "firewall_status": "INSUFFICIENT_GROUNDING",
+  "firewall_verdict": "BLOCKED",
+  "grounded_fact_digests": [
+    "5ebc611b1e08ca2a8794a90a4a1c0cf75e98d05d845bd975d2ca03d037287fd9",
+    "a08e16bf9183380ff3795467c0e148295d5998e61b38263ada47833dce9c28cf",
+    "f22e73ded89450f7bd8d9c1db70f9f0212b3c42baefa4c4e9cfdb645d23393e1"
+  ],
+  "is_live": true,
+  "observation_timestamp": "2026-10-23T08:03:20.461092+00:00",
+  "provenance": "LOCAL_EXECUTION",
+  "provider_response_id": "cbb8a550-d334-4727-a715-1086799a73f9",
+  "query": "CVE-2024-21626 runc security advisory container escape",
+  "readiness_state": "LIVE_EXECUTED",
+  "requirement_id": "REQ-7B171FA6",
+  "response_digest": "e7727082b8735a7adc806398037b2fd3e281c0b04f8c37e11081bd0cdb66067d",
+  "search_parameters": {
+    "allowed_domains": [
+      "nvd.nist.gov",
+      "cve.org",
+      "github.com",
+      "osv.dev",
+      "security.snyk.io"
+    ],
+    "include_answer": false,
+    "include_raw_content": false,
+    "max_results": 3,
+    "search_depth": "basic"
+  },
+  "source_items": [
+    {
+      "item_digest": "db6bdbe248181729ea3ab80090a81978d71d7f5a5e4ec521dfa4f82b5c7fef09",
+      "published_date": null,
+      "publisher": "github.com",
+      "title": "docs/en/_includes/security/security-bulletins/cve-2024-21626.md at master \u00b7 yandex-cloud/docs \u00b7 GitHub",
+      "url": "https://github.com/yandex-cloud/docs/blob/master/en/_includes/security/security-bulletins/cve-2024-21626.md"
+    },
+    {
+      "item_digest": "0859f570a354ca218b14f57ef7e2a9d2933ad990a3634a9c1e21419ab80bec8b",
+      "published_date": null,
+      "publisher": "github.com",
+      "title": "runc vulnerable to container breakout through process.cwd trickery and leaked fds \u00b7 CVE-2024-21626 \u00b7 GitHub Advisory Database \u00b7 GitHub",
+      "url": "https://github.com/advisories/GHSA-xr7r-f8xq-vfvv"
+    },
+    {
+      "item_digest": "746cf81d855395bf4e47e176905c88f34bf7825e127e0fa598a6ce267c061011",
+      "published_date": null,
+      "publisher": "security.snyk.io",
+      "title": "Exposure of Resource to Wrong Sphere in runc | CVE-2024-21626 | Snyk",
+      "url": "https://security.snyk.io/vuln/SNYK-ALPINE324-RUNC-17303732"
+    }
+  ],
+  "uncertainty_states": [
+    "CERTAIN",
+    "INSUFFICIENT",
+    "INSUFFICIENT"
+  ]
+}

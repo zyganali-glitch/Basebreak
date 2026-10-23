@@ -147,3 +147,27 @@ This log may also be used as source material for the "Most Valuable Feedback" pr
 - **Follow-up (2026-09-25 05:25 UTC):** Re-probed endpoints `/sandboxes/v1/whoami` and `/sandboxes/v1/instances` using project `aiproject-e00mae0nmzkxjswr1k`. All functional permissions remain `false`, instance spawn returns HTTP 403 `Insufficient permissions: spawn or spawn_disposable`. Access request remained pending review.
 - **Follow-up (2026-09-25 13:38 UTC):** Nebius notified operator of beta activation. Fresh live probe of `/sandboxes/v1/whoami` confirmed all functional permissions (`import`, `spawn`, `spawn_disposable`, `list`, `cancel`, `set_image_tag`) enabled (`true`). Live disposable sandbox execution (`echo BASEBREAK_SANDBOX_OK`) succeeded with exit code 0 in 0.338s. Checkpoint/fork verified live. Blocker resolved.
 
+### F-007 — Tavily Search API schema minimization and response usage metadata observation
+
+- **Date/Time:** 2026-10-23 08:05 UTC
+- **Provider/Tool:** Tavily Search API (`POST https://api.tavily.com/search`)
+- **Feature/API:** Search request parameters & response credit accounting
+- **Task/Run Context:** P-16.05 (Execute real runtime Tavily path if bonus remains strategically justified)
+- **What Worked Well:**
+  - The bounded `basic` search executed rapidly and returned authoritative, high-relevance security advisory sources from official repositories (`github.com/advisories`, `security.snyk.io`) for `CVE-2024-21626`.
+  - Content snippets cleanly supported deterministic relevance screening against vulnerability mechanisms.
+- **Friction/Bug/Limitation:**
+  - Standard request parameters: Parameters such as `include_published_date` and `chunks_per_source` are not part of the standard `POST /search` schema. Passing minimal parameters (`query`, `search_depth`, `max_results`, `include_raw_content=False`, `include_answer=False`, `include_domains`) ensures robust portability across API revisions.
+  - Credit accounting in response: The HTTP JSON response body omitted an inline `usage.credits` or `usage` dictionary. For autonomous verification runtimes enforcing strict zero-cost budget bounds, machine-readable credit accounting directly in the response payload is preferred over assuming consumption.
+- **Deterministic Evidence:**
+  - Real provider response ID: `cbb8a550-d334-4727-a715-1086799a73f9`
+  - Response digest: `e7727082b8735a7adc806398037b2fd3e281c0b04f8c37e11081bd0cdb66067d`
+  - Credit usage honestly classified as `UNKNOWN` rather than fabricated.
+- **Developer Impact:** Resolved by strict payload minimization in `TavilyClient.search` and fail-closed zero-cost accounting in `GroundedEvidencePacket`.
+- **Workaround:** Strictly enforce official core schema parameters (`query`, `search_depth='basic'`, `max_results`, `include_domains`) and treat missing credit usage as `UNKNOWN`.
+- **Concrete Product Suggestion:** Include an explicit `usage: {"credits": 1}` object in the JSON search response to facilitate automated runtime budget tracking.
+- **Severity/Value:** LOW / INFORMATIVE
+- **Provenance:** LIVE_OBSERVATION
+- **Status:** RESOLVED
+
+

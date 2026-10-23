@@ -178,7 +178,7 @@ class TavilyClient:
         search_depth: str = DEFAULT_SEARCH_DEPTH,
         include_domains: Sequence[str] | None = None,
         exclude_domains: Sequence[str] | None = None,
-        include_published_date: bool = True,
+        include_published_date: bool | None = None,
         sealed_witness_tokens: Sequence[str] | None = None,
     ) -> TavilySearchResponse:
         """Execute a strictly bounded search query against Tavily."""
@@ -208,15 +208,16 @@ class TavilyClient:
 
         sanitized_query = self.validate_query(query, sealed_witness_tokens=sealed_witness_tokens)
 
-        # Payload strict minimization
+        # Payload strict minimization conforming to official Tavily Search schema:
+        # - search_depth is strictly 'basic' (1 credit, preventing depth escalation)
+        # - raw HTML scraping (include_raw_content) and LLM answers (include_answer) disabled
+        # - unsupported/deprecated schema fields (include_published_date, chunks_per_source) omitted
         request_data: dict[str, Any] = {
             "query": sanitized_query,
             "search_depth": "basic",
             "max_results": max_results,
             "include_raw_content": False,
             "include_answer": False,
-            "include_published_date": include_published_date,
-            "chunks_per_source": 1,
         }
         if include_domains:
             request_data["include_domains"] = list(include_domains)

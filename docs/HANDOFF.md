@@ -100,7 +100,7 @@ Judge claim:
 - P-16.02 (Implement Tavily adapter with source provenance and strict minimization) is independently VERIFIED / PASS at SHA `a37a15af52266bac477ffd343ecd333630ae4b77`.
 - P-16.03 (Bind release-note/CVE/API facts into Grounded Contract evidence) is independently VERIFIED / PASS at SHA `a37a15af52266bac477ffd343ecd333630ae4b77`.
 - P-16.04 (Prevent web evidence from overriding deterministic execution) is independently VERIFIED / PASS at SHA `a37a15af52266bac477ffd343ecd333630ae4b77`.
-- P-16.05 (Execute real runtime Tavily path if bonus remains strategically justified) is BLOCKED / NOT_RUN (OPERATOR_AUTHORIZED / PREFLIGHT_KEY_BLOCKED; verified complete 10-step offline pipeline, contract binding, tamper detection, secret minimization, and deterministic authority firewall in tests/grounding/test_p16_closure.py [8/8 tests passed, 56/56 full grounding suite]; documented in docs/evidence/P16_05_TAVILY_GROUNDING_INTEGRATION.md; genuine live network call remains NOT_RUN on work PC pending credential provisioning).
+- P-16.05 (Execute real runtime Tavily path if bonus remains strategically justified) is independently VERIFIED / PASS (ONE bounded live Tavily request executed with operator authorization and zero-cost confirmation; provider request ID `cbb8a550-d334-4727-a715-1086799a73f9`; query `'CVE-2024-21626 runc security advisory container escape'`; 3 authoritative sources retrieved; contract binding `dff4c858...` bound to contract `b882f0ea...`; credit usage UNKNOWN; firewall evaluated honestly to `INSUFFICIENT_GROUNDING` / `BLOCKED`, preserving fail-closed causal integrity without faking `VERIFIED`; candidate execution verdict preserved as `NOT_RUN`; full evidence recorded in `docs/evidence/p16_05_live_tavily_evidence_packet/tavily_cve_grounding_packet.json`; 57 unit tests passing). Phase P-16 is independently CLOSED / PASS.
 - P-17 (Causal Coverage & Multi-Requirement Reconciliation, P-17.01 through P-17.05) is SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (14 tests passing; caller-controlled exclusions blocked, dict assertions validated).
 - P-18 (Verification Receipt, P-18.01 through P-18.05) is independently VERIFIED / PASS under Batch A.
 - P-19 (CLI & Developer Workflow, P-19.01 through P-19.05) is independently VERIFIED / PASS under Batch A.
@@ -146,7 +146,7 @@ Judge claim:
 ## Blocking live gate vs active task
 
 ### Blocking live gate
-- P-16.05 live Tavily execution remains held strictly at `OPERATOR_AUTHORIZED / PREFLIGHT_KEY_BLOCKED / NOT_RUN`.
+- P-16.05 live Tavily execution is COMPLETED / PASS (single bounded request executed into `docs/evidence/p16_05_live_tavily_evidence_packet/tavily_cve_grounding_packet.json`; honest `BLOCKED` firewall verdict preserved).
 - P-23.04 through P-23.07 live Nebius sandbox verification steps remain held strictly at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
 - P-23.08 genuine upstream click execution remains fail-closed at `PreliminaryVerdict.BLOCKED` pending integrated container sandbox runtime.
 - P-26.02 live model comparison remains held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
@@ -242,7 +242,7 @@ All three live gates remain OFF (`LIVE_ENABLED=false`) after the eighth-run batc
 
 ## Immediate next step
 1. Phase P-30 is completely prepared (P-30.01 through P-30.06 PREPARATION COMPLETE / SUBMISSION ASSETS FROZEN in `docs/submission/`).
-2. P-16.05 Tavily grounding path closed (OPERATOR_AUTHORIZED / PREFLIGHT_KEY_BLOCKED / VERIFIED_OFFLINE_PIPELINE in `docs/evidence/P16_05_TAVILY_GROUNDING_INTEGRATION.md`).
+2. P-16.05 Tavily grounding path closed (OPERATOR_AUTHORIZED / SINGLE_LIVE_CALL_EXECUTED / INDEPENDENTLY_VERIFIED in `docs/evidence/p16_05_live_tavily_evidence_packet/tavily_cve_grounding_packet.json` and `docs/evidence/P16_05_TAVILY_GROUNDING_INTEGRATION.md`). ResetVault live causal runs remain strictly independent of Tavily.
 3. All full validation gates are green (Pytest 2,993 passed / 12 skipped, Mypy clean on 289 files, Ruff clean, Node 71 passed, Miniflare preflight 7/7).
 4. Public judge routes serve the live verified receipts at `https://basebreak.zyganali.workers.dev/judge/run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9` (canonical reference tenth run) and `https://basebreak.zyganali.workers.dev/judge/run_3ba7d1fd-6dca-40c8-a7bb-39447bc85f1f` (fresh live eleventh run).
 5. All three live gates remain safely OFF (`live_enabled=false`, `runtime_live_enabled=false`, `durable_live_enabled=false`). Zero personal spend ($0.00) preserved.

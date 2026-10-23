@@ -32,16 +32,27 @@ As independently observed from the operator's account dashboard:
 - **Upcoming Invoice**: **$0.00**
 - **Personal Spend**: Strictly **$0.00**
 
-### 2.2 Runtime Environment Observation
-When Basebreak executes the preflight check `python -m basebreak.adapters.tavily.demo --check-preflight`:
-- `api_key_configured`: `False` (environment variable `TAVILY_API_KEY` is not present in the runtime shell on the work PC)
-- `readiness_state`: `MISSING_KEY_BLOCKED`
-- `authorization_status`: `OPERATOR_AUTHORIZED` (upon operator flag) / `OPERATOR_AUTHORIZATION_REQUIRED` (default)
+### 2.2 Runtime Environment Observation & Live Execution Record
+When Basebreak executed the preflight check `python -m basebreak.adapters.tavily.demo --check-preflight`:
+- `api_key_configured`: `True` (environment variable `TAVILY_API_KEY` temporarily configured in operator session)
+- `readiness_state`: `UNVERIFIED_QUOTA_BLOCKED`
+- `authorization_status`: `OPERATOR_AUTHORIZED` (upon operator flag)
 - `expected_consumption`: 1 credit (`search_depth='basic'`)
-- `current_quota_verified`: `False` (requires authenticated provider balance check)
-- `zero_cost_safeguard_verified`: `False`
+- `zero_cost_safeguard_verified`: `False` (safe operator confirmation required)
 
-**Fail-Closed Invariant**: In accordance with Basebreak's Zero-Cost Law and No-Mock-to-Live substitution rules, Basebreak **refuses to dispatch a fake live call** or fabricate successful provider execution. Status remains honestly recorded as `MISSING_KEY_BLOCKED / NOT_RUN`.
+Upon operator confirmation of zero-cost Researcher Free tier and explicit authorization, exactly **ONE bounded live Tavily request** was executed by the operator into `docs/evidence/p16_05_live_tavily_evidence_packet/tavily_cve_grounding_packet.json`:
+- **Provider Request ID**: `cbb8a550-d334-4727-a715-1086799a73f9`
+- **Observation Timestamp**: `2026-10-23T08:03:20.461092+00:00`
+- **Query**: `"CVE-2024-21626 runc security advisory container escape"`
+- **Contract Digest**: `b882f0eac1e2bfcb3790fe5c80cf824bc6b1a8d7f6d97b0030d08d802ee1c8d9`
+- **Binding Digest**: `dff4c8589a24216329f6a7902d8dd3a0ac5c5ea22ddaeb5eb2b549807aef03cf`
+- **Response Digest**: `e7727082b8735a7adc806398037b2fd3e281c0b04f8c37e11081bd0cdb66067d`
+- **Source Count**: 3 authoritative sources (`github.com`, `security.snyk.io`)
+- **Firewall Status**: `INSUFFICIENT_GROUNDING`
+- **Firewall Verdict**: `BLOCKED` (honest fail-closed authority preservation: temporal freshness metadata was unverified, and external search cannot certify candidate execution)
+- **Credit Usage**: `UNKNOWN` (provider API response omitted credit counter; recorded honestly as UNKNOWN)
+- **Candidate Execution Verdict**: strictly preserved as `PreliminaryVerdict.NOT_RUN` (no candidate witness executed)
+- **Zero Secrets**: verified secret scan returned 0 credentials, keys, or bearer tokens in packet.
 
 ---
 
@@ -161,13 +172,13 @@ Uygulayıcı için Tavily API anahtarının güvenli şekilde temin edilmesi ve 
      ```powershell
      python -m basebreak.adapters.tavily.demo --check-preflight
      ```
-6. **Yetkili Tek Canlı Çağrıyı Çalıştırma**:
-   - Operatör yetkilendirmesi ve sıfır maliyet onayı ile tek çağrılık döngüyü çalıştırmak için:
+6. **Yetkili Tek Canlı Çağrıyı Çalıştırma (Tamamlandı)**:
+   - Operatör yetkilendirmesi ve sıfır maliyet onayı ile tek çağrılık döngü çalıştırıldı:
      ```powershell
-     python -m basebreak.adapters.tavily.demo --operator-authorized --verified-capacity --output docs/evidence/p16_05_live_tavily_packet.json
+     python -m basebreak.adapters.tavily.demo --operator-authorized --verified-capacity --output docs/evidence/p16_05_live_tavily_evidence_packet/tavily_cve_grounding_packet.json
      ```
-7. **İşlem Tamamlandığında Anahtarı Temizleme**:
-   - Test tamamlandıktan sonra anahtarı oturumdan kaldırmak için:
+7. **İşlem Tamamlandığında Anahtarı Temizleme (Tamamlandı)**:
+   - Test tamamlandıktan sonra anahtar oturumdan kaldırıldı:
      ```powershell
      Remove-Item Env:\TAVILY_API_KEY
      ```

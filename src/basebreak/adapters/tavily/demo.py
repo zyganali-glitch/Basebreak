@@ -285,7 +285,6 @@ def execute_live_tavily_demonstration(
         max_results=plan.max_results,
         search_depth=plan.search_depth,
         include_domains=plan.allowed_domains,
-        include_published_date=True,
     )
 
     req = contract.requirements[0] if contract.requirements else None
@@ -359,7 +358,6 @@ def execute_fixture_tavily_demonstration(
         max_results=plan.max_results,
         search_depth=plan.search_depth,
         include_domains=plan.allowed_domains,
-        include_published_date=True,
     )
 
     req = contract.requirements[0] if contract.requirements else None
@@ -501,7 +499,7 @@ def run_tavily_cve_grounding_pipeline(
     *,
     operator_authorized: bool = False,
     verified_capacity: bool = False,
-    candidate_execution_verdict: PreliminaryVerdict = PreliminaryVerdict.VERIFIED,
+    candidate_execution_verdict: PreliminaryVerdict = PreliminaryVerdict.NOT_RUN,
     client: TavilyClient | None = None,
     persist_packet_path: str | None = None,
     observation_timestamp: str | None = None,
@@ -613,7 +611,6 @@ def run_tavily_cve_grounding_pipeline(
             "search_depth": plan.search_depth,
             "max_results": plan.max_results,
             "allowed_domains": list(plan.allowed_domains),
-            "include_published_date": True,
             "include_raw_content": False,
             "include_answer": False,
         },
@@ -673,9 +670,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--candidate-verdict",
         type=str,
-        default="VERIFIED",
-        choices=["VERIFIED", "CONTRADICTED", "BLOCKED", "INCONCLUSIVE"],
-        help="Candidate execution verdict under sealed witness.",
+        default="NOT_RUN",
+        choices=["NOT_RUN", "CONTRADICTED", "BLOCKED", "INCONCLUSIVE"],
+        help=(
+            "Candidate execution verdict under sealed witness (default: NOT_RUN). "
+            "A Tavily grounding invocation alone cannot manufacture a VERIFIED outcome."
+        ),
     )
 
     args = parser.parse_args(argv)
@@ -714,12 +714,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     verdict_map = {
-        "VERIFIED": PreliminaryVerdict.VERIFIED,
+        "NOT_RUN": PreliminaryVerdict.NOT_RUN,
         "CONTRADICTED": PreliminaryVerdict.CONTRADICTED,
         "BLOCKED": PreliminaryVerdict.BLOCKED,
         "INCONCLUSIVE": PreliminaryVerdict.INCONCLUSIVE,
     }
-    cand_verdict = verdict_map.get(args.candidate_verdict, PreliminaryVerdict.VERIFIED)
+    cand_verdict = verdict_map.get(args.candidate_verdict, PreliminaryVerdict.NOT_RUN)
 
     try:
         packet, fw_res = run_tavily_cve_grounding_pipeline(

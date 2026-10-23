@@ -150,13 +150,14 @@ def test_tavily_search_request_strict_minimization() -> None:
     assert len(captured_requests) == 1
     req_body = captured_requests[0]
 
-    # Verify strict minimization
+    # Verify strict minimization conforming to official Tavily Search schema
     assert req_body["query"] == "CVE-2024-21626"
     assert req_body["search_depth"] == DEFAULT_SEARCH_DEPTH
     assert req_body["max_results"] == 3
     assert req_body["include_raw_content"] is False
     assert req_body["include_answer"] is False
-    assert req_body["chunks_per_source"] == 1
+    assert "chunks_per_source" not in req_body
+    assert "include_published_date" not in req_body
     assert req_body["include_domains"] == ["nvd.nist.gov", "cve.org"]
 
     # Verify parsed response
