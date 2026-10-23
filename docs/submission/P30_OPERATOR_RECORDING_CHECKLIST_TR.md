@@ -2,6 +2,9 @@
 
 Bu rehber, hackathon demo videosunun operatör tarafından **hiç İngilizce konuşmaya gerek kalmadan**, tamamen Windows'un yerleşik araçları veya ücretsiz montaj programları (Clipchamp / CapCut) ile en yüksek kalitede nasıl kaydedileceğini ve birleştirileceğini adım adım anlatır.
 
+> [!NOTE]
+> **Uygulama Durumu**: Tüm senaryo, metinler, süreler ve talimatlar HAZIRLANMIŞTIR (PREPARED). Fiziksel video kaydı, seslendirme oluşturma, YouTube'a yükleme ve Devpost gönderimi insan operatörün bizzat yapacağı adımlardır (NOT_RUN).
+
 ---
 
 ## Genel Hedef ve Süre Sınırı
@@ -9,7 +12,7 @@ Bu rehber, hackathon demo videosunun operatör tarafından **hiç İngilizce kon
 - **Maksimum Süre**: Kesinlikle **3 dakikanın altında** (< 180 saniye).
 - **Hedef Süre**: **2 dakika 40 saniye (160 saniye)**.
 - **Çözünürlük**: 1080p Full HD (`1920x1080`).
-- **Dil**: Video içi seslendirme İngilizce AI sesi ile yapılacak; operatörün mikrofona konuşması gerekmez. Altyazılar `.srt` dosyasından otomatik yüklenecektir.
+- **Dil**: Video içi seslendirme İngilizce AI sesi ile yapılacak; operatörün mikrofona konuşması gerekmez. Altyazılar `basebreak_demo_subtitles.srt` dosyasından otomatik yüklenecektir.
 
 ---
 
@@ -30,25 +33,27 @@ Aşağıdaki iki ücretsiz yoldan birini seçin:
 Her sahneyi ayrı birer video parçası olarak kaydedebilirsiniz:
 
 ### Sahne 1: Problem — Yeşil CI Yalanı (0:00 – 0:25 / 25 saniye)
-- Tarayıcıda bir test çıktısı veya VS Code ekranı açın.
-- Üzerine büyük yeşil "12/12 TESTS PASSED" yazısını gösterin.
+- Tarayıcıda geleneksel bir CI çıktısı veya VS Code ekranı açın.
+- Örnek bir yeşil "ALL TESTS PASSING (ILLUSTRATIVE GREEN CI)" rozetini gösterin.
+- "Yapay zeka hatayı gerçekten düzeltti mi, yoksa test zaten geçiyor muydu?" sorusunu vurgulayın.
 - 25 saniye kaydedin.
 
 ### Sahne 2: Çözüm — Üç Dünyalı Nedensel Motor (0:25 – 0:50 / 25 saniye)
 - `docs/submission/P30_ARCHITECTURE_VISUAL.md` dosyasındaki mimari şemayı veya `https://basebreak.zyganali.workers.dev` ana sayfasını açın.
 - Üç dünyayı gösterin:
-  - `WORLD 1 (BASE): FAIL`
-  - `WORLD 2 (CANDIDATE): PASS`
-  - `WORLD 3 (COUNTERFACTUAL): FAIL`
+  - `WORLD 1 (BASE): FAIL` (Hata yeniden üretildi)
+  - `WORLD 2 (CANDIDATE): PASS` (Hata giderildi)
+  - `WORLD 3 (COUNTERFACTUAL): FAIL` (Yamanın zorunlu olduğu kanıtlandı)
 - 25 saniye kaydedin.
 
 ### Sahne 3: Canlı Çalıştırma — Nebius Nemotron & Sandbox'lar (0:50 – 1:20 / 30 saniye)
 - PowerShell terminalini açın. Arka plan siyah/koyu tema olsun.
-- Şu komutu yapıştırıp çalıştırın:
+- Proje ana dizininde şu yerel üç dünyalı alt-süreç test tekrarı komutunu çalıştırın:
   ```powershell
   python -m pytest tests/demo/test_p23_killer_demo.py -k test_reset_vault_triplet -v
   ```
-- Çıktıda `BASE exit 1`, `CANDIDATE exit 0 (1 passed in 0.04s)`, `COUNTERFACTUAL exit 1` satırlarını fareyle gösterin.
+- Çıktıda `BASE exit 1`, `CANDIDATE exit 0 (1 passed in 0.04s)`, `COUNTERFACTUAL exit 1` satırlarını gösterin.
+- Gerçek sağlayıcı çalıştırmasının (`run_3ba7d1fd`, Nebius mikroVM sandbox'ları) telemetri kayıtlarını (`docs/evidence/p29_03_fresh_live_run_evidence_packet/VERIFICATION_AUDIT.md`) gösterin.
 - 30 saniye kaydedin.
 
 ### Sahne 4: Kriptografik Kanıt & Jüri Paneli (1:20 – 1:50 / 30 saniye)
@@ -58,21 +63,23 @@ Her sahneyi ayrı birer video parçası olarak kaydedebilirsiniz:
 - Sırasıyla yapın:
   1. En üstteki **`VERIFIED`**, **`LIVE_NEBIUS`** ve **`AUTHENTIC SHA-256`** rozetlerini fareyle gösterin (8 saniye).
   2. Aşağıya **Three-World Comparison Grid** tablosuna kaydırın. Base=FAIL, Candidate=PASS, Counterfactual=FAIL satırlarını gösterin (10 saniye).
-  3. Daha aşağıya **Cryptographic Verification Receipt** kartına kaydırın. SHA-256 makbuz özetini ve RSA-2048 imza özetini gösterin (12 saniye).
+  3. Daha aşağıya **Cryptographic Verification Receipt** kartına kaydırın. SHA-256 makbuz özetini ve doğrulayıcı imzalı RSA-2048 kanıt özetini gösterin (12 saniye).
 - 30 saniye kaydedin.
 
 ### Sahne 5: Tavily Harici Doğrulama (1:50 – 2:15 / 25 saniye)
-- `docs/evidence/P16_05_TAVILY_GROUNDING_INTEGRATION.md` dosyasındaki mimariyi veya terminalde Tavily testlerini gösterin:
+- `docs/evidence/P16_05_TAVILY_GROUNDING_INTEGRATION.md` dosyasındaki mimariyi veya terminalde Tavily testlerini / ön kontrol aracını gösterin:
   ```powershell
+  python -m basebreak.adapters.tavily.demo --check-preflight
   python -m pytest tests/grounding/test_p16_closure.py -q
   ```
-- "Tavily neyin test edileceğini belirler; Sandbox kodun bunu sağlayıp sağlamadığını kanıtlar" mantığını gösterin.
+- "Tavily dondurulmuş sözleşmeye danışmanlık sağlar; Sandbox kodun bunu sağlayıp sağlamadığını test eder; Güvenlik duvarı web iddialarının kod sonucunu ezmesine asla izin vermez" mantığını gösterin.
 - 25 saniye kaydedin.
 
 ### Sahne 6: Kapanış & GitHub Deposu (2:15 – 2:40 / 25 saniye)
 - Tarayıcıda açık kaynak GitHub deposunu açın:
   `https://github.com/zyganali-glitch/Basebreak`
 - README başlığını, Apache-2.0 lisans rozetini gösterin.
+- Son slaytta sloganı gösterin: *"If the patch matters, the base must break."*
 - 25 saniye kaydedin.
 
 ---
@@ -81,7 +88,7 @@ Her sahneyi ayrı birer video parçası olarak kaydedebilirsiniz:
 
 Windows 11'de yerleşik **Microsoft Clipchamp** veya ücretsiz **CapCut** kullanın:
 
-### Seçenek A: Microsoft Clipchamp ile Seslendirme (En Kolay)
+### Microsoft Clipchamp ile Seslendirme:
 1. Başlat menüsünden **Clipchamp**'ı açın (Windows 11'de yüklüdür, ücretsizdir).
 2. "Yeni video oluştur" deyin.
 3. Sol menüden **"Kayıt ve oluştur" (Record & create)** $\rightarrow$ **"Metin okuma" (Text to speech)** seçeneğine tıklayın.

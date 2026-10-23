@@ -1,9 +1,10 @@
 # P-30 Narration Script: Basebreak Causal Verification Demo
 
 - **Target Audio Duration**: 2 minutes 40 seconds (160 seconds)
-- **Target Word Count**: ~364 words
-- **Target Pace**: ~136 words per minute (natural, confident, articulate technical cadence)
+- **Target Word Count**: ~360 words
+- **Target Pace**: ~135 words per minute (natural, confident, articulate technical cadence)
 - **Voice Recommendation**: English (US or UK neutral), professional tech narrator (e.g. "Andrew Multilingual" or "Christopher" in Microsoft Edge / Clipchamp, or "Adam" in ElevenLabs/CapCut).
+- **Execution Truth**: Script is PREPARED; physical audio recording/rendering remains human-led operator task (NOT_RUN until generated).
 
 ---
 
@@ -27,28 +28,28 @@
 
 ## Scene 3: Live Verification in Action — Nebius Nemotron & Sandboxes
 - **Timestamp**: `0:50 – 1:20` (30 seconds)
-- **Word Count**: 70 words
+- **Word Count**: 69 words
 - **Audio Cue**: Fast-paced, concrete technical precision; enunciate telemetry details cleanly.
 
-> *"Here is Basebreak verifying a real security-critical patch. The AI model—NVIDIA's Nemotron 3.5 Lightning hosted on Nebius Token Factory—generates the candidate fix. Basebreak parses the proposal via pure static AST inspection, then orchestrates eleven isolated operations across Nebius microVM sandboxes. Base fails with exit 1. The candidate passes exit 0 in forty milliseconds. And the counterfactual fails with exit 1."*
+> *"Here is Basebreak verifying ResetVault, our synthetic security-sensitive scenario. The AI model—NVIDIA's Nemotron 3.5 Lightning hosted on Nebius Token Factory—generates the candidate fix. Basebreak parses the proposal via pure static AST inspection, then orchestrates eleven isolated operations across Nebius microVM sandboxes. Base fails with exit 1. The candidate passes exit 0 in forty milliseconds. And the counterfactual fails with exit 1."*
 
 ---
 
 ## Scene 4: Cryptographic Proof & The Public Judge Dashboard
 - **Timestamp**: `1:20 – 1:50` (30 seconds)
-- **Word Count**: 68 words
+- **Word Count**: 67 words
 - **Audio Cue**: Authoritative and welcoming; highlight ease of inspection for judges.
 
-> *"Anyone can verify this outcome without logging in. Hosted globally on Cloudflare Workers, Basebreak's public Judge dashboard presents the complete causal receipt. Every run binds the exact source commit, candidate tree digest, and sandbox outputs into a tamper-proof receipt, authenticated with a verifier-signed RSA-2048 proof and committed to an append-only SQLite Durable Object ledger. Transparent, immutable, and independently reproducible."*
+> *"Anyone can verify this outcome without logging in. Hosted globally on Cloudflare Workers, Basebreak's public Judge dashboard presents the complete causal receipt. Every run binds the exact source commit, candidate tree digest, and sandbox outputs into a cryptographic verification receipt, authenticated with a verifier-signed custom RSA-2048 proof and committed to an SQLite Durable Object ledger. Transparent, auditable, and independently reproducible."*
 
 ---
 
 ## Scene 5: Meaningful External Grounding with Tavily Search
 - **Timestamp**: `1:50 – 2:15` (25 seconds)
-- **Word Count**: 58 words
-- **Audio Cue**: Thoughtful architectural emphasis; stress the boundary between grounding and execution.
+- **Word Count**: 56 words
+- **Audio Cue**: Thoughtful architectural emphasis; stress the boundary between advisory grounding and code execution.
 
-> *"For security fixes like CVE-2024-21626, Basebreak uses Tavily Search for authoritative external grounding. Tavily retrieves official advisories from NIST and GitHub to establish what security invariants must be verified. But our deterministic firewall ensures web search results never override execution truth. Web grounding defines the exam; independent sandbox execution scores it."*
+> *"For advisory grounding on security fixes like CVE-2024-21626, Basebreak integrates Tavily Search. Tavily grounds and binds authoritative advisory information from NIST and GitHub to an already frozen contract. Our deterministic firewall guarantees external web claims never override code execution. Web grounding provides advisory context; independent sandbox execution governs the verdict."*
 
 ---
 
@@ -57,7 +58,7 @@
 - **Word Count**: 55 words
 - **Audio Cue**: Strong, inspiring conclusion; leave the core thesis lingering in memory.
 
-> *"Basebreak transforms AI code generation from probabilistic guessing into empirical causal certainty. Powered by NVIDIA Nemotron, Nebius Token Factory Sandboxes, and Cloudflare Workers, it is the verification layer modern coding agents have been missing. Remember: If the patch matters, the base must break. Explore the proof yourself at Basebreak."*
+> *"Basebreak transforms AI code generation from probabilistic guessing into empirical causal verification under sealed witnesses. Powered by NVIDIA Nemotron, Nebius Token Factory Sandboxes, and Cloudflare Workers, it is the verification layer modern coding agents have been missing. Remember: If the patch matters, the base must break. Explore the proof yourself at Basebreak."*
 
 ---
 
@@ -69,8 +70,9 @@
 | **Nemotron** | `NEM-oh-tron` | NVIDIA model family |
 | **Nebius** | `NEH-bee-us` | Infrastructure platform |
 | **Tavily** | `TAV-ih-lee` | Search API provider |
+| **ResetVault** | `RESET-vault` | Synthetic security-sensitive demo scenario |
 | **Counterfactual** | `kown-ter-FAK-choo-ul` | Third execution world |
 | **AST** | Spell out: `A - S - T` | Abstract Syntax Tree |
-| **CVE-2024-21626** | `C - V - E twenty-twenty-four, twenty-one-six-twenty-six` | Security advisory identifier |
+| **CVE-2024-21626** | `C - V - E twenty-twenty-four, twenty-one-six-twenty-six` | Advisory grounding reference |
 | **Durable Object** | `DUR-uh-bul OB-jekt` | Cloudflare persistence model |
 | **SHA-256** | `SHAW two-fifty-six` | Cryptographic hash algorithm |

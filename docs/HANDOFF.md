@@ -100,7 +100,7 @@ Judge claim:
 - P-16.02 (Implement Tavily adapter with source provenance and strict minimization) is independently VERIFIED / PASS at SHA `a37a15af52266bac477ffd343ecd333630ae4b77`.
 - P-16.03 (Bind release-note/CVE/API facts into Grounded Contract evidence) is independently VERIFIED / PASS at SHA `a37a15af52266bac477ffd343ecd333630ae4b77`.
 - P-16.04 (Prevent web evidence from overriding deterministic execution) is independently VERIFIED / PASS at SHA `a37a15af52266bac477ffd343ecd333630ae4b77`.
-- P-16.05 (Execute real runtime Tavily path if bonus remains strategically justified) is OPERATOR_AUTHORIZED / PREFLIGHT_KEY_BLOCKED / VERIFIED_OFFLINE_PIPELINE (documented in docs/evidence/P16_05_TAVILY_GROUNDING_INTEGRATION.md; 6/6 tests passed in tests/grounding/test_p16_closure.py; 54/54 grounding suite).
+- P-16.05 (Execute real runtime Tavily path if bonus remains strategically justified) is BLOCKED / NOT_RUN (OPERATOR_AUTHORIZED / PREFLIGHT_KEY_BLOCKED; verified complete 10-step offline pipeline, contract binding, tamper detection, secret minimization, and deterministic authority firewall in tests/grounding/test_p16_closure.py [8/8 tests passed, 56/56 full grounding suite]; documented in docs/evidence/P16_05_TAVILY_GROUNDING_INTEGRATION.md; genuine live network call remains NOT_RUN on work PC pending credential provisioning).
 - P-17 (Causal Coverage & Multi-Requirement Reconciliation, P-17.01 through P-17.05) is SURGICALLY_REPAIRED / INDEPENDENT_QA_CANDIDATE under operator-authorized Batch A (14 tests passing; caller-controlled exclusions blocked, dict assertions validated).
 - P-18 (Verification Receipt, P-18.01 through P-18.05) is independently VERIFIED / PASS under Batch A.
 - P-19 (CLI & Developer Workflow, P-19.01 through P-19.05) is independently VERIFIED / PASS under Batch A.
@@ -137,7 +137,7 @@ Judge claim:
   - P-29.04 immutable evidence manifest published in `docs/evidence/EVIDENCE_MANIFEST.md` and fresh evidence packet in `docs/evidence/p29_03_fresh_live_run_evidence_packet/`, binding canonical implementation commit `a24901b70c1f59724373fcdb595779b52e0f7740`, deployed Oracle bridge / Worker version `5ac04fce-9572-41b9-9286-8ccb3a0aba24` identities, separate ResetVault target-source commit `80b43b84014fa61b941c7ebcd87836a56dcd7c92`, and three-world telemetry; automated consistency tests in `tests/evidence/test_p29_evidence_consistency.py` 10/10 passed across both historical tenth run and fresh eleventh run packets.
   - P-29.05 final donor and license audit verified in `tests/security/test_p29_donor_license_audit.py` (3/3 passed; root Apache-2.0 `LICENSE` and `NOTICE` intact; `docs/DONOR_REUSE_MANIFEST.md` confirmed 0 imported lines; all D-001–D-008 donors confirmed `CONCEPT_ONLY`; zero forbidden donor branding in production source).
   - P-29.06 final secret/privacy scan verified in `tests/security/test_p29_secret_artifact_scan.py` (5/5 passed across public documentation, evidence packets, JSON, and source; zero private signing keys, credentials, or tokens committed; public proof artifacts remain tamper-verifiable).
-- P-30 (Complete Demo & Submission Narrative, P-30.01 through P-30.06) is PREPARATION_COMPLETE / SUBMISSION_ASSETS_FROZEN in docs/submission/ (P30_STORYBOARD.md [160s, strictly < 180s], P30_SCREEN_RECORDING_GUIDE.md, P30_NARRATION_SCRIPT.md [364 words], basebreak_demo_subtitles.srt, P30_SCREENSHOT_MANIFEST.md [8 assets], P30_ARCHITECTURE_VISUAL.md, P30_DEVPOST_SUBMISSION.md [25% mapping to 4 criteria + Tavily bonus], P30_VIDEO_SAFETY_CHECKLIST.md, and P30_OPERATOR_RECORDING_CHECKLIST_TR.md; human-led recording boundary preserved).
+- P-30 (Complete Demo & Submission Narrative, P-30.01 through P-30.06) is PREPARATION_COMPLETE / SUBMISSION_ASSETS_FROZEN in docs/submission/ (P30_STORYBOARD.md [160s, strictly < 180s], P30_SCREEN_RECORDING_GUIDE.md, P30_NARRATION_SCRIPT.md [360 words], basebreak_demo_subtitles.srt [synchronized, ends at 02:39.5], P30_SCREENSHOT_MANIFEST.md [8 assets, actual screenshots NOT_RUN], P30_ARCHITECTURE_VISUAL.md, P30_DEVPOST_SUBMISSION.md [25% mapping to 4 criteria + honest Tavily live boundary disclosure], P30_VIDEO_SAFETY_CHECKLIST.md [completed-video security validation NOT_RUN until video file exists], and P30_OPERATOR_RECORDING_CHECKLIST_TR.md; human-led recording boundary strictly preserved: actual footage, voiceover, screenshots, YouTube upload, and Devpost submission remain human-led operator tasks [NOT_RUN]).
 - P-31+ remain strictly NOT AUTHORIZED / NOT_RUN until explicit operator authorization. HARD STOP ENFORCED AFTER P-30.
 
 ## Last independently VERIFIED baseline SHA
@@ -146,7 +146,7 @@ Judge claim:
 ## Blocking live gate vs active task
 
 ### Blocking live gate
-- P-16.05 live Tavily execution remains held strictly at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
+- P-16.05 live Tavily execution remains held strictly at `OPERATOR_AUTHORIZED / PREFLIGHT_KEY_BLOCKED / NOT_RUN`.
 - P-23.04 through P-23.07 live Nebius sandbox verification steps remain held strictly at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
 - P-23.08 genuine upstream click execution remains fail-closed at `PreliminaryVerdict.BLOCKED` pending integrated container sandbox runtime.
 - P-26.02 live model comparison remains held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.

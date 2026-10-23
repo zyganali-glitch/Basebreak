@@ -24,7 +24,7 @@
 - **Timing**: `0:00 – 0:25` (Duration: 25 seconds)
 - **Target Word Count**: ~55 words
 - **Visual Display**:
-  - Split screen: on the left, an AI agent (Copilot/Cursor) generates code. On the right, a traditional CI pipeline flashes a big green badge: `ALL TESTS PASSING (12/12)`.
+  - Split screen: on the left, an AI agent generates code. On the right, traditional CI flashes an illustrative green badge: `ALL TESTS PASSING (ILLUSTRATIVE GREEN CI)`.
   - An animated red alert banner overlays: *"Did the AI fix the bug, or was the test already passing?"*
   - Cut to a diagram highlighting the three fatal flaws of green CI:
     1. Pre-existing passing tests (vacuous assertions).
@@ -42,9 +42,9 @@
 - **Timing**: `0:25 – 0:50` (Duration: 25 seconds)
 - **Target Word Count**: ~58 words
 - **Visual Display**:
-  - Elegant high-contrast visualization of Basebreak's Three-World Differential Architecture:
-    1. **World 1 (BASE)**: Original buggy repository $\rightarrow$ Run Sealed Witness $\rightarrow$ **FAIL** (Defect must be reproduced).
-    2. **World 2 (CANDIDATE)**: AI-patched repository $\rightarrow$ Run Sealed Witness $\rightarrow$ **PASS** (Defect must be resolved).
+  - High-contrast visualization of Basebreak's Three-World Differential Architecture:
+    1. **World 1 (BASE)**: Original repository $\rightarrow$ Run Sealed Witness $\rightarrow$ **FAIL** (Defect reproduced).
+    2. **World 2 (CANDIDATE)**: AI-patched repository $\rightarrow$ Run Sealed Witness $\rightarrow$ **PASS** (Defect resolved).
     3. **World 3 (COUNTERFACTUAL)**: Revert candidate patch delta $\rightarrow$ Run Sealed Witness $\rightarrow$ **FAIL** (Proves the patch was strictly necessary).
   - Clear label in bold: `CAUSAL TRIPLET VERIFIED`.
 - **On-Screen Text**:
@@ -60,19 +60,20 @@
 - **Timing**: `0:50 – 1:20` (Duration: 30 seconds)
 - **Target Word Count**: ~70 words
 - **Visual Display**:
-  - Screen capture of Basebreak executing run `run_3ba7d1fd` against the `ResetVault` scenario (`tests/fixtures/reset_vault/`).
-  - Terminal view showing:
-    1. Nebius Token Factory API call generating candidate code using `nvidia/Nemotron-3_5-Lightning` (request `chatcmpl-6f406c07...`).
+  - Screen capture of Basebreak executing verified run `run_3ba7d1fd` against `ResetVault`, our synthetic security-sensitive scenario (`tests/fixtures/reset_vault/`).
+  - Terminal and audit view showing:
+    1. Nebius Token Factory candidate generation using `nvidia/Nemotron-3_5-Lightning` (request `chatcmpl-6f406c07...`).
     2. Static AST validation: verifying syntax and class preservation without executing untrusted code on the host.
     3. Token Factory Sandbox creation (`sbx-c9e5c0e4...`, `sbx-cd870e01...`, `sbx-90d40f25...`).
-    4. Subprocess execution output showing exact exit codes: `BASE exit 1`, `CANDIDATE exit 0 (1 test passed in 0.04s)`, `COUNTERFACTUAL exit 1`.
+    4. Exact sandbox exit codes: `BASE exit 1`, `CANDIDATE exit 0 (1 test passed in 0.04s)`, `COUNTERFACTUAL exit 1`.
 - **On-Screen Text**:
+  - `Scenario: ResetVault (Synthetic Security-Sensitive Token Vault)`
   - `Model: nvidia/Nemotron-3_5-Lightning (Token Factory)`
   - `Sandboxes: 11 Isolated Nebius Sandbox Operations`
   - `Telemetry: BASE exit 1 | CAND exit 0 | CF exit 1`
   - `Provenance: RECORDED_LIVE (run_3ba7d1fd)`
 - **Voiceover Narration**:
-  *"Here is Basebreak verifying a real security-critical patch. The AI model—NVIDIA's Nemotron 3.5 Lightning hosted on Nebius Token Factory—generates the candidate fix. Basebreak parses the proposal via pure static AST inspection, then orchestrates eleven isolated operations across Nebius microVM sandboxes. Base fails with exit 1. The candidate passes exit 0 in forty milliseconds. And the counterfactual fails with exit 1."*
+  *"Here is Basebreak verifying ResetVault, our synthetic security-sensitive scenario. The AI model—NVIDIA's Nemotron 3.5 Lightning hosted on Nebius Token Factory—generates the candidate fix. Basebreak parses the proposal via pure static AST inspection, then orchestrates eleven isolated operations across Nebius microVM sandboxes. Base fails with exit 1. The candidate passes exit 0 in forty milliseconds. And the counterfactual fails with exit 1."*
 
 ---
 
@@ -85,14 +86,14 @@
   - Camera pans smoothly across:
     1. Top badges: `VERIFIED` verdict, `LIVE_NEBIUS` provenance, `AUTHENTIC SHA-256` integrity.
     2. The 3-World Comparison Grid showing all three exit codes and execution tree digests.
-    3. The Cryptographic Receipt Card: showing Receipt Digest `e2e833fd...` and RSA-2048 Proof Digest `def59353...`.
+    3. The Cryptographic Receipt Card: showing Receipt Digest `e2e833fd...` and verifier-signed RSA-2048 Proof Digest `def59353...`.
     4. The Cloudflare Workers SQLite Durable Object audit trail.
 - **On-Screen Text**:
   - `Public Judge UI: Signed-Out, Zero-Friction Inspection`
-  - `Cryptographic Receipt: RSA-2048 Signed Fact Authority`
+  - `Cryptographic Receipt: Verifier-Signed Custom RSA-2048 Proof`
   - `Durable Ledger: Cloudflare Workers SQLite DO`
 - **Voiceover Narration**:
-  *"Anyone can verify this outcome without logging in. Hosted globally on Cloudflare Workers, Basebreak's public Judge dashboard presents the complete causal receipt. Every run binds the exact source commit, candidate tree digest, and sandbox outputs into a tamper-proof receipt, authenticated with a verifier-signed RSA-2048 proof and committed to an append-only SQLite Durable Object ledger. Transparent, immutable, and independently reproducible."*
+  *"Anyone can verify this outcome without logging in. Hosted globally on Cloudflare Workers, Basebreak's public Judge dashboard presents the complete causal receipt. Every run binds the exact source commit, candidate tree digest, and sandbox outputs into a cryptographic verification receipt, authenticated with a verifier-signed custom RSA-2048 proof and committed to an SQLite Durable Object ledger. Transparent, auditable, and independently reproducible."*
 
 ---
 
@@ -100,17 +101,19 @@
 - **Timing**: `1:50 – 2:15` (Duration: 25 seconds)
 - **Target Word Count**: ~58 words
 - **Visual Display**:
-  - Visual transition to the External Grounding architecture for security fixes (`CVE-2024-21626`).
-  - Diagram showing the separation of responsibilities:
-    - **Tavily Search API**: retrieves authoritative CVE advisories from NIST NVD and GitHub Security Advisories (`GroundingMateriality.REQUIRED`).
+  - Transition to the External Grounding architecture for security fixes (`CVE-2024-21626`).
+  - Visual separation of responsibilities:
+    - **Tavily Search API**: grounds and binds authoritative advisory information from NIST NVD and GitHub Security Advisories to an already frozen contract (`GroundingMateriality.REQUIRED`).
     - **Grounding Authority Firewall**: binds facts to the frozen contract digest while guaranteeing that retrieved web claims **NEVER override code execution**.
-  - On-screen comparison: *"Tavily defines WHAT must be verified; Sandboxes prove WHETHER code satisfies it."*
+    - **Evidence Honesty Disclosure**: offline pipeline and deterministic firewall verified; live provider search held fail-closed without credentials (`MISSING_KEY_BLOCKED`).
+  - On-screen comparison: *"Tavily provides advisory context; Sandboxes score code behavior."*
 - **On-Screen Text**:
-  - `Tavily Search: Authoritative Security Advisory Grounding`
-  - `Determines: WHAT Must Be Verified (CVE-2024-21626 Invariants)`
+  - `Tavily Search: Advisory Grounding for Frozen Contracts (CVE-2024-21626)`
+  - `Binds: Authoritative Advisory Facts to Frozen Contract Digest`
   - `Firewall Primacy: Web Claims Never Override Sandbox Failure`
+  - `Evidence Truth: Offline Pipeline Verified; Live Search Pending Key`
 - **Voiceover Narration**:
-  *"For security fixes like CVE-2024-21626, Basebreak uses Tavily Search for authoritative external grounding. Tavily retrieves official advisories from NIST and GitHub to establish what security invariants must be verified. But our deterministic firewall ensures web search results never override execution truth. Web grounding defines the exam; independent sandbox execution scores it."*
+  *"For advisory grounding on security fixes like CVE-2024-21626, Basebreak integrates Tavily Search. Tavily grounds and binds authoritative advisory information from NIST and GitHub to an already frozen contract. Our deterministic firewall guarantees external web claims never override code execution. Web grounding provides advisory context; independent sandbox execution governs the verdict."*
 
 ---
 
@@ -132,7 +135,7 @@
   - `If the patch matters, the base must break.`
   - `Open Source Apache-2.0 | zyganali-glitch/Basebreak`
 - **Voiceover Narration**:
-  *"Basebreak transforms AI code generation from probabilistic guessing into empirical causal certainty. Powered by NVIDIA Nemotron, Nebius Token Factory Sandboxes, and Cloudflare Workers, it is the verification layer modern coding agents have been missing. Remember: If the patch matters, the base must break. Explore the proof yourself at Basebreak."*
+  *"Basebreak transforms AI code generation from probabilistic guessing into empirical causal verification under sealed witnesses. Powered by NVIDIA Nemotron, Nebius Token Factory Sandboxes, and Cloudflare Workers, it is the verification layer modern coding agents have been missing. Remember: If the patch matters, the base must break. Explore the proof yourself at Basebreak."*
 
 ---
 
@@ -148,5 +151,5 @@
 | **Scene 6** | Conclusion & Impact | 25s | 55 words | **2:40 (160s)** |
 
 - **Total Spoken Words**: ~364 words
-- **Average Speaking Rate**: 136.5 words/minute (ideal for clear comprehension and subtitle synchronization)
-- **Safety Margin**: **20 seconds under the 3:00 hard ceiling**.
+- **Runtime Bound**: 160 seconds (strictly < 180 seconds hard cap)
+- **Execution Truth**: Storyboard is PREPARED; physical screen recordings and audio generation remain human-led operator tasks (NOT_RUN until captured).

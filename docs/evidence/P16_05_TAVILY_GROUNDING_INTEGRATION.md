@@ -10,9 +10,9 @@ Basebreak integrates Tavily Search as a bounded, deterministic grounding adapter
 
 > [!IMPORTANT]
 > **What Tavily Proves vs. What Nebius/Sandboxes Prove**:
-> - **Tavily grounds WHAT must be verified**: It retrieves authoritative external facts (e.g., exact vulnerability mechanics, affected versions `<=1.1.11`, and fixed release `1.1.12`) so the Contract Compiler can specify the correct security requirements.
+> - **Tavily grounds WHAT must be verified**: It retrieves authoritative external facts (e.g., exact vulnerability mechanics, affected versions `<=1.1.11`, and fixed release `1.1.12`) and cryptographically binds them to an already frozen engineering contract.
 > - **Nebius & Sandboxes verify WHETHER the code satisfies the contract**: Independent sandbox execution under sealed witnesses establishes empirical causal proof (`BASE=FAIL, CANDIDATE=PASS, COUNTERFACTUAL=FAIL`).
-> - **Deterministic Firewall Primacy**: External search results **NEVER override code execution**. Even if Tavily returns a 100% authoritative statement that an advisory is resolved, if the candidate fails in the sandbox, Basebreak's causal engine strictly outputs `CONTRADICTED`.
+> - **Deterministic Firewall Primacy**: External search results **NEVER override code execution**. Even if Tavily returns a 100% authoritative statement that an advisory is resolved, if the candidate fails in the sandbox, Basebreak's causal engine strictly outputs `PreliminaryVerdict.CONTRADICTED`.
 
 > [!NOTE]
 > **Scenario Identity Separation**:
@@ -33,15 +33,15 @@ As independently observed from the operator's account dashboard:
 - **Personal Spend**: Strictly **$0.00**
 
 ### 2.2 Runtime Environment Observation
-When Basebreak executed the automated preflight check `check_live_tavily_preflight(operator_authorized=True)` in this workspace session:
-- `api_key_configured`: `False` (environment variable `TAVILY_API_KEY` is not present in the runtime shell)
+When Basebreak executes the preflight check `python -m basebreak.adapters.tavily.demo --check-preflight`:
+- `api_key_configured`: `False` (environment variable `TAVILY_API_KEY` is not present in the runtime shell on the work PC)
 - `readiness_state`: `MISSING_KEY_BLOCKED`
-- `authorization_status`: `OPERATOR_AUTHORIZED`
+- `authorization_status`: `OPERATOR_AUTHORIZED` (upon operator flag) / `OPERATOR_AUTHORIZATION_REQUIRED` (default)
 - `expected_consumption`: 1 credit (`search_depth='basic'`)
 - `current_quota_verified`: `False` (requires authenticated provider balance check)
 - `zero_cost_safeguard_verified`: `False`
 
-**Fail-Closed Invariant**: In accordance with Basebreak's Zero-Cost Law and No-Mock-to-Live substitution rules, Basebreak **refused to dispatch a fake live call** or fabricate successful provider execution. Status remains honestly recorded as `MISSING_KEY_BLOCKED`.
+**Fail-Closed Invariant**: In accordance with Basebreak's Zero-Cost Law and No-Mock-to-Live substitution rules, Basebreak **refuses to dispatch a fake live call** or fabricate successful provider execution. Status remains honestly recorded as `MISSING_KEY_BLOCKED / NOT_RUN`.
 
 ---
 
@@ -65,9 +65,8 @@ flowchart TD
 ### Step 1: Frozen Contract Specification
 - **Task**: `"Fix CVE-2024-21626 runc file descriptor leakage on container process exec."`
 - **Change Class**: `ChangeClass.SECURITY_FIX`
-- **Requirement ID**: `REQ-CVE-2024-21626-001`
-- **Statement**: `"All file descriptors above 2 are verified closed prior to executing target process."`
-- **Contract Digest**: `97561f38e78a6358dbb221074e50d603e87799015949d01d4187018314e7a85e`
+- **Requirement Statement**: `"All file descriptors above 2 are verified closed prior to executing target process."`
+- **Contract Generator**: `create_cve_2024_21626_contract()` in `src/basebreak/adapters/tavily/demo.py`.
 
 ### Step 2: Deterministic Materiality Evaluation
 - Evaluated via `evaluate_grounding_materiality(contract, requirement)`.
@@ -107,13 +106,11 @@ Implemented via `screen_advisory_claim()`:
 
 ### Step 6: Immutable Grounded Fact Digest
 - Fact created with canonical SHA-256 digest binding:
-  - `contract_digest`: `97561f38e78a6358dbb221074e50d603e87799015949d01d4187018314e7a85e`
-  - `requirement_id`: `REQ-CVE-2024-21626-001`
+  - `contract_digest`: bound to frozen contract digest.
+  - `requirement_id`: bound to requirement ID.
   - `source_url`: `https://nvd.nist.gov/vuln/detail/CVE-2024-21626`
   - `publisher`: `nvd.nist.gov`
-  - `claim_digest`: `439121a8...`
   - `materiality`: `REQUIRED`
-  - `uncertainty_state`: `CERTAIN`
 - Fact digest verified: `verify_grounded_fact_digest(fact) == True`.
 
 ### Step 7: Grounded Contract Binding
@@ -122,17 +119,17 @@ Implemented via `screen_advisory_claim()`:
 
 ### Step 8: Deterministic Authority Firewall Evaluation
 Evaluated via `evaluate_grounding_firewall()`:
-1. **Fixture Rejection**: If `fact.is_fixture == True` on a `REQUIRED` contract, the firewall blocks the run with `PreliminaryVerdict.BLOCKED` (`FIXTURE_ONLY_GROUNDING`).
+1. **Fixture Rejection**: If `fact.is_fixture == True` on a `REQUIRED` contract, the firewall blocks the run with `PreliminaryVerdict.BLOCKED` (`FIXTURE_ONLY_GROUNDING` or `INSUFFICIENT_GROUNDING`).
 2. **Fake Live Claim Rejection**: If `is_fixture == False` is claimed without a corresponding verified `TrustedProviderObservation`, the firewall flags `unverified_live_claim` and blocks.
 3. **Adversarial Injection Detection**: If prompt injection strings (`"Ignore previous instructions"`, `"Bypass witness"`) are discovered in retrieved web content, the firewall blocks with `INJECTION_BLOCKED`.
-4. **Causal Primacy**: When candidate execution fails in the sandbox (`PreliminaryVerdict.CONTRADICTED`), the firewall strictly outputs `CONTRADICTED`. External web search results **cannot overturn test execution failure**.
+4. **Causal Primacy**: When candidate execution fails in the sandbox (`PreliminaryVerdict.CONTRADICTED`), the firewall strictly outputs `PreliminaryVerdict.CONTRADICTED`. External web search results **cannot overturn test execution failure**.
 
 ---
 
 ## 4. Verification & Regression Coverage
 
-The Tavily adapter and grounding subsystem are verified by **54 automated tests** passing in 0.90 seconds:
-- `tests/grounding/test_p16_closure.py`: 6 integrated lifecycle, authorization, tampering, missing-key, secret-minimization, and firewall-primacy tests.
+The Tavily adapter and grounding subsystem are verified by **56 automated tests** passing in 0.70 seconds:
+- `tests/grounding/test_p16_closure.py`: 8 integrated lifecycle, authorization, tampering, missing-key, secret-minimization, firewall-primacy, pipeline runner, and CLI tooling tests.
 - `tests/adapters/test_tavily_adapter.py`: 16 bounded client, error handling, retry suppression, host restriction, and secret redaction tests.
 - `tests/grounding/test_firewall.py`: 21 adversarial injection, fake authority, domain spoofing, and execution primacy tests.
 - `tests/grounding/test_grounded_evidence.py`: 4 cryptographic digest and binding auditability tests.
@@ -160,11 +157,16 @@ Uygulayıcı için Tavily API anahtarının güvenli şekilde temin edilmesi ve 
      ```powershell
      $env:TAVILY_API_KEY="tvly-BURAYA_YAPISTIRIN"
      ```
-   - Doğrulamak için (anahtarı ekrana basmadan):
+   - Anahtarın mevcut oturumda algılandığını doğrulamak için (anahtarı ekrana basmadan):
      ```powershell
-     python -c "import os; print('Hazir:', bool(os.environ.get('TAVILY_API_KEY')))"
+     python -m basebreak.adapters.tavily.demo --check-preflight
      ```
-6. **İşlem Tamamlandığında**:
+6. **Yetkili Tek Canlı Çağrıyı Çalıştırma**:
+   - Operatör yetkilendirmesi ve sıfır maliyet onayı ile tek çağrılık döngüyü çalıştırmak için:
+     ```powershell
+     python -m basebreak.adapters.tavily.demo --operator-authorized --verified-capacity --output docs/evidence/p16_05_live_tavily_packet.json
+     ```
+7. **İşlem Tamamlandığında Anahtarı Temizleme**:
    - Test tamamlandıktan sonra anahtarı oturumdan kaldırmak için:
      ```powershell
      Remove-Item Env:\TAVILY_API_KEY

@@ -2,6 +2,10 @@
 
 This guide provides concrete, click-by-click instructions for capturing the screen footage for the official 2-minute 40-second hackathon submission video.
 
+- **Target Total Duration**: 2 minutes 40 seconds (160 seconds)
+- **Hard Maximum Duration**: Strictly under 3 minutes (< 180 seconds)
+- **Execution Truth**: Guide and capture instructions are PREPARED; physical screen footage capture remains a human-led operator task (NOT_RUN until captured).
+
 ---
 
 ## 1. Recording Setup & Standards
@@ -20,12 +24,12 @@ This guide provides concrete, click-by-click instructions for capturing the scre
 ### Scene 1: The Core Dilemma (0:00 – 0:25 / 25 seconds)
 - **Source**: Split screen or slide presentation.
 - **Left Side**: Visual of an AI coding agent generating code (or open VS Code showing `ResetVault`).
-- **Right Side**: Browser or mockup showing a CI pipeline with `12/12 TESTS PASSED (GREEN)`.
+- **Right Side**: Browser or mockup showing traditional CI with `ALL TESTS PASSING (ILLUSTRATIVE GREEN CI)`.
 - **Action**:
-  - Show the green CI badge for 8 seconds.
+  - Show the illustrative green CI badge for 8 seconds.
   - Overlay or reveal the question: *"Did the AI fix the bug, or was the test already passing?"*
   - Transition to graphic showing vacuous test passes vs causal verification.
-- **Duration**: Record 25–28 seconds.
+- **Duration**: Record 25 seconds.
 
 ---
 
@@ -39,24 +43,24 @@ This guide provides concrete, click-by-click instructions for capturing the scre
   - Tagline prominently displayed: *"If the patch matters, the base must break."*
 - **Action**:
   - Step through each of the three worlds sequentially (approx. 7 seconds per world).
-- **Duration**: Record 25–28 seconds.
+- **Duration**: Record 25 seconds.
 
 ---
 
 ### Scene 3: Live Verification in Action — Nebius Nemotron & Sandboxes (0:50 – 1:20 / 30 seconds)
-- **Source**: Terminal window (PowerShell / Windows Terminal with dark theme, e.g. One Half Dark or Campbell).
+- **Source**: Terminal window (PowerShell / Windows Terminal with dark theme, e.g. One Half Dark or Campbell) in repository root.
 - **Action / Command**:
-  1. Open terminal in `c:\Users\MEHMET\.gemini\antigravity\scratch\Basebreak`.
-  2. Run the offline clean reproduction script or test runner to demonstrate the exact causal triplet:
+  1. Open terminal in the Basebreak repository root.
+  2. Run the offline clean reproduction script demonstrating the three-world causal triplet (`LOCAL_EXECUTION` subprocess test replay):
      ```powershell
      python -m pytest tests/demo/test_p23_killer_demo.py -k test_reset_vault_triplet -v
      ```
-  3. Show the real three-world execution:
+  3. Show the three-world execution results:
      - `BASE exit 1` (Failure reproduced)
      - `CANDIDATE exit 0` (1 passed in 0.04s)
      - `COUNTERFACTUAL exit 1` (Delta reverted, failure reproduced)
-  4. Display the Nebius Nemotron request ID and token accounting logged in `docs/evidence/p29_03_fresh_live_run_evidence_packet/VERIFICATION_AUDIT.md`.
-- **Duration**: Record 30–35 seconds.
+  4. Display the Nebius Nemotron request ID (`chatcmpl-6f406c07...`) and 11 sandbox operations logged from the genuine live run (`RECORDED_LIVE` in `docs/evidence/p29_03_fresh_live_run_evidence_packet/VERIFICATION_AUDIT.md`).
+- **Duration**: Record 30 seconds.
 
 ---
 
@@ -66,43 +70,40 @@ This guide provides concrete, click-by-click instructions for capturing the scre
   `https://basebreak.zyganali.workers.dev/judge/run_3ba7d1fd-6dca-40c8-a7bb-39447bc85f1f`
 - **Action**:
   1. **Top Section (Seconds 0–8)**:
-     - Start at the top of the page.
      - Highlight the header: `BASEBREAK VERIFICATION RUNTIME`.
-     - Hover over the top-right badges: `VERIFIED`, `LIVE_NEBIUS`, and `AUTHENTIC SHA-256`.
+     - Hover over top-right badges: `VERIFIED`, `LIVE_NEBIUS`, and `AUTHENTIC SHA-256`.
   2. **World Comparison Grid (Seconds 8–18)**:
      - Scroll down smoothly to the **Three-World Comparison Grid**.
-     - Point cursor to:
-       - `BASE: FAIL (exit 1)`
-       - `CANDIDATE: PASS (exit 0)`
-       - `COUNTERFACTUAL: FAIL (exit 1)`
+     - Point cursor to `BASE: FAIL (exit 1)`, `CANDIDATE: PASS (exit 0)`, and `COUNTERFACTUAL: FAIL (exit 1)`.
      - Show the tree digests (`824fa2c6...` $\rightarrow$ `6c4f46cb...` $\rightarrow$ `824fa2c6...`).
   3. **Receipt & Proof Details (Seconds 18–30)**:
      - Scroll down to the **Cryptographic Verification Receipt** card.
-     - Show the Receipt Digest: `e2e833fd3aa9d69bdcbaad0805fd38167c680cb2f60a16209c27a80123a43708`.
-     - Show the RSA-2048 Proof Digest: `def59353ba1315979dead2544590b199ee66f966b479abf6b3496edb39e143b4`.
-     - Show the Nebius request ID: `chatcmpl-6f406c073cb413917bb3c4dea558d380`.
+     - Show Receipt Digest `e2e833fd...` and verifier-signed RSA-2048 Proof Digest `def59353...`.
+     - Show Nebius request ID: `chatcmpl-6f406c073cb413917bb3c4dea558d380`.
      - Briefly navigate to the historical 10th run:
        `https://basebreak.zyganali.workers.dev/judge/run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9`
        to demonstrate audit trail consistency across runs.
-- **Duration**: Record 30–35 seconds.
+- **Duration**: Record 30 seconds.
 
 ---
 
 ### Scene 5: Meaningful External Grounding with Tavily Search (1:50 – 2:15 / 25 seconds)
-- **Source**: Browser or editor showing the Grounding Firewall architecture (`docs/evidence/P16_05_TAVILY_GROUNDING_INTEGRATION.md`).
+- **Source**: Browser or editor showing the Grounding Firewall architecture (`docs/evidence/P16_05_TAVILY_GROUNDING_INTEGRATION.md`) and preflight tooling.
 - **Visible Elements**:
-  - The deterministic grounding flow for `CVE-2024-21626`:
+  - The deterministic advisory grounding flow for `CVE-2024-21626`:
     1. Tavily retrieves authoritative NIST NVD & GitHub Security Advisories (`GroundingMateriality.REQUIRED`).
     2. Grounded facts bind into `GroundedContractBinding` bound to frozen contract digest.
     3. Grounding Authority Firewall enforces that retrieved web claims **NEVER override code execution**.
-- **Action**:
-  - Highlight the core insight: *"Tavily defines WHAT must be verified; Sandboxes prove WHETHER code satisfies it."*
   - Show the passing test suite in terminal:
     ```powershell
     python -m pytest tests/grounding/test_p16_closure.py -q
     ```
     proving tamper detection and injection blocking.
-- **Duration**: Record 25–28 seconds.
+  - Or show safe preflight status in terminal:
+    ```powershell
+    python -m basebreak.adapters.tavily.demo --check-preflight
+    ```
+- **Duration**: Record 25 seconds.
 
 ---
 
@@ -115,7 +116,7 @@ This guide provides concrete, click-by-click instructions for capturing the scre
     **BASEBREAK**
     *If the patch matters, the base must break.*
     `https://basebreak.zyganali.workers.dev`
-- **Duration**: Record 25–28 seconds.
+- **Duration**: Record 25 seconds.
 
 ---
 

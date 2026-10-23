@@ -155,20 +155,23 @@ Core Claim: **"Basebreak proves that an AI-written patch caused the behavior it 
 - **Target Scenario**: `CVE-2024-21626` (Container escape file descriptor leak in runc)
 - **Materiality Evaluation**: `GroundingMateriality.REQUIRED` (`GroundingCategory.CVE_SECURITY_ADVISORY`)
 - **Integration Proof Document**: `docs/evidence/P16_05_TAVILY_GROUNDING_INTEGRATION.md`
-- **Preflight & Quota Truth**:
+- **Status & Preflight Truth**:
+  - `Status`: `BLOCKED / NOT_RUN (OPERATOR_AUTHORIZED / PREFLIGHT_KEY_BLOCKED)`
   - Researcher Free Plan: 1,000 monthly + 3,125 promotional credits; PAYG disabled; Auto-upgrade disabled.
-  - Runtime environment observation: `TAVILY_API_KEY` absent (`MISSING_KEY_BLOCKED`), operator-authorized.
+  - Runtime environment observation on work PC: `TAVILY_API_KEY` absent (`MISSING_KEY_BLOCKED`).
   - Zero-cost boundary preserved; no fake live execution fabricated.
-- **Firewall Primacy**: Validated in `tests/grounding/test_p16_closure.py`; retrieved web claims **never override code execution failure** in the sandbox.
+- **Firewall Primacy**: Validated in `tests/grounding/test_p16_closure.py` (56 automated tests); retrieved web claims **never override code execution failure** in the sandbox.
 
 ---
 
 ## 7. Submission Preparation Package (P-30)
 
+- **Status**: `PREPARATION_COMPLETE / SUBMISSION_ASSETS_FROZEN`
+- **Execution Truth**: Human-led recording boundary strictly preserved: physical video recording, voiceover audio generation, screenshots, YouTube upload, and Devpost submission remain human-led operator tasks (NOT_RUN until captured).
 - **Timed Storyboard (< 180s)**: `docs/submission/P30_STORYBOARD.md` (2:40 / 160s total duration)
 - **Screen Recording Guide**: `docs/submission/P30_SCREEN_RECORDING_GUIDE.md` (Exact URLs, clicks, scroll actions)
-- **English Narration Script**: `docs/submission/P30_NARRATION_SCRIPT.md` (364 words, scene-by-scene)
-- **Accurate Subtitles (.srt)**: `docs/submission/basebreak_demo_subtitles.srt` (Full SubRip timecodes)
+- **English Narration Script**: `docs/submission/P30_NARRATION_SCRIPT.md` (360 words, scene-by-scene)
+- **Accurate Subtitles (.srt)**: `docs/submission/basebreak_demo_subtitles.srt` (Full SubRip timecodes, ends at 02:39.5)
 - **Screenshot & Asset Manifest**: `docs/submission/P30_SCREENSHOT_MANIFEST.md` (8 assets, source URLs, provenance)
 - **Architecture Visual**: `docs/submission/P30_ARCHITECTURE_VISUAL.md` (Accurate verified components)
 - **Devpost Story & 4 Criteria Mapping**: `docs/submission/P30_DEVPOST_SUBMISSION.md` (25% each criteria)
