@@ -725,7 +725,8 @@ def test_tavily_only_invocation_cannot_produce_verified_candidate_verdict(tmp_pa
     """Requirement 7: A Tavily-only invocation cannot produce a VERIFIED candidate verdict.
 
     Enforces:
-    1. candidate_execution_verdict defaults to PreliminaryVerdict.NOT_RUN when no independent witness ran.
+    1. candidate_execution_verdict defaults to PreliminaryVerdict.NOT_RUN
+       when no independent witness ran.
     2. Grounding observation and behavioral verification remain strictly separate.
     3. Neither genuine provider response nor contract binding implies candidate verification.
     4. Observation details and contract binding are faithfully preserved.
@@ -788,4 +789,3 @@ def test_tavily_only_invocation_cannot_produce_verified_candidate_verdict(tmp_pa
     assert "include_published_date" not in packet.search_parameters
     assert packet.credit_usage == 1
     assert os.path.exists(packet_path)
-
