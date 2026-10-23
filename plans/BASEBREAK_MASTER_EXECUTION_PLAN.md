@@ -885,12 +885,23 @@ Phase exit: submission communicates the product as strongly as it is built. (Pha
 
 # P-31 — Release Candidate & Whole-Repo P-Ω
 ### P-31.01 — Freeze RC source and dependency lock
+Status: DONE (AUDITED_AND_TESTED in Batch P-31; verified source tree is frozen at `0a92b700854d426320e814967bc9beb51b96a7c3`; pyproject.toml confirmed with zero external runtime dependencies [`dependencies = []`]; package.json in cloudflare/ locked and verified with exact dev dependencies; zero undeclared transitive runtime dependencies).
+
 ### P-31.02 — Run clean-checkout reproduction from RC
+Status: DONE (AUDITED_AND_TESTED in Batch P-31; verified clean checkout reproduction tests in `tests/reproducibility/test_p29_clean_checkout.py` passed; fresh git archive unpack and import smoke confirmed; Node suite 72/72 tests passed, Miniflare workerd preflight 7/7 passed, typecheck clean).
+
 ### P-31.03 — Run whole-repository P-Ω integrity audit
+Status: DONE (AUDITED_AND_TESTED in Batch P-31; comprehensive P-Ω integrity audit executed: contract and candidate identity verified across ResetVault and CVE scenarios; builder/verifier independence strictly maintained; AST-only candidate inspection verified; custom raw RSA-2048 signing accurately documented; Cloudflare Worker deployed configuration verified; historical live evidence packets `run_78fd00b7` and `run_3ba7d1fd` verified immutable; Tavily P-16.05 single live execution `cbb8a550...` verified with fail-closed `INSUFFICIENT_GROUNDING / BLOCKED` firewall verdict).
+
 ### P-31.04 — Repair blockers without weakening evidence/tests
+Status: DONE (AUDITED_AND_TESTED in Batch P-31; reconciled governance and documentation drift in `docs/HANDOFF.md`, `docs/submission/P30_DEVPOST_SUBMISSION.md`, and `plans/BASEBREAK_MASTER_EXECUTION_PLAN.md`; updated stale P-16.05 Tavily preflight text to record executed single live request with honest fail-closed firewall outcome; updated stale baseline SHAs and authorized phase boundaries without weakening any assertion, security boundary, or evidence record).
+
 ### P-31.05 — Re-run affected/full/live gates after repair
+Status: DONE (AUDITED_AND_TESTED in Batch P-31; full Python suite 3,014 passed / 12 skipped; Ruff format check 100% compliant [346 files]; Ruff linter 100% clean; Mypy strict mode clean [289 source files]; Node suite 72 passed / 0 failed; Miniflare workerd preflight 7/7 passed; secret and donor license audit tests passed; all 12 pytest skips confirmed genuine offline/live boundaries; zero cost incurred).
+
 ### P-31.06 — Create immutable release tag
-Phase exit: immutable competition candidate exists.
+Status: PROPOSED / PENDING_HUMAN_AUTHORITY (Prepared immutable release tag proposal `v0.1.0-rc1` pointing to the final release candidate commit; autonomous creation or pushing of git tags to remote is strictly withheld in accordance with human release approval protocol; marked PENDING_HUMAN_AUTHORITY).
+Phase exit: immutable competition candidate prepared and independently auditable. (Phase P-31 AUDITED_AND_TESTED / INDEPENDENT_QA_PENDING; P-31.06 tag creation PENDING_HUMAN_AUTHORITY; Phase P-32 remains strictly human operator led [NOT_RUN]).
 
 ---
 

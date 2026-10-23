@@ -7,7 +7,7 @@
 - **Project Title**: Basebreak — Causal Verification Runtime for AI-Written Code
 - **Tagline**: If the patch matters, the base must break. Proving AI patches actually caused the fix — beyond green CI.
 - **Track**: Coding and Agentic Engineering Track
-- **Additional Target**: Tavily Advisory Grounding Integration (Full offline pipeline, contract binding, and deterministic authority firewall verified; genuine live execution held fail-closed pending key provisioning)
+- **Additional Target**: Tavily Advisory Grounding Integration (Genuine live provider observation executed under request ID `cbb8a550-d334-4727-a715-1086799a73f9`; contract binding and deterministic authority firewall verified with honest fail-closed `INSUFFICIENT_GROUNDING / BLOCKED` verdict; candidate execution strictly `NOT_RUN`)
 - **Primary Public Judge URL**: `https://basebreak.zyganali.workers.dev/judge/run_3ba7d1fd-6dca-40c8-a7bb-39447bc85f1f`
 - **Canonical Reference Run URL**: `https://basebreak.zyganali.workers.dev/judge/run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9`
 - **Public GitHub Repository**: `https://github.com/zyganali-glitch/Basebreak` (Apache-2.0 Open Source)
@@ -88,8 +88,8 @@ Basebreak does not use search as decorative bonus theater. For tasks where code 
 - **Scenario Separation & Live Evidence Boundary**:
   - The primary competition demonstration scenario (`ResetVault`, verified in live runs `run_3ba7d1fd` and `run_78fd00b7`) is an internal invariant test (`GroundingMateriality.NOT_APPLICABLE`) and did NOT use Tavily.
   - The Tavily integration is demonstrated under `CVE-2024-21626`.
-  - The full 10-step offline pipeline, contract binding, adversarial defenses, and deterministic authority firewall are verified by 56 automated tests.
-  - Genuine live network provider execution is held at `OPERATOR_AUTHORIZED / PREFLIGHT_KEY_BLOCKED / NOT_RUN` on this work environment due to key availability. Basebreak strictly refuses to substitute fixture data for live execution.
+  - The full offline pipeline, contract binding, adversarial defenses, and deterministic authority firewall are verified by automated tests.
+  - Exactly ONE genuine live Tavily network provider execution was performed (`cbb8a550-d334-4727-a715-1086799a73f9`), recorded in `docs/evidence/p16_05_live_tavily_evidence_packet/tavily_cve_grounding_packet.json`. It resulted in an honest fail-closed `INSUFFICIENT_GROUNDING / BLOCKED` firewall verdict because the retrieved external summaries lacked conclusive cryptographic evidence to override the baseline invariant, preserving authority firewall integrity with candidate behavior strictly `NOT_RUN`.
 
 ---
 
@@ -121,7 +121,7 @@ Basebreak does not use search as decorative bonus theater. For tasks where code 
 - **Synthetic Demo Scenario**: `ResetVault` is a synthetic security-sensitive scenario designed to clearly demonstrate differential 3-world causal mechanics and token replay protection; it is not a reproduced real-world CVE patch.
 - **Witness Scope**: The live demonstration verifies one sealed behavioral witness (`wit-reset-vault-live-001`) under the canonical `ResetVault` scenario.
 - **Signature Scheme**: The verifier signature uses custom 2048-bit raw modular exponentiation RSA over SHA-256 digests. It is independently verifiable across Python and Node.js, but is not standard PKCS#1 v1.5 or RSA-PSS.
-- **Tavily Live Integration Boundary**: The offline grounding pipeline and authority firewall are fully implemented and tested; genuine live Tavily network execution remains held at `NOT_RUN` pending credential provisioning from the operator's home environment.
+- **Tavily Live Integration Boundary**: Exactly ONE genuine live Tavily request was executed (`cbb8a550-d334-4727-a715-1086799a73f9`), committed in `docs/evidence/p16_05_live_tavily_evidence_packet/`. The deterministic authority firewall correctly returned `INSUFFICIENT_GROUNDING / BLOCKED` without manufacturing candidate verification; candidate code execution remained strictly `NOT_RUN`.
 - **Human-Led Submission Boundary**: Submission text, storyboard, scripts, and guides are prepared in repository assets; physical video recording, voiceover audio generation, YouTube upload, and Devpost submission remain human-led operator tasks.
 
 ---
