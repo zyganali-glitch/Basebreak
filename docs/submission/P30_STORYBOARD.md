@@ -111,7 +111,7 @@
   - `Tavily Search: Advisory Grounding for Frozen Contracts (CVE-2024-21626)`
   - `Binds: Authoritative Advisory Facts to Frozen Contract Digest`
   - `Firewall Primacy: Web Claims Never Override Sandbox Failure`
-  - `Evidence Truth: Offline Pipeline Verified; Live Search Pending Key`
+  - `Tavily Search Executed | Grounding BLOCKED | Candidate NOT_RUN`
 - **Voiceover Narration**:
   *"For advisory grounding on security fixes like CVE-2024-21626, Basebreak integrates Tavily Search. Tavily grounds and binds authoritative advisory information from sources like GitHub to an already frozen contract. Our deterministic firewall guarantees external web claims never override code execution. Web grounding provides advisory context; independent sandbox execution governs the verdict."*
 
