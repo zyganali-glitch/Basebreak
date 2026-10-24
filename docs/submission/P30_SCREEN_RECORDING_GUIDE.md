@@ -53,7 +53,7 @@ This guide provides concrete, click-by-click instructions for capturing the scre
   1. Open terminal in the Basebreak repository root.
   2. Run the offline clean reproduction script demonstrating the three-world causal triplet (`LOCAL_EXECUTION` subprocess test replay):
      ```powershell
-     python -m pytest tests/demo/test_p23_killer_demo.py -k test_reset_vault_triplet -v
+     python -m pytest tests/demo/test_p23_killer_demo.py -k test_p23_03_causal_triplet_subprocess_execution -v
      ```
   3. Show the three-world execution results:
      - `BASE exit 1` (Failure reproduced)

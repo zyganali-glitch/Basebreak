@@ -866,7 +866,7 @@ Policy:
 Status: PREPARED (prepared storyboard in docs/submission/P30_STORYBOARD.md, subject to corrected final narration; 6 timed scenes, 2:40 / 160s total duration, strictly under 180s hard cap; first 30s establishes why green CI lies and the causal surprise; core tagline "If the patch matters, the base must break"; Three-World Triplet BASE=FAIL -> CANDIDATE=PASS -> COUNTERFACTUAL=FAIL; all overclaims removed).
 
 ### P-30.02 — Capture real live sequence: green baseline → base witness fail → candidate pass → counterfactual fail
-Status: PREPARED / NOT_RUN (capture instructions exist in docs/submission/P30_SCREEN_RECORDING_GUIDE.md binding fresh live run run_3ba7d1fd and canonical reference tenth run run_78fd00b7 on public judge UI https://basebreak.zyganali.workers.dev/judge/run_3ba7d1fd-6dca-40c8-a7bb-39447bc85f1f, honestly labeled RECORDED_LIVE; terminal capture instructions for one-command local reproduction python -m pytest tests/demo/test_p23_killer_demo.py -k test_reset_vault_triplet -v as LOCAL_EXECUTION subprocess test replay; actual video capture NOT_RUN pending operator recording).
+Status: PREPARED / NOT_RUN (capture instructions exist in docs/submission/P30_SCREEN_RECORDING_GUIDE.md binding fresh live run run_3ba7d1fd and canonical reference tenth run run_78fd00b7 on public judge UI https://basebreak.zyganali.workers.dev/judge/run_3ba7d1fd-6dca-40c8-a7bb-39447bc85f1f, honestly labeled RECORDED_LIVE; terminal capture instructions for one-command local reproduction python -m pytest tests/demo/test_p23_killer_demo.py -k test_p23_03_causal_triplet_subprocess_execution -v as LOCAL_EXECUTION subprocess test replay; actual video capture NOT_RUN pending operator recording).
 
 ### P-30.03 — Record concise English audio and captions
 Status: PREPARED / NOT_RUN (narration script in docs/submission/P30_NARRATION_SCRIPT.md [360 words, natural 135 wpm cadence, pronunciation notes]; synchronized SubRip subtitles in docs/submission/basebreak_demo_subtitles.srt ending at 02:39.5; Turkish operator guide in docs/submission/P30_OPERATOR_RECORDING_CHECKLIST_TR.md; actual voice/audio recording NOT_RUN pending operator generation).
@@ -879,7 +879,7 @@ Status: PREPARED (complete submission text drafted in docs/submission/P30_DEVPOS
 
 ### P-30.06 — Prepare screenshots/architecture only from verified product truth
 Status: PREPARED / NOT_RUN (8 verified visual assets cataloged with source URLs and provenance in docs/submission/P30_SCREENSHOT_MANIFEST.md; complete verified system topology in docs/submission/P30_ARCHITECTURE_VISUAL.md derived exclusively from implemented components: Nemotron, Nebius Sandboxes, Verifier Bridge, Cloudflare SQLite Durable Object, and Tavily adapter; recommended 7-image Devpost gallery sequence; actual screenshots NOT_RUN wherever absent).
-Phase exit: submission communicates the product as strongly as it is built. (Phase P-30 PREPARATION COMPLETE / SUBMISSION ASSETS FROZEN; Human-led recording boundary preserved: video recording, narration rendering, screenshots, YouTube upload, and Devpost submission remain human-led operator tasks [NOT_RUN]).
+Phase exit: submission communicates the product as strongly as it is built. (Phase P-30 COMPLETED & SUBMITTED; human operator completed video recording, narration, screenshots, YouTube upload, and Devpost submission on October 24, 2026).
 
 ---
 
@@ -900,8 +900,8 @@ Status: SURGICALLY_REPAIRED / AUDITED_AND_TESTED (surgically resolved all three 
 Status: DONE (AUDITED_AND_TESTED in Batch P-31; full Python suite 3,014 passed / 12 skipped; Ruff format check 100% compliant [346 files]; Ruff linter 100% clean; Mypy strict mode clean [289 source files]; Node suite 72 passed / 0 failed; Miniflare workerd preflight 7/7 passed; secret and donor license audit tests passed; all 12 pytest skips confirmed genuine offline/live boundaries; zero cost incurred).
 
 ### P-31.06 — Create immutable release tag
-Status: PROPOSED / PENDING_HUMAN_AUTHORITY (Prepared immutable release tag proposal `v0.1.0-rc1` pointing to the final release candidate commit; autonomous creation or pushing of git tags to remote is strictly withheld in accordance with human release approval protocol; marked PENDING_HUMAN_AUTHORITY).
-Phase exit: immutable competition candidate prepared and independently auditable. (Phase P-31 AUDITED_AND_TESTED / INDEPENDENT_QA_PENDING; P-31.06 tag creation PENDING_HUMAN_AUTHORITY; Phase P-32 remains strictly human operator led [NOT_RUN]).
+Status: DONE (VERIFIED; immutable release tag `v0.1.0-rc1` created by human operator and pushed to remote; points to target commit `b2b7f2a6353f77c6d5b9562d64a43ef0c060427d`; preserved intact).
+Phase exit: immutable competition candidate prepared and independently auditable. (Phase P-31 CLOSED / PASS; release tag v0.1.0-rc1 immutable).
 
 ---
 
@@ -912,19 +912,25 @@ Acceptance:
 - public judge/test path remains free of charge through the required judging period;
 - zero paid dependency is disclosed honestly if relevant.
 ### P-32.01 — Revalidate official competition rules at submission time
+Status: DONE (VERIFIED at submission time; Coding and Agentic Engineering track confirmed; individual entrant status confirmed; new project classification confirmed; submission completed October 24, 2026).
 ### P-32.02 — Verify public repo, visible open-source license and README setup
+Status: DONE (VERIFIED; public repository zyganali-glitch/Basebreak inspected; root Apache-2.0 LICENSE recognized by GitHub metadata; concise judge-first README deployed with exact reproduction instructions, authentic screenshots, and correct provably passing test selectors).
 ### P-32.03 — Verify working demo/test URL signed-out
 Status: DONE (VERIFIED PUBLIC JUDGE DEPLOYMENT; presentation data binding and causal evidence truth repaired; production deployment executed under operator authorization via version 2983fde4-56fe-4cf2-9b18-dafb1836fbeb; live signed-out public Judge URL independently verified: eleventh run `run_3ba7d1fd-6dca-40c8-a7bb-39447bc85f1f` renders authentic VERIFIED verdict, LIVE_NEBIUS provenance, genuine three-world outcomes BASE=FAIL exit 1 [sbx-c9e5c0e476fa4466], CANDIDATE=PASS exit 0 [sbx-cd870e01d6d94bca], COUNTERFACTUAL=FAIL exit 1 [sbx-90d40f25758244d0], source commit `80b43b84014fa61b941c7ebcd87836a56dcd7c92`, and receipt digest `e2e833fd3aa9d69bdcbaad0805fd38167c680cb2f60a16209c27a80123a43708`; reference tenth run `run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9` independently verified; unknown run IDs fail closed with NOT_RUN; root `/` truthfully returns NOT_RUN; all live execution gates remain safely OFF: `live_enabled=false`, `runtime_live_enabled=false`, `durable_live_enabled=false`; 83/83 Worker Node tests, 7/7 Miniflare tests, 3,015 Pytest passed; zero personal spend preserved; release tag `v0.1.0-rc1` preserved intact).
 ### P-32.04 — Verify public YouTube playback <3 minutes and English accessibility
+Status: DONE (OPERATOR CONFIRMED; demo video published at https://www.youtube.com/watch?v=pRB4SSZOawM; operator-verified duration 2m 52s [under 3-minute hard limit]; natural English narration with clear pronunciation; automated in-agent video playback check NOT_RUN).
 ### P-32.05 — Verify Nebius/NVIDIA usage claims and Tavily bonus eligibility if used
+Status: DONE (VERIFIED against committed evidence; NVIDIA Nemotron-3_5-Lightning runtime inference and 11 Nebius microVM sandbox operations confirmed in fresh run run_3ba7d1fd and reference run run_78fd00b7; Tavily Search grounding bonus verified under CVE-2024-21626 via genuine live provider request cbb8a550..., 3 sources bound to contract, and honest fail-closed INSUFFICIENT_GROUNDING / BLOCKED firewall verdict with candidate NOT_RUN; ResetVault internal scenario separated from Tavily).
 ### P-32.06 — Complete submission before internal buffer deadline
 Acceptance:
 - internal operational target is frozen at `October 27, 2026 20:00 Europe/Istanbul` (approximately 72 hours before official deadline of October 30, 2026 10:00 AM PDT / 17:00 UTC);
 - explicitly classified as an INTERNAL SAFETY BUFFER to absorb potential submission hiccups, platform outages, or final packaging checks;
 - the official competition deadline remains October 30, 2026 10:00 AM PDT;
 - this internal buffer does NOT delete planned phases and does NOT authorize premature scope cutting.
+Status: DONE (OPERATOR CONFIRMED; official Devpost submission https://devpost.com/software/basebreak completed and submitted on October 24, 2026, ahead of the October 27, 2026 20:00 Europe/Istanbul internal safety buffer and October 30, 2026 10:00 AM PDT official deadline; all 5 Devpost steps completed).
 ### P-32.07 — Perform post-submit signed-out verification without mutating frozen release
-Phase exit: submitted, publicly testable, evidence-consistent entry.
+Status: DONE (VERIFIED; post-submission signed-out check verified public Judge routes at https://basebreak.zyganali.workers.dev/judge/run_3ba7d1fd-6dca-40c8-a7bb-39447bc85f1f, public repository access, clean CI validation; frozen release tag v0.1.0-rc1 at b2b7f2a6353f77c6d5b9562d64a43ef0c060427d confirmed untouched and immutable).
+Phase exit: submitted, publicly testable, evidence-consistent entry. (Phase P-32 COMPLETED & CONSOLIDATED).
 
 ---
 

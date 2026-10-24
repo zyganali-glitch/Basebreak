@@ -173,14 +173,14 @@ Core Claim: **"Basebreak proves that an AI-written patch caused the behavior it 
   - **Credits Consumed**: `UNKNOWN` (omitted from provider API response payload; not fabricated)
   - **Zero Secrets**: verified clean of credentials or tokens.
 - **Historical Preflight**: Previously observed missing-key status (`MISSING_KEY_BLOCKED`) retained as preflight history prior to operator key configuration.
-- **Task Status Truth**: `LIVE_EXECUTED / INDEPENDENT_QA_PENDING` (held pending independent auditor QA).
+- **Task Status Truth**: `INDEPENDENTLY VERIFIED / PASS` (Phase P-16 closed and verified; single live provider execution recorded with honest fail-closed `INSUFFICIENT_GROUNDING / BLOCKED` firewall verdict).
 
 ---
 
 ## 7. Submission Preparation Package (P-30)
 
-- **Status**: `PREPARATION_COMPLETE / SUBMISSION_ASSETS_FROZEN`
-- **Execution Truth**: Human-led recording boundary strictly preserved: physical video recording, voiceover audio generation, screenshots, YouTube upload, and Devpost submission remain human-led operator tasks (NOT_RUN until captured).
+- **Status**: `COMPLETED / OPERATOR_SUBMITTED`
+- **Execution Truth**: Human-led submission tasks completed by operator on October 24, 2026: physical video recording and narration (2m 52s, English voiceover, YouTube ID `pRB4SSZOawM`), screenshots captured and selected (`01_hero_judge_dashboard.png`, `04_nebius_telemetry_and_sandboxes.png`, `03_cryptographic_receipt_card.png`, `11_tavily_live_observation_blocked.png`, `06_tavily_grounding_firewall_flow.png`), and official Devpost submission completed across all five steps under the Coding and Agentic Engineering track.
 - **Timed Storyboard (< 180s)**: `docs/submission/P30_STORYBOARD.md` (2:40 / 160s total duration)
 - **Screen Recording Guide**: `docs/submission/P30_SCREEN_RECORDING_GUIDE.md` (Exact URLs, clicks, scroll actions)
 - **English Narration Script**: `docs/submission/P30_NARRATION_SCRIPT.md` (360 words, scene-by-scene)

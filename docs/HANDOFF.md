@@ -137,9 +137,9 @@ Judge claim:
   - P-29.04 immutable evidence manifest published in `docs/evidence/EVIDENCE_MANIFEST.md` and fresh evidence packet in `docs/evidence/p29_03_fresh_live_run_evidence_packet/`, binding canonical implementation commit `a24901b70c1f59724373fcdb595779b52e0f7740`, deployed Oracle bridge / Worker version `5ac04fce-9572-41b9-9286-8ccb3a0aba24` identities, separate ResetVault target-source commit `80b43b84014fa61b941c7ebcd87836a56dcd7c92`, and three-world telemetry; automated consistency tests in `tests/evidence/test_p29_evidence_consistency.py` 10/10 passed across both historical tenth run and fresh eleventh run packets.
   - P-29.05 final donor and license audit verified in `tests/security/test_p29_donor_license_audit.py` (3/3 passed; root Apache-2.0 `LICENSE` and `NOTICE` intact; `docs/DONOR_REUSE_MANIFEST.md` confirmed 0 imported lines; all D-001–D-008 donors confirmed `CONCEPT_ONLY`; zero forbidden donor branding in production source).
   - P-29.06 final secret/privacy scan verified in `tests/security/test_p29_secret_artifact_scan.py` (5/5 passed across public documentation, evidence packets, JSON, and source; zero private signing keys, credentials, or tokens committed; public proof artifacts remain tamper-verifiable).
-- P-30 (Complete Demo & Submission Narrative, P-30.01 through P-30.06) is PREPARATION_COMPLETE / SUBMISSION_ASSETS_FROZEN in docs/submission/ (P30_STORYBOARD.md [160s, strictly < 180s], P30_SCREEN_RECORDING_GUIDE.md, P30_NARRATION_SCRIPT.md [360 words], basebreak_demo_subtitles.srt [synchronized, ends at 02:39.5], P30_SCREENSHOT_MANIFEST.md [8 assets, actual screenshots NOT_RUN], P30_ARCHITECTURE_VISUAL.md, P30_DEVPOST_SUBMISSION.md [25% mapping to 4 criteria + honest Tavily live boundary disclosure], P30_VIDEO_SAFETY_CHECKLIST.md [completed-video security validation NOT_RUN until video file exists], and P30_OPERATOR_RECORDING_CHECKLIST_TR.md; human-led recording boundary strictly preserved: actual footage, voiceover, screenshots, YouTube upload, and Devpost submission remain human-led operator tasks [NOT_RUN]).
-- P-31 (Release Candidate & Whole-Repo P-Ω Audit, P-31.01 through P-31.06) is AUDITED_AND_TESTED / INDEPENDENT_QA_PENDING under Operator Authorized Batch (P-31.01 frozen dependencies, P-31.02 clean-checkout reproduction, P-31.03 P-Ω whole-repo integrity audit, P-31.04 blocker repair without weakening tests, P-31.05 re-run validation gates; P-31.06 immutable release tag proposal v0.1.0-rc1 prepared and marked PENDING_HUMAN_AUTHORITY).
-- P-32+ remain strictly NOT AUTHORIZED / NOT_RUN until explicit operator authorization. HARD STOP ENFORCED AFTER P-31.
+- P-30 (Complete Demo & Submission Narrative, P-30.01 through P-30.06) is COMPLETED & FROZEN (operator-led recording, narration, screenshots, YouTube upload, and Devpost text finalized and published on October 24, 2026).
+- P-31 (Release Candidate & Whole-Repo P-Ω Audit, P-31.01 through P-31.06) is independently CLOSED / PASS (frozen dependencies, clean-checkout reproduction, whole-repo audit, zero test weakening, 3,015 Python pytest passed / 12 skipped, 83 Node tests passed; release tag `v0.1.0-rc1` created and pointing to `b2b7f2a6353f77c6d5b9562d64a43ef0c060427d`).
+- P-32 (Final Post-Submission Repository Truth & Judge Readiness Consolidation, P-32.01 through P-32.07) is COMPLETED & CONSOLIDATED (Devpost submission confirmed completed on October 24, 2026; public judge endpoints verified; judge-first README deployed; frozen release tag `v0.1.0-rc1` preserved intact).
 
 ## Last independently VERIFIED baseline SHA
 `0a92b700854d426320e814967bc9beb51b96a7c3` (independently verified baseline preceding this P-31 batch; all prior phases P-00 through P-29 independently verified and closed, P-30 preparation assets frozen, and P-16.05 single live Tavily call executed with committed evidence and honest BLOCKED firewall verdict).
@@ -157,15 +157,22 @@ Judge claim:
 No cost-consuming external API calls or public deployments were executed without explicit authorization. Zero-personal-spend ($0.00) policy preserved.
 
 ### Current QA candidate
-P-31 Final Release-Gate Surgical Repair Candidate:
-1. P-31.01: Python build/test toolchain frozen via `constraints.txt` and pinned `pyproject.toml`, preserving zero runtime production dependencies (`dependencies = []`).
-2. P-31.02: Clean-checkout CI wired with `-c constraints.txt`, fully verified in clean environments.
-3. P-31.03 / P-31.04: Tavily external grounding explanation corrected in `docs/submission/P30_DEVPOST_SUBMISSION.md` and related submission documents to reflect actual live evidence packet facts (`cbb8a550...`, 3 sources, insufficient freshness/live authority, fail-closed `BLOCKED` firewall, zero execution override authority).
-4. P-31.04 / P-31.05: Reconciled historical HANDOFF status contradictions distinguishing prior recorded deployment observations from work-PC-only runtime checks; verified all Ruff, Mypy, pytest (3,014 passed / 12 skipped), Node (72 passed), and Miniflare workerd preflight gates offline.
-5. P-31.06: Release tag proposal `v0.1.0-rc1` maintained strictly as `PENDING_HUMAN_AUTHORITY`.
+P-32 Final Post-Submission Consolidation:
+1. P-32.01: Official competition rules revalidated at submission time (Coding and Agentic Engineering track, individual, new project).
+2. P-32.02: Verified public repository `zyganali-glitch/Basebreak`, Apache-2.0 license recognized by GitHub metadata, and judge-first README deployed.
+3. P-32.03: Public read-only Judge URLs verified signed-out (`run_3ba7d1fd` and `run_78fd00b7`).
+4. P-32.04: Public demo video published at `https://www.youtube.com/watch?v=pRB4SSZOawM` (2m 52s, English voiceover).
+5. P-32.05: Nebius/NVIDIA usage claims verified against committed evidence; Tavily bonus grounding verified with single live request `cbb8a550...` and honest fail-closed firewall.
+6. P-32.06: Devpost submission completed and confirmed on October 24, 2026.
+7. P-32.07: Post-submission signed-out verification completed without mutating frozen release tag `v0.1.0-rc1` at `b2b7f2a6353f77c6d5b9562d64a43ef0c060427d`.
+
+
+
+
+
 
 ### Active exact task
-P-31.01–P-31.06 Release Candidate & Whole-Repo P-Ω Surgical Repair (Freeze Python dependency constraints, repair Tavily submission truth, reconcile HANDOFF historical status, run full clean-checkout reproduction gates, and maintain P-31.06 release tag proposal as PENDING_HUMAN_AUTHORITY).
+P-32 Final Post-Submission Repository Truth & Judge Readiness Consolidation (Reconciled README to judge-first presentation with real public Judge links and video link, verified Apache-2.0 license, verified exact local test selector `test_p23_03_causal_triplet_subprocess_execution`, verified full 3,015-test Python suite and 83-test Node suite, preserved frozen release tag `v0.1.0-rc1` at `b2b7f2a6353f77c6d5b9562d64a43ef0c060427d`).
 
 **Tenth run `run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9` (2026-10-22, grant `grant_c5b6ab9e-1cff-47f2-8fbe-7a5d5e14ddc8`, idempotency `268728c6-e8f1-492d-8c8c-24edbc33141f`, ONE POST):**
 1. Root cause of repeating collection exit 2 resolved in source (commit `78207c28`): model prompt instruction reinforced to require COMPLETE full-file replacement for MODIFY proposals; candidate pre-execution AST syntax, class preservation (`ResetVault`), and public test checks added; model-guided repair cycle implemented; execution diagnostic recording and operator excerpt persistence added.
@@ -217,9 +224,9 @@ Completed repairs:
 All three live gates remain OFF (`LIVE_ENABLED=false`) after the eighth-run batch shutdown. Historical ledger: 8 runs, `unknown_cost=$4.00` (3.50 historical + 0.50 run-8), 0 in-flight; no grant remains unconsumed.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-30 independently VERIFIED / PASS or accepted at baseline SHA (including P-16.05 closed / PASS). P-23.04–P-23.07 and P-26.02 remain held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. P-23.08 held fail-closed at `BLOCKED`. P-27 (Deployment Readiness, P-27.01 through P-27.06) is independently VERIFIED / PASS. P-28 judge comprehension is implemented and tested offline. P-29 competition evidence and reproducibility is independently VERIFIED / PASS. P-30 demo assets are PREPARATION_COMPLETE / FROZEN. P-31 is AUDITED_AND_TESTED / INDEPENDENT_QA_PENDING (with P-31.06 PENDING_HUMAN_AUTHORITY). P-32.03 is VERIFIED / DEPLOYED (Cloudflare public judge live verification independently certified). Remaining submission freeze tasks (P-32.01, P-32.02, P-32.04–P-32.07) remain operator-led.
+- **Task status:** P-00 through P-32 independently VERIFIED / PASS, COMPLETED, or closed at baseline SHA (including P-16.05 closed / PASS, P-27 closed / PASS, P-29 closed / PASS, P-30 submitted, P-31 release candidate frozen under tag `v0.1.0-rc1`, and P-32 post-submission consolidation completed). P-23.04–P-23.07 and P-26.02 remain held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. P-23.08 held fail-closed at `BLOCKED`. All seven P-32 submission freeze tasks (P-32.01 through P-32.07) are completed and consolidated.
 - **Provider neutrality:** All deployment packaging, health parity checks, signed-out judge access models, and UI components remain strictly provider-neutral.
-- **Batch authorization & hard stop:** The bounded P-31 Release Candidate & P-Ω Audit batch is the active scope. P-32+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
+- **Batch authorization & hard stop:** P-32 Final Post-Submission Repository Truth & Judge Readiness Consolidation is the active and final competition phase. No further feature implementation phases authorized. Repository frozen for judging.
 
 ## Frozen constraints
 - zero personal spend / Zero-Cost Law (target personal spend = $0.00; operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION` permits card attachment solely to activate Builder Program credits; personal paid usage/top-ups forbidden);
@@ -241,4 +248,4 @@ All three live gates remain OFF (`LIVE_ENABLED=false`) after the eighth-run batc
 2. Live public judge endpoints independently verified: `run_3ba7d1fd-6dca-40c8-a7bb-39447bc85f1f` and `run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9` serve authentic VERIFIED / LIVE_NEBIUS receipts and three-world outcomes.
 3. Immutable release tag `v0.1.0-rc1` preserved intact (DO NOT MOVE OR REPLACE).
 4. All three live gates safely remain OFF (`live_enabled=false`, `runtime_live_enabled=false`, `durable_live_enabled=false`). Zero personal spend ($0.00) preserved.
-5. Operator-led submission tasks (operator screen recording / narration / Devpost submission) remain for final human closure.
+5. Devpost submission completed and confirmed by operator on October 24, 2026 (track: Coding and agentic engineering; video published at https://www.youtube.com/watch?v=pRB4SSZOawM). Repository and public judge are fully ready for hackathon evaluation.

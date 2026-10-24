@@ -11,6 +11,8 @@
 - **Primary Public Judge URL**: `https://basebreak.zyganali.workers.dev/judge/run_3ba7d1fd-6dca-40c8-a7bb-39447bc85f1f`
 - **Canonical Reference Run URL**: `https://basebreak.zyganali.workers.dev/judge/run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9`
 - **Public GitHub Repository**: `https://github.com/zyganali-glitch/Basebreak` (Apache-2.0 Open Source)
+- **Demo Video URL**: `https://www.youtube.com/watch?v=pRB4SSZOawM` (Duration: 2m 52s, English voiceover)
+- **Submission Status**: SUBMITTED on October 24, 2026 (All 5 steps completed)
 
 ---
 
@@ -97,7 +99,7 @@ Basebreak does not use search as decorative bonus theater. For tasks where code 
 
 ### 1. Technological Implementation (25%)
 - **Deep Nebius & NVIDIA Integration**: Direct API runtime integration with `nvidia/Nemotron-3_5-Lightning` on Nebius Token Factory and multi-world microVM Sandboxes.
-- **Robustness & Test Coverage**: 2,989+ Python pytest tests passed, strict Mypy typing across all source files, zero runtime dependencies in production Python and Node, and 71 Node tests on Cloudflare Workers with Miniflare preflight.
+- **Robustness & Test Coverage**: 3,015+ Python pytest tests passed, strict Mypy typing across all source files, zero runtime dependencies in production Python and Node, and 83 Node tests on Cloudflare Workers with Miniflare preflight.
 - **Cryptographic Receipt Verification & Security Boundaries**: Cryptographic receipt hashing (SHA-256), verifier-signed RSA-2048 proofs, and pure static AST isolation preventing host code execution.
 
 ### 2. Design (25%)
@@ -122,7 +124,7 @@ Basebreak does not use search as decorative bonus theater. For tasks where code 
 - **Witness Scope**: The live demonstration verifies one sealed behavioral witness (`wit-reset-vault-live-001`) under the canonical `ResetVault` scenario.
 - **Signature Scheme**: The verifier signature uses custom 2048-bit raw modular exponentiation RSA over SHA-256 digests. It is independently verifiable across Python and Node.js, but is not standard PKCS#1 v1.5 or RSA-PSS.
 - **Tavily Live Integration Boundary**: Exactly ONE genuine live Tavily request was executed (`cbb8a550-d334-4727-a715-1086799a73f9`, recording three sources bound to frozen contract), committed in `docs/evidence/p16_05_live_tavily_evidence_packet/`. The deterministic authority firewall correctly returned `INSUFFICIENT_GROUNDING / BLOCKED` due to insufficient temporal freshness/live-observation authority; candidate execution remained strictly `NOT_RUN`. Web evidence has no authority to override deterministic execution, regardless of cryptographic digests.
-- **Human-Led Submission Boundary**: Submission text, storyboard, scripts, and guides are prepared in repository assets; physical video recording, voiceover audio generation, YouTube upload, and Devpost submission remain human-led operator tasks.
+- **Human-Led Submission Completion**: Submission text, storyboard, scripts, and guides were prepared in repository assets; physical video recording (2m 52s, English voiceover), YouTube upload, and Devpost submission were completed and confirmed by the human operator on October 24, 2026.
 
 ---
 
@@ -133,4 +135,4 @@ Basebreak does not use search as decorative bonus theater. For tasks where code 
 - **Tavily Grounding Integration Proof**: `docs/evidence/P16_05_TAVILY_GROUNDING_INTEGRATION.md`
 - **Immutable Evidence Manifest**: `docs/evidence/EVIDENCE_MANIFEST.md`
 - **One-Command Local Repetition (LOCAL_EXECUTION subprocess test replay)**:
-  `python -m pytest tests/demo/test_p23_killer_demo.py -k test_reset_vault_triplet -v`
+  `python -m pytest tests/demo/test_p23_killer_demo.py -k test_p23_03_causal_triplet_subprocess_execution -v`

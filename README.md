@@ -2,211 +2,167 @@
 
 > **If the patch matters, the base must break.**
 
-Basebreak is a planned causal verification runtime for AI-written software changes.
+Basebreak is a causal verification runtime for AI-written software changes.
 
-Instead of accepting "tests are green" as proof, Basebreak is designed to independently challenge the candidate patch in clean execution environments and ask whether the requested behavior fails on the trusted base and succeeds on the candidate.
-
----
-
-## Canonical Claim
-
-**Basebreak proves that an AI-written patch caused the behavior it claims to change — not merely that its tests are green.**
+Instead of accepting "tests are green" as proof, Basebreak independently challenges candidate patches across three clean execution worlds: proving that the claimed behavior fails on the trusted base, passes on the candidate, and fails again when the patch delta is removed.
 
 ---
 
-## The Problem
+## Public Judge & Demo Video
 
-AI coding agents are rapidly writing and modifying software. Today, verification typically stops at:
-- "The model says it fixed the bug."
-- "The test suite passes."
-- "Linter and type checker are green."
+| Asset | Link | Details |
+|---|---|---|
+| **Primary Public Judge Run** | [VERIFIED Run (`run_3ba7d1fd`)](https://basebreak.zyganali.workers.dev/judge/run_3ba7d1fd-6dca-40c8-a7bb-39447bc85f1f) | Live-executed Nebius triplet with verifier-signed receipt |
+| **Reference Public Judge Run** | [Historical Run (`run_78fd00b7`)](https://basebreak.zyganali.workers.dev/judge/run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9) | Canonical reference tenth live run audit trail |
+| **Hackathon Video Demo** | [YouTube Video (2m 52s)](https://www.youtube.com/watch?v=pRB4SSZOawM) | Full demonstration with English voiceover |
+| **Devpost Submission** | [Devpost Project Page](https://devpost.com/software/basebreak) | Coding and Agentic Engineering Track |
 
-None of these prove that the AI-written change **caused** the intended behavioral fix.
-
-### Why Green Tests Are Not Proof
-
-1. **Pre-existing Green Suites:** The existing tests may have been passing before the patch was even applied (vacuous verification).
-2. **Weakened Assertions:** An autonomous agent may modify or delete test assertions to force a passing exit code.
-3. **Coincidental Passes:** The patch may touch unrelated code while leaving the underlying defect latent.
-4. **Self-Certification:** An agent evaluating its own patch has an inherent conflict of interest.
+> [!NOTE]
+> The public Judge is **read-only** and serves authentic recorded historical receipts (`RECORDED_LIVE` / `LIVE_NEBIUS` execution provenance) backed by Cloudflare Workers and an SQLite Durable Object ledger. It does not permit anonymous, unmetered live provider calls.
 
 ---
 
-## The Basebreak Thesis
+## Visual Verification Dashboard
 
-> `If the patch matters, the base must break.`
+![Basebreak Public Judge Dashboard](docs/submission/screenshots/01_hero_judge_dashboard.png)
 
-For any behavioral bug fix claiming to solve a problem:
-- The behavior **must fail** on the trusted base revision under an independent witness.
+*Figure 1: Public Judge Dashboard displaying the verified causal triplet, Nebius execution telemetry, and cryptographic verification receipt for `run_3ba7d1fd`.*
+
+![Cryptographic Verification Receipt](docs/submission/screenshots/03_cryptographic_receipt_card.png)
+
+*Figure 2: Verifier-signed RSA-2048 cryptographic proof card binding receipt digest `e2e833fd...` and source commit `80b43b84...`.*
+
+---
+
+## Canonical Claim & The Problem
+
+> **Basebreak proves that an AI-written patch caused the behavior it claims to change — not merely that its tests are green.**
+
+AI coding agents modify software rapidly. Today, verification almost exclusively relies on Continuous Integration: *if the test suite turns green, the change is accepted.*
+
+**Green CI does not prove causation:**
+1. **Pre-Existing Passes:** The test suite may have passed before the patch was applied (vacuous verification).
+2. **Weakened Assertions:** Agents frequently alter test files, delete assertions, or mock failures rather than fixing underlying code.
+3. **Coincidental Passes:** A patch can touch unrelated code while leaving defects latent.
+4. **Self-Certification:** An AI grading its own patch has an inherent conflict of interest.
+
+---
+
+## The Three-World Causal Engine
+
+For any behavioral bug fix claiming to solve a defect:
+- The behavior **must fail** on the trusted base revision under an independent sealed witness.
 - The behavior **must pass** on the candidate revision under the exact same witness.
 - If the change delta is subtracted (counterfactual), the behavior **must fail again**.
 
-Without this transition, there is no evidence of causal necessity.
+$$\text{Causal Invariant: } \text{BASE} = \text{FAIL} \quad \land \quad \text{CANDIDATE} = \text{PASS} \quad \land \quad \text{COUNTERFACTUAL} = \text{FAIL}$$
 
----
-
-## Planned Causal Verification Flow
-
-```
-+------------------+       +-------------------------+
-| Engineering Task | ----> |    Contract Compiler    |
-+------------------+       +-------------------------+
-                                    |
-            +-----------------------+-----------------------+
-            |                                               |
-            v                                               v
-+------------------------+                     +------------------------+
-|    Builder Runtime     |                     |   Verifier Isolation   |
-| (Nemotron in Sandbox)  |                     |  (Independent Context) |
-+------------------------+                     +------------------------+
-            |                                               |
-            v                                               v
-     [Candidate Patch]                            [Independent Witness]
-            |                                               |
-            +-----------------------+-----------------------+
-                                    |
-                                    v
-                     +-----------------------------+
-                     |  Causal Two-World Engine    |
-                     +-----------------------------+
-                     | 1. Witness on BASE:         |
-                     |    -> FAIL (required)       |
-                     | 2. Witness on CANDIDATE:    |
-                     |    -> PASS (required)       |
-                     | 3. Witness on COUNTERFACTUAL|
-                     |    -> FAIL (necessity)      |
-                     +-----------------------------+
-                                    |
-                                    v
-                      [Deterministic Causal Receipt]
-```
-
-### Simple BUG_FIX Example
-
-| World | Revision | Witness Execution | Meaning |
+| World | Revision / State | Witness Execution | Meaning |
 |---|---|:---:|---|
-| **BASE** | Trusted base commit | **FAIL ❌** | The bug actually exists in the baseline |
-| **CANDIDATE** | Base + AI patch | **PASS ✅** | The patch satisfies the behavioral requirement |
-| **COUNTERFACTUAL** | Candidate minus relevant patch | **FAIL ❌** | The tested patch delta was necessary for this observed transition under the specified witness and constructed counterfactual |
+| **BASE** | Trusted base commit | **FAIL ❌** (Exit 1) | The defect demonstrably exists in the baseline |
+| **CANDIDATE** | Base + AI-written patch | **PASS ✅** (Exit 0) | The patch satisfies the behavioral requirement |
+| **COUNTERFACTUAL** | Candidate minus patch delta | **FAIL ❌** (Exit 1) | The patch was causally necessary for the observed passing transition |
 
-If BASE passes, the witness is vacuous. If CANDIDATE fails, the patch does not satisfy the witness. If COUNTERFACTUAL passes, the subtracted patch delta was not necessary for the observed passing transition under this witness.
-
----
-
-## Why Builder and Verifier Are Separated
-
-Basebreak is designed to enforce strict separation between:
-- **The Builder:** The AI agent that plans, edits code, and runs development tests in a sandbox.
-- **The Verifier:** An independent context that generates sealed behavioral witnesses from the accepted contract and trusted base, without Builder visibility.
-
-A builder cannot inspect the verifier's hidden challenge, and a builder cannot certify its own output.
+If BASE passes, the witness is vacuous. If CANDIDATE fails, the patch does not satisfy the requirement. If COUNTERFACTUAL passes, the subtracted patch was not causally responsible for the fix.
 
 ---
 
-## Competition Target & Expected Stack
+## Architecture: Nebius Token Factory & NVIDIA Nemotron
 
-Target: **Coding and Agentic Engineering Track** at the **Nebius x NVIDIA Global AI Hackathon**.
+Basebreak enforces strict physical separation between the **Builder** and the **Verifier**:
 
-Expected core runtime stack (subject to live discovery in P-01):
-- **Nebius Token Factory:** Managed model inference and Token Factory Sandboxes.
-- **NVIDIA Nemotron:** Open-source foundation models for builder and verifier workloads.
-- **Tavily Search API:** Conditional grounding for current CVEs/security advisories and library migration facts (only where external truth is materially required).
-
----
-
-## Evidence Honesty & Provenance
-
-Basebreak is designed to label all evidence deterministically by provenance (PLANNED capability):
-- `FIXTURE` — static test fixtures used for internal unit validation.
-- `LOCAL_EXECUTION` — commands executed in the local operator environment.
-- `LIVE_NEBIUS` — commands and inference executed live against Nebius / NVIDIA infrastructure.
-- `RECORDED_LIVE` — verifiable replays of previously captured live runs.
-
-These are planned provenance labels, not PASS/FAIL verdicts. Basebreak will never substitute mocks for required live evidence.
-
----
-
-## Current Implementation Status
-
-> **STATUS: DEPLOYMENT READINESS & JUDGE EXPERIENCE (Phase P-27 / P-28)**
-
-### Implemented & Tested (P-00 through P-28):
-- **Governance & Baseline (P-00):** Agent constitution, operator guidance laws, zero-cost policy, and verified competition contract (`AGENTS.md`, `GEMINI.md`).
-- **Platform Discovery & Adapters (P-01, P-05):** Nebius Token Factory inference & sandbox adapters, telemetry normalization, and secret-safe execution logs.
-- **Provider-Neutral Domain Contracts (P-02):** Immutable task, change-semantics, sandbox identity, and causal receipt schemas.
-- **Deterministic Evidence Store (P-03):** Content-addressed artifact hashing, append-only facts, and tamper-evident storage.
-- **Security & Untrusted-Code Policy (P-04):** Secret redaction, protected surfaces, and execution timeout guards.
-- **Contract Compiler (P-06):** Invariant locking and frozen contract digest generation (`FrozenContract`).
-- **Builder Runtime (P-07):** Bounded file editing and command execution loop in clean sandboxes.
-- **Verifier Isolation & Witness Generation (P-08, P-09):** Sealed test generators independent of Builder context.
-- **Causal Two-World Engine (P-10):** Deterministic BASE (FAIL) vs CANDIDATE (PASS) differential execution.
-- **Counterfactual Third Run (P-11):** Candidate delta subtraction proving causal necessity.
-- **Minimal Causal Slices (P-12):** AST-based minimal change extraction.
-- **Change-Semantics Expansion (P-13):** BUG_FIX, FEATURE, REFACTOR, SECURITY_FIX, PERFORMANCE, and DEP_API_CHANGE.
-- **Sealed Repair Loop (P-14):** Minimized failure feedback without revealing private witness challenges.
-- **Risk-Adaptive Budget (P-15):** Deterministic risk tiering and execution budgeting.
-- **Grounded External Truth (P-16):** Tavily adapter and grounded CVE/migration contracts.
-- **Causal Coverage & Public Receipt (P-17, P-18):** Cryptographic verification receipts with SHA-256 integrity digests.
-- **CLI, GitHub, and API Surface (P-19, P-20, P-21):** Full developer CLI, GitHub Actions webhook integration, and FastAPI server.
-- **Judge & Operator UI (P-22, P-28):** Single-screen responsive dashboard, "Why Green CI Lies" explainer, 3-world step tags, distinct 5-state verdict views, and WCAG AA/AAA accessibility.
-- **Killer Demo Scenarios (P-23):** ResetVault 3-world disk execution and canonical Pallets/Click upstream bug replay.
-- **Adversarial Campaign & Recovery (P-24, P-25):** 8-vector security defense, durable run state manager, and CAS deduplication.
-- **Performance & Model Routing (P-26):** Provider-verified Nemotron routing (`nvidia/Nemotron-3_5-Lightning`).
-- **Deployment Packaging & Parity (P-27):** Rootless `Dockerfile`, health readiness probe, source SHA parity endpoint, and signed-out judge access.
-- **Public Cloudflare Judge Build:** Production Workers deployment at `https://basebreak.zyganali.workers.dev` with Static Assets + SQLite Durable Object, `LIVE_ENABLED=false`, stable `/judge` and `/judge/<run_id>` URLs. Unauthenticated signed-out judges can directly view authentic recorded three-world verification evidence for canonical live runs (`run_3ba7d1fd-6dca-40c8-a7bb-39447bc85f1f` and `run_78fd00b7-4afa-4703-bce0-9998d6e6c7d9`), while anonymous live execution remains disabled and unauthenticated admin endpoints fail closed.
-
-### Explicit Unexecuted Live Obligations (NOT_RUN):
-- **P-16.05:** Live Tavily web search API call held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
-- **P-23.04–P-23.07:** Live Nebius Token Factory inference & sandbox runs held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
-- **P-23.08:** Upstream Click live execution held fail-closed at `PreliminaryVerdict.BLOCKED` pending isolated container sandbox runtime.
-- **P-26.02:** Live model benchmark comparison held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
-- **P-27.06:** Deployed live Nebius/NVIDIA runtime proof held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`.
-
----
-
-## Running the Judge Server & Container
-
-```bash
-# 1. Local development / judge server
-basebreak serve --host 127.0.0.1 --port 8080
-
-# 2. Build and run reproducible container locally
-docker build --build-arg BUILD_COMMIT_SHA=$(git rev-parse HEAD) -t basebreak .
-docker run -p 8080:8080 -e BASEBREAK_BEARER_TOKEN=secret -e BASEBREAK_RUNS_DIR=/data/runs basebreak
+```
++---------------------------------------------------------------------------------+
+|                                CONTRACT COMPILER                                |
+|             Freezes engineering task invariants & SHA-256 contract digest        |
++---------------------------------------------------------------------------------+
+                                    |
+          +-------------------------+-------------------------+
+          |                                                   |
+          v                                                   v
++-------------------------------+           +-----------------------------------+
+|        BUILDER RUNTIME        |           |        VERIFIER ISOLATION         |
+|  nvidia/Nemotron-3_5-Lightning|           |    Independent Sealed Challenge   |
+|   Nebius Token Factory API    |           |    Isolated Verifier Signer       |
++-------------------------------+           +-----------------------------------+
+          |                                                   |
+          v (Candidate Patch)                                 v (Sealed Witness)
+          +-------------------------+-------------------------+
+                                    |
+                                    v
++---------------------------------------------------------------------------------+
+|                   CAUSAL TWO-WORLD ENGINE (Nebius Sandboxes)                   |
+|                                                                                 |
+|  1. Materialize BASE World           --> Run Sealed Witness --> FAIL (Exit 1)   |
+|  2. Materialize CANDIDATE World      --> Run Sealed Witness --> PASS (Exit 0)   |
+|  3. Materialize COUNTERFACTUAL World --> Run Sealed Witness --> FAIL (Exit 1)   |
++---------------------------------------------------------------------------------+
+                                    |
+                                    v
++---------------------------------------------------------------------------------+
+|                   DETERMINISTIC VERIFICATION RECEIPT                            |
+|       SHA-256 Content-Addressed Digest + Verifier RSA-2048 Signed Proof         |
+|         Committed to Cloudflare SQLite Durable Object Public Ledger             |
++---------------------------------------------------------------------------------+
 ```
 
-Unauthenticated signed-out judges can freely inspect published verification runs:
-- `GET /` or `GET /judge` — Published judge dashboard
-- `GET /health` — Health readiness and source commit SHA parity
-- `GET /judge/{run_id}` — Published run visual evidence (tamper-checked before rendering)
-- `GET /v1/runs/{run_id}/receipt` — Cryptographic public verification receipt
-
-Mutating endpoints (`POST /v1/runs`, `POST /v1/runs/{run_id}/publish`), private runs, and raw execution internals (`/evidence`, `/events`, raw run metadata) strictly require operator `Authorization: Bearer <token>`. Both `BASEBREAK_BEARER_TOKEN` and `BASEBREAK_API_TOKEN` are supported environment variables.
+- **Candidate Generation**: Powered by `nvidia/Nemotron-3_5-Lightning` on Nebius Token Factory. Untrusted candidate code is analyzed via pure static AST inspection (`ast.parse`) in Python — untrusted candidate code is never compiled, evaluated, imported, or executed on the host.
+- **MicroVM Execution**: Evaluated across 11 discrete sandbox operations per run inside isolated Nebius Token Factory Sandboxes.
+- **Cryptographic Receipt Boundary**: The verifier computes SHA-256 digests over all inputs, trees, outputs, and telemetry, and generates a verifier-signed RSA-2048 proof.
+- **Public Edge Ledger**: Deployed on Cloudflare Workers Free Tier with an SQLite Durable Object ledger (`https://basebreak.zyganali.workers.dev`).
 
 ---
 
-## Development & Tooling Baseline
+## Evidence Provenance Standard
 
-Basebreak uses a minimal Python packaging and validation baseline (Python `>=3.11`).
+All Basebreak verification artifacts carry explicit, deterministic provenance labels:
+- `FIXTURE` — Static unit test fixtures and mockups.
+- `LOCAL_EXECUTION` — Reproducible commands executed in the local operator environment.
+- `LIVE_NEBIUS` — Genuine model inference and sandbox operations executed on Nebius / NVIDIA infrastructure.
+- `RECORDED_LIVE` — Authentic historical receipts and replays captured from live runs, displayed with preserved execution IDs.
 
-### Clean-Checkout Setup
+Basebreak never substitutes mocks for required live evidence and never represents recorded runs as fresh live invocations.
 
-Create and activate a virtual environment, then install the package in editable mode with development dependencies:
+---
+
+## External Grounding: Tavily Search Integration
+
+For scenarios where code correctness materially depends on current external facts (e.g. security advisories or library API migrations), Basebreak integrates a bounded Tavily Search adapter (`src/basebreak/adapters/tavily/`):
+
+- **Scenario Separation**: The primary `ResetVault` demonstration is an internal invariant test and did not use Tavily. External grounding was evaluated on `CVE-2024-21626` (container escape advisory).
+- **Executed Live Provider Event**: Exactly one authorized live Tavily Search request was executed (`cbb8a550-d334-4727-a715-1086799a73f9`), retrieving 3 advisory sources bound to a frozen contract (`docs/evidence/p16_05_live_tavily_evidence_packet/`).
+- **Deterministic Authority Firewall (`firewall.py`)**: Web search evidence **never overrides code execution**. Even when external advisories are retrieved, the firewall evaluated the evidence to an honest fail-closed `INSUFFICIENT_GROUNDING / BLOCKED` status, keeping candidate execution strictly `NOT_RUN`.
+
+---
+
+## Reproducible Setup & Test Commands
+
+Basebreak has **zero third-party runtime dependencies** in production (`dependencies = []`).
+
+### Installation
+
+Requires Python `>=3.11`.
 
 ```bash
+# 1. Clone repository
+git clone https://github.com/zyganali-glitch/Basebreak.git
+cd Basebreak
+
+# 2. Create and activate virtual environment
 python -m venv .venv
 # On Windows:
 .venv\Scripts\activate
 # On Linux/macOS:
 source .venv/bin/activate
 
+# 3. Install in editable mode with frozen constraints
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]" -c constraints.txt
 ```
 
-### Canonical Root Validation Commands
+### Canonical Validation Gates
 
-Run these deterministic gates from the repository root:
+Run the exact deterministic gates configured in GitHub CI:
 
 ```bash
 # 1. Format check
@@ -218,31 +174,35 @@ python -m ruff check .
 # 3. Type check
 python -m mypy src tests
 
-# 4. Unit tests
+# 4. Full test suite (3,015+ tests)
 python -m pytest
+
+# 5. Cloudflare Worker test suite (Node.js)
+npm --prefix cloudflare test:node
 ```
 
-All four gates must pass cleanly. All runtime capabilities (causal engine, Builder, Verifier, Nebius adapters, sandboxes) remain planned and unimplemented at this phase.
+### Local Three-World Triplet Reproduction
+
+To reproduce the exact three-world causal transition locally under subprocess isolation:
+
+```bash
+python -m pytest tests/demo/test_p23_killer_demo.py -k test_p23_03_causal_triplet_subprocess_execution -v
+```
+
+This executes the canonical `ResetVault` scenario:
+- **BASE:** Witness execution fails (Exit 1) — token replay defect detected.
+- **CANDIDATE:** Witness execution passes (Exit 0) — single-use invariant satisfied in 0.04s.
+- **COUNTERFACTUAL:** Witness execution fails (Exit 1) — patch delta subtracted, defect recurs.
 
 ---
 
-## Security & Zero-Cost Boundary
+## Limitations & Engineering Boundary
 
-- **Zero Personal Spend (Frozen Policy Requirement):** Zero Personal Spend is a frozen Basebreak requirement. Development and judge-access architecture must use verified free tiers/promotional credits or fail closed; a guaranteed zero-cost working-project path through the full judging period is not yet proven and remains subject to later live platform/account/deployment verification. Under the operator-approved `TOKEN_FACTORY_BOUNDED_BILLING_EXCEPTION`, a payment card was attached solely to enable Builder Program promotional credit activation, while target personal spend remains $0.00, post-promotional paid usage is strictly forbidden, and an operator-enforced $5.00 safety reserve floor is maintained.
-- **Untrusted Code Policy (Planned Design & Policy):** Target repositories are treated as untrusted code intended to execute only inside isolated sandboxes with strict runtime resource and timeout enforcement once the runtime sandbox execution layer is implemented.
-- **Secret Redaction (Current Policy & Planned Runtime Guard):** No API keys, credentials, or private identifiers are stored in repository history, static documentation, or public assets. Runtime secret redaction in prompts and execution evidence logs will be enforced once provider runtime adapters are implemented.
-
----
-
-## Roadmap & Documentation
-
-- [Master Execution Plan](plans/BASEBREAK_MASTER_EXECUTION_PLAN.md) — complete phase-by-phase engineering plan
-- [Handoff State](docs/HANDOFF.md) — active micro-task and verified baseline SHA
-- [Coding Constitution](AGENTS.md) — immutable agent laws and authority rules
-- [Competition Contract](docs/COMPETITION_CONTRACT.md) — verified hackathon requirements and criteria
-- [Competition Strategy](docs/COMPETITION_STRATEGY.md) — value proposition and judge alignment
-- [Operator Requirements](docs/OPERATOR_REQUIREMENTS.md) — frozen operator constraints and zero-cost policy
-- [Competition Feedback Log](docs/COMPETITION_FEEDBACK_LOG.md) — factual append-only feedback ledger
+- **Empirical Causal Verification, Not Global Formal Proof**: Basebreak proves that the patch caused the observed state transition under the specific sealed witness. It does not claim formal mathematical correctness across all unstated inputs.
+- **Public Judge is Read-Only**: The public Judge at `https://basebreak.zyganali.workers.dev` serves authentic historical recorded evidence (`RECORDED_LIVE`). Anonymous live execution endpoints are disabled to prevent promotional credit exhaustion.
+- **Synthetic Demonstration Scenario**: `ResetVault` is a synthetic scenario designed to cleanly demonstrate token-replay causal mechanics; it is not a reproduced third-party CVE.
+- **Cryptographic Signature Scheme**: The verifier signature uses custom 2048-bit raw modular exponentiation RSA over SHA-256 digests. It is independently verifiable in Python and Node.js, but is not standard PKCS#1 v1.5 or RSA-PSS.
+- **Zero Personal Spend Policy**: Development and judging operate strictly under a $0.00 personal spend policy. All live Nebius inference and sandbox operations operated strictly within hackathon promotional credits.
 
 ---
 

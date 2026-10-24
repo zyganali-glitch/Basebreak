@@ -50,7 +50,7 @@ Her sahneyi ayrı birer video parçası olarak kaydedebilirsiniz:
 - PowerShell terminalini açın. Arka plan siyah/koyu tema olsun.
 - Proje ana dizininde şu yerel üç dünyalı alt-süreç test tekrarı komutunu çalıştırın:
   ```powershell
-  python -m pytest tests/demo/test_p23_killer_demo.py -k test_reset_vault_triplet -v
+  python -m pytest tests/demo/test_p23_killer_demo.py -k test_p23_03_causal_triplet_subprocess_execution -v
   ```
 - Çıktıda `BASE exit 1`, `CANDIDATE exit 0 (1 passed in 0.04s)`, `COUNTERFACTUAL exit 1` satırlarını gösterin.
 - Gerçek sağlayıcı çalıştırmasının (`run_3ba7d1fd`, Nebius mikroVM sandbox'ları) telemetri kayıtlarını (`docs/evidence/p29_03_fresh_live_run_evidence_packet/VERIFICATION_AUDIT.md`) gösterin.
