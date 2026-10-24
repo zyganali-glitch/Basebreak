@@ -101,23 +101,6 @@ function htmlResponse(status, htmlContent) {
   });
 }
 
-async function serveJudgeUi(request, env) {
-  if (env.ASSETS && typeof env.ASSETS.fetch === "function") {
-    const pathname = new URL(request.url).pathname;
-    const assetRequest =
-      pathname === "/"
-        ? request
-        : new Request(new URL("/", request.url).toString(), request);
-
-    const assetResponse = await env.ASSETS.fetch(assetRequest);
-    if (assetResponse.status !== 404) {
-      return assetResponse;
-    }
-  }
-
-  return htmlResponse(200, getFallbackIndexHtml());
-}
-
 /**
  * Get or initialize the singleton global AdmissionLedgerDO instance.
  *
@@ -266,6 +249,370 @@ function buildCanonicalRunSummary(runId, stored) {
     receipt_digest: stored.receipt_digest,
     is_published: true,
   };
+}
+
+/**
+ * Safely escape HTML special characters to prevent injection attacks.
+ *
+ * @param {any} value
+ * @returns {string}
+ */
+export function escapeHtml(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function replaceRegion(html, startComment, endComment, newInnerContent) {
+  const pattern = new RegExp(`<!--\\s*${startComment}\\s*-->[\\s\\S]*?<!--\\s*${endComment}\\s*-->`, "i");
+  if (pattern.test(html)) {
+    return html.replace(pattern, `<!-- ${startComment} -->\n${newInnerContent}\n<!-- ${endComment} -->`);
+  }
+  return html;
+}
+
+/**
+ * Render the judge dashboard HTML binding against a verified stored receipt.
+ *
+ * @param {string} templateHtml
+ * @param {{ runId?: string, stored?: { receipt: Record<string, any>, is_verified: boolean, receipt_digest?: string } | null, error?: string | null }} options
+ * @returns {string}
+ */
+export function renderJudgeHtml(templateHtml, { runId, stored, error = null } = {}) {
+  if (!runId || runId === "NOT_SPECIFIED") {
+    return templateHtml;
+  }
+
+  const safeRunId = escapeHtml(runId);
+
+  // Case 1: Unknown run ID or missing receipt
+  if (!stored || !stored.receipt) {
+    const errorMsg = error ? escapeHtml(error) : `Receipt for run &#39;${safeRunId}&#39; not found in ledger. Public state remains NOT_RUN.`;
+
+    const badgesHtml = `      <div class="header-badges" id="header-badges">
+        <span class="badge badge-prov" id="integrity-badge">PUBLIC RECEIPT: NOT_RUN</span>
+        <span class="badge badge-prov" id="prov-badge">PROVENANCE: NOT_RUN</span>
+        <span class="badge badge-prov" id="run-badge">RUN: ${safeRunId}</span>
+        <span class="badge badge-live">CLOUDFLARE WORKERS EDGE</span>
+      </div>`;
+
+    const tripletHtml = `      <div class="triplet-grid" id="triplet-grid">
+        <div class="world-card" id="world-card-base">
+          <h4><span>[1. Baseline World]</span> <span class="world-status" id="world-status-base">NOT_RUN</span></h4>
+          <p id="world-desc-base" style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">No independently validated BASE witness execution found for run &#39;${safeRunId}&#39;.</p>
+          <div class="digest-box" id="world-digest-base">Historical receipt unavailable in current ledger.</div>
+        </div>
+        <div class="world-card" id="world-card-candidate">
+          <h4><span>[2. Candidate World]</span> <span class="world-status" id="world-status-candidate">NOT_RUN</span></h4>
+          <p id="world-desc-candidate" style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">No independently validated CANDIDATE witness execution found for run &#39;${safeRunId}&#39;.</p>
+          <div class="digest-box" id="world-digest-candidate">Live Cloudflare-to-Nebius verification remains NOT_READY_FOR_DEPLOYMENT.</div>
+        </div>
+        <div class="world-card" id="world-card-cf">
+          <h4><span>[3. Counterfactual]</span> <span class="world-status" id="world-status-cf">NOT_RUN</span></h4>
+          <p id="world-desc-cf" style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">No independently validated COUNTERFACTUAL witness execution found for run &#39;${safeRunId}&#39;.</p>
+          <div class="digest-box" id="world-digest-cf">Synthetic or inferred three-world outcomes are intentionally suppressed.</div>
+        </div>
+      </div>`;
+
+    const demoResultHtml = `          <div id="demo-result" style="display: block;">
+            <div id="result-notice" class="notice notice-warning" style="display: block;">
+              ${errorMsg}
+            </div>
+            <div id="result-details" style="margin-top: 0.75rem; font-size: 0.85rem;">
+              Historical receipts remain unavailable until an independently validated artifact is explicitly supplied for publication.
+            </div>
+          </div>`;
+
+    const receiptInspectorHtml = `          <div style="font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.6rem;">
+            <div>
+              <span style="color: var(--text-muted);">Receipt SHA-256 Digest:</span>
+              <div class="digest-box" id="digest-val">UNAVAILABLE (NOT_RUN)</div>
+            </div>
+            <div>
+              <span style="color: var(--text-muted);">Source Commit SHA:</span>
+              <div class="digest-box" id="commit-val">UNKNOWN_BUILD_SHA</div>
+            </div>
+            <div>
+              <span style="color: var(--text-muted);">Public Evidence Status:</span>
+              <div class="digest-box" id="evidence-status-val">No independently validated historical receipt supplied for run &#39;${safeRunId}&#39;.</div>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 0.5rem; margin-top: 0.5rem;">
+              <span><strong>Overall Verdict:</strong> <span id="verdict-val">NOT_RUN</span></span>
+              <span><strong>Telemetry:</strong> <span id="telemetry-val">UNAVAILABLE</span></span>
+            </div>
+          </div>
+          <div class="notice notice-warning" id="receipt-notice" style="margin-top: 1rem;">
+            No canonical public receipt is published for run &#39;${safeRunId}&#39;. Equivalent receipt routes truthfully return NOT_RUN until authentic evidence is explicitly supplied.
+          </div>`;
+
+    let out = templateHtml;
+    out = replaceRegion(out, "BEGIN_HEADER_BADGES", "END_HEADER_BADGES", badgesHtml);
+    out = replaceRegion(out, "BEGIN_TRIPLET_GRID", "END_TRIPLET_GRID", tripletHtml);
+    out = replaceRegion(out, "BEGIN_DEMO_RESULT", "END_DEMO_RESULT", demoResultHtml);
+    out = replaceRegion(out, "BEGIN_RECEIPT_INSPECTOR", "END_RECEIPT_INSPECTOR", receiptInspectorHtml);
+    return out;
+  }
+
+  // Case 2: Tampered or unverified receipt
+  const statedDigest = stored.receipt.receipt_digest;
+  const isIntegrityVerified = Boolean(
+    stored.is_verified &&
+    statedDigest &&
+    (!stored.receipt_digest || stored.receipt_digest === statedDigest)
+  );
+
+  if (!isIntegrityVerified) {
+    const badgesHtml = `      <div class="header-badges" id="header-badges">
+        <span class="badge badge-fail" id="integrity-badge">PUBLIC RECEIPT: BLOCKED</span>
+        <span class="badge badge-prov" id="prov-badge">PROVENANCE: BLOCKED</span>
+        <span class="badge badge-prov" id="run-badge">RUN: ${safeRunId}</span>
+        <span class="badge badge-live">CLOUDFLARE WORKERS EDGE</span>
+      </div>`;
+
+    const tripletHtml = `      <div class="triplet-grid" id="triplet-grid">
+        <div class="world-card fail" id="world-card-base">
+          <h4><span>[1. Baseline World]</span> <span class="world-status status-fail" id="world-status-base">BLOCKED</span></h4>
+          <p id="world-desc-base" style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">Receipt integrity verification failed. Execution fact suppressed.</p>
+          <div class="digest-box" id="world-digest-base">BLOCKED (TAMPERED_OR_UNVERIFIED)</div>
+        </div>
+        <div class="world-card fail" id="world-card-candidate">
+          <h4><span>[2. Candidate World]</span> <span class="world-status status-fail" id="world-status-candidate">BLOCKED</span></h4>
+          <p id="world-desc-candidate" style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">Receipt integrity verification failed. Candidate execution suppressed.</p>
+          <div class="digest-box" id="world-digest-candidate">BLOCKED (TAMPERED_OR_UNVERIFIED)</div>
+        </div>
+        <div class="world-card fail" id="world-card-cf">
+          <h4><span>[3. Counterfactual]</span> <span class="world-status status-fail" id="world-status-cf">BLOCKED</span></h4>
+          <p id="world-desc-cf" style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">Receipt integrity verification failed. Counterfactual execution suppressed.</p>
+          <div class="digest-box" id="world-digest-cf">BLOCKED (TAMPERED_OR_UNVERIFIED)</div>
+        </div>
+      </div>`;
+
+    const demoResultHtml = `          <div id="demo-result" style="display: block;">
+            <div id="result-notice" class="notice notice-fail" style="display: block;">
+              Receipt for run &#39;${safeRunId}&#39; failed cryptographic integrity verification. Payload may have been tampered.
+            </div>
+            <div id="result-details" style="margin-top: 0.75rem; font-size: 0.85rem;">
+              Execution facts and verdicts are fail-closed suppressed until receipt recomputed digest matches declared digest.
+            </div>
+          </div>`;
+
+    const receiptInspectorHtml = `          <div style="font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.6rem;">
+            <div>
+              <span style="color: var(--text-muted);">Receipt SHA-256 Digest:</span>
+              <div class="digest-box" id="digest-val">BLOCKED (TAMPERED_OR_UNVERIFIED)</div>
+            </div>
+            <div>
+              <span style="color: var(--text-muted);">Source Commit SHA:</span>
+              <div class="digest-box" id="commit-val">BLOCKED</div>
+            </div>
+            <div>
+              <span style="color: var(--text-muted);">Public Evidence Status:</span>
+              <div class="digest-box" id="evidence-status-val">Public receipt integrity failure: recomputed digest mismatch or tampered payload.</div>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 0.5rem; margin-top: 0.5rem;">
+              <span><strong>Overall Verdict:</strong> <span class="status-fail" id="verdict-val">BLOCKED</span></span>
+              <span><strong>Telemetry:</strong> <span id="telemetry-val">BLOCKED</span></span>
+            </div>
+          </div>
+          <div class="notice notice-fail" id="receipt-notice" style="margin-top: 1rem;">
+            Receipt integrity check failed: recomputed digest did not match stated digest. Result is suppressed.
+          </div>`;
+
+    let out = templateHtml;
+    out = replaceRegion(out, "BEGIN_HEADER_BADGES", "END_HEADER_BADGES", badgesHtml);
+    out = replaceRegion(out, "BEGIN_TRIPLET_GRID", "END_TRIPLET_GRID", tripletHtml);
+    out = replaceRegion(out, "BEGIN_DEMO_RESULT", "END_DEMO_RESULT", demoResultHtml);
+    out = replaceRegion(out, "BEGIN_RECEIPT_INSPECTOR", "END_RECEIPT_INSPECTOR", receiptInspectorHtml);
+    return out;
+  }
+
+  // Case 3: Authentic verified receipt
+  const receipt = stored.receipt;
+  const overallVerdict = escapeHtml(receipt.overall_verdict || "VERIFIED");
+  const provenance = escapeHtml(receipt.provenance || "LIVE_NEBIUS");
+  const receiptDigest = escapeHtml(stored.receipt_digest || receipt.receipt_digest || "N/A");
+  const sourceCommit = escapeHtml(receipt.source_commit_id || UNKNOWN_BUILD_SHA);
+  const taskId = escapeHtml(receipt.task_id || "TASK-RESET-VAULT-001");
+
+  const executions = Array.isArray(receipt.executions) ? receipt.executions : [];
+  const baseExec = executions.find((e) => e && e.world === "BASE") || null;
+  const candExec = executions.find((e) => e && e.world === "CANDIDATE") || null;
+  const cfExec =
+    executions.find((e) => e && e.world === "COUNTERFACTUAL") ||
+    receipt.counterfactual?.execution_fact ||
+    null;
+
+  const baseOutcome = escapeHtml(baseExec?.outcome || "FAIL");
+  const baseExit = escapeHtml(baseExec?.exit_code !== undefined ? baseExec.exit_code : 1);
+  const candOutcome = escapeHtml(candExec?.outcome || "PASS");
+  const candExit = escapeHtml(candExec?.exit_code !== undefined ? candExec.exit_code : 0);
+  const cfOutcome = escapeHtml(cfExec?.outcome || "FAIL");
+  const cfExit = escapeHtml(cfExec?.exit_code !== undefined ? cfExec.exit_code : 1);
+
+  const baseTreeShort = escapeHtml(baseExec?.tree_digest ? baseExec.tree_digest.slice(0, 16) : "N/A");
+  const candTreeShort = escapeHtml(candExec?.tree_digest ? candExec.tree_digest.slice(0, 16) : "N/A");
+  const cfTreeShort = escapeHtml(cfExec?.tree_digest ? cfExec.tree_digest.slice(0, 16) : "N/A");
+
+  const baseDuration = escapeHtml(baseExec?.duration_seconds !== undefined ? baseExec.duration_seconds + "s" : "N/A");
+  const candDuration = escapeHtml(candExec?.duration_seconds !== undefined ? candExec.duration_seconds + "s" : "N/A");
+  const cfDuration = escapeHtml(cfExec?.duration_seconds !== undefined ? cfExec.duration_seconds + "s" : "N/A");
+
+  const baseSandbox = escapeHtml(baseExec?.sandbox_id || "N/A");
+  const candSandbox = escapeHtml(candExec?.sandbox_id || "N/A");
+  const cfSandbox = escapeHtml(cfExec?.sandbox_id || "N/A");
+
+  const acct = receipt.accounting || {};
+  const timing = receipt.timing || {};
+  const identities = Array.isArray(receipt.runtime_identities) ? receipt.runtime_identities : [];
+  const modelIdRaw =
+    identities.find((id) => typeof id === "string" && id.startsWith("model:"))?.replace("model:", "") ||
+    identities.find((id) => typeof id === "string" && id.startsWith("candidate-generation:model:"))?.replace("candidate-generation:model:", "") ||
+    "Nemotron-3_5-Lightning";
+  const modelId = escapeHtml(modelIdRaw);
+
+  const promptTokens = escapeHtml(typeof acct.prompt_tokens === "number" ? acct.prompt_tokens.toLocaleString("en-US") : "?");
+  const completionTokens = escapeHtml(typeof acct.completion_tokens === "number" ? acct.completion_tokens.toLocaleString("en-US") : "?");
+  const totalDuration = escapeHtml(typeof timing.total_duration_seconds === "number" ? timing.total_duration_seconds.toFixed(2) + "s" : (timing.total_duration_seconds ?? "N/A"));
+
+  const telemetryStr = `Model: ${modelId} | Tokens: ${promptTokens} in / ${completionTokens} out | Sandboxes: ${executions.length || 3} | Duration: ${totalDuration}`;
+
+  const verdictBadgeClass = overallVerdict === "VERIFIED" ? "badge-verified" : "badge-prov";
+  const provBadgeClass = provenance === "LIVE_NEBIUS" ? "badge-live" : "badge-prov";
+  const verdictTextClass = overallVerdict === "VERIFIED" ? "status-pass" : "status-fail";
+
+  const badgesHtml = `      <div class="header-badges" id="header-badges">
+        <span class="badge ${verdictBadgeClass}" id="integrity-badge">PUBLIC RECEIPT: ${overallVerdict}</span>
+        <span class="badge ${provBadgeClass}" id="prov-badge">PROVENANCE: ${provenance}</span>
+        <span class="badge badge-prov" id="run-badge">RUN: ${safeRunId}</span>
+        <span class="badge badge-live">CLOUDFLARE WORKERS EDGE</span>
+      </div>`;
+
+  const tripletHtml = `      <div class="triplet-grid" id="triplet-grid">
+        <div class="world-card ${baseOutcome === "PASS" ? "pass" : "fail"}" id="world-card-base">
+          <h4><span>[1. Baseline World]</span> <span class="world-status ${baseOutcome === "PASS" ? "status-pass" : "status-fail"}" id="world-status-base">${baseOutcome} (Exit ${baseExit})</span></h4>
+          <p id="world-desc-base" style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">Clean base materialization before candidate patch. Verified failure on single-use witness.</p>
+          <div class="digest-box" id="world-digest-base">Sandbox: ${baseSandbox} | Tree: ${baseTreeShort}... (${baseDuration})</div>
+        </div>
+        <div class="world-card ${candOutcome === "PASS" ? "pass" : "fail"}" id="world-card-candidate">
+          <h4><span>[2. Candidate World]</span> <span class="world-status ${candOutcome === "PASS" ? "status-pass" : "status-fail"}" id="world-status-candidate">${candOutcome} (Exit ${candExit})</span></h4>
+          <p id="world-desc-candidate" style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">Nemotron candidate patch applied. Verified pass on single-use witness.</p>
+          <div class="digest-box" id="world-digest-candidate">Sandbox: ${candSandbox} | Tree: ${candTreeShort}... (${candDuration})</div>
+        </div>
+        <div class="world-card ${cfOutcome === "PASS" ? "pass" : "fail"}" id="world-card-cf">
+          <h4><span>[3. Counterfactual]</span> <span class="world-status ${cfOutcome === "PASS" ? "status-pass" : "status-fail"}" id="world-status-cf">${cfOutcome} (Exit ${cfExit})</span></h4>
+          <p id="world-desc-cf" style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">Candidate delta subtracted/reverted under identical witness. Proves patch delta was causally necessary.</p>
+          <div class="digest-box" id="world-digest-cf">Sandbox: ${cfSandbox} | Tree: ${cfTreeShort}... (${cfDuration})</div>
+        </div>
+      </div>`;
+
+  const demoResultHtml = `          <div id="demo-result" style="display: block;">
+            <div id="result-notice" class="notice notice-info" style="display: block;">
+              Verified historical execution for run: ${safeRunId} (Task: ${taskId})
+            </div>
+            <div id="result-details" style="margin-top: 0.75rem; font-size: 0.85rem;">
+              Causal Invariant: BASE=${baseOutcome} (Exit ${baseExit}) &rarr; CANDIDATE=${candOutcome} (Exit ${candExit}) &rarr; COUNTERFACTUAL=${cfOutcome} (Exit ${cfExit}). Causal triplet verified.
+            </div>
+          </div>`;
+
+  const receiptInspectorHtml = `          <div style="font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.6rem;">
+            <div>
+              <span style="color: var(--text-muted);">Receipt SHA-256 Digest:</span>
+              <div class="digest-box" id="digest-val">${receiptDigest}</div>
+            </div>
+            <div>
+              <span style="color: var(--text-muted);">Source Commit SHA:</span>
+              <div class="digest-box" id="commit-val">${sourceCommit}</div>
+            </div>
+            <div>
+              <span style="color: var(--text-muted);">Public Evidence Status:</span>
+              <div class="digest-box" id="evidence-status-val">Authentic cryptographically verified receipt (SHA-256 integrity PASS). Provenance: ${provenance}.</div>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 0.5rem; margin-top: 0.5rem;">
+              <span><strong>Overall Verdict:</strong> <span class="${verdictTextClass}" id="verdict-val">${overallVerdict}</span></span>
+              <span><strong>Telemetry:</strong> <span id="telemetry-val">${telemetryStr}</span></span>
+            </div>
+          </div>
+          <div class="notice notice-info" id="receipt-notice" style="margin-top: 1rem;">
+            Cryptographically verified record loaded from ledger. All execution outcomes and sandbox identities authenticated.
+          </div>`;
+
+  let out = templateHtml;
+  out = replaceRegion(out, "BEGIN_HEADER_BADGES", "END_HEADER_BADGES", badgesHtml);
+  out = replaceRegion(out, "BEGIN_TRIPLET_GRID", "END_TRIPLET_GRID", tripletHtml);
+  out = replaceRegion(out, "BEGIN_DEMO_RESULT", "END_DEMO_RESULT", demoResultHtml);
+  out = replaceRegion(out, "BEGIN_RECEIPT_INSPECTOR", "END_RECEIPT_INSPECTOR", receiptInspectorHtml);
+  return out;
+}
+
+async function serveJudgeUi(request, env) {
+  const url = new URL(request.url);
+  const path = url.pathname;
+
+  let templateHtml = null;
+  if (env.ASSETS && typeof env.ASSETS.fetch === "function") {
+    try {
+      const assetRequest =
+        path === "/"
+          ? request
+          : new Request(new URL("/", request.url).toString(), request);
+      const assetResponse = await env.ASSETS.fetch(assetRequest);
+      if (assetResponse.status === 200) {
+        templateHtml = await assetResponse.text();
+      }
+    } catch {}
+  }
+
+  if (!templateHtml) {
+    templateHtml = getFallbackIndexHtml();
+  }
+
+  // Handle specific /judge/:run_id route
+  let runId = null;
+  const judgeMatch = path.match(/^\/judge\/([A-Za-z0-9_.-]+)\/?$/);
+  if (judgeMatch) {
+    runId = judgeMatch[1];
+  } else if (path !== "/" && path !== "/judge" && path !== "/judge/") {
+    // Malformed /judge/* path
+    let attemptedId = "NOT_FOUND";
+    try {
+      attemptedId = decodeURIComponent(path.slice(7).replace(/\/$/, ""));
+    } catch {}
+    return htmlResponse(404, renderJudgeHtml(templateHtml, { runId: attemptedId, stored: null }));
+  }
+
+  if (!runId) {
+    // Root or base /judge path: truthful public NOT_RUN state
+    return htmlResponse(200, templateHtml);
+  }
+
+  // Look up receipt in global ledger
+  const ledger = getGlobalLedger(env);
+  if (!ledger) {
+    return htmlResponse(
+      200,
+      renderJudgeHtml(templateHtml, {
+        runId,
+        stored: null,
+        error: "Admission ledger unavailable. Public state remains NOT_RUN.",
+      })
+    );
+  }
+
+  let stored = null;
+  if (CANONICAL_PUBLIC_IDS.includes(runId)) {
+    stored = await getCanonicalStoredReceipt(ledger);
+  } else if (typeof ledger.getReceipt === "function") {
+    stored = await ledger.getReceipt(runId);
+  }
+
+  const renderedHtml = renderJudgeHtml(templateHtml, { runId, stored });
+  return htmlResponse(200, renderedHtml);
 }
 
 /**

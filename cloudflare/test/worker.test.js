@@ -1560,3 +1560,292 @@ describe("Bridge transport resolution (Workers VPC seam)", () => {
     assert.equal(result.provider_may_have_dispatched, false);
   });
 });
+
+describe("P-32.03 Judge UI Signed-Out Receipt Rendering Suite", () => {
+  it("existing known signed-out run renders authentic recorded verification details", async () => {
+    const { env } = createWorkerEnv();
+    const runId = "run_3ba7d1fd-6dca-40c8-a7bb-39447bc85f1f";
+    const receipt = buildFixturePublicReceipt({
+      task_id: "TASK-RESET-VAULT-001",
+      provenance: "LIVE_NEBIUS",
+      overall_verdict: "VERIFIED",
+      executions: [
+        {
+          world: "BASE",
+          outcome: "FAIL",
+          exit_code: 1,
+          sandbox_id: "sbx-base-test-7da8",
+          tree_digest: "824fa2c69a222cc2204950bb6eb974abfd2abb7d",
+          duration_seconds: 2.452,
+        },
+        {
+          world: "CANDIDATE",
+          outcome: "PASS",
+          exit_code: 0,
+          sandbox_id: "sbx-cand-test-c105",
+          tree_digest: "6c4f46cbb51119d8e93534a1e2ee922498ee450b",
+          duration_seconds: 2.125,
+        },
+        {
+          world: "COUNTERFACTUAL",
+          outcome: "FAIL",
+          exit_code: 1,
+          sandbox_id: "sbx-cf-test-de5d",
+          tree_digest: "824fa2c69a222cc2204950bb6eb974abfd2abb7d",
+          duration_seconds: 4.617,
+        },
+      ],
+      accounting: {
+        prompt_tokens: 1123,
+        completion_tokens: 693,
+        model_call_count: 1,
+        is_metered: false,
+        estimated_cost_usd: 0.5,
+      },
+      timing: {
+        total_duration_seconds: 12.9105,
+      },
+      runtime_identities: [
+        "model:nvidia/Nemotron-3_5-Lightning",
+        "sandbox:sbx-base-test-7da8",
+        "sandbox:sbx-cand-test-c105",
+        "sandbox:sbx-cf-test-de5d",
+      ],
+    });
+
+    env.__ledgerInstance.storeReceipt(runId, receipt, { allowAuthoritativeProvenance: true });
+
+    const req = new Request(`https://basebreak.workers.dev/judge/${runId}`, { method: "GET" });
+    const res = await worker.fetch(req, env, {});
+
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("Content-Type") || "", /text\/html/);
+
+    const html = await res.text();
+    // 1. Header Badges: verified verdict and live provenance
+    assert.match(html, /PUBLIC RECEIPT:\s*VERIFIED/);
+    assert.match(html, /badge-verified/);
+    assert.match(html, /PROVENANCE:\s*LIVE_NEBIUS/);
+    assert.match(html, /badge-live/);
+    assert.match(html, new RegExp(`RUN:\\s*${runId}`));
+
+    // 2. Causal 3-World Invariant: BASE=FAIL, CANDIDATE=PASS, COUNTERFACTUAL=FAIL
+    assert.match(html, /\[1\.\s*Baseline World\]/);
+    assert.match(html, /FAIL\s*\(Exit 1\)/);
+    assert.match(html, /sbx-base-test-7da8/);
+    assert.match(html, /824fa2c69a222cc2/);
+
+    assert.match(html, /\[2\.\s*Candidate World\]/);
+    assert.match(html, /PASS\s*\(Exit 0\)/);
+    assert.match(html, /sbx-cand-test-c105/);
+    assert.match(html, /6c4f46cbb51119d8/);
+
+    assert.match(html, /\[3\.\s*Counterfactual\]/);
+    assert.match(html, /FAIL\s*\(Exit 1\)/);
+    assert.match(html, /sbx-cf-test-de5d/);
+
+    // 3. Cryptographic Receipt Details
+    assert.match(html, new RegExp(receipt.receipt_digest));
+    assert.match(html, new RegExp(receipt.source_commit_id));
+    assert.match(html, /Authentic cryptographically verified receipt/);
+
+    // 4. Telemetry
+    assert.match(html, /nvidia\/Nemotron-3_5-Lightning/);
+    assert.match(html, /1,123 in \/ 693 out/);
+    assert.match(html, /12\.91s/);
+  });
+
+  it("different run IDs cannot display the wrong run's receipt", async () => {
+    const { env } = createWorkerEnv();
+    const runAlpha = "run_alpha_11111111-1111-1111-1111-111111111111";
+    const runBeta = "run_beta_22222222-2222-2222-2222-222222222222";
+
+    const receiptAlpha = buildFixturePublicReceipt({
+      task_id: "TASK-ALPHA-RESET-VAULT",
+      provenance: "LIVE_NEBIUS",
+      overall_verdict: "VERIFIED",
+    });
+    const receiptBeta = buildFixturePublicReceipt({
+      task_id: "TASK-BETA-OTHER-WORK",
+      provenance: "FIXTURE",
+      overall_verdict: "INCONCLUSIVE",
+    });
+
+    env.__ledgerInstance.storeReceipt(runAlpha, receiptAlpha, { allowAuthoritativeProvenance: true });
+    env.__ledgerInstance.storeReceipt(runBeta, receiptBeta, { allowAuthoritativeProvenance: true });
+
+    // Request Alpha
+    const resA = await worker.fetch(
+      new Request(`https://basebreak.workers.dev/judge/${runAlpha}`, { method: "GET" }),
+      env,
+      {}
+    );
+    const htmlA = await resA.text();
+    assert.match(htmlA, new RegExp(`RUN:\\s*${runAlpha}`));
+    assert.match(htmlA, /TASK-ALPHA-RESET-VAULT/);
+    assert.match(htmlA, new RegExp(receiptAlpha.receipt_digest));
+    assert.equal(htmlA.includes(runBeta), false);
+    assert.equal(htmlA.includes("TASK-BETA-OTHER-WORK"), false);
+    assert.equal(htmlA.includes(receiptBeta.receipt_digest), false);
+
+    // Request Beta
+    const resB = await worker.fetch(
+      new Request(`https://basebreak.workers.dev/judge/${runBeta}`, { method: "GET" }),
+      env,
+      {}
+    );
+    const htmlB = await resB.text();
+    assert.match(htmlB, new RegExp(`RUN:\\s*${runBeta}`));
+    assert.match(htmlB, /TASK-BETA-OTHER-WORK/);
+    assert.match(htmlB, new RegExp(receiptBeta.receipt_digest));
+    assert.equal(htmlB.includes(runAlpha), false);
+    assert.equal(htmlB.includes("TASK-ALPHA-RESET-VAULT"), false);
+    assert.equal(htmlB.includes(receiptAlpha.receipt_digest), false);
+  });
+
+  it("unknown run IDs remain unavailable with truthful NOT_RUN public state", async () => {
+    const { env } = createWorkerEnv();
+    const unknownId = "run_unknown_99999999-9999-9999-9999-999999999999";
+
+    const res = await worker.fetch(
+      new Request(`https://basebreak.workers.dev/judge/${unknownId}`, { method: "GET" }),
+      env,
+      {}
+    );
+
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.match(html, /PUBLIC RECEIPT:\s*NOT_RUN/);
+    assert.match(html, /PROVENANCE:\s*NOT_RUN/);
+    assert.match(html, new RegExp(`RUN:\\s*${unknownId}`));
+    assert.match(html, new RegExp(`Receipt for run &#39;${unknownId}&#39; not found in ledger`));
+    assert.match(html, /UNAVAILABLE \(NOT_RUN\)/);
+    // Must NOT masquerade as verified
+    assert.equal(html.includes('class="badge badge-verified"'), false);
+    assert.equal(html.includes("PUBLIC RECEIPT: VERIFIED"), false);
+    assert.equal(html.includes('<span class="world-status status-pass">'), false);
+  });
+
+  it("tampered or unverified receipts remain blocked and suppress execution facts", async () => {
+    const { env, db } = createWorkerEnv();
+    const tamperedRunId = "run_tampered_test_3333";
+    const receipt = buildFixturePublicReceipt({
+      task_id: "TASK-TAMPERED-001",
+      overall_verdict: "VERIFIED",
+    });
+
+    // Store legitimately first
+    env.__ledgerInstance.storeReceipt(tamperedRunId, receipt, { allowAuthoritativeProvenance: true });
+
+    // Directly tamper the JSON in the SQLite DB so that recomputed digest does not match declared digest
+    const tamperedJson = JSON.stringify({ ...receipt, overall_verdict: "FABRICATED_VERIFIED" });
+    db.prepare("UPDATE receipts SET receipt_json = ?, is_verified = 0 WHERE run_id = ?").run(
+      tamperedJson,
+      tamperedRunId
+    );
+
+    const res = await worker.fetch(
+      new Request(`https://basebreak.workers.dev/judge/${tamperedRunId}`, { method: "GET" }),
+      env,
+      {}
+    );
+
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.match(html, /PUBLIC RECEIPT:\s*BLOCKED/);
+    assert.match(html, /badge-fail/);
+    assert.match(html, /PROVENANCE:\s*BLOCKED/);
+    assert.match(html, /BLOCKED \(TAMPERED_OR_UNVERIFIED\)/);
+    assert.match(html, /failed cryptographic integrity verification/);
+    // Must NOT show verified badge or passing status
+    assert.equal(html.includes('class="badge badge-verified"'), false);
+    assert.equal(html.includes("PUBLIC RECEIPT: VERIFIED"), false);
+    assert.equal(html.includes('<span class="world-status status-pass">'), false);
+  });
+
+  it("GET /judge routes introduce no unauthenticated mutation or live execution", async () => {
+    const { env } = createWorkerEnv();
+    const runId = "run_inspection_test";
+    const receipt = buildFixturePublicReceipt({ task_id: "TASK-MUTATION-TEST" });
+    env.__ledgerInstance.storeReceipt(runId, receipt, { allowAuthoritativeProvenance: true });
+
+    const beforeAccounting = await env.__ledgerInstance.getAccounting();
+
+    await worker.fetch(
+      new Request(`https://basebreak.workers.dev/judge/${runId}`, { method: "GET" }),
+      env,
+      {}
+    );
+
+    const afterAccounting = await env.__ledgerInstance.getAccounting();
+    assert.equal(afterAccounting.total_runs, beforeAccounting.total_runs);
+    assert.equal(afterAccounting.in_flight_count, 0);
+    assert.equal(afterAccounting.live_enabled, false);
+    assert.equal(afterAccounting.kill_switch_engaged, false);
+  });
+
+  it("the default root page / and base /judge do not masquerade as a verified run", async () => {
+    const { env } = createWorkerEnv();
+    const runId = "run_existing_valid";
+    const receipt = buildFixturePublicReceipt({
+      task_id: "TASK-ROOT-ISOLATION-001",
+      overall_verdict: "VERIFIED",
+    });
+    env.__ledgerInstance.storeReceipt(runId, receipt, { allowAuthoritativeProvenance: true });
+
+    for (const testPath of ["/", "/judge", "/judge/"]) {
+      const res = await worker.fetch(
+        new Request(`https://basebreak.workers.dev${testPath}`, { method: "GET" }),
+        env,
+        {}
+      );
+      assert.equal(res.status, 200);
+      const html = await res.text();
+      assert.match(html, /PUBLIC RECEIPT:\s*NOT_RUN/);
+      assert.match(html, /PROVENANCE:\s*NOT_RUN/);
+      assert.match(html, /UNAVAILABLE \(NOT_RUN\)/);
+      assert.equal(html.includes(runId), false);
+      assert.equal(html.includes("TASK-ROOT-ISOLATION-001"), false);
+      assert.equal(html.includes('class="badge badge-verified"'), false);
+      assert.equal(html.includes("PUBLIC RECEIPT: VERIFIED"), false);
+    }
+  });
+
+  it("escapes receipt-controlled HTML and URL run_id to prevent injection", async () => {
+    const { env } = createWorkerEnv();
+    const maliciousRunId = "run_<script>alert(1)</script>";
+
+    // 1. URL-level injection test (returns 404 with escaped run ID)
+    const resUrl = await worker.fetch(
+      new Request(`https://basebreak.workers.dev/judge/${encodeURIComponent(maliciousRunId)}`, {
+        method: "GET",
+      }),
+      env,
+      {}
+    );
+
+    assert.equal(resUrl.status, 404);
+    const htmlUrl = await resUrl.text();
+    assert.match(htmlUrl, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+    assert.equal(htmlUrl.includes("<script>alert(1)</script>"), false);
+
+    // 2. Receipt field injection test (returns 200 with escaped fields)
+    const injectionRunId = "run_field_injection_test";
+    const injectionReceipt = buildFixturePublicReceipt({
+      task_id: "TASK-SAFE-INJECT",
+      disclaimers: ['<img src=x onerror=alert("xss")>'],
+    });
+    env.__ledgerInstance.storeReceipt(injectionRunId, injectionReceipt, { allowAuthoritativeProvenance: true });
+
+    const resReceipt = await worker.fetch(
+      new Request(`https://basebreak.workers.dev/judge/${injectionRunId}`, {
+        method: "GET",
+      }),
+      env,
+      {}
+    );
+    assert.equal(resReceipt.status, 200);
+    const htmlReceipt = await resReceipt.text();
+    assert.equal(htmlReceipt.includes('<img src=x onerror=alert("xss")>'), false);
+  });
+});
