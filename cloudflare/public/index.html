@@ -305,76 +305,197 @@
         })
         .then(function (receipt) {
           if (!receipt || typeof receipt !== "object") return;
+          const overallVerdict = typeof receipt.overall_verdict === "string" && receipt.overall_verdict.trim() ? receipt.overall_verdict.trim() : "UNAVAILABLE";
+          const provenance = typeof receipt.provenance === "string" && receipt.provenance.trim() ? receipt.provenance.trim() : "UNAVAILABLE";
+          const taskId = typeof receipt.task_id === "string" && receipt.task_id.trim() ? receipt.task_id.trim() : "UNAVAILABLE";
+
+          const executions = Array.isArray(receipt.executions) ? receipt.executions : [];
+          const baseExec = executions.find(function (e) { return e && e.world === "BASE"; }) || null;
+          const candExec = executions.find(function (e) { return e && e.world === "CANDIDATE"; }) || null;
+          const cfExec = executions.find(function (e) { return e && e.world === "COUNTERFACTUAL"; }) || receipt.counterfactual?.execution_fact || null;
+
+          function setWorld(cardId, statusId, descId, digestId, exec, worldName, defaultPassDesc, defaultFailDesc) {
+            const card = document.getElementById(cardId);
+            const status = document.getElementById(statusId);
+            const desc = document.getElementById(descId);
+            const digest = document.getElementById(digestId);
+            if (!exec) {
+              if (card) card.className = "world-card";
+              if (status) {
+                status.textContent = "UNAVAILABLE";
+                status.className = "world-status";
+              }
+              if (desc) desc.textContent = "No " + worldName + " world execution fact recorded in stored receipt.";
+              if (digest) digest.textContent = "UNAVAILABLE";
+              return { hasOutcome: false, hasExit: false, rawOutcome: null, rawExit: null, outcome: "UNAVAILABLE", exitCode: "N/A" };
+            }
+
+            const hasOutcome = typeof exec.outcome === "string" && exec.outcome.trim().length > 0;
+            const outcome = hasOutcome ? exec.outcome.trim() : "UNAVAILABLE";
+            const hasExit = exec.exit_code !== undefined && exec.exit_code !== null;
+            const exitCode = hasExit ? String(exec.exit_code) : "N/A";
+
+            if (card) card.className = "world-card " + (outcome === "PASS" ? "pass" : (outcome === "FAIL" ? "fail" : ""));
+            if (status) {
+              status.textContent = outcome + " (Exit " + exitCode + ")";
+              status.className = "world-status " + (outcome === "PASS" ? "status-pass" : (outcome === "FAIL" ? "status-fail" : ""));
+            }
+            if (desc) {
+              if (outcome === "PASS") desc.textContent = defaultPassDesc;
+              else if (outcome === "FAIL") desc.textContent = defaultFailDesc;
+              else desc.textContent = worldName + " execution recorded outcome: " + outcome + ".";
+            }
+            if (digest) {
+              const sandbox = exec.sandbox_id ? String(exec.sandbox_id) : "N/A";
+              const treeShort = exec.tree_digest ? String(exec.tree_digest).slice(0, 16) : "N/A";
+              const dur = exec.duration_seconds !== undefined && exec.duration_seconds !== null ? String(exec.duration_seconds) + "s" : "N/A";
+              digest.textContent = "Sandbox: " + sandbox + " | Tree: " + treeShort + "... (" + dur + ")";
+            }
+
+            return {
+              hasOutcome: hasOutcome,
+              hasExit: hasExit,
+              rawOutcome: exec.outcome,
+              rawExit: exec.exit_code,
+              outcome: outcome,
+              exitCode: exitCode,
+            };
+          }
+
+          const baseFact = setWorld("world-card-base", "world-status-base", "world-desc-base", "world-digest-base", baseExec, "BASE", "Baseline execution unexpectedly PASSED on witness.", "Clean base materialization before candidate patch. Verified failure on single-use witness.");
+          const candFact = setWorld("world-card-candidate", "world-status-candidate", "world-desc-candidate", "world-digest-candidate", candExec, "CANDIDATE", "Nemotron candidate patch applied. Verified pass on single-use witness.", "Candidate execution FAILED on witness.");
+          const cfFact = setWorld("world-card-cf", "world-status-cf", "world-desc-cf", "world-digest-cf", cfExec, "COUNTERFACTUAL", "Counterfactual execution PASSED (patch delta was not causally necessary).", "Candidate delta subtracted/reverted under identical witness. Proves patch delta was causally necessary.");
+
+          const allThreeWorldsPresent = Boolean(baseExec && candExec && cfExec);
+          const allOutcomesPresent = Boolean(baseFact.hasOutcome && candFact.hasOutcome && cfFact.hasOutcome);
+          const allExitsPresent = Boolean(baseFact.hasExit && candFact.hasExit && cfFact.hasExit);
+          const outcomesFormTriplets = Boolean(
+            baseFact.rawOutcome === "FAIL" &&
+            candFact.rawOutcome === "PASS" &&
+            cfFact.rawOutcome === "FAIL" &&
+            candFact.rawExit === 0 &&
+            baseFact.rawExit !== 0 &&
+            cfFact.rawExit !== 0
+          );
+
+          const isCausalTripletVerified = Boolean(
+            overallVerdict === "VERIFIED" &&
+            allThreeWorldsPresent &&
+            allOutcomesPresent &&
+            allExitsPresent &&
+            outcomesFormTriplets
+          );
+
           const integrityBadge = document.getElementById("integrity-badge");
           if (integrityBadge) {
-            integrityBadge.textContent = "PUBLIC RECEIPT: " + (receipt.overall_verdict || "UNKNOWN");
-            integrityBadge.className = "badge " + (receipt.overall_verdict === "VERIFIED" ? "badge-verified" : "badge-prov");
+            integrityBadge.textContent = "PUBLIC RECEIPT: " + overallVerdict;
+            let vClass = "badge-prov";
+            if (overallVerdict === "VERIFIED" && isCausalTripletVerified) vClass = "badge-verified";
+            else if (overallVerdict === "FAIL" || overallVerdict === "BLOCKED") vClass = "badge-fail";
+            integrityBadge.className = "badge " + vClass;
           }
           const provBadge = document.getElementById("prov-badge");
           if (provBadge) {
-            provBadge.textContent = "PROVENANCE: " + (receipt.provenance || "UNKNOWN");
-            provBadge.className = "badge " + (receipt.provenance === "LIVE_NEBIUS" ? "badge-live" : "badge-prov");
+            provBadge.textContent = "PROVENANCE: " + provenance;
+            provBadge.className = "badge " + (provenance === "LIVE_NEBIUS" ? "badge-live" : "badge-prov");
           }
           if (runBadge) {
             runBadge.textContent = "RUN: " + runId;
             runBadge.style.display = "inline-flex";
           }
-          const executions = Array.isArray(receipt.executions) ? receipt.executions : [];
-          const baseExec = executions.find(function (e) { return e && e.world === "BASE"; });
-          const candExec = executions.find(function (e) { return e && e.world === "CANDIDATE"; });
-          const cfExec = executions.find(function (e) { return e && e.world === "COUNTERFACTUAL"; }) || receipt.counterfactual?.execution_fact;
 
-          function setWorld(cardId, statusId, descId, digestId, exec, defaultDesc) {
-            const card = document.getElementById(cardId);
-            const status = document.getElementById(statusId);
-            const desc = document.getElementById(descId);
-            const digest = document.getElementById(digestId);
-            if (exec) {
-              if (card) card.className = "world-card " + (exec.outcome === "PASS" ? "pass" : "fail");
-              if (status) {
-                status.textContent = exec.outcome + " (Exit " + (exec.exit_code !== undefined ? exec.exit_code : "N/A") + ")";
-                status.className = "world-status " + (exec.outcome === "PASS" ? "status-pass" : "status-fail");
-              }
-              if (desc) desc.textContent = defaultDesc;
-              if (digest) digest.textContent = "Sandbox: " + (exec.sandbox_id || "N/A") + " | Tree: " + (exec.tree_digest ? exec.tree_digest.slice(0, 16) : "N/A") + "... (" + (exec.duration_seconds !== undefined ? exec.duration_seconds + "s" : "N/A") + ")";
-            }
-          }
-
-          setWorld("world-card-base", "world-status-base", "world-desc-base", "world-digest-base", baseExec, "Clean base materialization before candidate patch. Verified failure on single-use witness.");
-          setWorld("world-card-candidate", "world-status-candidate", "world-desc-candidate", "world-digest-candidate", candExec, "Nemotron candidate patch applied. Verified pass on single-use witness.");
-          setWorld("world-card-cf", "world-status-cf", "world-desc-cf", "world-digest-cf", cfExec, "Candidate delta subtracted/reverted under identical witness. Proves patch delta was causally necessary.");
-
-          if (digestVal) digestVal.textContent = receipt.receipt_digest || "N/A";
+          if (digestVal) digestVal.textContent = receipt.receipt_digest || "UNAVAILABLE";
           const commitVal = document.getElementById("commit-val");
           if (commitVal) commitVal.textContent = receipt.source_commit_id || "UNKNOWN_BUILD_SHA";
           const statusVal = document.getElementById("evidence-status-val");
-          if (statusVal) statusVal.textContent = "Authentic cryptographically verified receipt (SHA-256 integrity PASS). Provenance: " + (receipt.provenance || "UNKNOWN") + ".";
+          if (statusVal) statusVal.textContent = "Authentic record loaded from ledger (SHA-256 digest verified). Provenance: " + provenance + ".";
           const verdictVal = document.getElementById("verdict-val");
           if (verdictVal) {
-            verdictVal.textContent = receipt.overall_verdict || "UNKNOWN";
-            verdictVal.className = receipt.overall_verdict === "VERIFIED" ? "status-pass" : "status-fail";
+            verdictVal.textContent = overallVerdict;
+            verdictVal.className = (overallVerdict === "VERIFIED" && isCausalTripletVerified) ? "status-pass" : "status-fail";
           }
           const telemetryVal = document.getElementById("telemetry-val");
           if (telemetryVal) {
             const acct = receipt.accounting || {};
             const timing = receipt.timing || {};
-            telemetryVal.textContent = "Tokens: " + (acct.prompt_tokens ?? "?") + " in / " + (acct.completion_tokens ?? "?") + " out | Duration: " + (timing.total_duration_seconds !== undefined ? timing.total_duration_seconds + "s" : "N/A");
+            const identities = Array.isArray(receipt.runtime_identities) ? receipt.runtime_identities : [];
+            const modelIdRaw =
+              identities.find(function (id) { return typeof id === "string" && id.startsWith("model:"); })?.replace("model:", "") ||
+              identities.find(function (id) { return typeof id === "string" && id.startsWith("candidate-generation:model:"); })?.replace("candidate-generation:model:", "") ||
+              (typeof acct.model === "string" && acct.model.trim() ? acct.model.trim() : null) ||
+              "N/A";
+            const pTok = typeof acct.prompt_tokens === "number" ? acct.prompt_tokens.toLocaleString("en-US") : "N/A";
+            const cTok = typeof acct.completion_tokens === "number" ? acct.completion_tokens.toLocaleString("en-US") : "N/A";
+            const sCount = executions.length > 0 ? String(executions.length) : "N/A";
+            const dur = typeof timing.total_duration_seconds === "number" ? timing.total_duration_seconds.toFixed(2) + "s" : "N/A";
+            telemetryVal.textContent = "Model: " + modelIdRaw + " | Tokens: " + pTok + " in / " + cTok + " out | Sandboxes: " + sCount + " | Duration: " + dur;
           }
           const receiptNotice = document.getElementById("receipt-notice");
           if (receiptNotice) {
             receiptNotice.className = "notice notice-info";
-            receiptNotice.textContent = "Cryptographically verified record loaded from ledger. All execution outcomes and sandbox identities authenticated.";
+            receiptNotice.textContent = "Authentic stored receipt loaded from ledger. SHA-256 digest integrity verified against canonical serialization.";
           }
           const demoResult = document.getElementById("demo-result");
           if (demoResult) demoResult.style.display = "block";
           const resultNotice = document.getElementById("result-notice");
-          if (resultNotice) {
-            resultNotice.className = "notice notice-info";
-            resultNotice.textContent = "Verified historical execution for run: " + runId + " (Task: " + (receipt.task_id || "TASK-RESET-VAULT-001") + ")";
-          }
           const resultDetails = document.getElementById("result-details");
-          if (resultDetails && baseExec && candExec && cfExec) {
-            resultDetails.textContent = "Causal Invariant: BASE=" + baseExec.outcome + " (Exit " + baseExec.exit_code + ") \u2192 CANDIDATE=" + candExec.outcome + " (" + candExec.exit_code + ") \u2192 COUNTERFACTUAL=" + cfExec.outcome + " (" + cfExec.exit_code + "). Causal triplet verified.";
+
+          if (isCausalTripletVerified) {
+            if (resultNotice) {
+              resultNotice.className = "notice notice-info";
+              resultNotice.textContent = "Verified historical execution for run: " + runId + " (Task: " + taskId + ")";
+            }
+            if (resultDetails) {
+              resultDetails.textContent = "Causal Invariant: BASE=" + baseFact.outcome + " (Exit " + baseFact.exitCode + ") \u2192 CANDIDATE=" + candFact.outcome + " (Exit " + candFact.exitCode + ") \u2192 COUNTERFACTUAL=" + cfFact.outcome + " (Exit " + cfFact.exitCode + "). Causal triplet verified.";
+            }
+          } else if (overallVerdict === "VERIFIED" && (!allThreeWorldsPresent || !allOutcomesPresent || !allExitsPresent || !outcomesFormTriplets)) {
+            if (resultNotice) {
+              resultNotice.className = "notice notice-fail";
+              resultNotice.textContent = "Contradictory execution record for run: " + runId + " (Task: " + taskId + ")";
+            }
+            if (resultDetails) {
+              resultDetails.textContent = "Stored receipt claims VERIFIED but recorded three-world causal outcomes are incomplete or contradictory (BASE=" + baseFact.outcome + ", CANDIDATE=" + candFact.outcome + ", COUNTERFACTUAL=" + cfFact.outcome + "). Causal triplet NOT verified.";
+            }
+          } else if (overallVerdict === "FAIL") {
+            if (resultNotice) {
+              resultNotice.className = "notice notice-fail";
+              resultNotice.textContent = "Execution failed causal verification for run: " + runId + " (Task: " + taskId + ")";
+            }
+            if (resultDetails) {
+              resultDetails.textContent = "Causal Invariant violated: BASE=" + baseFact.outcome + " (Exit " + baseFact.exitCode + ") \u2192 CANDIDATE=" + candFact.outcome + " (Exit " + candFact.exitCode + ") \u2192 COUNTERFACTUAL=" + cfFact.outcome + " (Exit " + cfFact.exitCode + "). Stored verdict: FAIL.";
+            }
+          } else if (overallVerdict === "INCONCLUSIVE") {
+            if (resultNotice) {
+              resultNotice.className = "notice notice-warning";
+              resultNotice.textContent = "Inconclusive execution record for run: " + runId + " (Task: " + taskId + ")";
+            }
+            if (resultDetails) {
+              resultDetails.textContent = "Execution was inconclusive: BASE=" + baseFact.outcome + " (Exit " + baseFact.exitCode + ") \u2192 CANDIDATE=" + candFact.outcome + " (Exit " + candFact.exitCode + ") \u2192 COUNTERFACTUAL=" + cfFact.outcome + " (Exit " + cfFact.exitCode + "). Stored verdict: INCONCLUSIVE.";
+            }
+          } else if (overallVerdict === "BLOCKED") {
+            if (resultNotice) {
+              resultNotice.className = "notice notice-fail";
+              resultNotice.textContent = "Execution blocked for run: " + runId + " (Task: " + taskId + ")";
+            }
+            if (resultDetails) {
+              resultDetails.textContent = "Stored receipt recorded verdict: BLOCKED.";
+            }
+          } else if (!allThreeWorldsPresent || !allOutcomesPresent) {
+            if (resultNotice) {
+              resultNotice.className = "notice notice-warning";
+              resultNotice.textContent = "Incomplete execution record for run: " + runId + " (Task: " + taskId + ")";
+            }
+            if (resultDetails) {
+              resultDetails.textContent = "One or more required three-world execution facts are missing from stored receipt. Causal triplet cannot be verified.";
+            }
+          } else {
+            if (resultNotice) {
+              resultNotice.className = "notice notice-warning";
+              resultNotice.textContent = "Stored execution record for run: " + runId + " (Task: " + taskId + ")";
+            }
+            if (resultDetails) {
+              resultDetails.textContent = "Overall verdict: " + overallVerdict + ". Execution facts: BASE=" + baseFact.outcome + " (Exit " + baseFact.exitCode + ") \u2192 CANDIDATE=" + candFact.outcome + " (Exit " + candFact.exitCode + ") \u2192 COUNTERFACTUAL=" + cfFact.outcome + " (Exit " + cfFact.exitCode + ").";
+            }
           }
         })
         .catch(function () {

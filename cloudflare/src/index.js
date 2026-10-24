@@ -434,11 +434,29 @@ export function renderJudgeHtml(templateHtml, { runId, stored, error = null } = 
 
   // Case 3: Authentic verified receipt
   const receipt = stored.receipt;
-  const overallVerdict = escapeHtml(receipt.overall_verdict || "VERIFIED");
-  const provenance = escapeHtml(receipt.provenance || "LIVE_NEBIUS");
-  const receiptDigest = escapeHtml(stored.receipt_digest || receipt.receipt_digest || "N/A");
-  const sourceCommit = escapeHtml(receipt.source_commit_id || UNKNOWN_BUILD_SHA);
-  const taskId = escapeHtml(receipt.task_id || "TASK-RESET-VAULT-001");
+  const overallVerdict = escapeHtml(
+    typeof receipt.overall_verdict === "string" && receipt.overall_verdict.trim()
+      ? receipt.overall_verdict.trim()
+      : "UNAVAILABLE"
+  );
+  const provenance = escapeHtml(
+    typeof receipt.provenance === "string" && receipt.provenance.trim()
+      ? receipt.provenance.trim()
+      : "UNAVAILABLE"
+  );
+  const receiptDigest = escapeHtml(
+    stored.receipt_digest || receipt.receipt_digest || "UNAVAILABLE"
+  );
+  const sourceCommit = escapeHtml(
+    typeof receipt.source_commit_id === "string" && receipt.source_commit_id.trim()
+      ? receipt.source_commit_id.trim()
+      : UNKNOWN_BUILD_SHA
+  );
+  const taskId = escapeHtml(
+    typeof receipt.task_id === "string" && receipt.task_id.trim()
+      ? receipt.task_id.trim()
+      : "UNAVAILABLE"
+  );
 
   const executions = Array.isArray(receipt.executions) ? receipt.executions : [];
   const baseExec = executions.find((e) => e && e.world === "BASE") || null;
@@ -448,24 +466,162 @@ export function renderJudgeHtml(templateHtml, { runId, stored, error = null } = 
     receipt.counterfactual?.execution_fact ||
     null;
 
-  const baseOutcome = escapeHtml(baseExec?.outcome || "FAIL");
-  const baseExit = escapeHtml(baseExec?.exit_code !== undefined ? baseExec.exit_code : 1);
-  const candOutcome = escapeHtml(candExec?.outcome || "PASS");
-  const candExit = escapeHtml(candExec?.exit_code !== undefined ? candExec.exit_code : 0);
-  const cfOutcome = escapeHtml(cfExec?.outcome || "FAIL");
-  const cfExit = escapeHtml(cfExec?.exit_code !== undefined ? cfExec.exit_code : 1);
+  function formatWorldFact(exec, worldName, defaultPassDesc, defaultFailDesc) {
+    if (!exec) {
+      return {
+        outcome: "UNAVAILABLE",
+        exitCode: "N/A",
+        statusText: "UNAVAILABLE",
+        statusClass: "",
+        cardClass: "",
+        sandbox: "N/A",
+        treeShort: "N/A",
+        duration: "N/A",
+        digestBox: `No ${worldName} world execution fact recorded in stored receipt.`,
+        desc: `No independently validated ${worldName} execution fact recorded in stored receipt.`,
+        hasOutcome: false,
+        hasExit: false,
+        rawOutcome: null,
+        rawExit: null,
+      };
+    }
 
-  const baseTreeShort = escapeHtml(baseExec?.tree_digest ? baseExec.tree_digest.slice(0, 16) : "N/A");
-  const candTreeShort = escapeHtml(candExec?.tree_digest ? candExec.tree_digest.slice(0, 16) : "N/A");
-  const cfTreeShort = escapeHtml(cfExec?.tree_digest ? cfExec.tree_digest.slice(0, 16) : "N/A");
+    const hasOutcome = typeof exec.outcome === "string" && exec.outcome.trim().length > 0;
+    const outcome = hasOutcome ? escapeHtml(exec.outcome.trim()) : "UNAVAILABLE";
+    const hasExit = exec.exit_code !== undefined && exec.exit_code !== null;
+    const exitCode = hasExit ? escapeHtml(String(exec.exit_code)) : "N/A";
 
-  const baseDuration = escapeHtml(baseExec?.duration_seconds !== undefined ? baseExec.duration_seconds + "s" : "N/A");
-  const candDuration = escapeHtml(candExec?.duration_seconds !== undefined ? candExec.duration_seconds + "s" : "N/A");
-  const cfDuration = escapeHtml(cfExec?.duration_seconds !== undefined ? cfExec.duration_seconds + "s" : "N/A");
+    const statusText = `${outcome} (Exit ${exitCode})`;
 
-  const baseSandbox = escapeHtml(baseExec?.sandbox_id || "N/A");
-  const candSandbox = escapeHtml(candExec?.sandbox_id || "N/A");
-  const cfSandbox = escapeHtml(cfExec?.sandbox_id || "N/A");
+    let statusClass = "";
+    let cardClass = "";
+    if (outcome === "PASS") {
+      statusClass = "status-pass";
+      cardClass = "pass";
+    } else if (outcome === "FAIL") {
+      statusClass = "status-fail";
+      cardClass = "fail";
+    }
+
+    const sandbox = escapeHtml(exec.sandbox_id ? String(exec.sandbox_id) : "N/A");
+    const treeShort = escapeHtml(
+      exec.tree_digest ? String(exec.tree_digest).slice(0, 16) : "N/A"
+    );
+    const duration = escapeHtml(
+      exec.duration_seconds !== undefined && exec.duration_seconds !== null
+        ? String(exec.duration_seconds) + "s"
+        : "N/A"
+    );
+
+    let desc = "";
+    if (outcome === "PASS") {
+      desc = defaultPassDesc;
+    } else if (outcome === "FAIL") {
+      desc = defaultFailDesc;
+    } else {
+      desc = `${worldName} execution recorded outcome: ${outcome}.`;
+    }
+
+    const digestBox = `Sandbox: ${sandbox} | Tree: ${treeShort}... (${duration})`;
+
+    return {
+      outcome,
+      exitCode,
+      statusText,
+      statusClass,
+      cardClass,
+      sandbox,
+      treeShort,
+      duration,
+      digestBox,
+      desc,
+      hasOutcome,
+      hasExit,
+      rawOutcome: exec.outcome,
+      rawExit: exec.exit_code,
+    };
+  }
+
+  const baseFact = formatWorldFact(
+    baseExec,
+    "BASE",
+    "Baseline execution unexpectedly PASSED on witness.",
+    "Clean base materialization before candidate patch. Verified failure on single-use witness."
+  );
+  const candFact = formatWorldFact(
+    candExec,
+    "CANDIDATE",
+    "Nemotron candidate patch applied. Verified pass on single-use witness.",
+    "Candidate execution FAILED on witness."
+  );
+  const cfFact = formatWorldFact(
+    cfExec,
+    "COUNTERFACTUAL",
+    "Counterfactual execution PASSED (patch delta was not causally necessary).",
+    "Candidate delta subtracted/reverted under identical witness. Proves patch delta was causally necessary."
+  );
+
+  const allThreeWorldsPresent = Boolean(baseExec && candExec && cfExec);
+  const allOutcomesPresent = Boolean(
+    baseFact.hasOutcome && candFact.hasOutcome && cfFact.hasOutcome
+  );
+  const allExitsPresent = Boolean(
+    baseFact.hasExit && candFact.hasExit && cfFact.hasExit
+  );
+
+  const outcomesFormTriplets = Boolean(
+    baseFact.rawOutcome === "FAIL" &&
+    candFact.rawOutcome === "PASS" &&
+    cfFact.rawOutcome === "FAIL" &&
+    candFact.rawExit === 0 &&
+    baseFact.rawExit !== 0 &&
+    cfFact.rawExit !== 0
+  );
+
+  const isCausalTripletVerified = Boolean(
+    overallVerdict === "VERIFIED" &&
+    allThreeWorldsPresent &&
+    allOutcomesPresent &&
+    allExitsPresent &&
+    outcomesFormTriplets
+  );
+
+  let resultNoticeClass = "notice-info";
+  let resultNoticeText = "";
+  let resultDetailsText = "";
+
+  if (isCausalTripletVerified) {
+    resultNoticeClass = "notice-info";
+    resultNoticeText = `Verified historical execution for run: ${safeRunId} (Task: ${taskId})`;
+    resultDetailsText = `Causal Invariant: BASE=${baseFact.outcome} (Exit ${baseFact.exitCode}) &rarr; CANDIDATE=${candFact.outcome} (Exit ${candFact.exitCode}) &rarr; COUNTERFACTUAL=${cfFact.outcome} (Exit ${cfFact.exitCode}). Causal triplet verified.`;
+  } else if (
+    overallVerdict === "VERIFIED" &&
+    (!allThreeWorldsPresent || !allOutcomesPresent || !allExitsPresent || !outcomesFormTriplets)
+  ) {
+    resultNoticeClass = "notice-fail";
+    resultNoticeText = `Contradictory execution record for run: ${safeRunId} (Task: ${taskId})`;
+    resultDetailsText = `Stored receipt claims VERIFIED but recorded three-world causal outcomes are incomplete or contradictory (BASE=${baseFact.outcome}, CANDIDATE=${candFact.outcome}, COUNTERFACTUAL=${cfFact.outcome}). Causal triplet NOT verified.`;
+  } else if (overallVerdict === "FAIL") {
+    resultNoticeClass = "notice-fail";
+    resultNoticeText = `Execution failed causal verification for run: ${safeRunId} (Task: ${taskId})`;
+    resultDetailsText = `Causal Invariant violated: BASE=${baseFact.outcome} (Exit ${baseFact.exitCode}) &rarr; CANDIDATE=${candFact.outcome} (Exit ${candFact.exitCode}) &rarr; COUNTERFACTUAL=${cfFact.outcome} (Exit ${cfFact.exitCode}). Stored verdict: FAIL.`;
+  } else if (overallVerdict === "INCONCLUSIVE") {
+    resultNoticeClass = "notice-warning";
+    resultNoticeText = `Inconclusive execution record for run: ${safeRunId} (Task: ${taskId})`;
+    resultDetailsText = `Execution was inconclusive: BASE=${baseFact.outcome} (Exit ${baseFact.exitCode}) &rarr; CANDIDATE=${candFact.outcome} (Exit ${candFact.exitCode}) &rarr; COUNTERFACTUAL=${cfFact.outcome} (Exit ${cfFact.exitCode}). Stored verdict: INCONCLUSIVE.`;
+  } else if (overallVerdict === "BLOCKED") {
+    resultNoticeClass = "notice-fail";
+    resultNoticeText = `Execution blocked for run: ${safeRunId} (Task: ${taskId})`;
+    resultDetailsText = `Stored receipt recorded verdict: BLOCKED.`;
+  } else if (!allThreeWorldsPresent || !allOutcomesPresent) {
+    resultNoticeClass = "notice-warning";
+    resultNoticeText = `Incomplete execution record for run: ${safeRunId} (Task: ${taskId})`;
+    resultDetailsText = `One or more required three-world execution facts are missing from stored receipt. Causal triplet cannot be verified.`;
+  } else {
+    resultNoticeClass = "notice-warning";
+    resultNoticeText = `Stored execution record for run: ${safeRunId} (Task: ${taskId})`;
+    resultDetailsText = `Overall verdict: ${overallVerdict}. Execution facts: BASE=${baseFact.outcome} (Exit ${baseFact.exitCode}) &rarr; CANDIDATE=${candFact.outcome} (Exit ${candFact.exitCode}) &rarr; COUNTERFACTUAL=${cfFact.outcome} (Exit ${cfFact.exitCode}).`;
+  }
 
   const acct = receipt.accounting || {};
   const timing = receipt.timing || {};
@@ -473,18 +629,36 @@ export function renderJudgeHtml(templateHtml, { runId, stored, error = null } = 
   const modelIdRaw =
     identities.find((id) => typeof id === "string" && id.startsWith("model:"))?.replace("model:", "") ||
     identities.find((id) => typeof id === "string" && id.startsWith("candidate-generation:model:"))?.replace("candidate-generation:model:", "") ||
-    "Nemotron-3_5-Lightning";
+    (typeof acct.model === "string" && acct.model.trim() ? acct.model.trim() : null) ||
+    "N/A";
   const modelId = escapeHtml(modelIdRaw);
 
-  const promptTokens = escapeHtml(typeof acct.prompt_tokens === "number" ? acct.prompt_tokens.toLocaleString("en-US") : "?");
-  const completionTokens = escapeHtml(typeof acct.completion_tokens === "number" ? acct.completion_tokens.toLocaleString("en-US") : "?");
-  const totalDuration = escapeHtml(typeof timing.total_duration_seconds === "number" ? timing.total_duration_seconds.toFixed(2) + "s" : (timing.total_duration_seconds ?? "N/A"));
+  const promptTokens = escapeHtml(
+    typeof acct.prompt_tokens === "number" ? acct.prompt_tokens.toLocaleString("en-US") : "N/A"
+  );
+  const completionTokens = escapeHtml(
+    typeof acct.completion_tokens === "number" ? acct.completion_tokens.toLocaleString("en-US") : "N/A"
+  );
+  const sandboxCount = escapeHtml(executions.length > 0 ? String(executions.length) : "N/A");
+  const totalDuration = escapeHtml(
+    typeof timing.total_duration_seconds === "number"
+      ? timing.total_duration_seconds.toFixed(2) + "s"
+      : (timing.total_duration_seconds !== undefined && timing.total_duration_seconds !== null ? String(timing.total_duration_seconds) : "N/A")
+  );
 
-  const telemetryStr = `Model: ${modelId} | Tokens: ${promptTokens} in / ${completionTokens} out | Sandboxes: ${executions.length || 3} | Duration: ${totalDuration}`;
+  const telemetryStr = `Model: ${modelId} | Tokens: ${promptTokens} in / ${completionTokens} out | Sandboxes: ${sandboxCount} | Duration: ${totalDuration}`;
 
-  const verdictBadgeClass = overallVerdict === "VERIFIED" ? "badge-verified" : "badge-prov";
+  let verdictBadgeClass = "badge-prov";
+  let verdictTextClass = "status-fail";
+  if (overallVerdict === "VERIFIED" && isCausalTripletVerified) {
+    verdictBadgeClass = "badge-verified";
+    verdictTextClass = "status-pass";
+  } else if (overallVerdict === "FAIL" || overallVerdict === "BLOCKED") {
+    verdictBadgeClass = "badge-fail";
+    verdictTextClass = "status-fail";
+  }
+
   const provBadgeClass = provenance === "LIVE_NEBIUS" ? "badge-live" : "badge-prov";
-  const verdictTextClass = overallVerdict === "VERIFIED" ? "status-pass" : "status-fail";
 
   const badgesHtml = `      <div class="header-badges" id="header-badges">
         <span class="badge ${verdictBadgeClass}" id="integrity-badge">PUBLIC RECEIPT: ${overallVerdict}</span>
@@ -494,29 +668,29 @@ export function renderJudgeHtml(templateHtml, { runId, stored, error = null } = 
       </div>`;
 
   const tripletHtml = `      <div class="triplet-grid" id="triplet-grid">
-        <div class="world-card ${baseOutcome === "PASS" ? "pass" : "fail"}" id="world-card-base">
-          <h4><span>[1. Baseline World]</span> <span class="world-status ${baseOutcome === "PASS" ? "status-pass" : "status-fail"}" id="world-status-base">${baseOutcome} (Exit ${baseExit})</span></h4>
-          <p id="world-desc-base" style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">Clean base materialization before candidate patch. Verified failure on single-use witness.</p>
-          <div class="digest-box" id="world-digest-base">Sandbox: ${baseSandbox} | Tree: ${baseTreeShort}... (${baseDuration})</div>
+        <div class="world-card ${baseFact.cardClass}" id="world-card-base">
+          <h4><span>[1. Baseline World]</span> <span class="world-status ${baseFact.statusClass}" id="world-status-base">${baseFact.statusText}</span></h4>
+          <p id="world-desc-base" style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">${baseFact.desc}</p>
+          <div class="digest-box" id="world-digest-base">${baseFact.digestBox}</div>
         </div>
-        <div class="world-card ${candOutcome === "PASS" ? "pass" : "fail"}" id="world-card-candidate">
-          <h4><span>[2. Candidate World]</span> <span class="world-status ${candOutcome === "PASS" ? "status-pass" : "status-fail"}" id="world-status-candidate">${candOutcome} (Exit ${candExit})</span></h4>
-          <p id="world-desc-candidate" style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">Nemotron candidate patch applied. Verified pass on single-use witness.</p>
-          <div class="digest-box" id="world-digest-candidate">Sandbox: ${candSandbox} | Tree: ${candTreeShort}... (${candDuration})</div>
+        <div class="world-card ${candFact.cardClass}" id="world-card-candidate">
+          <h4><span>[2. Candidate World]</span> <span class="world-status ${candFact.statusClass}" id="world-status-candidate">${candFact.statusText}</span></h4>
+          <p id="world-desc-candidate" style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">${candFact.desc}</p>
+          <div class="digest-box" id="world-digest-candidate">${candFact.digestBox}</div>
         </div>
-        <div class="world-card ${cfOutcome === "PASS" ? "pass" : "fail"}" id="world-card-cf">
-          <h4><span>[3. Counterfactual]</span> <span class="world-status ${cfOutcome === "PASS" ? "status-pass" : "status-fail"}" id="world-status-cf">${cfOutcome} (Exit ${cfExit})</span></h4>
-          <p id="world-desc-cf" style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">Candidate delta subtracted/reverted under identical witness. Proves patch delta was causally necessary.</p>
-          <div class="digest-box" id="world-digest-cf">Sandbox: ${cfSandbox} | Tree: ${cfTreeShort}... (${cfDuration})</div>
+        <div class="world-card ${cfFact.cardClass}" id="world-card-cf">
+          <h4><span>[3. Counterfactual]</span> <span class="world-status ${cfFact.statusClass}" id="world-status-cf">${cfFact.statusText}</span></h4>
+          <p id="world-desc-cf" style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 0.5rem;">${cfFact.desc}</p>
+          <div class="digest-box" id="world-digest-cf">${cfFact.digestBox}</div>
         </div>
       </div>`;
 
   const demoResultHtml = `          <div id="demo-result" style="display: block;">
-            <div id="result-notice" class="notice notice-info" style="display: block;">
-              Verified historical execution for run: ${safeRunId} (Task: ${taskId})
+            <div id="result-notice" class="notice ${resultNoticeClass}" style="display: block;">
+              ${resultNoticeText}
             </div>
             <div id="result-details" style="margin-top: 0.75rem; font-size: 0.85rem;">
-              Causal Invariant: BASE=${baseOutcome} (Exit ${baseExit}) &rarr; CANDIDATE=${candOutcome} (Exit ${candExit}) &rarr; COUNTERFACTUAL=${cfOutcome} (Exit ${cfExit}). Causal triplet verified.
+              ${resultDetailsText}
             </div>
           </div>`;
 
@@ -531,7 +705,7 @@ export function renderJudgeHtml(templateHtml, { runId, stored, error = null } = 
             </div>
             <div>
               <span style="color: var(--text-muted);">Public Evidence Status:</span>
-              <div class="digest-box" id="evidence-status-val">Authentic cryptographically verified receipt (SHA-256 integrity PASS). Provenance: ${provenance}.</div>
+              <div class="digest-box" id="evidence-status-val">Authentic record loaded from ledger (SHA-256 digest verified). Provenance: ${provenance}.</div>
             </div>
             <div style="display: flex; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 0.5rem; margin-top: 0.5rem;">
               <span><strong>Overall Verdict:</strong> <span class="${verdictTextClass}" id="verdict-val">${overallVerdict}</span></span>
@@ -539,7 +713,7 @@ export function renderJudgeHtml(templateHtml, { runId, stored, error = null } = 
             </div>
           </div>
           <div class="notice notice-info" id="receipt-notice" style="margin-top: 1rem;">
-            Cryptographically verified record loaded from ledger. All execution outcomes and sandbox identities authenticated.
+            Authentic stored receipt loaded from ledger. SHA-256 digest integrity verified against canonical serialization.
           </div>`;
 
   let out = templateHtml;

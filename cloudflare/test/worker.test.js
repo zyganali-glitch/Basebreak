@@ -1647,7 +1647,7 @@ describe("P-32.03 Judge UI Signed-Out Receipt Rendering Suite", () => {
     // 3. Cryptographic Receipt Details
     assert.match(html, new RegExp(receipt.receipt_digest));
     assert.match(html, new RegExp(receipt.source_commit_id));
-    assert.match(html, /Authentic cryptographically verified receipt/);
+    assert.match(html, /Authentic record loaded from ledger \(SHA-256 digest verified\)/);
 
     // 4. Telemetry
     assert.match(html, /nvidia\/Nemotron-3_5-Lightning/);
@@ -1847,5 +1847,179 @@ describe("P-32.03 Judge UI Signed-Out Receipt Rendering Suite", () => {
     assert.equal(resReceipt.status, 200);
     const htmlReceipt = await resReceipt.text();
     assert.equal(htmlReceipt.includes('<img src=x onerror=alert("xss")>'), false);
+  });
+
+  it("adversarial: missing worlds are rendered as UNAVAILABLE and suppress triplet verification", async () => {
+    const { env } = createWorkerEnv();
+    const runId = "run_missing_worlds_111";
+    const receipt = buildFixturePublicReceipt({
+      task_id: "TASK-MISSING-WORLDS",
+      overall_verdict: "VERIFIED",
+      // Only CANDIDATE world is provided; BASE and COUNTERFACTUAL are missing
+      executions: [
+        {
+          world: "CANDIDATE",
+          outcome: "PASS",
+          exit_code: 0,
+          sandbox_id: "sbx-cand-only-1",
+        },
+      ],
+    });
+    env.__ledgerInstance.storeReceipt(runId, receipt, { allowAuthoritativeProvenance: true });
+
+    const res = await worker.fetch(
+      new Request(`https://basebreak.workers.dev/judge/${runId}`, { method: "GET" }),
+      env,
+      {}
+    );
+    assert.equal(res.status, 200);
+    const html = await res.text();
+
+    // BASE and COUNTERFACTUAL must show UNAVAILABLE, not fabricated PASS/FAIL or exit codes
+    assert.match(html, /<span class="world-status " id="world-status-base">UNAVAILABLE<\/span>/);
+    assert.match(html, /No BASE world execution fact recorded in stored receipt/);
+    assert.match(html, /<span class="world-status " id="world-status-cf">UNAVAILABLE<\/span>/);
+    assert.match(html, /No COUNTERFACTUAL world execution fact recorded in stored receipt/);
+
+    // Must NOT assert triplet verification or award verified badge
+    const detailsMatch = html.match(/<div id="result-details"[^>]*>([\s\S]*?)<\/div>/);
+    const detailsText = detailsMatch ? detailsMatch[1] : "";
+    assert.equal(detailsText.includes("Causal triplet verified"), false);
+    assert.equal(html.includes('class="badge badge-verified"'), false);
+    assert.match(html, /Contradictory execution record/);
+    assert.match(html, /Causal triplet NOT verified/);
+  });
+
+  it("adversarial: missing exit codes are rendered as N/A and do not default to 0 or 1", async () => {
+    const { env } = createWorkerEnv();
+    const runId = "run_missing_exit_222";
+    const receipt = buildFixturePublicReceipt({
+      task_id: "TASK-MISSING-EXIT",
+      overall_verdict: "VERIFIED",
+      // Exit codes are omitted entirely
+      executions: [
+        { world: "BASE", outcome: "FAIL" },
+        { world: "CANDIDATE", outcome: "PASS" },
+        { world: "COUNTERFACTUAL", outcome: "FAIL" },
+      ],
+    });
+    env.__ledgerInstance.storeReceipt(runId, receipt, { allowAuthoritativeProvenance: true });
+
+    const res = await worker.fetch(
+      new Request(`https://basebreak.workers.dev/judge/${runId}`, { method: "GET" }),
+      env,
+      {}
+    );
+    assert.equal(res.status, 200);
+    const html = await res.text();
+
+    // Exit codes must be N/A, never synthesized 0 or 1
+    assert.match(html, /FAIL\s*\(Exit N\/A\)/);
+    assert.match(html, /PASS\s*\(Exit N\/A\)/);
+    assert.equal(html.includes("Exit 0"), false);
+    assert.equal(html.includes("Exit 1"), false);
+
+    // Triplet cannot be verified without exit code evidence
+    const detailsMatch = html.match(/<div id="result-details"[^>]*>([\s\S]*?)<\/div>/);
+    const detailsText = detailsMatch ? detailsMatch[1] : "";
+    assert.equal(detailsText.includes("Causal triplet verified"), false);
+    assert.equal(html.includes('class="badge badge-verified"'), false);
+    assert.match(html, /Contradictory execution record/);
+    assert.match(html, /Causal triplet NOT verified/);
+  });
+
+  it("adversarial: contradictory execution outcomes reject triplet verification even if verdict claims VERIFIED", async () => {
+    const { env } = createWorkerEnv();
+    const runId = "run_contradictory_333";
+    const receipt = buildFixturePublicReceipt({
+      task_id: "TASK-CONTRADICTORY",
+      overall_verdict: "VERIFIED",
+      // Contradictory: BASE unexpectedly passed and COUNTERFACTUAL passed!
+      executions: [
+        { world: "BASE", outcome: "PASS", exit_code: 0 },
+        { world: "CANDIDATE", outcome: "PASS", exit_code: 0 },
+        { world: "COUNTERFACTUAL", outcome: "PASS", exit_code: 0 },
+      ],
+    });
+    env.__ledgerInstance.storeReceipt(runId, receipt, { allowAuthoritativeProvenance: true });
+
+    const res = await worker.fetch(
+      new Request(`https://basebreak.workers.dev/judge/${runId}`, { method: "GET" }),
+      env,
+      {}
+    );
+    assert.equal(res.status, 200);
+    const html = await res.text();
+
+    // Must NOT assert triplet verification
+    const detailsMatch = html.match(/<div id="result-details"[^>]*>([\s\S]*?)<\/div>/);
+    const detailsText = detailsMatch ? detailsMatch[1] : "";
+    assert.equal(detailsText.includes("Causal triplet verified"), false);
+    assert.equal(html.includes('class="badge badge-verified"'), false);
+    assert.match(html, /Contradictory execution record/);
+    assert.match(html, /Causal triplet NOT verified/);
+  });
+
+  it("adversarial: integrity-valid non-VERIFIED receipts render truthful FAIL or INCONCLUSIVE states", async () => {
+    const { env } = createWorkerEnv();
+
+    // 1. Stored FAIL receipt
+    const failRunId = "run_truthful_fail_444";
+    const failReceipt = buildFixturePublicReceipt({
+      task_id: "TASK-FAIL-CASE",
+      overall_verdict: "FAIL",
+      provenance: "LOCAL_EXECUTION",
+      executions: [
+        { world: "BASE", outcome: "FAIL", exit_code: 1 },
+        { world: "CANDIDATE", outcome: "FAIL", exit_code: 1 },
+        { world: "COUNTERFACTUAL", outcome: "FAIL", exit_code: 1 },
+      ],
+    });
+    env.__ledgerInstance.storeReceipt(failRunId, failReceipt, { allowAuthoritativeProvenance: true });
+
+    const failRes = await worker.fetch(
+      new Request(`https://basebreak.workers.dev/judge/${failRunId}`, { method: "GET" }),
+      env,
+      {}
+    );
+    assert.equal(failRes.status, 200);
+    const failHtml = await failRes.text();
+    assert.match(failHtml, /PUBLIC RECEIPT:\s*FAIL/);
+    assert.match(failHtml, /badge-fail/);
+    assert.match(failHtml, /PROVENANCE:\s*LOCAL_EXECUTION/);
+    assert.match(failHtml, /Execution failed causal verification/);
+    assert.match(failHtml, /Causal Invariant violated/);
+    const failDetailsMatch = failHtml.match(/<div id="result-details"[^>]*>([\s\S]*?)<\/div>/);
+    const failDetailsText = failDetailsMatch ? failDetailsMatch[1] : "";
+    assert.equal(failDetailsText.includes("Causal triplet verified"), false);
+    assert.equal(failHtml.includes('class="badge badge-verified"'), false);
+
+    // 2. Stored INCONCLUSIVE receipt
+    const inconRunId = "run_truthful_inconclusive_555";
+    const inconReceipt = buildFixturePublicReceipt({
+      task_id: "TASK-INCON-CASE",
+      overall_verdict: "INCONCLUSIVE",
+      provenance: "FIXTURE",
+      executions: [
+        { world: "BASE", outcome: "FAIL", exit_code: 1 },
+        { world: "CANDIDATE", outcome: "PASS", exit_code: 0 },
+        // Counterfactual omitted
+      ],
+    });
+    env.__ledgerInstance.storeReceipt(inconRunId, inconReceipt, { allowAuthoritativeProvenance: true });
+
+    const inconRes = await worker.fetch(
+      new Request(`https://basebreak.workers.dev/judge/${inconRunId}`, { method: "GET" }),
+      env,
+      {}
+    );
+    assert.equal(inconRes.status, 200);
+    const inconHtml = await inconRes.text();
+    assert.match(inconHtml, /PUBLIC RECEIPT:\s*INCONCLUSIVE/);
+    assert.match(inconHtml, /Inconclusive execution record/);
+    const inconDetailsMatch = inconHtml.match(/<div id="result-details"[^>]*>([\s\S]*?)<\/div>/);
+    const inconDetailsText = inconDetailsMatch ? inconDetailsMatch[1] : "";
+    assert.equal(inconDetailsText.includes("Causal triplet verified"), false);
+    assert.equal(inconHtml.includes('class="badge badge-verified"'), false);
   });
 });

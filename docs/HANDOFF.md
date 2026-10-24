@@ -217,7 +217,7 @@ Completed repairs:
 All three live gates remain OFF (`LIVE_ENABLED=false`) after the eighth-run batch shutdown. Historical ledger: 8 runs, `unknown_cost=$4.00` (3.50 historical + 0.50 run-8), 0 in-flight; no grant remains unconsumed.
 
 ## Parallelization boundary & rules
-- **Task status:** P-00 through P-30 independently VERIFIED / PASS or accepted at baseline SHA (including P-16.05 closed / PASS). P-23.04–P-23.07 and P-26.02 remain held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. P-23.08 held fail-closed at `BLOCKED`. P-27 (Deployment Readiness, P-27.01 through P-27.06) is independently VERIFIED / PASS. P-28 judge comprehension is implemented and tested offline. P-29 competition evidence and reproducibility is independently VERIFIED / PASS. P-30 demo assets are PREPARATION_COMPLETE / FROZEN. P-31 is AUDITED_AND_TESTED / INDEPENDENT_QA_PENDING (with P-31.06 PENDING_HUMAN_AUTHORITY). P-32.03 is AUDITED_AND_REPAIRED offline (Cloudflare edge deployment pending operator authorization). P-32+ submission steps remain operator-led.
+- **Task status:** P-00 through P-30 independently VERIFIED / PASS or accepted at baseline SHA (including P-16.05 closed / PASS). P-23.04–P-23.07 and P-26.02 remain held at `OPERATOR_AUTHORIZATION_REQUIRED / NOT_RUN`. P-23.08 held fail-closed at `BLOCKED`. P-27 (Deployment Readiness, P-27.01 through P-27.06) is independently VERIFIED / PASS. P-28 judge comprehension is implemented and tested offline. P-29 competition evidence and reproducibility is independently VERIFIED / PASS. P-30 demo assets are PREPARATION_COMPLETE / FROZEN. P-31 is AUDITED_AND_TESTED / INDEPENDENT_QA_PENDING (with P-31.06 PENDING_HUMAN_AUTHORITY). P-32.03 is OFFLINE_REPAIRED / DEPLOYMENT_NOT_RUN / PUBLIC_JUDGE_NOT_YET_VERIFIED (presentation data binding and causal evidence truth repaired; Cloudflare edge deployment pending operator authorization). P-32+ submission steps remain operator-led.
 - **Provider neutrality:** All deployment packaging, health parity checks, signed-out judge access models, and UI components remain strictly provider-neutral.
 - **Batch authorization & hard stop:** The bounded P-31 Release Candidate & P-Ω Audit batch is the active scope. P-32+ remain strictly NOT AUTHORIZED / NOT_RUN. Hard stop enforced.
 
@@ -237,7 +237,7 @@ All three live gates remain OFF (`LIVE_ENABLED=false`) after the eighth-run batc
 - bounded external-dependency parallelization law strictly enforced.
 
 ## Immediate next step
-1. P-32.03 Public Judge UI Receipt Rendering Repaired and independently validated offline (Node 79 passed / 0 failed, Miniflare preflight 7/7, Python full suite 3,015 passed / 12 skipped, Mypy clean on 289 files, Ruff format/lint clean).
+1. P-32.03 Public Judge UI Receipt Rendering & Causal Evidence Truth Repaired and independently validated offline (Node 83 passed / 0 failed, Miniflare preflight 7/7, Python full suite 3,015 passed / 12 skipped, Mypy clean on 289 files, Ruff format/lint clean).
 2. Production Cloudflare redeployment held at `PENDING_OPERATOR_AUTHORIZATION / NOT_RUN` in accordance with strict boundaries.
 3. Immutable release tag `v0.1.0-rc1` preserved intact (DO NOT MOVE OR REPLACE).
 4. Public judge routes ready to render authenticated stored receipts upon operator-authorized Cloudflare deploy.
