@@ -28,9 +28,9 @@ Instead of accepting "tests are green" as proof, Basebreak independently challen
 
 *Figure 1: Public Judge Dashboard displaying the verified causal triplet, Nebius execution telemetry, and cryptographic verification receipt for `run_3ba7d1fd`.*
 
-![Cryptographic Verification Receipt](docs/submission/screenshots/03_cryptographic_receipt_card.png)
+![Public Judge Verification Receipt Card](docs/submission/screenshots/03_cryptographic_receipt_card.png)
 
-*Figure 2: Verifier-signed RSA-2048 cryptographic proof card binding receipt digest `e2e833fd...` and source commit `80b43b84...`.*
+*Figure 2: Public Judge verification receipt card displaying the SHA-256 receipt digest `e2e833fd...`, target source commit `80b43b84...`, and recorded VERIFIED outcome. (A custom RSA-2048 verifier proof exists in the recorded evidence and is verifiable via the public receipt API).*
 
 ---
 

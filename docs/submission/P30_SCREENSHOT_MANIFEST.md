@@ -31,9 +31,9 @@ The human operator selected the following five assets for the official Devpost s
 3. **IMG-03** (`03_cryptographic_receipt_card.png`) — **Devpost Gallery #2**
    - Provenance: `RECORDED_LIVE`
    - Source: `https://basebreak.zyganali.workers.dev/judge/run_3ba7d1fd-6dca-40c8-a7bb-39447bc85f1f`
-   - Description: Cryptographic verification receipt card showing receipt digest `e2e833fd...`, verifier-signed RSA-2048 proof, and public auditability.
+   - Description: Public Judge verification receipt card displaying the SHA-256 receipt digest `e2e833fd...`, target source commit `80b43b84...`, and recorded VERIFIED outcome. (A custom RSA-2048 verifier proof exists in the recorded evidence and is verifiable via the public receipt API).
 4. **IMG-11** (`11_tavily_live_observation_blocked.png`) — **Devpost Gallery #3**
-   - Provenance: `RECORDED_LIVE`
+   - Provenance: `LOCAL_EXECUTION`
    - Source: `docs/evidence/p16_05_live_tavily_evidence_packet/tavily_cve_grounding_packet.json`
    - Description: Deterministic authority firewall fail-closed state (`INSUFFICIENT_GROUNDING / BLOCKED`) for Tavily live observation on `CVE-2024-21626`.
 5. **IMG-06** (`06_tavily_grounding_firewall_flow.png`) — **Devpost Gallery #4**
@@ -57,4 +57,4 @@ The human operator selected the following five assets for the official Devpost s
 | **IMG-08** | `08_historical_tenth_run_comparison.png` | `RECORDED_LIVE` | Captured; Canonical 10th run audit trail |
 | **IMG-09** | `09_real_ci_success.png` | `RECORDED_LIVE` | Captured; GitHub Actions CI all green |
 | **IMG-10** | `10_ci_test_steps.png` | `RECORDED_LIVE` | Captured; GitHub Actions CI step breakdown |
-| **IMG-11** | `11_tavily_live_observation_blocked.png` | `RECORDED_LIVE` | Captured; Devpost Gallery #3 |
+| **IMG-11** | `11_tavily_live_observation_blocked.png` | `LOCAL_EXECUTION` | Captured; Devpost Gallery #3 |
